@@ -1,0 +1,37 @@
+# Build output
+/target/
+/dist/
+node_modules/
+
+# The Tectonic sidecar: ~30 MB per platform, fetched by `pnpm fetch-engine` (SPRINTS.md §4).
+# This also covers the `.download-*` staging directory the fetch script unpacks into, which
+# lives beside its destination so the final rename stays on one filesystem.
+/src-tauri/binaries/*
+!/src-tauri/binaries/.gitkeep
+
+# Per-project state Preamble writes for itself. Never source (DESIGN.md §2, rule 2).
+.preamble/
+# The atomic-write temp files from src-tauri/src/commands.rs.
+*.preamble-tmp
+
+# Build artifacts next to a .tex, for anyone who has run a system TeX in these folders.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+
+# ...except the logs captured deliberately as parser fixtures, which are the whole point.
+!crates/texlog/fixtures/**/*.log
+!fixtures/**/*.log
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,12 @@
+[package]
+name = "texlog"
+description = "Parses TeX .log files into diagnostics a person can act on. Future MIT crate (DESIGN.md §10)."
+version.workspace = true
+edition.workspace = true
+# Slated for MIT on extraction at S6.5; AGPL like the rest of the workspace until then.
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }

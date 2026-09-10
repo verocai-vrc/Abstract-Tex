@@ -1,0 +1,56 @@
+# Workspace root. Each member is its own crate with its own Cargo.toml; this file only lists
+# them and pins the dependency versions they share, so every crate compiles the same `serde`.
+#
+# Why a workspace and not one big crate: the engine wrapper, the reconciler and the log parser
+# are all testable with `cargo test` and no window on screen. That is what keeps the agent loops
+# in 0.1/SPRINTS.md fast. The Tauri app crate in src-tauri/ is the only one that links a GUI.
+
+[workspace]
+resolver = "2"
+members = [
+    "src-tauri",
+    "crates/preamble-engine",
+    "crates/preamble-reconcile",
+    "crates/texlog",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+repository = "https://github.com/verocai-vrc/preamble"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# Async runtime. Tauri already depends on it, so the app pays nothing extra.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+# Serialisation for IPC payloads and preamble.toml.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+# Error handling: `thiserror` for typed errors in libraries, `anyhow` at the app edge.
+thiserror = "2"
+anyhow = "1"
+# Structured logging. Spans make the compile pipeline debuggable.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Text diffing for the external-change reconciler.
+similar = "2"
+# Property-based testing.
+proptest = "1"
+# Temporary directories in tests.
+tempfile = "3"
+# File watching.
+notify = "8"
+notify-debouncer-mini = "0.7"
+# Trait objects with async methods (explained in crates/preamble-engine/src/lib.rs).
+async-trait = "0.1"
+
+[profile.release]
+# Smaller, faster binary; the bundle size argument in DESIGN.md §4 depends on it.
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,0 +1,190 @@
+\documentclass[11pt,a4paper]{article}
+
+% A realistic single-file paper for the v0.1 exit demo (DESIGN.md §7):
+% open it, edit a sentence, watch the PDF update. It uses only packages Tectonic fetches on
+% its own, so it also proves "zero setup to first PDF".
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+\title{Local Compilation as a Design Principle for Scientific Writing Tools}
+\author{A.~Author \and B.~Coauthor}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We argue that the dominant architecture for collaborative \LaTeX{} editing, in which a shared
+server compiles every document, imposes a latency floor that no client-side optimisation can
+remove. Moving compilation to the author's machine removes the floor entirely. We describe the
+consequences of that move for the remaining components of an editor, quantify the latency budget
+that becomes available, and outline a document model that keeps plain files as the source of
+truth while still admitting real-time collaboration.
+\end{abstract}
+
+\section{Introduction}
+
+Every editing environment for \LaTeX{} makes one decision before all others: where the
+typesetting engine runs. Hosted services run it on a shared pool of workers behind a queue.
+Desktop editors run it on the author's machine. The two choices look interchangeable from the
+outside, since both produce a PDF, but they differ in a way that determines nearly everything
+about the resulting product.
+
+The queue is the problem. A shared compiler must schedule jobs, and scheduling means waiting.
+The wait is not an inefficiency that can be optimised away; it is the cost of sharing. An editor
+that compiles locally does not pay it, and an editor that does not pay it can spend the same
+budget on the writing experience instead.
+
+This paper makes three contributions. First, we decompose the compile latency of a hosted
+service into stages and show which stages vanish under local compilation
+(Section~\ref{sec:latency}). Second, we describe the three subsystems that a local editor
+should invest the recovered budget in (Section~\ref{sec:editor}). Third, we sketch a document
+model that reconciles two apparently contradictory requirements: that the file on disk remains a
+plain text file, and that the session model supports concurrent editing
+(Section~\ref{sec:model}).
+
+\section{The latency budget}
+\label{sec:latency}
+
+Let a compile cycle consist of $n$ stages with durations $t_1, \dots, t_n$. The author perceives
+the total
+\begin{equation}
+  T = \sum_{i=1}^{n} t_i ,
+  \label{eq:total}
+\end{equation}
+and only $T$ matters: a stage that is fast in isolation is worthless if the stage before it is a
+queue. Table~\ref{tab:stages} lists the stages for a typical hosted service and for a local
+engine with a warm cache.
+
+\begin{table}[ht]
+  \centering
+  \caption{Illustrative compile-cycle stages. Bold rows exist only under sharing.}
+  \label{tab:stages}
+  \begin{tabular}{lrr}
+    \toprule
+    Stage & Hosted (s) & Local, warm (s) \\
+    \midrule
+    Sync or debounce        & 0.3 & 0.7 \\
+    \textbf{Queue wait}     & \textbf{1.5} & --- \\
+    \textbf{Container start} & \textbf{2.0} & --- \\
+    Compile                 & 6.0 & 0.8 \\
+    Transfer and render     & 0.7 & 0.06 \\
+    \midrule
+    Total                   & 10.5 & 1.6 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The bold rows are the argument. They are not slow implementations of necessary work; they are
+work that exists because a compiler is shared. Equation~\eqref{eq:total} is indifferent to why a
+stage exists, and so is the author.
+
+\subsection{What a warm cache buys}
+
+A local engine keeps its auxiliary files between runs. Cross-reference resolution, bibliography
+processing and font loading all amortise across edits, and a precompiled preamble removes the
+cost of reading package files on every cycle. Let $c$ be the cold compile time and $w$ the warm
+one; empirically $w / c \approx 0.15$ for a document with a heavy preamble, and the ratio
+improves as the preamble grows.
+
+\begin{definition}[Incremental cycle]
+  A compile cycle is \emph{incremental} if no stage repeats work whose inputs are unchanged
+  since the previous cycle.
+\end{definition}
+
+\begin{theorem}
+  Under local compilation with a warm cache, the perceived latency of an incremental cycle is
+  bounded below by the debounce interval and above by the debounce interval plus the warm
+  compile time.
+\end{theorem}
+
+\begin{proof}
+  The debounce interval $d$ is deliberate and precedes every cycle, so $T \geq d$. With no queue
+  and no container start, the remaining stages are the compile itself and the render, and the
+  render of a document that fits in memory is negligible against the compile. Hence
+  $T \leq d + w + \varepsilon$ for a small render cost $\varepsilon$.
+\end{proof}
+
+\section{Where the recovered budget goes}
+\label{sec:editor}
+
+Once latency is no longer the constraint, the remaining complaint about \LaTeX{} editors is that
+they are thin: a text area with syntax colouring. Three deficits account for most of the
+friction serious authors report.
+
+\begin{enumerate}
+  \item \textbf{Errors are shown, not explained.} The engine's log format predates the authors
+    who read it. A message such as \texttt{Missing \$ inserted} is true and unhelpful.
+  \item \textbf{Citations live elsewhere.} Reference management happens in a separate
+    application, a separate file, and a publisher's web page, with the cost measured in
+    window switches per paragraph.
+  \item \textbf{Prose gets no help.} Autocompletion for commands is not assistance with the
+    sentence.
+\end{enumerate}
+
+Each deficit maps to a subsystem: a diagnostic translator with a catalogue of rules, a
+bibliography layer that acquires entries from identifiers, and a selection-scoped prose
+assistant that proposes diffs rather than emitting text. We treat the first as the
+differentiator: it is deterministic, works offline, and every rule added moves an error out of
+the long tail permanently.
+
+\section{A document model with plain files}
+\label{sec:model}
+
+Two requirements pull in opposite directions. The file on disk must remain plain \LaTeX{},
+readable by any tool and by any collaborator who does not use ours. The session model must be a
+conflict-free replicated data type, or real-time collaboration will require a rewrite later.
+
+The resolution is to make the CRDT a \emph{session} model and never a storage format. Disk is
+authoritative. Writes are whole-file and debounced. External changes, such as a version-control
+checkout, are diffed and applied as CRDT transactions so that undo history and remote peers
+remain coherent. When the file changes on disk while the buffer holds unsaved edits, the loop
+stops and the author is asked; nothing about a manuscript is merged automatically.
+
+\begin{lemma}
+  If every write is whole-file and every external change is applied as a transaction, then at
+  every quiescent moment the CRDT text equals the file content.
+\end{lemma}
+
+\begin{proof}[Proof sketch]
+  Induct on the sequence of events. A local write copies CRDT text to disk; an external change
+  copies disk text into the CRDT via a diff whose application is exact. Neither event can leave
+  the two unequal once it completes, and quiescence means no event is in flight.
+\end{proof}
+
+\section{Related work}
+
+Hosted collaborative editors popularised real-time \LaTeX{} editing and demonstrated demand for
+it~\cite{hosted}. Desktop editors have compiled locally for decades but treated collaboration as
+out of scope~\cite{desktop}. Operational transformation and CRDTs supply the theory of
+concurrent editing~\cite{crdt}; our contribution is the constraint that the CRDT never becomes
+the file.
+
+\section{Conclusion}
+
+Compilation belongs on the author's machine. That single choice removes the queue, and with it
+the latency floor that hosted editors cannot lower. The editor that results should spend its
+budget on explaining errors, acquiring citations and helping with prose, and it should do so
+without ever taking the manuscript hostage in a format only it can read.
+
+\begin{thebibliography}{9}
+  \bibitem{hosted} A.~Vendor, ``A hosted collaborative editor for \LaTeX{},'' \emph{Proc.\ of
+    Something}, 2014.
+  \bibitem{desktop} B.~Maintainer, ``Twenty years of a desktop \TeX{} editor,'' \emph{TUGboat},
+    vol.~40, no.~2, 2019.
+  \bibitem{crdt} M.~Shapiro, N.~Pregui\c{c}a, C.~Baquero, and M.~Zawirski, ``Conflict-free
+    replicated data types,'' in \emph{Stabilization, Safety, and Security of Distributed
+    Systems}, 2011.
+\end{thebibliography}
+
+\end{document}
