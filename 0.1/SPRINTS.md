@@ -141,7 +141,7 @@ and the first five error rules exist so the demo never shows a raw log.
 |---|---|---|---|---|
 | [~] | S2.1 External change → diff → CRDT transaction end to end; dirty-buffer conflict bar (*Keep mine* / *Load from disk*), never an automatic merge | M | S1.6, S1.7, S1.9 | vitest for the decision table; smoke §2 |
 | [~] | S2.2 Compile feedback: spinner and elapsed time in the status bar, Tectonic package-fetch progress surfaced from stderr, failure count in the drawer, raw log behind one click | M | S1.5, S1.11 | smoke §3 |
-| [ ] | S2.3 Multi-document editing: open any `.tex`/`.bib` from the tree, tabs, per-file Y.Doc, save-all on compile | M | S1.9 | `pnpm test -- documents` |
+| [~] | S2.3 Multi-document editing: open any `.tex`/`.bib` from the tree, tabs, per-file Y.Doc, save-all on compile | M | S1.9 | `pnpm test -- documents` |
 | [ ] | S2.4 Keyboard: `Ctrl S` save, `Ctrl B`/`F5` compile, `Ctrl O` open folder, `Ctrl P` quick-open file (seed of the palette) | S | S2.3 | smoke §4 |
 | [~] | S2.5 Fixtures: `fixtures/paper` (a real 8-page article), `fixtures/broken` (underscore, undefined control sequence, missing brace), `fixtures/paper/SMOKE.md` manual script | S | — | `cargo test -p preamble-engine -- --ignored` |
 | [x] | S2.6 First five diagnostic rules in `texlog`: undefined control sequence, missing `$`, missing `}`/runaway argument, undefined reference/citation, file not found — each with a sentence and a fixture (brought forward from sprint 5 so the demo is honest) | M | S1.11 | `cargo test -p texlog` |
@@ -198,6 +198,41 @@ S1.9/S1.10 wiring; the gap was package-fetch progress, which this loop closes.
    the real `preamble-engine` and `texlog`. All four tests and `cargo clippy` passed there before
    the file was trusted. `cargo test -p preamble -- compile` still needs to run on a machine that
    can link Tauri, to be sure that swap was the only thing standing between the two.
+
+**S2.3 (10 September 2026).** `[~]`: rungs 1–2 are green (`pnpm test -- documents` and the rest
+of the suite, `svelte-check`), rung 4 (smoke §6, added to `fixtures/paper/SMOKE.md`) still needs
+the webview this machine cannot open. Purely a frontend loop — no Rust changed.
+
+1. **A new module, not a bigger `document.ts`.** `src/lib/documents.ts` adds `DocumentManager`:
+   a plain, Tauri- and Svelte-free class (same shape as `OpenDocument` itself) that owns a
+   `Map<path, OpenDocument>` and the tab order, so opening, closing, and save-all are each one
+   testable method rather than logic folded into the controller. `state.svelte.ts` holds a
+   reactive *snapshot* of it (`docs`, `openTabs`, `dirtyPaths`); `controller.svelte.ts`'s new
+   `syncTabs()` is the one place that copies from the manager into that snapshot, matching the
+   file's own rule that only the controller writes to `app`.
+2. **`activeDoc` and `dirty` became derived, not assigned.** With several tabs open, "the active
+   document" is just "whichever path `activePath` names, looked up in `docs`" — a `$derived`,
+   the same pattern the file already used for `projectName`. This deleted more code than it
+   added: `openFile` no longer needs to flush-then-recreate a document on every switch, because
+   switching tabs no longer disposes anything. That was the actual point of "per-file Y.Doc" —
+   not just "don't lose the buffer while the tab is in front," which the CRDT already gave for
+   free, but "don't lose it while the tab is in *back*," which required keeping the instance
+   alive at all.
+3. **Save-all surfaced a real race, not just a naming decision.** The obvious implementation —
+   `triggerCompile` awaits `manager.saveAll()`, which calls each dirty tab's ordinary `save()` —
+   quadrupled the compile count in a two-tab test instead of leaving it at one. `save()` already
+   calls `backend.afterSave`, which is wired to `triggerCompile`; `saveAll` calling it too meant
+   every tab's save queued *another* `triggerCompile`, which called `saveAll` again while the
+   first was still running, and a tab whose write had not yet landed could be told to save twice.
+   Fixed by giving `OpenDocument.save()` a `notify` parameter (default `true`); `saveAll` passes
+   `false`, since its caller is about to compile once anyway. `document.test.ts` gained a case
+   for `save(false)` directly, not only the effect of it three layers up.
+4. **A conflict on a background tab now raises that tab.** `reconcileOpenDocument` used to
+   require the changed file to be the *active* document; any other open file's external changes
+   went unreconciled entirely (harmless in sprint 1, since only one file was ever open). It now
+   looks the path up in the manager regardless of which tab has focus, and if the decision is
+   `conflict`, switches to that tab first — asking a question about a file nobody can see would
+   not be asking much.
 
 **S2.6 (10 September 2026).** `crates/texlog/src/rules.rs`: a `Rule` is a matcher `fn` plus an
 explanation `fn`, and `CATALOG` is a `const` slice of them, so S5.5 generalises this rather than

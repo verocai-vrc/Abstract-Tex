@@ -83,6 +83,16 @@ describe('OpenDocument', () => {
     doc.dispose();
   });
 
+  it('save(false) writes but skips afterSave, for a caller about to act on its own', async () => {
+    const { backend, writes, saved } = fakeBackend();
+    const doc = new OpenDocument('main.tex', '', backend);
+    doc.ytext.insert(0, 'x');
+    expect(await doc.save(false)).toBe(true);
+    expect(writes).toEqual([{ path: 'main.tex', contents: 'x' }]);
+    expect(saved).toEqual([]); // the whole point: no afterSave callback this time
+    doc.dispose();
+  });
+
   it('applying an external change does not mark the document dirty or trigger a write', async () => {
     const { backend, writes } = fakeBackend();
     const doc = new OpenDocument('main.tex', 'old text', backend);

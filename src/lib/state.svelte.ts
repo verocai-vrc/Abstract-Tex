@@ -31,10 +31,24 @@ class AppState {
   /** `undefined` = not probed yet; `null` = no engine found. */
   engine = $state<EngineInfo | null | undefined>(undefined);
 
-  /** The file in the editor. Not deeply reactive: it is a class with its own listeners. */
-  activeDoc = $state.raw<OpenDocument | null>(null);
+  /**
+   * Every file currently open in a tab, keyed by project-relative path (S2.3). Not deeply
+   * reactive — each value is a class with its own listeners — so the controller replaces the
+   * whole map, rather than mutating it in place, whenever a tab opens or closes; see
+   * `documents.ts`, which owns the real bookkeeping this is a reactive snapshot of.
+   */
+  docs = $state.raw<Map<string, OpenDocument>>(new Map());
+  /** Tab order, left to right. */
+  openTabs = $state<string[]>([]);
   activePath = $state<string | null>(null);
-  dirty = $state(false);
+  /** Paths with edits not yet on disk. Drives the dot on a tab and on its row in the tree. */
+  dirtyPaths = $state<Set<string>>(new Set());
+
+  /** The document behind the active tab, or `null` when no folder — or no file in it — is open. */
+  activeDoc = $derived(this.activePath !== null ? this.docs.get(this.activePath) ?? null : null);
+  /** Whether the *active* tab has edits not yet on disk. A background tab's dirtiness lives in
+   * `dirtyPaths` instead; most of the UI only cares about the one currently in the editor. */
+  dirty = $derived(this.activePath !== null && this.dirtyPaths.has(this.activePath));
 
   compile = $state<CompileState>({
     phase: 'idle',

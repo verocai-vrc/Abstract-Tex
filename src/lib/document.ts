@@ -150,8 +150,18 @@ export class OpenDocument {
     this.setDirty(true);
   }
 
-  /** Write now if anything changed. Returns whether a write happened. Safe to call any time. */
-  async save(): Promise<boolean> {
+  /**
+   * Write now if anything changed. Returns whether a write happened. Safe to call any time.
+   *
+   * `notify = false` skips the `afterSave` callback — the hook the controller uses to trigger a
+   * recompile after a save. `DocumentManager.saveAll` passes it when a caller (`triggerCompile`,
+   * S2.3's save-all-on-compile) is about to compile anyway once every tab is flushed: without
+   * it, each tab's own save would *also* call `afterSave` and kick off another `triggerCompile`,
+   * which calls `saveAll` again while the first one is still in flight — redundant at best, and
+   * a real race at worst, since a second `save()` starting on a tab whose write has not yet
+   * landed can send the same edit to disk twice.
+   */
+  async save(notify = true): Promise<boolean> {
     if (this.savesHeld) return false;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
@@ -167,7 +177,7 @@ export class OpenDocument {
     // Typing may have continued during the write. If so, stay dirty and let the debounce
     // timer (already restarted by onChange) take care of it.
     if (this.text() === snapshot) this.setDirty(false);
-    this.backend.afterSave?.(this.path);
+    if (notify) this.backend.afterSave?.(this.path);
     return true;
   }
 

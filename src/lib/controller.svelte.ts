@@ -3,7 +3,8 @@
 // mutates `app`.
 
 import { ipc, type CompileEvent, type FsEvent } from './ipc';
-import { OpenDocument, decideExternalChange, type DocumentBackend } from './document';
+import { decideExternalChange, type DocumentBackend } from './document';
+import { DocumentManager } from './documents';
 import { isTexSource, toRelative } from './paths';
 import { app } from './state.svelte';
 
@@ -12,6 +13,10 @@ const backend: DocumentBackend = {
   diffOps: (oldText, newText) => ipc.diffOps(oldText, newText),
   afterSave: () => void triggerCompile(),
 };
+
+/** The live tab set. `state.svelte.ts` holds a reactive snapshot of what this owns; `syncTabs`
+ * below is the one place that copies from here into there. */
+const manager = new DocumentManager(backend);
 
 let jumpNonce = 0;
 let treeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -36,7 +41,7 @@ export async function openFolder(path?: string): Promise<void> {
   if (!chosen) return;
   try {
     const info = await ipc.openProject(chosen);
-    closeActiveDocument();
+    closeAllDocuments();
     app.project = info;
     app.pdfUrl = null;
     app.compile = { ...app.compile, phase: 'idle', errors: [], message: null };
@@ -52,37 +57,69 @@ export async function openFolder(path?: string): Promise<void> {
   }
 }
 
+/**
+ * Open a file in a tab, or switch to it if it already has one (S2.3). Every open tab keeps its
+ * own `Y.Doc` for as long as it stays open — switching away and back never re-reads the file or
+ * loses an edit, which is what makes it safe to do with no confirmation.
+ */
 export async function openFile(relativePath: string): Promise<void> {
   if (app.activePath === relativePath) return;
-  // A conflict bar means there are edits in the buffer that exist nowhere else. Switching files
-  // would drop them, and the two buttons that resolve it are on screen already.
+  // A conflict bar means there are edits in some tab's buffer that exist nowhere else.
+  // Switching away would leave it answerable by nobody, and the two buttons that resolve it
+  // are already on screen for the tab it belongs to.
   if (app.conflict) {
     app.notice = `Answer the question about ${app.conflict.path} first: keep your version, or load the one on disk.`;
     return;
   }
-  try {
-    // Flush unsaved edits before switching; losing them on a click would be unforgivable.
-    await app.activeDoc?.save();
-    const text = await ipc.readFile(relativePath);
-    closeActiveDocument();
-    const doc = new OpenDocument(relativePath, text, backend);
-    doc.onDirtyChange = (dirty) => (app.dirty = dirty);
-    app.activeDoc = doc;
+  if (manager.isOpen(relativePath)) {
     app.activePath = relativePath;
-    app.dirty = false;
-    app.conflict = null;
+    return;
+  }
+  try {
+    const text = await ipc.readFile(relativePath);
+    const doc = manager.open(relativePath, text);
+    doc.onDirtyChange = (isDirty) => setDirty(relativePath, isDirty);
+    syncTabs();
+    app.activePath = relativePath;
   } catch (error) {
     app.notice = `Could not open ${relativePath}: ${String(error)}`;
   }
 }
 
-function closeActiveDocument() {
-  app.activeDoc?.dispose();
-  app.activeDoc = null;
+/** Close one tab. Flushes any unsaved edit first — closing must never silently drop it. */
+export async function closeTab(path: string): Promise<void> {
+  if (app.conflict?.path === path) {
+    app.notice = `Answer the question about ${path} first: keep your version, or load the one on disk.`;
+    return;
+  }
+  await manager.get(path)?.save();
+  const next = manager.close(path);
+  syncTabs();
+  if (app.activePath === path) app.activePath = next;
+}
+
+function closeAllDocuments() {
+  manager.closeAll();
+  syncTabs();
   app.activePath = null;
-  app.dirty = false;
-  // A bar asking about a file that is no longer open would be a question with no answer.
+  // A bar asking about a tab that no longer exists would be a question with no answer.
   app.conflict = null;
+}
+
+/** Copy the manager's tab list and dirty set into reactive state. Called after every open,
+ * close, or closeAll — the three operations that change *which* tabs exist. Per-keystroke
+ * dirtiness updates go through `setDirty` instead, which does not need to touch tab order. */
+function syncTabs() {
+  app.openTabs = [...manager.tabs()];
+  app.docs = new Map(app.openTabs.map((path) => [path, manager.get(path)!]));
+  app.dirtyPaths = new Set([...app.dirtyPaths].filter((path) => manager.isOpen(path)));
+}
+
+function setDirty(path: string, isDirty: boolean) {
+  const next = new Set(app.dirtyPaths);
+  if (isDirty) next.add(path);
+  else next.delete(path);
+  app.dirtyPaths = next;
 }
 
 export async function saveNow(): Promise<void> {
@@ -91,6 +128,12 @@ export async function saveNow(): Promise<void> {
 
 export async function triggerCompile(): Promise<void> {
   if (!app.project) return;
+  // A compile reads whatever is on disk; every open tab's edits have to be there, not only the
+  // active tab's (S2.3, save-all on compile).
+  await manager.saveAll().catch(() => {
+    /* the tab that failed to save is still dirty and will retry on its own debounce; a build
+     * against a slightly stale version of one file beats not building at all. */
+  });
   try {
     await ipc.compile();
   } catch (error) {
@@ -135,9 +178,9 @@ export async function toggleRawLog(): Promise<void> {
 /** Keep the author's buffer and overwrite the disk, or take the disk version into the buffer. */
 export async function resolveConflict(choice: 'keep-mine' | 'load-disk'): Promise<void> {
   const conflict = app.conflict;
-  const doc = app.activeDoc;
   app.conflict = null;
-  if (!conflict || !doc || doc.path !== conflict.path) return;
+  const doc = conflict ? manager.get(conflict.path) : undefined;
+  if (!conflict || !doc) return;
   // The bar has been holding the 700 ms debounce back so that it could not answer for the
   // author. They have answered now, so writing is allowed again either way.
   doc.releaseSaves();
@@ -225,7 +268,9 @@ async function handleFsEvent(event: FsEvent): Promise<void> {
 }
 
 /**
- * Fold one filesystem event into the open buffer, following the table in `document.ts`.
+ * Fold one filesystem event into whichever open tab it is about, following the table in
+ * `document.ts`. Any tab can receive this, not only the active one — S2.3 keeps every open
+ * file's `Y.Doc` alive, and disk does not know or care which tab has focus.
  *
  * Saves are held across the whole of it. Reading the disk and diffing are both `await`s, and a
  * 700 ms debounce firing inside that window would write the buffer out to the file we are in
@@ -234,8 +279,8 @@ async function handleFsEvent(event: FsEvent): Promise<void> {
  * and `resolveConflict` releases them.
  */
 async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): Promise<void> {
-  const doc = app.activeDoc;
-  if (!doc || doc.path !== relative) return; // some other file; the tree refresh was the point
+  const doc = manager.get(relative);
+  if (!doc) return; // not open in any tab; the tree refresh was the point
 
   doc.holdSaves();
   let keepHeldForConflict = false;
@@ -267,9 +312,11 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
         if (diskText !== null) await doc.applyExternal(diskText);
         break;
       case 'conflict':
-        // Stop the loop here; the author decides (DESIGN.md §5.6).
+        // Stop the loop here; the author decides (DESIGN.md §5.6). Bring the tab to the front
+        // so the bar is not about to ask a question over a file nobody is looking at.
         if (diskText !== null) {
           app.conflict = { path: relative, diskText };
+          app.activePath = relative;
           keepHeldForConflict = true;
         }
         break;

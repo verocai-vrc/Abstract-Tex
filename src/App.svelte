@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { app } from './lib/state.svelte';
-  import { openFolder, saveNow, start, triggerCompile } from './lib/controller.svelte';
+  import { openFolder, start, triggerCompile } from './lib/controller.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Editor from './components/Editor.svelte';
   import PdfPane from './components/PdfPane.svelte';
@@ -20,10 +20,8 @@
       void openFolder();
     } else if (event.key === 'b') {
       event.preventDefault();
-      void (async () => {
-        await saveNow();
-        await triggerCompile();
-      })();
+      // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
+      void triggerCompile();
     }
   }
 </script>
@@ -38,10 +36,7 @@
     <button
       class="primary"
       disabled={!app.project || app.compile.phase === 'running'}
-      onclick={() => void (async () => {
-        await saveNow();
-        await triggerCompile();
-      })()}
+      onclick={() => void triggerCompile()}
     >
       Build
     </button>

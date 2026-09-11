@@ -4,21 +4,21 @@
   import { resolveConflict, saveNow, triggerCompile } from '../lib/controller.svelte';
   import { createEditor, goToLine } from '../lib/editor/setup';
   import Drawer from './Drawer.svelte';
+  import Tabs from './Tabs.svelte';
 
   let host: HTMLDivElement | undefined = $state();
   let view: EditorView | null = null;
 
-  // Rebuild the editor whenever the open document changes. CodeMirror owns everything inside
-  // `host`; Svelte only provides the element.
+  // Rebuild the editor whenever the open document changes — including switching tabs: each
+  // open file keeps its own Y.Doc (S2.3), but only the active one has a live CodeMirror view.
+  // CodeMirror owns everything inside `host`; Svelte only provides the element.
   $effect(() => {
     const doc = app.activeDoc;
     if (!host || !doc) return;
     view = createEditor(host, doc, {
       onSave: () => void saveNow(),
-      onCompile: () => void (async () => {
-        await saveNow();
-        await triggerCompile();
-      })(),
+      // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
+      onCompile: () => void triggerCompile(),
     });
     view.focus();
     return () => {
@@ -34,6 +34,7 @@
 </script>
 
 <section class="editor-column">
+  <Tabs />
   {#if app.conflict}
     <div class="bar conflict" role="alert">
       <strong>{app.conflict.path}</strong> changed on disk while you had unsaved edits. Nothing has been merged.

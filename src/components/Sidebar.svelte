@@ -22,7 +22,7 @@
           depth={0}
           activePath={app.activePath}
           rootFile={app.project.rootFile}
-          dirty={app.dirty}
+          dirtyPaths={app.dirtyPaths}
           onOpen={(p) => void openFile(p)}
           onSetRoot={(p) => void setRootFile(p)}
         />

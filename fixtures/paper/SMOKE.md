@@ -54,3 +54,19 @@ opens the folder picker. `Ctrl Z` undoes your edit but never an external change.
 
 Open `fixtures/broken` instead. The drawer explains the underscore in a sentence (once S2.6
 lands); until then it shows TeX's message and line 5.
+
+## §6 Multi-document tabs (S2.3)
+
+`fixtures/paper` is one file, so use the `+` in the sidebar to create a second one (e.g.
+`notes.tex`) — any project with two or more files works the same way.
+
+1. With `main.tex` open, open the second file from the tree: a second tab appears next to it,
+   and the second file becomes active.
+2. Type in the second tab's buffer without waiting for the 700 ms save, then click back to the
+   first tab: the second tab still shows a dirty dot, and switching to it and back does not
+   reset or reload its text — it never touched disk.
+3. With unsaved edits in *both* tabs, press `Ctrl B`: the status bar shows `Compiling…`, and both
+   files land on disk (check the second file's mtime, or open it in another editor) even though
+   only one of them was the active tab.
+4. Click a tab's `×` to close it while it has an unsaved edit: the edit is written to disk first
+   (no silent loss), the tab disappears, and the remaining tab becomes active.

@@ -7,7 +7,7 @@ import type { CompileEvent, FsEvent, ProjectInfo, TextOp } from './ipc';
 
 /** The fake disk and the calls made against it. Declared before the mock factory uses it. */
 const disk = new Map<string, string>();
-const calls = { compiles: 0, writes: [] as Array<{ path: string; contents: string }> };
+const calls = { compiles: 0, writes: [] as Array<{ path: string; contents: string }>, reads: [] as string[] };
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
 
@@ -27,6 +27,7 @@ vi.mock('./ipc', () => ({
     openProject: async () => project,
     refreshTree: async () => project,
     readFile: async (path: string) => {
+      calls.reads.push(path);
       const text = disk.get(path);
       if (text === undefined) throw new Error(`no such file: ${path}`);
       return text;
@@ -65,7 +66,7 @@ vi.mock('./ipc', () => ({
   },
 }));
 
-const { openFolder, resolveConflict, start } = await import('./controller.svelte');
+const { closeTab, openFile, openFolder, resolveConflict, start, triggerCompile } = await import('./controller.svelte');
 const { app } = await import('./state.svelte');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
@@ -80,17 +81,25 @@ function type(text: string): void {
   doc.ytext.insert(doc.ytext.length, text);
 }
 
+/** Same, but into a specific tab rather than whichever one is active. */
+function typeInto(path: string, text: string): void {
+  const doc = app.docs.get(path)!;
+  doc.ytext.insert(doc.ytext.length, text);
+}
+
 beforeEach(async () => {
   vi.useFakeTimers();
   disk.clear();
   disk.set('main.tex', 'hello');
   calls.compiles = 0;
   calls.writes = [];
+  calls.reads = [];
   app.conflict = null;
   app.notice = null;
   await start();
   await openFolder('/proj');
   calls.compiles = 0; // the open triggered one; the tests care about the ones after
+  calls.reads = []; // ditto for the read the open performed
 });
 
 afterEach(() => vi.useRealTimers());
@@ -140,6 +149,78 @@ describe('an external change to the open file', () => {
     // Unsaved edits to a file that no longer exists get written back rather than dropped.
     await vi.advanceTimersByTimeAsync(700);
     expect(disk.get('main.tex')).toBe('hello there');
+  });
+});
+
+describe('multi-document tabs (S2.3)', () => {
+  beforeEach(() => {
+    disk.set('sections/results.tex', 'Results.');
+  });
+
+  it('opening a second file adds a tab without touching the first', async () => {
+    type(' there'); // dirty main.tex, unsaved
+
+    await openFile('sections/results.tex');
+
+    expect(app.openTabs).toEqual(['main.tex', 'sections/results.tex']);
+    expect(app.activePath).toBe('sections/results.tex');
+    // The first tab's buffer is untouched — opening a second file must not save, reload, or
+    // otherwise disturb what the author was in the middle of typing.
+    expect(app.docs.get('main.tex')!.text()).toBe('hello there');
+    expect(app.dirtyPaths.has('main.tex')).toBe(true);
+    expect(calls.writes).toHaveLength(0);
+  });
+
+  it('switching back to an already-open tab does not re-read the file from disk', async () => {
+    await openFile('sections/results.tex');
+    calls.reads = [];
+
+    await openFile('main.tex');
+    expect(app.activePath).toBe('main.tex');
+    expect(calls.reads).toEqual([]);
+
+    await openFile('sections/results.tex');
+    expect(app.activePath).toBe('sections/results.tex');
+    expect(calls.reads).toEqual([]);
+  });
+
+  it('closing a tab flushes its unsaved edit, then activates a neighbour', async () => {
+    await openFile('sections/results.tex');
+    type(' two'); // dirty the now-active results.tex
+
+    await closeTab('sections/results.tex');
+
+    expect(disk.get('sections/results.tex')).toBe('Results. two');
+    expect(app.openTabs).toEqual(['main.tex']);
+    expect(app.activePath).toBe('main.tex');
+    expect(app.dirtyPaths.has('sections/results.tex')).toBe(false);
+  });
+
+  it('compiling saves every open tab, not only the active one', async () => {
+    await openFile('sections/results.tex');
+    // main.tex is a background tab now; dirty it without switching back to it.
+    typeInto('main.tex', ' there');
+    type(' too'); // and the active tab, results.tex
+
+    await triggerCompile();
+
+    expect(disk.get('main.tex')).toBe('hello there');
+    expect(disk.get('sections/results.tex')).toBe('Results. too');
+    expect(app.dirtyPaths.size).toBe(0);
+    expect(calls.compiles).toBe(1);
+  });
+
+  it('an external conflict on a background tab brings that tab to the front to ask about it', async () => {
+    await openFile('sections/results.tex');
+    typeInto('main.tex', ' there'); // dirty the background tab
+    disk.set('main.tex', 'hello world'); // and move the disk on underneath it
+
+    fsHandler({ path: '/proj/main.tex', exists: true });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(app.conflict).toEqual({ path: 'main.tex', diskText: 'hello world' });
+    expect(app.activePath).toBe('main.tex'); // brought forward so the bar makes sense
+    expect(app.docs.get('main.tex')!.text()).toBe('hello there'); // nothing was merged
   });
 });
 

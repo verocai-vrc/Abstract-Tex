@@ -7,11 +7,12 @@
     depth: number;
     activePath: string | null;
     rootFile: string | null;
-    dirty: boolean;
+    /** Paths with edits not yet on disk (S2.3) — any open tab, not only the active one. */
+    dirtyPaths: Set<string>;
     onOpen: (path: string) => void;
     onSetRoot: (path: string) => void;
   }
-  let { node, depth, activePath, rootFile, dirty, onOpen, onSetRoot }: Props = $props();
+  let { node, depth, activePath, rootFile, dirtyPaths, onOpen, onSetRoot }: Props = $props();
 
   // Folders start open so a small project is visible at a glance. Only the initial depth
   // matters, which is what the svelte-ignore below is about.
@@ -21,6 +22,7 @@
   const isActive = $derived(node.path === activePath);
   const isRoot = $derived(node.path === rootFile);
   const isTex = $derived(/\.tex$/i.test(node.name));
+  const isDirty = $derived(dirtyPaths.has(node.path));
 
   function activate() {
     if (node.isDir) expanded = !expanded;
@@ -39,7 +41,7 @@
   <div
     class="row"
     class:active={isActive}
-    class:dirty={isActive && dirty}
+    class:dirty={isDirty}
     style:padding-left="{8 + depth * 14}px"
     role="treeitem"
     tabindex="0"
@@ -57,7 +59,7 @@
   {#if node.isDir && expanded && node.children.length > 0}
     <ul class="tree" role="group">
       {#each node.children as child (child.path)}
-        <TreeItem node={child} depth={depth + 1} {activePath} {rootFile} {dirty} {onOpen} {onSetRoot} />
+        <TreeItem node={child} depth={depth + 1} {activePath} {rootFile} {dirtyPaths} {onOpen} {onSetRoot} />
       {/each}
     </ul>
   {/if}
