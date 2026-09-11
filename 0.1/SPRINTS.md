@@ -146,7 +146,7 @@ and the first five error rules exist so the demo never shows a raw log.
 | [~] | S2.5 Fixtures: `fixtures/paper` (a real 8-page article), `fixtures/broken` (underscore, undefined control sequence, missing brace), `fixtures/paper/SMOKE.md` manual script | S | — | `cargo test -p preamble-engine -- --ignored` |
 | [x] | S2.6 First five diagnostic rules in `texlog`: undefined control sequence, missing `$`, missing `}`/runaway argument, undefined reference/citation, file not found — each with a sentence and a fixture (brought forward from sprint 5 so the demo is honest) | M | S1.11 | `cargo test -p texlog` |
 | [~] | S2.7 Diagnostics drawer v0: sentence per error, click jumps to line, gutter marker; raw log one click away | M | S2.6 | smoke §5 |
-| [ ] | S2.8 CI: 3-OS matrix runs `pnpm verify`; Linux installs WebKitGTK deps; engine fetched in CI; `cargo build` of the Tauri app on all three | M | S1.1 | green Actions run |
+| [~] | S2.8 CI: 3-OS matrix runs `pnpm verify`; Linux installs WebKitGTK deps; engine fetched in CI; `cargo build` of the Tauri app on all three | M | S1.1 | green Actions run |
 | [~] | S2.9 Name decision recorded in `DESIGN.md` §10; README moved to repository root with a real *Building* section; installer smoke on Windows via `pnpm tauri build` | S | — | installer launches and opens `fixtures/paper` |
 
 **Outcome.** *(in progress)*
@@ -280,6 +280,20 @@ now does) waits on the webview. The loop that connects S2.6 to the screen.
    but no *file* until S5.2, so the dots are drawn only on the root file's tab, and
    `jumpToDiagnostic` brings that tab to the front before moving the cursor — the best
    available guess, stated as one in the code rather than hidden.
+
+**S2.8 (11 September 2026).** `[~]`: the workflow is written and its YAML parses; "green
+Actions run" needs a push to GitHub, which this session cannot do. There was no `.github/`
+directory at all — the S1.1 card's "CI matrix stub" had not been created. What the workflow
+does, and why in that order: Linux installs the WebKitGTK/GTK development packages (the other
+two runners ship their webview with the OS); `pnpm fetch-engine` runs before any `cargo`
+command because `tauri_build` fails the build if the sidecar for the host triple is missing;
+`pnpm build` runs before `pnpm verify` because `tauri::generate_context!` embeds `dist/` and
+fails if it does not exist — which means `cargo test --workspace` on a fresh clone fails
+without it, a trap README.md now names. Then rungs 1–2 (`pnpm verify`), rung 3 (the real-engine
+fixture build, with the engine's package cache kept between runs via `TECTONIC_CACHE_DIR`), and
+`cargo build -p preamble`. `fail-fast: false` so a Windows-only failure still shows the other
+two results. First-run things to expect when it is pushed: the macOS runner is arm64, so it
+exercises the `aarch64-apple-darwin` sidecar path nobody has run yet.
 
 **S2.6 (10 September 2026).** `crates/texlog/src/rules.rs`: a `Rule` is a matcher `fn` plus an
 explanation `fn`, and `CATALOG` is a `const` slice of them, so S5.5 generalises this rather than

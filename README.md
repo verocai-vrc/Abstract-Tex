@@ -175,6 +175,9 @@ To open a folder on launch: `PREAMBLE_OPEN=fixtures/paper pnpm tauri dev`.
 
 `pnpm verify` runs everything CI runs: Rust tests and clippy, `svelte-check`, Vitest.
 `cargo test -p preamble-engine -- --ignored` compiles a fixture with the real engine.
+[`.github/workflows/verify.yml`](.github/workflows/verify.yml) does all of that on Linux,
+Windows and macOS for every push, and builds the app crate on each — run `pnpm build` first if
+you want `cargo build -p preamble` to work locally, since the app embeds `dist/`.
 
 Repository layout: `src-tauri/` is the Tauri app crate, `crates/` holds the engine wrapper,
 the CRDT reconciler and the log parser as standalone crates, `src/` is the Svelte frontend,
