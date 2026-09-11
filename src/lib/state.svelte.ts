@@ -71,6 +71,9 @@ class AppState {
   conflict = $state<Conflict | null>(null);
   notice = $state<string | null>(null);
 
+  /** The `Ctrl P` file list (S2.4). The seed of the command palette, S4.3. */
+  quickOpenVisible = $state(false);
+
   /** A request for the editor to move the cursor. `nonce` makes repeat requests distinct. */
   jumpRequest = $state<{ line: number; nonce: number } | null>(null);
 

@@ -1,27 +1,39 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { app } from './lib/state.svelte';
-  import { openFolder, start, triggerCompile } from './lib/controller.svelte';
+  import { openFolder, saveNow, start, toggleQuickOpen, triggerCompile } from './lib/controller.svelte';
+  import { shortcutFor } from './lib/shortcuts';
   import Sidebar from './components/Sidebar.svelte';
   import Editor from './components/Editor.svelte';
   import PdfPane from './components/PdfPane.svelte';
   import StatusBar from './components/StatusBar.svelte';
+  import QuickOpen from './components/QuickOpen.svelte';
 
   onMount(() => {
     void start();
   });
 
-  // Global shortcuts that must work even when the editor is not focused.
+  // The one place a global key becomes an action (S2.4). The table in shortcuts.ts says which
+  // key means what; this only says what each action does. Listening on the window means the
+  // chords work with the editor, the tree, the PDF or nothing at all focused.
   function onKeydown(event: KeyboardEvent) {
-    const mod = event.ctrlKey || event.metaKey;
-    if (!mod) return;
-    if (event.key === 'o') {
-      event.preventDefault();
-      void openFolder();
-    } else if (event.key === 'b') {
-      event.preventDefault();
-      // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
-      void triggerCompile();
+    const action = shortcutFor(event);
+    if (!action) return;
+    event.preventDefault(); // else the browser offers to save the page, or prints it
+    switch (action) {
+      case 'save':
+        void saveNow();
+        break;
+      case 'compile':
+        // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
+        void triggerCompile();
+        break;
+      case 'open-folder':
+        void openFolder();
+        break;
+      case 'quick-open':
+        toggleQuickOpen();
+        break;
     }
   }
 </script>
@@ -51,3 +63,5 @@
 
   <StatusBar />
 </div>
+
+<QuickOpen />

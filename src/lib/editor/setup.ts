@@ -26,11 +26,6 @@ import { tags } from '@lezer/highlight';
 import { yCollab } from 'y-codemirror.next';
 import type { OpenDocument } from '../document';
 
-export interface EditorCallbacks {
-  onSave: () => void;
-  onCompile: () => void;
-}
-
 // Colours come from the CSS custom properties in app.css so light and dark both work.
 const latexHighlight = HighlightStyle.define([
   { tag: tags.tagName, color: 'var(--syn-command)' },
@@ -61,7 +56,7 @@ const theme = EditorView.theme({
   '.cm-matchingBracket': { outline: '1px solid var(--syn-bracket)', backgroundColor: 'transparent' },
 });
 
-export function createEditor(parent: HTMLElement, doc: OpenDocument, callbacks: EditorCallbacks): EditorView {
+export function createEditor(parent: HTMLElement, doc: OpenDocument): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
     doc: doc.text(),
@@ -82,10 +77,10 @@ export function createEditor(parent: HTMLElement, doc: OpenDocument, callbacks: 
       EditorView.lineWrapping,
       StreamLanguage.define(stex),
       syntaxHighlighting(latexHighlight),
+      // No app shortcuts here: `Ctrl S`, `Ctrl B`, `F5` and the rest are handled once, on the
+      // window, by App.svelte (S2.4). A binding in this keymap does not stop propagation, so a
+      // copy here would fire the action twice for a keypress inside the editor.
       keymap.of([
-        { key: 'Mod-s', run: () => (callbacks.onSave(), true) },
-        { key: 'Mod-b', run: () => (callbacks.onCompile(), true) },
-        { key: 'F5', run: () => (callbacks.onCompile(), true) },
         ...closeBracketsKeymap,
         ...defaultKeymap,
         ...searchKeymap,

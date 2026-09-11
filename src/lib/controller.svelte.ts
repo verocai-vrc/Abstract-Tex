@@ -104,6 +104,7 @@ function closeAllDocuments() {
   app.activePath = null;
   // A bar asking about a tab that no longer exists would be a question with no answer.
   app.conflict = null;
+  app.quickOpenVisible = false;
 }
 
 /** Copy the manager's tab list and dirty set into reactive state. Called after every open,
@@ -158,6 +159,18 @@ export async function createFile(relativePath: string): Promise<void> {
   } catch (error) {
     app.notice = String(error);
   }
+}
+
+/** Show or hide the `Ctrl P` list. Pressing the chord again while it is up dismisses it. */
+export function toggleQuickOpen(): void {
+  if (!app.project) return;
+  app.quickOpenVisible = !app.quickOpenVisible;
+}
+
+/** The list's answer: open the chosen file and put the list away. */
+export async function quickOpenPick(relativePath: string): Promise<void> {
+  app.quickOpenVisible = false;
+  await openFile(relativePath);
 }
 
 export function jumpToLine(line: number): void {

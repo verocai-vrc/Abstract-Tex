@@ -142,7 +142,7 @@ and the first five error rules exist so the demo never shows a raw log.
 | [~] | S2.1 External change → diff → CRDT transaction end to end; dirty-buffer conflict bar (*Keep mine* / *Load from disk*), never an automatic merge | M | S1.6, S1.7, S1.9 | vitest for the decision table; smoke §2 |
 | [~] | S2.2 Compile feedback: spinner and elapsed time in the status bar, Tectonic package-fetch progress surfaced from stderr, failure count in the drawer, raw log behind one click | M | S1.5, S1.11 | smoke §3 |
 | [~] | S2.3 Multi-document editing: open any `.tex`/`.bib` from the tree, tabs, per-file Y.Doc, save-all on compile | M | S1.9 | `pnpm test -- documents` |
-| [ ] | S2.4 Keyboard: `Ctrl S` save, `Ctrl B`/`F5` compile, `Ctrl O` open folder, `Ctrl P` quick-open file (seed of the palette) | S | S2.3 | smoke §4 |
+| [~] | S2.4 Keyboard: `Ctrl S` save, `Ctrl B`/`F5` compile, `Ctrl O` open folder, `Ctrl P` quick-open file (seed of the palette) | S | S2.3 | smoke §4 |
 | [~] | S2.5 Fixtures: `fixtures/paper` (a real 8-page article), `fixtures/broken` (underscore, undefined control sequence, missing brace), `fixtures/paper/SMOKE.md` manual script | S | — | `cargo test -p preamble-engine -- --ignored` |
 | [x] | S2.6 First five diagnostic rules in `texlog`: undefined control sequence, missing `$`, missing `}`/runaway argument, undefined reference/citation, file not found — each with a sentence and a fixture (brought forward from sprint 5 so the demo is honest) | M | S1.11 | `cargo test -p texlog` |
 | [ ] | S2.7 Diagnostics drawer v0: sentence per error, click jumps to line, gutter marker; raw log one click away | M | S2.6 | smoke §5 |
@@ -233,6 +233,27 @@ the webview this machine cannot open. Purely a frontend loop — no Rust changed
    looks the path up in the manager regardless of which tab has focus, and if the decision is
    `conflict`, switches to that tab first — asking a question about a file nobody can see would
    not be asking much.
+
+**S2.4 (11 September 2026).** `[~]`: rungs 1–2 green, smoke §4 waits on the webview. Frontend
+only. Three things a reader should take from the diff:
+
+1. **One dispatcher, one table.** `Ctrl B` was bound twice — in CodeMirror's keymap and in the
+   window handler — and a CodeMirror binding that handles a key calls `preventDefault` but does
+   *not* stop propagation, so one keypress inside the editor compiled twice. `Ctrl S` and `F5`,
+   meanwhile, only worked when the editor had focus. Now `src/lib/shortcuts.ts` is the table
+   (chord → action name, with a label the S4.3 palette will list) and `App.svelte`'s window
+   handler is the only code that turns a key into an action; the CodeMirror bindings are gone.
+   `shortcutFor` is pure and tested, including that it does not steal `Ctrl Shift S` or `Alt F5`.
+2. **`Ctrl P` is the seed of the palette, and it is mostly two pure functions.** `fuzzy.ts` is a
+   greedy subsequence matcher with three bonuses (basename, word start, consecutive run) and a
+   length tie-breaker — enough that `res` finds `sections/results.tex` above
+   `resources/figure.tex` and `main` puts `main.tex` above `main-old.tex` above
+   `domain-notes.tex`, all asserted. `paths.ts` grew `listFiles`. `QuickOpen.svelte` is the thin
+   part: an input, a ranked `<ul>`, arrows/Enter/Escape, and `aria-activedescendant` so the rows
+   need no focus of their own. When nothing is typed, open tabs come first.
+3. **`EditorCallbacks` is deleted, not deprecated.** `createEditor(host, doc)` no longer takes
+   save/compile callbacks because CodeMirror no longer has any reason to know those actions
+   exist. Less plumbing than before the loop, which is the shape a keyboard loop should have.
 
 **S2.6 (10 September 2026).** `crates/texlog/src/rules.rs`: a `Rule` is a matcher `fn` plus an
 explanation `fn`, and `CATALOG` is a `const` slice of them, so S5.5 generalises this rather than

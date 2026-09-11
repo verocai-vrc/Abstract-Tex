@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { baseName, isTexSource, toRelative } from './paths';
+import { baseName, isTexSource, listFiles, toRelative } from './paths';
 
 describe('toRelative', () => {
   it('strips the root and normalises separators', () => {
@@ -28,5 +28,24 @@ describe('helpers', () => {
     expect(isTexSource('main.tex')).toBe(true);
     expect(isTexSource('refs.bib')).toBe(true);
     expect(isTexSource('figure.png')).toBe(false);
+  });
+});
+
+describe('listFiles', () => {
+  it('flattens files depth-first and leaves directories out', () => {
+    const tree = [
+      { name: 'main.tex', path: 'main.tex', isDir: false, children: [] },
+      {
+        name: 'sections',
+        path: 'sections',
+        isDir: true,
+        children: [
+          { name: 'intro.tex', path: 'sections/intro.tex', isDir: false, children: [] },
+          { name: 'figs', path: 'sections/figs', isDir: true, children: [] },
+        ],
+      },
+      { name: 'refs.bib', path: 'refs.bib', isDir: false, children: [] },
+    ];
+    expect(listFiles(tree)).toEqual(['main.tex', 'sections/intro.tex', 'refs.bib']);
   });
 });

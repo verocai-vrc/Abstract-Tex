@@ -66,7 +66,8 @@ vi.mock('./ipc', () => ({
   },
 }));
 
-const { closeTab, openFile, openFolder, resolveConflict, start, triggerCompile } = await import('./controller.svelte');
+const { closeTab, openFile, openFolder, quickOpenPick, resolveConflict, start, toggleQuickOpen, triggerCompile } =
+  await import('./controller.svelte');
 const { app } = await import('./state.svelte');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
@@ -291,5 +292,27 @@ describe('resolving a conflict', () => {
     type('!');
     await vi.advanceTimersByTimeAsync(700);
     expect(disk.get('main.tex')).toBe('hello world!');
+  });
+});
+
+describe('quick open (S2.4)', () => {
+  it('toggles, and picking a file opens it and puts the list away', async () => {
+    disk.set('sections/results.tex', 'Results.');
+    toggleQuickOpen();
+    expect(app.quickOpenVisible).toBe(true);
+    toggleQuickOpen();
+    expect(app.quickOpenVisible).toBe(false);
+
+    toggleQuickOpen();
+    await quickOpenPick('sections/results.tex');
+    expect(app.quickOpenVisible).toBe(false);
+    expect(app.activePath).toBe('sections/results.tex');
+    expect(app.openTabs).toEqual(['main.tex', 'sections/results.tex']);
+  });
+
+  it('does nothing without a project open', () => {
+    app.project = null; // a list of the files in no folder would be an empty box
+    toggleQuickOpen();
+    expect(app.quickOpenVisible).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
   import { app } from '../lib/state.svelte';
-  import { resolveConflict, saveNow, triggerCompile } from '../lib/controller.svelte';
+  import { resolveConflict } from '../lib/controller.svelte';
   import { createEditor, goToLine } from '../lib/editor/setup';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
@@ -15,11 +15,7 @@
   $effect(() => {
     const doc = app.activeDoc;
     if (!host || !doc) return;
-    view = createEditor(host, doc, {
-      onSave: () => void saveNow(),
-      // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
-      onCompile: () => void triggerCompile(),
-    });
+    view = createEditor(host, doc);
     view.focus();
     return () => {
       view?.destroy();
@@ -56,7 +52,7 @@
   {:else}
     <div class="empty">
       {#if app.project}
-        <p>Pick a file on the left.</p>
+        <p>Pick a file on the left, or press <kbd>Ctrl</kbd> <kbd>P</kbd>.</p>
       {:else}
         <p>
           <strong>Preamble</strong><br />

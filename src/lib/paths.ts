@@ -1,5 +1,7 @@
 // Path helpers shared by the controller and the tree. Pure, so they are unit-tested.
 
+import type { TreeNode } from './ipc';
+
 /** Absolute path → project-relative with forward slashes, or null if outside the project. */
 export function toRelative(absolutePath: string, rootDir: string): string | null {
   const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -19,4 +21,15 @@ export function baseName(path: string): string {
 
 export function isTexSource(path: string): boolean {
   return /\.(tex|bib|sty|cls|bbx|cbx|def|ltx)$/i.test(path);
+}
+
+/** Every file in the tree, depth-first in the order the tree shows them. Directories are not
+ * files: the quick-open list has nothing to do with one. */
+export function listFiles(nodes: readonly TreeNode[]): string[] {
+  const files: string[] = [];
+  for (const node of nodes) {
+    if (node.isDir) files.push(...listFiles(node.children));
+    else files.push(node.path);
+  }
+  return files;
 }

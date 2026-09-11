@@ -47,8 +47,15 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 ## §4 Keyboard (S2.4)
 
-`Ctrl S` writes immediately (dirty dot disappears). `Ctrl B` and `F5` save and build. `Ctrl O`
-opens the folder picker. `Ctrl Z` undoes your edit but never an external change.
+1. `Ctrl S` writes immediately (dirty dot disappears). `Ctrl B` and `F5` save and build. `Ctrl O`
+   opens the folder picker. `Ctrl Z` undoes your edit but never an external change.
+2. Each of those works with the editor focused, with the file tree focused (click a row first),
+   and with the PDF pane focused. Pressing `Ctrl B` once inside the editor starts exactly one
+   build — watch the status bar's generation not tick twice.
+3. `Ctrl P` opens the file list with the input focused. With nothing typed, open tabs come first.
+   Type `res` in a project with `sections/results.tex`: it rises to the top with the matched
+   letters bold. `↓` `↑` move the selection, `Enter` opens the file in a tab and closes the list,
+   `Esc` or `Ctrl P` again closes it without opening anything. Clicking outside also closes it.
 
 ## §5 Diagnostics drawer (S2.7)
 
