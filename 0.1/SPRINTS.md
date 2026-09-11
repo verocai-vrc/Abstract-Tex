@@ -149,7 +149,19 @@ and the first five error rules exist so the demo never shows a raw log.
 | [~] | S2.8 CI: 3-OS matrix runs `pnpm verify`; Linux installs WebKitGTK deps; engine fetched in CI; `cargo build` of the Tauri app on all three | M | S1.1 | green Actions run |
 | [~] | S2.9 Name decision recorded in `DESIGN.md` §10; README moved to repository root with a real *Building* section; installer smoke on Windows via `pnpm tauri build` | S | — | installer launches and opens `fixtures/paper` |
 
-**Outcome.** *(in progress)*
+**Outcome (11 September 2026, interim).** Every loop's code is written and green on rungs 1–3
+where this machine can run them: 38 Rust tests across the three library crates plus the four
+`compile.rs` tests in a Tauri-free copy, clippy clean, `svelte-check` clean, 65 Vitest tests, a
+production Vite build, and a real Tectonic build of `fixtures/minimal`. What keeps the sprint at
+`[~]` is not code: rung 4 (every smoke section) and the v0.1 exit demo need the webview that
+the maintainer's machine could not open in sprint 1 and this Linux machine has no display for;
+S2.8 needs a push to see Actions go green; and S2.9's name decision is the maintainer's to make
+(`DESIGN.md` §10 still lists *Preamble* as a working name with three alternatives). S2.5 stays
+`[~]` for one honest reason: `fixtures/paper` is a real article that compiles with zero
+warnings, but it is 4 pages, not the card's 8 — worth lengthening when S9.1 builds the benchmark
+corpus and page count starts to matter, not before. **Next action for the maintainer:** run
+`pnpm tauri dev` on a machine with a working webview and walk `fixtures/paper/SMOKE.md` §1–§6;
+push to GitHub and read the first Actions run; pick a name.
 
 **S2.1 (10 September 2026).** `[~]` because rungs 1–2 are green but rung 4 (smoke §2) still
 waits on the webview problem recorded under sprint 1. The decision table and the debounce hold
