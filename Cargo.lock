@@ -2471,6 +2471,7 @@ dependencies = [
  "notify",
  "notify-debouncer-mini",
  "preamble-engine",
+ "preamble-lsp",
  "preamble-reconcile",
  "serde",
  "serde_json",

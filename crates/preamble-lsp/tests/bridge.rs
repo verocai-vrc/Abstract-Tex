@@ -138,3 +138,58 @@ async fn the_real_texlab_initializes_and_completes_through_the_bridge() {
 
     bridge.shutdown().await.unwrap();
 }
+
+/// The whole S3.2 path against the real server: initialize, open a document, ask for
+/// completions inside a `\begin{`, get real ones back. This is the sequence the frontend's
+/// `LspClient` sends, so a break here is a break in the feature.
+#[tokio::test]
+#[ignore]
+async fn the_real_texlab_completes_an_environment_name() {
+    let texlab = match TexLab::locate() {
+        Ok(t) => t,
+        Err(_) => {
+            let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            TexLab::at(preamble_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp`"))
+        }
+    };
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("main.tex");
+    // Each `\\` is one backslash in the TeX source; `\n` stays a real newline, which is why
+    // this is not a raw string.
+    let source = "\\documentclass{article}\n\\begin{document}\n\\begin{}\n\\end{document}\n";
+    std::fs::write(&file, source).unwrap();
+
+    let (bridge, _incoming) = Bridge::start(texlab, root.path()).await.unwrap();
+    bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}})).await.unwrap();
+
+    let uri = preamble_lsp::bridge::path_to_uri(&file);
+    bridge
+        .notify(
+            "textDocument/didOpen",
+            json!({"textDocument": {"uri": uri, "languageId": "latex", "version": 1, "text": source}}),
+        )
+        .unwrap();
+
+    // Line 2, just inside `\begin{` — zero-based, as LSP counts.
+    let completions = tokio::time::timeout(
+        Duration::from_secs(20),
+        bridge.request(
+            "textDocument/completion",
+            json!({"textDocument": {"uri": uri}, "position": {"line": 2, "character": 7}}),
+        ),
+    )
+    .await
+    .expect("completion must not hang")
+    .unwrap();
+
+    // The reply is either a bare array or `{items: [...]}` depending on the server's mood.
+    let items = completions
+        .get("items")
+        .and_then(Value::as_array)
+        .or_else(|| completions.as_array())
+        .expect("a completion list");
+    let labels: Vec<&str> = items.iter().filter_map(|i| i.get("label").and_then(Value::as_str)).collect();
+    assert!(labels.contains(&"itemize"), "expected environment names, got {labels:?}");
+
+    bridge.shutdown().await.unwrap();
+}

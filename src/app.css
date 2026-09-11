@@ -229,6 +229,11 @@ kbd {
 .statusbar .error {
   color: var(--error);
 }
+/* A degraded optional feature — no language server — states itself without colour. Losing
+   completion is not an error the author has to act on (DESIGN.md §2, commitment 6). */
+.statusbar .muted {
+  color: var(--fg-muted);
+}
 .statusbar .warn {
   color: var(--warn);
   /* A package-fetch progress line can be long; truncate rather than push the other items

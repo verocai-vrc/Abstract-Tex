@@ -23,6 +23,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 
 preamble-engine = { path = "../crates/preamble-engine" }
+preamble-lsp = { path = "../crates/preamble-lsp" }
 preamble-reconcile = { path = "../crates/preamble-reconcile" }
 texlog = { path = "../crates/texlog" }
 

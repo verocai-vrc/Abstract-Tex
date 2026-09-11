@@ -3,13 +3,23 @@
 // every line of the reaction except the Rust on the far side of `invoke`.
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import type { CompileEvent, FsEvent, ProjectInfo, TextOp } from './ipc';
+import type { CompileEvent, FsEvent, LspEvent, ProjectInfo, TextOp } from './ipc';
 
 /** The fake disk and the calls made against it. Declared before the mock factory uses it. */
 const disk = new Map<string, string>();
-const calls = { compiles: 0, writes: [] as Array<{ path: string; contents: string }>, reads: [] as string[] };
+const calls = {
+  compiles: 0,
+  writes: [] as Array<{ path: string; contents: string }>,
+  reads: [] as string[],
+  /** Every `textDocument/*` message the controller sent the language server. */
+  lsp: [] as Array<{ method: string; params: any }>,
+  lspStarts: 0,
+};
+/** Set to a message to make `lsp_start` fail, as a machine with no TexLab would. */
+let lspStartError: string | null = null;
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
+let lspHandler: (event: LspEvent) => void = () => {};
 
 const project: ProjectInfo = {
   rootDir: '/proj',
@@ -63,6 +73,20 @@ vi.mock('./ipc', () => ({
       fsHandler = handler;
       return () => {};
     },
+    lspStart: async () => {
+      calls.lspStarts++;
+      if (lspStartError) throw new Error(lspStartError);
+      return {};
+    },
+    lspRequest: async () => null,
+    lspNotify: async (method: string, params: unknown) => {
+      calls.lsp.push({ method, params });
+    },
+    lspRespond: async () => {},
+    onLsp: async (handler: (event: LspEvent) => void) => {
+      lspHandler = handler;
+      return () => {};
+    },
   },
 }));
 
@@ -95,6 +119,9 @@ beforeEach(async () => {
   calls.compiles = 0;
   calls.writes = [];
   calls.reads = [];
+  calls.lsp = [];
+  calls.lspStarts = 0;
+  lspStartError = null;
   app.conflict = null;
   app.notice = null;
   await start();
@@ -379,5 +406,117 @@ describe('diagnostics (S2.7)', () => {
     const before = app.jumpRequest;
     await jumpToDiagnostic({ ...underscore, line: null });
     expect(app.jumpRequest).toBe(before);
+  });
+});
+
+describe('the language server (S3.2)', () => {
+  /** Only the document-sync messages, in order, for readable assertions. */
+  const methods = () => calls.lsp.map((c) => c.method);
+
+  it('starts when a project opens and tells the server about the first file', async () => {
+    expect(calls.lspStarts).toBe(1);
+    expect(app.lspReady).toBe(true);
+    expect(app.lspMessage).toBeNull();
+
+    const opens = calls.lsp.filter((c) => c.method === 'textDocument/didOpen');
+    expect(opens).toHaveLength(1);
+    expect(opens[0]?.params.textDocument).toMatchObject({
+      uri: 'file:///proj/main.tex',
+      languageId: 'latex',
+      version: 1,
+      text: 'hello',
+    });
+  });
+
+  it('opening another tab opens it on the server too', async () => {
+    disk.set('sections/results.tex', 'Results.');
+    calls.lsp = [];
+    await openFile('sections/results.tex');
+
+    const opens = calls.lsp.filter((c) => c.method === 'textDocument/didOpen');
+    expect(opens[0]?.params.textDocument.uri).toBe('file:///proj/sections/results.tex');
+  });
+
+  it('a save sends the new text and then didSave, with a higher version', async () => {
+    calls.lsp = [];
+    type(' there');
+    await vi.advanceTimersByTimeAsync(700); // the debounced save
+
+    expect(methods()).toEqual(['textDocument/didChange', 'textDocument/didSave']);
+    const change = calls.lsp[0]!;
+    expect(change.params.textDocument.version).toBe(2);
+    expect(change.params.contentChanges[0].text).toBe('hello there');
+  });
+
+  it('closing a tab closes it on the server', async () => {
+    disk.set('notes.tex', 'notes');
+    await openFile('notes.tex');
+    calls.lsp = [];
+    await closeTab('notes.tex');
+
+    const closes = calls.lsp.filter((c) => c.method === 'textDocument/didClose');
+    expect(closes[0]?.params.textDocument.uri).toBe('file:///proj/notes.tex');
+  });
+
+  /** The reason the restart path exists: a fresh TexLab has never heard of these files, and
+   * carrying on from the old version numbers would leave the two permanently out of step. */
+  it('re-opens every document at version 1 after the server restarts', async () => {
+    disk.set('notes.tex', 'notes');
+    await openFile('notes.tex');
+    type(' more'); // bump main.tex past version 1
+    await vi.advanceTimersByTimeAsync(700);
+    calls.lsp = [];
+
+    lspHandler({ kind: 'restarted', restarts: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    const reopened = calls.lsp.filter((c) => c.method === 'textDocument/didOpen');
+    expect(reopened.map((c) => c.params.textDocument.uri)).toEqual([
+      'file:///proj/main.tex',
+      'file:///proj/notes.tex',
+    ]);
+    for (const open of reopened) {
+      expect(open.params.textDocument.version).toBe(1);
+    }
+    // And the latest text, not what the file was first opened with. `notes.tex` was the active
+    // tab when ' more' was typed, so it is the one that changed.
+    expect(reopened[1]?.params.textDocument.text).toBe('notes more');
+    expect(reopened[0]?.params.textDocument.text).toBe('hello');
+    expect(app.lspReady).toBe(true);
+  });
+
+  it('a stopped server is reported quietly and stops further traffic', async () => {
+    lspHandler({ kind: 'stopped', message: 'TexLab crashed 5 times' });
+    calls.lsp = [];
+
+    expect(app.lspReady).toBe(false);
+    expect(app.lspMessage).toBe('TexLab crashed 5 times');
+    // A notice is for something the author must act on; losing completion is not that.
+    expect(app.notice).toBeNull();
+
+    type(' more');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(calls.lsp).toHaveLength(0);
+  });
+
+  /** The commitment that matters most here: DESIGN.md §2 number 6. No TexLab, no language
+   * features — and everything else works exactly as before. */
+  it('opens the project and compiles normally when TexLab is missing', async () => {
+    lspStartError = 'No TexLab binary found. Run `pnpm fetch-lsp`.';
+    calls.lsp = [];
+    await openFolder('/proj');
+
+    expect(app.lspReady).toBe(false);
+    expect(app.lspMessage).toContain('No TexLab binary found');
+    expect(app.notice).toBeNull(); // not raised at the author
+    expect(calls.lsp).toHaveLength(0); // nothing sent to a server that is not there
+
+    // The editor is fully alive: the file opened, and typing still saves and rebuilds.
+    expect(app.activePath).toBe('main.tex');
+    calls.compiles = 0;
+    type(' there');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('main.tex')).toBe('hello there');
+    expect(calls.compiles).toBe(1);
   });
 });

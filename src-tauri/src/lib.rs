@@ -3,6 +3,7 @@
 //! Module map (each module's own doc comment says what it owns and must never do):
 //! - [`project`]  — a folder on disk: file tree, root `.tex` detection, `preamble.toml`.
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
+//! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
 //!
@@ -11,6 +12,7 @@
 
 pub mod commands;
 pub mod compile;
+pub mod lsp;
 pub mod project;
 pub mod watcher;
 
@@ -21,6 +23,7 @@ use preamble_engine::Engine;
 use tracing_subscriber::EnvFilter;
 
 use crate::compile::Orchestrator;
+use crate::lsp::LspSession;
 use crate::project::Project;
 use crate::watcher::{ProjectWatcher, WrittenHashes};
 
@@ -38,6 +41,9 @@ pub struct AppState {
     pub watcher: Mutex<Option<ProjectWatcher>>,
     /// Content hashes of files *we* wrote, so the watcher can tell our writes from external ones.
     pub written: WrittenHashes,
+    /// The language server for the open project. Empty until the frontend asks for one: the
+    /// editor must open and compile without TexLab (DESIGN.md §2, commitment 6).
+    pub lsp: LspSession,
 }
 
 impl AppState {
@@ -55,6 +61,7 @@ impl AppState {
             orchestrator: Orchestrator::new(engine),
             watcher: Mutex::new(None),
             written: WrittenHashes::default(),
+            lsp: LspSession::default(),
         }
     }
 }
@@ -82,6 +89,10 @@ pub fn run() {
             commands::cancel_compile,
             commands::read_log,
             commands::diff_ops,
+            commands::lsp_start,
+            commands::lsp_request,
+            commands::lsp_notify,
+            commands::lsp_respond,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Preamble window");

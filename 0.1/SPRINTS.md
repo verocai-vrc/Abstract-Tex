@@ -354,7 +354,7 @@ through `compile.rs` to the drawer, which is S2.7.
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S3.1 TexLab sidecar fetch script and `externalBin`; Rust owns process lifecycle and stdio (`DESIGN.md` §4.1 note 3) | M | S1.3 |
-| [~] | S3.2 JSON-RPC bridge: Rust ↔ TexLab over stdio, Tauri events ↔ TypeScript; request/response correlation, restart on crash | L | S3.1 |
+| [x] | S3.2 JSON-RPC bridge: Rust ↔ TexLab over stdio, Tauri events ↔ TypeScript; request/response correlation, restart on crash | L | S3.1 |
 | [ ] | S3.3 CodeMirror LSP adapter: completion, hover, diagnostics, go-to-definition, document symbols | L | S3.2 |
 | [ ] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
@@ -379,11 +379,12 @@ Worth keeping: `Error: disconnected channel` on TexLab's stderr is what it print
 closes, **not** a failure. It appears on a perfectly good one-shot `printf | texlab` probe, and
 cost a detour before that was clear.
 
-**S3.2 (11 September 2026).** `[~]`: the Rust half is built, tested and green on rungs 1–3; the
-`Tauri events ↔ TypeScript` half of the card is **not written**, and neither is the frontend
-client. `crates/preamble-lsp/src/bridge.rs` is 25 tests' worth of correlation and supervision and
-depends on neither Tauri nor the editor, so it tests with no window — the same separation §4 chose
-the library crates for. What a reader should take from the diff:
+**S3.2 (11 September 2026).** `[x]`: both halves of the card are built and green on rungs 1–3.
+`crates/preamble-lsp/src/bridge.rs` is the Rust half — correlation and supervision, depending on
+neither Tauri nor the editor, so it tests with no window, the same separation §4 chose the library
+crates for. `src-tauri/src/lsp.rs` plus four commands are the seam to Tauri, and `src/lib/lsp.ts`
+is the frontend client. 90 Vitest tests (25 new) and 27 in `preamble-lsp`. What a reader should
+take from the diff:
 
 1. **Correlation is a table of parked `oneshot` senders, and the id goes in *before* the send.**
    `request` allocates an id, inserts its half of a `oneshot` into `Arc<Mutex<HashMap<i64, …>>>`,
@@ -400,6 +401,30 @@ the library crates for. What a reader should take from the diff:
    fix, and an unbounded loop would burn a core instead of surfacing the problem.
 3. **The bridge never interprets a method.** `textDocument/completion` is a string here. Turning
    protocol into CodeMirror behaviour is S3.3's job, in TypeScript (DESIGN.md §4.1).
+4. **Version numbers are the frontend's whole job, and the restart is why.** `src/lib/lsp.ts`
+   tracks which files the server believes are open and what version each is on, because LSP
+   requires every `didChange` to count strictly upward per file. The case that makes it worth a
+   module: when the bridge restarts a crashed server, the new process has never heard of any of
+   our documents — continuing from version 4 leaves the two permanently out of step, and
+   completion then answers from text nobody is looking at. `resync()` re-opens every document at
+   version 1 with its *latest* text, and `controller.svelte.ts` calls it on the `restarted` event.
+   Tested both in isolation and through the controller with a recording transport.
+5. **No TexLab is a degraded mode, not an error.** `lsp_start` failing sets a muted status-bar
+   label and nothing else: no notice, no dialog. A test opens the project with the server missing
+   and asserts the editor still opens the file, saves on the 700 ms debounce, and compiles —
+   DESIGN.md §2 commitment 6 is the kind of rule that only stays true if something checks it.
+   `didChange` rides the existing save debounce rather than every keystroke, so commitment 2
+   (<16 ms keystrokes) is unaffected.
+
+**Rung 3 reaches the feature now, not just the handshake.**
+`the_real_texlab_completes_an_environment_name` runs the sequence the frontend sends —
+`initialize`, `didOpen`, `completion` inside a `\begin{` — against the real TexLab 5.26.0 and
+asserts `itemize` comes back. A break in the protocol path fails a test rather than waiting for
+someone to notice completion is quiet. `cargo test -p preamble-lsp -- --ignored` runs it.
+
+Deliberately not done here: rendering any of this. Completion lists, hover cards, go-to-definition
+and `publishDiagnostics` on screen are S3.3, which is why `handleLspEvent` ignores notifications
+today. The plumbing is what this loop owed.
 
 **The machine question from sprints 1 and 2 is half answered.** `cargo test -p preamble` — the
 Tauri app crate — **builds and passes here**: 18 tests, including the four in `compile.rs` that

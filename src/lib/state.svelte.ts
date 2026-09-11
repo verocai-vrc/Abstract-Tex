@@ -31,6 +31,13 @@ class AppState {
   /** `undefined` = not probed yet; `null` = no engine found. */
   engine = $state<EngineInfo | null | undefined>(undefined);
 
+  /** Is the language server answering? False when TexLab is missing or has stopped for good.
+   * Everything the editor does apart from completion and hover works either way — the status
+   * bar says so quietly rather than raising a notice (DESIGN.md §2, commitment 6). */
+  lspReady = $state(false);
+  /** Why language features are unavailable, for the status bar. `null` when they are. */
+  lspMessage = $state<string | null>(null);
+
   /**
    * Every file currently open in a tab, keyed by project-relative path (S2.3). Not deeply
    * reactive — each value is a class with its own listeners — so the controller replaces the

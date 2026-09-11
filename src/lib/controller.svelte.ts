@@ -2,21 +2,103 @@
 // build finishing, react to a file changing on disk. Components call these; nothing else
 // mutates `app`.
 
-import { ipc, type CompileEvent, type Diagnostic, type FsEvent } from './ipc';
+import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
+import { LspClient } from './lsp';
 import { isTexSource, toRelative } from './paths';
 import { app } from './state.svelte';
 
 const backend: DocumentBackend = {
   writeFile: (path, contents) => ipc.writeFile(path, contents),
   diffOps: (oldText, newText) => ipc.diffOps(oldText, newText),
-  afterSave: () => void triggerCompile(),
+  afterSave: (path) => {
+    // The server hears about the new text here rather than on every keystroke: a save is
+    // already debounced to 700 ms idle, and `didChange` is the message TexLab reparses on.
+    syncDocumentToServer(path);
+    void triggerCompile();
+  },
 };
 
 /** The live tab set. `state.svelte.ts` holds a reactive snapshot of what this owns; `syncTabs`
  * below is the one place that copies from here into there. */
 const manager = new DocumentManager(backend);
+
+/** Keeps TexLab's idea of each open file in step with ours. Every call is best-effort: the
+ * editor must work with no language server at all (DESIGN.md §2, commitment 6), so nothing here
+ * is ever awaited by a path the author is waiting on. */
+const lsp = new LspClient({
+  request: (method, params) => ipc.lspRequest(method, params),
+  notify: (method, params) => ipc.lspNotify(method, params),
+});
+
+/** The language server's absolute path for a project-relative one. LSP addresses files by URI,
+ * and a URI needs the whole path; the rest of the app speaks in relative paths. */
+function absolutePath(relativePath: string): string | null {
+  const root = app.project?.rootDir;
+  return root ? `${root}/${relativePath}` : null;
+}
+
+/** Run a language-server call, swallowing failures. A dead or missing server must never turn
+ * into a notice about something the author did not ask for. */
+function tellServer(work: (absolute: string) => Promise<unknown>, relativePath: string): void {
+  if (!app.lspReady) return;
+  const absolute = absolutePath(relativePath);
+  if (!absolute) return;
+  void work(absolute).catch((error) => console.warn('language server:', error));
+}
+
+/** Send one document's current text to the server, then tell it the file was saved. */
+function syncDocumentToServer(relativePath: string): void {
+  const text = manager.get(relativePath)?.text();
+  if (text === undefined) return;
+  tellServer(async (absolute) => {
+    await lsp.didChange(absolute, text);
+    await lsp.didSave(absolute);
+  }, relativePath);
+}
+
+/** Ask Rust to start TexLab for the open project. Never throws: a missing language server is a
+ * degraded mode, not a failure to open the folder. */
+async function startLanguageServer(): Promise<void> {
+  app.lspReady = false;
+  app.lspMessage = null;
+  lsp.reset();
+  try {
+    await ipc.lspStart();
+    app.lspReady = true;
+  } catch (error) {
+    app.lspMessage = String(error);
+  }
+}
+
+/** Everything TexLab says without being asked.
+ *
+ * Only the lifecycle cases are handled here. Turning `publishDiagnostics`, completion and hover
+ * into things on screen is S3.3 — this loop's job is to make sure the server is *correct* by
+ * the time that arrives, which is what the restart case below is about. */
+function handleLspEvent(event: LspEvent): void {
+  switch (event.kind) {
+    case 'restarted':
+      // A fresh process has never heard of our open files, so every one goes back at version 1.
+      // Without this the editor and the server disagree about every document from here on, and
+      // completion silently answers from stale text.
+      app.lspReady = true;
+      app.lspMessage = null;
+      void lsp.resync().catch((error) => console.warn('language server resync:', error));
+      break;
+    case 'stopped':
+      app.lspReady = false;
+      app.lspMessage = event.message;
+      lsp.reset();
+      break;
+    case 'notification':
+    case 'request':
+      // S3.3 routes these. Ignored rather than logged: `publishDiagnostics` arrives on every
+      // keystroke burst and would drown the console.
+      break;
+  }
+}
 
 let jumpNonce = 0;
 let treeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -25,6 +107,7 @@ let treeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 export async function start(): Promise<void> {
   await ipc.onCompile(handleCompileEvent);
   await ipc.onFsChanged((event) => void handleFsEvent(event));
+  await ipc.onLsp(handleLspEvent);
   try {
     app.engine = await ipc.engineInfo();
   } catch (error) {
@@ -46,6 +129,10 @@ export async function openFolder(path?: string): Promise<void> {
     app.pdfUrl = null;
     app.compile = { ...app.compile, phase: 'idle', diagnostics: [], message: null };
     app.notice = null;
+    // Start the language server before opening the first file, so that file's `didOpen` is the
+    // server's first news of it. Failure is a status line, not a notice: the editor, the
+    // compile loop and the PDF all work without it.
+    await startLanguageServer();
     if (info.rootFile) {
       await openFile(info.rootFile);
       await triggerCompile();
@@ -81,6 +168,7 @@ export async function openFile(relativePath: string): Promise<void> {
     doc.onDirtyChange = (isDirty) => setDirty(relativePath, isDirty);
     syncTabs();
     app.activePath = relativePath;
+    tellServer((absolute) => lsp.didOpen(absolute, text), relativePath);
   } catch (error) {
     app.notice = `Could not open ${relativePath}: ${String(error)}`;
   }
@@ -96,6 +184,7 @@ export async function closeTab(path: string): Promise<void> {
   const next = manager.close(path);
   syncTabs();
   if (app.activePath === path) app.activePath = next;
+  tellServer((absolute) => lsp.didClose(absolute), path);
 }
 
 function closeAllDocuments() {

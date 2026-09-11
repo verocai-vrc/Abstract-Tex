@@ -59,6 +59,17 @@ export type CompileEvent =
     }
   | { status: 'failed'; generation: number; message: string };
 
+/** Anything the language server says without being asked (`src-tauri/src/lsp.rs`).
+ *
+ * `method` and `params` are LSP's own, passed through untouched: Rust owns the process and the
+ * JSON-RPC correlation, TypeScript owns what a method *means* for the editor (DESIGN.md §4.1). */
+export type LspEvent =
+  | { kind: 'notification'; method: string; params: unknown }
+  | { kind: 'request'; id: unknown; method: string; params: unknown }
+  /** The server died and came back. It remembers nothing, so open documents must be re-sent. */
+  | { kind: 'restarted'; restarts: number }
+  | { kind: 'stopped'; message: string };
+
 export interface FsEvent {
   /** Absolute path as the watcher saw it. */
   path: string;
@@ -86,6 +97,16 @@ export const ipc = {
   readLog: () => invoke<string>('read_log'),
   diffOps: (oldText: string, newText: string) => invoke<TextOp[]>('diff_ops', { old: oldText, new: newText }),
 
+  /** Start TexLab for the open project; resolves to its capabilities. Rejects with a sentence
+   * if the binary is missing — the editor keeps working without it. */
+  lspStart: () => invoke<Record<string, unknown>>('lsp_start'),
+  /** Ask the server something and wait for its answer. */
+  lspRequest: <T = unknown>(method: string, params: unknown) => invoke<T>('lsp_request', { method, params }),
+  /** Tell the server something. Returns once handed to the bridge, not once the server read it. */
+  lspNotify: (method: string, params: unknown) => invoke<void>('lsp_notify', { method, params }),
+  /** Answer a request the server made of us, quoting the id from its `lsp` event. */
+  lspRespond: (id: unknown, result: unknown) => invoke<void>('lsp_respond', { id, result }),
+
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {
     const chosen = await openDialog({ directory: true, multiple: false, title: 'Open a LaTeX project folder' });
@@ -99,6 +120,8 @@ export const ipc = {
     listen<CompileEvent>('compile', (e) => handler(e.payload)),
   onFsChanged: (handler: (event: FsEvent) => void): Promise<UnlistenFn> =>
     listen<FsEvent>('fs:changed', (e) => handler(e.payload)),
+  onLsp: (handler: (event: LspEvent) => void): Promise<UnlistenFn> =>
+    listen<LspEvent>('lsp', (e) => handler(e.payload)),
 };
 
 export type Ipc = typeof ipc;

@@ -43,6 +43,10 @@
   {/if}
 
   <span class="spacer"></span>
+  {#if app.lspMessage}
+    <!-- Quiet, not a notice: completion being unavailable does not stop anyone writing. -->
+    <span class="muted" title={app.lspMessage}>no language server</span>
+  {/if}
   <span class={app.engine === null ? 'error' : ''}>{engineLabel}</span>
   <span><kbd>Ctrl</kbd><kbd>S</kbd> save · <kbd>Ctrl</kbd><kbd>B</kbd> build</span>
 </footer>

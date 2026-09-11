@@ -12,6 +12,7 @@ use preamble_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::compile::CompileEvent;
+use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
 use crate::watcher::{self, remember_write};
 use crate::AppState;
@@ -175,4 +176,55 @@ pub fn read_log(state: State<'_, AppState>) -> CommandResult<String> {
 #[tauri::command]
 pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
     preamble_reconcile::diff_ops(&old, &new)
+}
+
+// ---------------------------------------------------------------------------
+// Language server (S3.2). Thin, like everything else here: the session owns the
+// process, `preamble-lsp` owns the protocol, and these four functions only pass
+// messages between the frontend and the bridge.
+// ---------------------------------------------------------------------------
+
+/// Start TexLab for the open project and return its capabilities. Safe to call twice: the
+/// session stops whatever was running first.
+#[tauri::command]
+pub async fn lsp_start(app: AppHandle, state: State<'_, AppState>) -> CommandResult<serde_json::Value> {
+    // Take the directory out from under the lock before any `.await` — the module rule in
+    // `commands`'s doc comment, and the reason this is not one `with_project` call.
+    let root_dir = {
+        let guard = state.project.lock().unwrap();
+        guard.as_ref().ok_or_else(|| "No project is open.".to_string())?.root_dir.clone()
+    };
+
+    let emitter = app.clone();
+    state
+        .lsp
+        .start(&root_dir, move |event: LspEvent| {
+            let _ = emitter.emit("lsp", event);
+        })
+        .await
+}
+
+/// Send a request and wait for the server's answer. Errors — including "the server went away" —
+/// come back as a message, never as a hang.
+#[tauri::command]
+pub async fn lsp_request(
+    state: State<'_, AppState>,
+    method: String,
+    params: serde_json::Value,
+) -> CommandResult<serde_json::Value> {
+    let bridge = state.lsp.bridge()?;
+    bridge.request(&method, params).await.map_err(to_message)
+}
+
+/// Tell the server something without waiting. `textDocument/didChange` goes through here on
+/// every keystroke burst, so it must not block (DESIGN.md §2, commitment 2).
+#[tauri::command]
+pub fn lsp_notify(state: State<'_, AppState>, method: String, params: serde_json::Value) -> CommandResult<()> {
+    state.lsp.bridge()?.notify(&method, params).map_err(to_message)
+}
+
+/// Answer a request the server made of us, quoting the `id` from the `lsp` event.
+#[tauri::command]
+pub fn lsp_respond(state: State<'_, AppState>, id: serde_json::Value, result: serde_json::Value) -> CommandResult<()> {
+    state.lsp.bridge()?.respond(id, result).map_err(to_message)
 }
