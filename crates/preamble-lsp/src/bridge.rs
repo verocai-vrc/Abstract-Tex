@@ -326,13 +326,38 @@ async fn route(body: &[u8], pending: &Pending, incoming: &mpsc::UnboundedSender<
 
 /// LSP addresses files by URI, not path. Enough of a conversion for local absolute paths, which
 /// is all a local-first editor ever has; a full RFC 8089 implementation is not needed here.
+///
+/// The percent-encoding is not optional. A path like `C:\LaTeX Editor\paper` becomes an invalid
+/// URI if the space is left as it is, and TexLab answers with `unexpected character at index N`
+/// and closes its output — which then reads, from our side, as a language server that crashed on
+/// startup. This repository's own path contains two spaces, so it is the common case, not a
+/// corner one.
 pub fn path_to_uri(path: &Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
+    let encoded: String = text.chars().map(encode_char).collect();
     // Windows absolute paths (`C:/x`) need the extra slash that makes an empty authority.
-    if text.starts_with('/') {
-        format!("file://{text}")
+    if encoded.starts_with('/') {
+        format!("file://{encoded}")
     } else {
-        format!("file:///{text}")
+        format!("file:///{encoded}")
+    }
+}
+
+/// Percent-encode one character of a path.
+///
+/// RFC 3986 `unreserved`, plus the few sub-delims that appear in real file names and never
+/// change how a `file:` URI parses, plus `/` and `:` which are structural here. Everything else
+/// — spaces, `#`, `?`, `%`, and any non-ASCII — is encoded from its UTF-8 bytes.
+fn encode_char(c: char) -> String {
+    const KEPT: &str = "-._~!$&'()*+,;=/:@";
+    if c.is_ascii_alphanumeric() || KEPT.contains(c) {
+        c.to_string()
+    } else {
+        let mut buffer = [0u8; 4];
+        c.encode_utf8(&mut buffer)
+            .bytes()
+            .map(|byte| format!("%{byte:02X}"))
+            .collect()
     }
 }
 
@@ -344,6 +369,37 @@ mod tests {
     fn windows_and_unix_paths_both_become_file_uris() {
         assert_eq!(path_to_uri(Path::new("/home/a/p.tex")), "file:///home/a/p.tex");
         assert_eq!(path_to_uri(Path::new(r"C:\Users\a\p.tex")), "file:///C:/Users/a/p.tex");
+    }
+
+    /// The bug the first smoke run found: an unencoded space makes TexLab reject the URI with
+    /// `unexpected character at index N` and close its output, which looks exactly like a
+    /// language server that crashed on startup.
+    #[test]
+    fn spaces_are_percent_encoded() {
+        assert_eq!(
+            path_to_uri(Path::new(r"C:\LaTeX Editor\Abstract Tex\main.tex")),
+            "file:///C:/LaTeX%20Editor/Abstract%20Tex/main.tex"
+        );
+    }
+
+    #[test]
+    fn characters_that_would_change_the_parse_are_encoded_too() {
+        // `#` would start a fragment and `?` a query; `%` must not be taken as an escape.
+        assert_eq!(path_to_uri(Path::new("/a/b#c?d%e.tex")), "file:///a/b%23c%3Fd%25e.tex");
+    }
+
+    #[test]
+    fn non_ascii_is_encoded_from_its_utf8_bytes() {
+        // Two bytes for é, one escape each — not one escape for the code point.
+        assert_eq!(path_to_uri(Path::new("/a/café.tex")), "file:///a/caf%C3%A9.tex");
+    }
+
+    #[test]
+    fn ordinary_path_characters_survive_untouched() {
+        assert_eq!(
+            path_to_uri(Path::new("/a/my-paper_v2.final(1).tex")),
+            "file:///a/my-paper_v2.final(1).tex"
+        );
     }
 
     /// Routing is pure enough to test without a process: build the pieces by hand and feed

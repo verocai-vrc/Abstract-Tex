@@ -440,6 +440,65 @@ Two things fixed in passing, both pre-existing: `crates/preamble-engine/src/tect
 `tauri_build` before any Rust compiles — `pnpm fetch-sidecars` fixes it, and both sidecars
 (Tectonic 0.17.0, TexLab 5.26.0) are now present here.
 
+**The webview opens. (11 September 2026 — the finding that closes sprint 1's open question.)**
+
+`target\debug\preamble.exe` runs on the maintainer's Windows machine: a titled window, WebView2
+initialised, `msedgewebview2.exe` alive as a child, `Responding=True`, the full UI rendered —
+file tree with `main.tex` badged *root*, CodeMirror with `stex` highlighting, the status bar
+reading `Tectonic 0.17.0`. **The sprint 1 diagnosis no longer reproduces**: no
+`failed to create webview (0x80010108)`, and Kaspersky is still installed and running. Whatever
+it was — a KES policy update, or a WebView2 runtime update to 152.0.4191.66 — it is gone, and the
+webview is no longer the thing blocking rung 4.
+
+**`fixtures/paper` compiles inside the app**: `tectonic finished success=true ms=1395`, then
+`build finished generation=1 success=true diagnostics=0`, and a 48 KB `main.pdf` in
+`.preamble/build`. That is the v0.1 exit demo's engine half, performed by the app rather than
+argued for.
+
+Running it found four bugs that no test had caught, three of them in code written this session:
+
+1. **`compile.rs` called bare `tokio::spawn` for the progress forwarder** (line 128), from the
+   synchronous `compile` command where there is no Tokio context. Every build panicked with
+   *"there is no reactor running"* and took the app down. This is precisely the line the
+   copy-into-a-throwaway-crate verification of S2.2 and S2.7 could not see, because that
+   procedure *swaps `tauri::async_runtime::spawn` for `tokio::spawn`* — so the one call that was
+   already wrong was the one the check normalised away. **A verification that edits the code it
+   verifies cannot see bugs in the edit.** Now `tauri::async_runtime::spawn`, like its neighbour.
+2. **`bridge::path_to_uri` did not percent-encode.** A path with a space produces an invalid URI;
+   TexLab answers `unexpected character at index 37` and closes its output, which arrives on our
+   side as a language server that crashed on startup and then crash-looped. Index 37 was the
+   space in `LaTeX Editor` — **this repository's own path**, which is why the unit tests passing
+   meant so little: they all used space-free paths. Encoding added on both sides
+   (`src/lib/lsp.ts` mirrors it), with tests for spaces, `#`, `?`, `%` and non-ASCII.
+3. **`LspSession::start` killed the server whenever the handshake failed.** The `?` on
+   `initialize` returned early, dropping the only `Bridge`; dropping the last one tells the
+   supervisor to kill the process. So a handshake that merely failed also took the server down,
+   and the log read *"restarted, then bridge dropped"* instead of naming the cause. The bridge is
+   now stored before the await, and `stop()` is explicit on the error path.
+4. **`initial_project` broke on paths with spaces.** `preamble C:\My Thesis` arrives as
+   `["C:\My", "Thesis"]` unless quoted, and `nth(1)` took the truncated half. `folder_from_args`
+   now tries the joined tail first, then the first argument; five tests, including the exact
+   case. (Found because the smoke harness hit it, but it is a real bug for any author whose
+   folder has a space in it.)
+
+**Still open, and each wants its own loop:**
+
+- **The PDF pane stays blank** though the PDF is built and on disk. `src/lib/pdf/` loads the
+  pdf.js worker with `?url`, which resolves to an absolute `/assets/…` path; under `tauri dev`
+  the page is served from `tauri://localhost` while the worker URL points at
+  `http://localhost:1420`, and a cross-origin worker load is refused. The empty-message
+  `window.error` in the log matches. That makes rung 4's *"see the PDF update"* the one part of
+  the v0.1 exit demo still unperformed — an S1.10 fix, sized S.
+- **The window renders into roughly the top half of its frame** at 1456×939 (visible in the
+  screenshots). A CSS height problem, not a Rust one.
+- **`cargo build --release` is not the release path.** `tauri.conf.json` sets `devUrl`
+  unconditionally, so even a release binary loads `localhost:1420` and shows Edge's
+  *can't reach this page* without Vite running. `pnpm tauri build` is the supported route and is
+  S2.9's business; worth knowing before anyone tests a release binary the quick way.
+
+Rungs 1–2 stay green throughout: 94 Rust tests, clippy clean with `-D warnings`, `svelte-check`
+clean, 93 Vitest.
+
 ### Sprint 4 — v0.2 exit: navigation
 
 **Exit demo.** `DESIGN.md` §7 v0.2 on `fixtures/thesis` (six files).

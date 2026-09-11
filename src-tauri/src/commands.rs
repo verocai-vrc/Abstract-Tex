@@ -38,10 +38,29 @@ fn with_project<T>(state: &AppState, f: impl FnOnce(&mut Project) -> anyhow::Res
 /// is for smoke tests and CI, where passing arguments through `tauri dev` is awkward.
 #[tauri::command]
 pub fn initial_project() -> Option<String> {
-    let from_args = std::env::args().nth(1).filter(|a| !a.starts_with('-'));
-    let candidate = from_args.or_else(|| std::env::var("PREAMBLE_OPEN").ok())?;
-    let path = Path::new(&candidate);
-    path.is_dir().then(|| candidate.clone())
+    folder_from_args(std::env::args().skip(1))
+        .or_else(|| std::env::var("PREAMBLE_OPEN").ok().filter(|p| Path::new(p).is_dir()))
+}
+
+/// The folder named by the command line, if it names one.
+///
+/// Takes the arguments rather than reading them, so it can be tested.
+///
+/// A path with spaces is the case worth the extra code. `preamble C:\My Thesis` reaches us as
+/// one argument when it was quoted, but as `["C:\My", "Thesis"]` when it was not — and this
+/// repository's own path contains spaces, so the unquoted form is not a corner case. We try the
+/// whole tail joined first, then the first argument alone; whichever is a directory wins. The
+/// ambiguity is real but harmless: a folder that exists is what the author meant.
+fn folder_from_args(args: impl Iterator<Item = String>) -> Option<String> {
+    let candidates: Vec<String> = args.take_while(|a| !a.starts_with('-')).collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    let joined = candidates.join(" ");
+    if Path::new(&joined).is_dir() {
+        return Some(joined);
+    }
+    candidates.into_iter().next().filter(|first| Path::new(first).is_dir())
 }
 
 /// Which engine will run builds, or `None` if nothing was found.
@@ -227,4 +246,51 @@ pub fn lsp_notify(state: State<'_, AppState>, method: String, params: serde_json
 #[tauri::command]
 pub fn lsp_respond(state: State<'_, AppState>, id: serde_json::Value, result: serde_json::Value) -> CommandResult<()> {
     state.lsp.bridge()?.respond(id, result).map_err(to_message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(list: &[&str]) -> impl Iterator<Item = String> + use<> {
+        list.iter().map(|s| s.to_string()).collect::<Vec<_>>().into_iter()
+    }
+
+    #[test]
+    fn a_quoted_path_with_spaces_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let with_spaces = dir.path().join("My Thesis");
+        std::fs::create_dir(&with_spaces).unwrap();
+        let whole = with_spaces.to_string_lossy().into_owned();
+        assert_eq!(folder_from_args(args(&[&whole])), Some(whole));
+    }
+
+    /// The case from the smoke run: the shell split the path on its spaces before we saw it.
+    #[test]
+    fn an_unquoted_path_with_spaces_is_rejoined() {
+        let dir = tempfile::tempdir().unwrap();
+        let with_spaces = dir.path().join("My Thesis");
+        std::fs::create_dir(&with_spaces).unwrap();
+        let whole = with_spaces.to_string_lossy().into_owned();
+        let split: Vec<&str> = whole.split(' ').collect();
+        assert_eq!(folder_from_args(args(&split)), Some(whole));
+    }
+
+    #[test]
+    fn a_path_without_spaces_still_works() {
+        let dir = tempfile::tempdir().unwrap();
+        let plain = dir.path().to_string_lossy().into_owned();
+        assert_eq!(folder_from_args(args(&[&plain])), Some(plain));
+    }
+
+    #[test]
+    fn nothing_is_opened_when_the_argument_is_not_a_directory() {
+        assert_eq!(folder_from_args(args(&["/definitely/not/here"])), None);
+        assert_eq!(folder_from_args(args(&[])), None);
+    }
+
+    #[test]
+    fn flags_are_not_mistaken_for_paths() {
+        assert_eq!(folder_from_args(args(&["--devtools"])), None);
+    }
 }

@@ -14,12 +14,18 @@ export interface LspTransport {
   notify(method: string, params: unknown): Promise<void> | void;
 }
 
-/** Absolute path → `file://` URI. Mirrors `bridge::path_to_uri` in Rust, and for the same
- * reason: a Windows path is `C:\Users\…`, which needs forward slashes and a third slash before
- * the drive letter, or the server reads `C:` as a host name. */
+/** Absolute path → `file://` URI. Mirrors `bridge::path_to_uri` in Rust and must keep matching
+ * it: a Windows path is `C:\Users\…`, which needs forward slashes and a third slash before the
+ * drive letter, or the server reads `C:` as a host name.
+ *
+ * The encoding is the part with teeth. A space in the path makes an invalid URI, and TexLab
+ * answers `unexpected character at index N` and closes its output — which looks from our side
+ * like a server that crashed on startup. `encodeURI` leaves `/` and `:` alone, which is what we
+ * want, but also leaves `#` and `?`, so those two are encoded by hand. */
 export function pathToUri(absolutePath: string): string {
   const text = absolutePath.replace(/\\/g, '/');
-  return text.startsWith('/') ? `file://${text}` : `file:///${text}`;
+  const encoded = encodeURI(text).replace(/[#?]/g, (c) => (c === '#' ? '%23' : '%3F'));
+  return encoded.startsWith('/') ? `file://${encoded}` : `file:///${encoded}`;
 }
 
 /** `file://` URI → absolute path, for turning a server's answer back into something the tree

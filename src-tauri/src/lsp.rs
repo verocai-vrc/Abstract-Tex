@@ -109,12 +109,21 @@ impl LspSession {
 
         // The handshake. `initialize` then `initialized`, in that order, because TexLab enforces
         // it — see the S3.1 outcome in SPRINTS.md for what skipping the notification looks like.
-        let capabilities = bridge
-            .initialize(root, client_capabilities())
-            .await
-            .map_err(|e| format!("The language server did not start: {e}"))?;
+        //
+        // Store the bridge *before* awaiting, not after. On the `?` path an early return would
+        // otherwise drop the only `Bridge`, and dropping the last one tells the supervisor to
+        // kill the process — so a handshake that merely failed would also take the server down,
+        // and the log would read "restarted, then bridge dropped" instead of naming the real
+        // cause. Found by running the app against a project path containing spaces.
+        *self.bridge.lock().unwrap() = Some(bridge.clone());
 
-        *self.bridge.lock().unwrap() = Some(bridge);
+        let capabilities = match bridge.initialize(root, client_capabilities()).await {
+            Ok(capabilities) => capabilities,
+            Err(error) => {
+                self.stop();
+                return Err(format!("The language server did not start: {error}"));
+            }
+        };
         info!(root = %root.display(), "language server ready");
         Ok(capabilities)
     }

@@ -32,6 +32,18 @@ describe('uri conversion', () => {
     }
   });
 
+  it('percent-encodes a space, which an unencoded uri would make TexLab reject', () => {
+    expect(pathToUri('C:\\LaTeX Editor\\main.tex')).toBe('file:///C:/LaTeX%20Editor/main.tex');
+  });
+
+  it('encodes the characters that would otherwise change how the uri parses', () => {
+    expect(pathToUri('/a/b#c?d.tex')).toBe('file:///a/b%23c%3Fd.tex');
+  });
+
+  it('round-trips a path with spaces', () => {
+    expect(uriToPath(pathToUri('/a/my paper/main.tex'))).toBe('/a/my paper/main.tex');
+  });
+
   it('decodes the percent-encoding a server may send back', () => {
     expect(uriToPath('file:///home/a/my%20paper.tex')).toBe('/home/a/my paper.tex');
   });

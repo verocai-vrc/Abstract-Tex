@@ -125,7 +125,13 @@ impl Orchestrator {
         // `CompileEvent::Progress` until the sender side (in the build task below) is dropped.
         let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<String>();
         let progress_on_event = Arc::clone(&on_event);
-        let progress_task = tokio::spawn(async move {
+        // `tauri::async_runtime::spawn`, not `tokio::spawn`: `request` is called from the
+        // synchronous `compile` command, where there is no Tokio context to pick up, and bare
+        // `tokio::spawn` panics with "there is no reactor running" the moment a build starts.
+        // Tauri's own handle always has a runtime behind it. (Found by running the app: the
+        // copy-into-a-throwaway-crate check that S2.2 and S2.7 relied on swaps exactly this
+        // call, so it is the one line that verification could not see.)
+        let progress_task = tauri::async_runtime::spawn(async move {
             while let Some(message) = progress_rx.recv().await {
                 progress_on_event(CompileEvent::Progress { generation, message });
             }
