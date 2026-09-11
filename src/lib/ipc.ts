@@ -37,6 +37,7 @@ export interface QuickError {
 
 export type CompileEvent =
   | { status: 'started'; generation: number; rootFile: string }
+  | { status: 'progress'; generation: number; message: string }
   | {
       status: 'finished';
       generation: number;

@@ -24,7 +24,15 @@ pub mod tectonic;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
+
+/// One line an engine printed to stderr while it ran, sent as soon as it arrives rather than
+/// buffered until the build finishes. Tectonic prints package downloads here on a cold cache,
+/// and DESIGN.md §6 requires that a fetch "is stated plainly with progress — never a silent
+/// hang". A channel sender, rather than a plain callback, because the orchestrator wants to
+/// `.clone()` it into a spawned task while `build()` keeps its own copy.
+pub type ProgressSink = UnboundedSender<String>;
 
 /// What `probe()` learns about an installed engine.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -99,7 +107,16 @@ pub trait Engine: Send + Sync {
 
     /// Run one build. Returns when the engine exits or `cancel` fires, whichever is first.
     /// On cancellation the child process is killed and `EngineError::Cancelled` is returned.
-    async fn build(&self, job: &BuildJob, cancel: CancellationToken) -> Result<BuildOutcome, EngineError>;
+    ///
+    /// Each line the engine writes to stderr is sent on `progress` as it arrives, if a sink is
+    /// given. The same text still lands in [`BuildOutcome::stderr`] for the "raw output" view.
+    /// `None` is for callers that do not surface progress (tests, a one-off probe build).
+    async fn build(
+        &self,
+        job: &BuildJob,
+        cancel: CancellationToken,
+        progress: Option<ProgressSink>,
+    ) -> Result<BuildOutcome, EngineError>;
 }
 
 /// Searches `PATH` for an executable. Small enough to write ourselves rather than pull a crate.

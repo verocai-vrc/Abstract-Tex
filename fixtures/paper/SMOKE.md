@@ -40,6 +40,10 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 2. Click the error: the cursor lands on that line.
 3. *Raw log* shows the log; *Hide raw output* hides it. The raw log is never shown by default.
 4. Restore the brace: the drawer closes on the next successful build.
+5. Delete `.preamble/` (or use a document with a package not yet cached) so Tectonic fetches
+   packages on the next build. While it runs, the status bar's `Compiling… N.Ns` grows a
+   `· Downloading <package>` suffix that changes as each package arrives — never a spinner
+   frozen on the same text for the whole fetch.
 
 ## §4 Keyboard (S2.4)
 

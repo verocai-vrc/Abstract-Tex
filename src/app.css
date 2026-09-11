@@ -231,6 +231,13 @@ kbd {
 }
 .statusbar .warn {
   color: var(--warn);
+  /* A package-fetch progress line can be long; truncate rather than push the other items
+     (engine name, keyboard hints) off the bar. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+  display: inline-block;
+  vertical-align: middle;
 }
 .statusbar .dot {
   display: inline-block;

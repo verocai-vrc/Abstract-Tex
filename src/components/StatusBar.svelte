@@ -18,7 +18,9 @@
 
 <footer class="statusbar">
   {#if app.compile.phase === 'running'}
-    <span class="warn"><span class="dot pulse"></span>Compiling… {elapsed}s</span>
+    <span class="warn">
+      <span class="dot pulse"></span>Compiling… {elapsed}s{app.compile.progress ? ` · ${app.compile.progress}` : ''}
+    </span>
   {:else if app.compile.phase === 'ok'}
     <span class="ok"><span class="dot"></span>Built in {((app.compile.durationMs ?? 0) / 1000).toFixed(1)}s</span>
   {:else if app.compile.phase === 'error'}

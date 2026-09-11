@@ -17,6 +17,8 @@ export interface CompileState {
   /** Why a build could not run at all (no engine, spawn failure). */
   message: string | null;
   stderr: string;
+  /** Latest engine stderr line while a build runs — a cold package fetch, mainly (DESIGN.md §6). */
+  progress: string | null;
 }
 
 export interface Conflict {
@@ -42,6 +44,7 @@ class AppState {
     errors: [],
     message: null,
     stderr: '',
+    progress: null,
   });
 
   /** Asset URL of the last *successful* PDF. Stays put when a build fails (DESIGN.md §6). */

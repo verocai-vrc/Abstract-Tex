@@ -140,7 +140,7 @@ and the first five error rules exist so the demo never shows a raw log.
 | ✓ | Loop | Size | Depends | Verify |
 |---|---|---|---|---|
 | [~] | S2.1 External change → diff → CRDT transaction end to end; dirty-buffer conflict bar (*Keep mine* / *Load from disk*), never an automatic merge | M | S1.6, S1.7, S1.9 | vitest for the decision table; smoke §2 |
-| [ ] | S2.2 Compile feedback: spinner and elapsed time in the status bar, Tectonic package-fetch progress surfaced from stderr, failure count in the drawer, raw log behind one click | M | S1.5, S1.11 | smoke §3 |
+| [~] | S2.2 Compile feedback: spinner and elapsed time in the status bar, Tectonic package-fetch progress surfaced from stderr, failure count in the drawer, raw log behind one click | M | S1.5, S1.11 | smoke §3 |
 | [ ] | S2.3 Multi-document editing: open any `.tex`/`.bib` from the tree, tabs, per-file Y.Doc, save-all on compile | M | S1.9 | `pnpm test -- documents` |
 | [ ] | S2.4 Keyboard: `Ctrl S` save, `Ctrl B`/`F5` compile, `Ctrl O` open folder, `Ctrl P` quick-open file (seed of the palette) | S | S2.3 | smoke §4 |
 | [~] | S2.5 Fixtures: `fixtures/paper` (a real 8-page article), `fixtures/broken` (underscore, undefined control sequence, missing brace), `fixtures/paper/SMOKE.md` manual script | S | — | `cargo test -p preamble-engine -- --ignored` |
@@ -168,6 +168,36 @@ reader should take from the diff:
    nothing.
 3. **Switching files is refused while a bar is up**, rather than flushing a buffer whose fate is
    still an open question. Proper multi-file handling is S2.3.
+
+**S2.2 (10 September 2026).** `[~]` for the same reason as S2.1: rungs 1–2 are green, rung 4
+(smoke §3) waits on the webview problem from sprint 1. Three of the card's four items — the
+status-bar spinner, the drawer's failure count, and the one-click raw log — already existed from
+S1.9/S1.10 wiring; the gap was package-fetch progress, which this loop closes.
+
+1. **Streaming replaces `read_to_end`.** `Tectonic::build` used to buffer the whole of stderr
+   and hand it back only after the process exited — correct for the "raw output" view, useless
+   for showing anything *while* a cold Tectonic run is fetching packages. `pump_stderr` in
+   `crates/preamble-engine/src/tectonic.rs` now reads byte chunks and splits lines itself rather
+   than using `AsyncBufReadExt::lines()`, because `lines()` requires valid UTF-8 and stops dead,
+   silently, on the first byte that isn't — a real risk in engine stderr. Each line is sent on an
+   `Option<ProgressSink>` (a plain `mpsc::UnboundedSender<String>` type alias) the moment it
+   arrives, and still collected into the same string `BuildOutcome::stderr` carried before.
+2. **A second channel, and an ordering bug caught before it shipped.** `Orchestrator::request`
+   forwards progress lines to the frontend through their own `mpsc` channel and task, kept
+   separate from the task that awaits the build and emits `Finished`/`Failed`, because the engine
+   crate must not know it is talking to Tauri. Two independent tasks calling the same `on_event`
+   have no ordering relative to each other by default — an early version of this loop let
+   `Finished` reach the frontend before the `Progress` lines that preceded it, only visible as a
+   flaky test. The fix is to `.await` the forwarder task's `JoinHandle` inside the build task
+   before emitting `Finished`; that is safe because the engine has already dropped its sender by
+   the time `build()` returns, so the forwarder is guaranteed to drain and end once polled.
+3. **Verified without a webview.** `cargo test -p preamble` cannot build here (no `pkg-config`,
+   no root — same limitation the sprint-1 outcome recorded), so `compile.rs`'s real behaviour —
+   including the ordering fix above — was checked by copying it, unmodified but for swapping
+   `tauri::async_runtime::spawn` for `tokio::spawn`, into a throwaway crate that path-depends on
+   the real `preamble-engine` and `texlog`. All four tests and `cargo clippy` passed there before
+   the file was trusted. `cargo test -p preamble -- compile` still needs to run on a machine that
+   can link Tauri, to be sure that swap was the only thing standing between the two.
 
 **S2.6 (10 September 2026).** `crates/texlog/src/rules.rs`: a `Rule` is a matcher `fn` plus an
 explanation `fn`, and `CATALOG` is a `const` slice of them, so S5.5 generalises this rather than

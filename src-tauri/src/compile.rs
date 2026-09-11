@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use preamble_engine::{BuildJob, Engine, EngineError};
 use serde::Serialize;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
@@ -28,6 +29,13 @@ pub enum CompileEvent {
     Started {
         generation: u64,
         root_file: String,
+    },
+    /// One line of engine stderr, as it arrives (DESIGN.md §6: a cold package fetch is stated
+    /// plainly, never a silent hang). There can be many of these between `Started` and
+    /// `Finished`; the frontend keeps only the latest.
+    Progress {
+        generation: u64,
+        message: String,
     },
     Finished {
         generation: u64,
@@ -103,10 +111,34 @@ impl Orchestrator {
 
         on_event(CompileEvent::Started { generation, root_file: job.root_file.to_string_lossy().replace('\\', "/") });
 
+        // `on_event` is called from two places now: this task, when the build finishes, and
+        // the forwarder task below, for every progress line. `Arc` lets both hold a copy
+        // without either owning it outright.
+        let on_event = Arc::new(on_event);
+
+        // Progress lines arrive on a channel rather than through `on_event` directly, because
+        // the engine only knows how to send lines — it must never know it is even talking to
+        // Tauri (preamble-engine's module doc). This task's only job is to relay each one as a
+        // `CompileEvent::Progress` until the sender side (in the build task below) is dropped.
+        let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<String>();
+        let progress_on_event = Arc::clone(&on_event);
+        let progress_task = tokio::spawn(async move {
+            while let Some(message) = progress_rx.recv().await {
+                progress_on_event(CompileEvent::Progress { generation, message });
+            }
+        });
+
         let inner = Arc::clone(&self.inner);
         // Tauri's runtime is Tokio; this works in tests too, where Tauri lazily creates one.
         tauri::async_runtime::spawn(async move {
-            let result = engine.build(&job, token).await;
+            let result = engine.build(&job, token, Some(progress_tx)).await;
+
+            // `build` dropped its end of the progress channel on the way out (whether it
+            // returned `Ok` or `Err`), so the forwarder task above is guaranteed to run to
+            // completion once it is polled. Waiting for it here means every `Progress` event
+            // a build sent is relayed to the frontend before `Finished`/`Failed` is — without
+            // this, the two run on independent tasks with no ordering between them.
+            let _ = progress_task.await;
 
             // Only the build that is still current gets to clear the slot; a superseded build
             // finishing late must not clobber the newer token.
@@ -181,7 +213,12 @@ mod tests {
             Ok(EngineInfo { name: "sleepy".into(), version: "0".into(), path: PathBuf::new() })
         }
 
-        async fn build(&self, _job: &BuildJob, cancel: CancellationToken) -> Result<BuildOutcome, EngineError> {
+        async fn build(
+            &self,
+            _job: &BuildJob,
+            cancel: CancellationToken,
+            _progress: Option<preamble_engine::ProgressSink>,
+        ) -> Result<BuildOutcome, EngineError> {
             tokio::select! {
                 _ = tokio::time::sleep(self.delay) => Ok(BuildOutcome {
                     success: true, pdf: None, log: None, synctex: None,
@@ -189,6 +226,38 @@ mod tests {
                 }),
                 _ = cancel.cancelled() => Err(EngineError::Cancelled),
             }
+        }
+    }
+
+    /// An engine that reports two progress lines before finishing, so the forwarding path in
+    /// `request()` — the whole point of this loop — has something to prove itself against.
+    struct ChattyEngine;
+
+    #[async_trait::async_trait]
+    impl Engine for ChattyEngine {
+        async fn probe(&self) -> Result<EngineInfo, EngineError> {
+            Ok(EngineInfo { name: "chatty".into(), version: "0".into(), path: PathBuf::new() })
+        }
+
+        async fn build(
+            &self,
+            _job: &BuildJob,
+            _cancel: CancellationToken,
+            progress: Option<preamble_engine::ProgressSink>,
+        ) -> Result<BuildOutcome, EngineError> {
+            if let Some(sink) = &progress {
+                let _ = sink.send("Downloading amsmath.sty".to_string());
+                let _ = sink.send("Downloading hyperref.sty".to_string());
+            }
+            Ok(BuildOutcome {
+                success: true,
+                pdf: None,
+                log: None,
+                synctex: None,
+                stderr: String::new(),
+                exit_code: Some(0),
+                duration: Duration::from_millis(1),
+            })
         }
     }
 
@@ -204,6 +273,7 @@ mod tests {
     fn status(event: &CompileEvent) -> (&'static str, u64) {
         match event {
             CompileEvent::Started { generation, .. } => ("started", *generation),
+            CompileEvent::Progress { generation, .. } => ("progress", *generation),
             CompileEvent::Finished { generation, .. } => ("finished", *generation),
             CompileEvent::Failed { generation, .. } => ("failed", *generation),
         }
@@ -261,6 +331,32 @@ mod tests {
         if let CompileEvent::Finished { success, .. } = finished {
             assert!(success);
         }
+    }
+
+    #[tokio::test]
+    async fn progress_lines_arrive_between_started_and_finished_in_order() {
+        let orchestrator = Orchestrator::new(Some(Arc::new(ChattyEngine)));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let generation = orchestrator.request(job(), move |e| {
+            let _ = tx.send(e);
+        });
+
+        let mut messages = Vec::new();
+        loop {
+            match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap() {
+                CompileEvent::Started { generation: g, .. } => assert_eq!(g, generation),
+                CompileEvent::Progress { generation: g, message } => {
+                    assert_eq!(g, generation);
+                    messages.push(message);
+                }
+                finished @ CompileEvent::Finished { .. } => {
+                    assert_eq!(status(&finished), ("finished", generation));
+                    break;
+                }
+                other => panic!("unexpected event: {other:?}"),
+            }
+        }
+        assert_eq!(messages, vec!["Downloading amsmath.sty", "Downloading hyperref.sty"]);
     }
 
     #[tokio::test]

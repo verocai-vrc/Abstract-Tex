@@ -3,12 +3,13 @@
 // every line of the reaction except the Rust on the far side of `invoke`.
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import type { FsEvent, ProjectInfo, TextOp } from './ipc';
+import type { CompileEvent, FsEvent, ProjectInfo, TextOp } from './ipc';
 
 /** The fake disk and the calls made against it. Declared before the mock factory uses it. */
 const disk = new Map<string, string>();
 const calls = { compiles: 0, writes: [] as Array<{ path: string; contents: string }> };
 let fsHandler: (event: FsEvent) => void = () => {};
+let compileHandler: (event: CompileEvent) => void = () => {};
 
 const project: ProjectInfo = {
   rootDir: '/proj',
@@ -53,7 +54,10 @@ vi.mock('./ipc', () => ({
     },
     readLog: async () => '',
     assetUrl: (p: string) => `asset://${p}`,
-    onCompile: async () => () => {},
+    onCompile: async (handler: (event: CompileEvent) => void) => {
+      compileHandler = handler;
+      return () => {};
+    },
     onFsChanged: async (handler: (event: FsEvent) => void) => {
       fsHandler = handler;
       return () => {};
@@ -136,6 +140,43 @@ describe('an external change to the open file', () => {
     // Unsaved edits to a file that no longer exists get written back rather than dropped.
     await vi.advanceTimersByTimeAsync(700);
     expect(disk.get('main.tex')).toBe('hello there');
+  });
+});
+
+describe('compile progress (S2.2)', () => {
+  it('shows the latest engine line while a build runs, and clears it once the build ends', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    expect(app.compile.progress).toBeNull();
+
+    compileHandler({ status: 'progress', generation: 1, message: 'Downloading amsmath.sty' });
+    expect(app.compile.progress).toBe('Downloading amsmath.sty');
+
+    compileHandler({ status: 'progress', generation: 1, message: 'Downloading hyperref.sty' });
+    expect(app.compile.progress).toBe('Downloading hyperref.sty');
+
+    compileHandler({
+      status: 'finished',
+      generation: 1,
+      success: true,
+      pdfPath: null,
+      logPath: null,
+      errors: [],
+      durationMs: 10,
+      stderr: 'Downloading amsmath.sty\nDownloading hyperref.sty\n',
+    });
+    expect(app.compile.progress).toBeNull();
+  });
+
+  it('ignores a progress line from a build that a newer request has already superseded', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
+
+    // A line from the cancelled build 1 arriving late must not overwrite build 2's state.
+    compileHandler({ status: 'progress', generation: 1, message: 'stale line' });
+    expect(app.compile.progress).toBeNull();
+
+    compileHandler({ status: 'progress', generation: 2, message: 'current line' });
+    expect(app.compile.progress).toBe('current line');
   });
 });
 

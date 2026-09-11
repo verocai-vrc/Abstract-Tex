@@ -162,7 +162,14 @@ function handleCompileEvent(event: CompileEvent): void {
         errors: [],
         message: null,
         stderr: '',
+        progress: null,
       };
+      break;
+    case 'progress':
+      // Superseded builds keep streaming lines after a newer one has already started; a stale
+      // line would flash "Downloading…" from a build nobody is waiting on any more.
+      if (event.generation !== app.compile.generation) return;
+      app.compile = { ...app.compile, progress: event.message };
       break;
     case 'finished': {
       if (event.generation < app.compile.generation) return; // superseded
@@ -174,6 +181,7 @@ function handleCompileEvent(event: CompileEvent): void {
         errors: event.errors,
         message: null,
         stderr: event.stderr,
+        progress: null,
       };
       if (event.success && event.pdfPath) {
         // The query string defeats the webview's cache; the path itself never changes.
@@ -187,7 +195,13 @@ function handleCompileEvent(event: CompileEvent): void {
     }
     case 'failed':
       if (event.generation < app.compile.generation) return;
-      app.compile = { ...app.compile, phase: 'failed', generation: event.generation, message: event.message };
+      app.compile = {
+        ...app.compile,
+        phase: 'failed',
+        generation: event.generation,
+        message: event.message,
+        progress: null,
+      };
       app.drawerOpen = true;
       break;
   }
