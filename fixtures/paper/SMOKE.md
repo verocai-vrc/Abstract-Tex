@@ -59,8 +59,21 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 ## §5 Diagnostics drawer (S2.7)
 
-Open `fixtures/broken` instead. The drawer explains the underscore in a sentence (once S2.6
-lands); until then it shows TeX's message and line 5.
+Open `fixtures/broken` instead.
+
+1. The build fails and the drawer opens with **`_ used outside maths`** and two sentences about
+   subscripts and maths mode — not `Missing $ inserted`. The status bar says `1 error`. TeX's
+   own words appear only after clicking *Raw log*.
+2. A red dot sits in the gutter beside line 5; hovering it shows the title. Type a blank line
+   above it: the dot moves down with its line.
+3. Click the card: the cursor lands on line 5. Open a second tab, click the card again: the root
+   file's tab comes to the front first, then the cursor moves.
+4. Back in `fixtures/paper`, add `\cite{nosuch}` and build: the PDF still appears, the drawer
+   stays closed (the build succeeded), and the status bar shows `Built in N.Ns · 1 warning`.
+   Clicking it opens the drawer with an amber card: **`nosuch` is cited but not in the
+   bibliography**.
+5. Trigger an error the catalog does not know (e.g. `\hspace{99999pt}`): the card has a dashed
+   border and says Preamble has no explanation yet, quoting TeX — still never the raw log.
 
 ## §6 Multi-document tabs (S2.3)
 

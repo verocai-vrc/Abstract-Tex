@@ -25,6 +25,7 @@ import {
 import { tags } from '@lezer/highlight';
 import { yCollab } from 'y-codemirror.next';
 import type { OpenDocument } from '../document';
+import { diagnosticGutter } from './diagnostics';
 
 // Colours come from the CSS custom properties in app.css so light and dark both work.
 const latexHighlight = HighlightStyle.define([
@@ -62,6 +63,7 @@ export function createEditor(parent: HTMLElement, doc: OpenDocument): EditorView
     doc: doc.text(),
     extensions: [
       lineNumbers(),
+      diagnosticGutter(),
       highlightActiveLineGutter(),
       highlightSpecialChars(),
       drawSelection(),

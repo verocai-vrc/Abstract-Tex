@@ -66,7 +66,7 @@ vi.mock('./ipc', () => ({
   },
 }));
 
-const { closeTab, openFile, openFolder, quickOpenPick, resolveConflict, start, toggleQuickOpen, triggerCompile } =
+const { closeTab, jumpToDiagnostic, openFile, openFolder, quickOpenPick, resolveConflict, start, toggleQuickOpen, triggerCompile } =
   await import('./controller.svelte');
 const { app } = await import('./state.svelte');
 
@@ -242,7 +242,7 @@ describe('compile progress (S2.2)', () => {
       success: true,
       pdfPath: null,
       logPath: null,
-      errors: [],
+      diagnostics: [],
       durationMs: 10,
       stderr: 'Downloading amsmath.sty\nDownloading hyperref.sty\n',
     });
@@ -314,5 +314,70 @@ describe('quick open (S2.4)', () => {
     app.project = null; // a list of the files in no folder would be an empty box
     toggleQuickOpen();
     expect(app.quickOpenVisible).toBe(false);
+  });
+});
+
+describe('diagnostics (S2.7)', () => {
+  const underscore = {
+    title: '_ used outside maths',
+    explanation: '`_` means "subscript" and only works inside maths mode.',
+    line: 87,
+    severity: 'error' as const,
+    rule: 'missing-dollar',
+    rawMessage: 'Missing $ inserted.',
+  };
+  const citation = {
+    title: '`knuth1984` is cited but not in the bibliography',
+    explanation: 'No entry with the key `knuth1984` was found.',
+    line: 7,
+    severity: 'warning' as const,
+    rule: 'undefined-citation',
+    rawMessage: "Citation `knuth1984' on page 1 undefined on input line 7.",
+  };
+
+  function finished(success: boolean, diagnostics: Array<typeof underscore | typeof citation>) {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler({
+      status: 'finished',
+      generation: 1,
+      success,
+      pdfPath: success ? '/proj/.preamble/build/main.pdf' : null,
+      logPath: '/proj/.preamble/build/main.log',
+      diagnostics,
+      durationMs: 10,
+      stderr: '',
+    });
+  }
+
+  it('a failed build opens the drawer with the sentence, never the raw log', () => {
+    finished(false, [underscore]);
+    expect(app.drawerOpen).toBe(true);
+    expect(app.showRawLog).toBe(false);
+    expect(app.errorCount).toBe(1);
+    expect(app.warningCount).toBe(0);
+    expect(app.compile.diagnostics[0]!.title).toBe('_ used outside maths');
+  });
+
+  it('a clean build with warnings stays quiet but counts them', () => {
+    finished(true, [citation]);
+    expect(app.drawerOpen).toBe(false); // never shouting when the PDF was produced
+    expect(app.warningCount).toBe(1);
+    expect(app.errorCount).toBe(0);
+  });
+
+  it('jumping to a diagnostic brings the root file to the front first', async () => {
+    disk.set('notes.tex', 'notes');
+    await openFile('notes.tex');
+    expect(app.activePath).toBe('notes.tex');
+
+    await jumpToDiagnostic(underscore);
+    expect(app.activePath).toBe('main.tex');
+    expect(app.jumpRequest?.line).toBe(87);
+  });
+
+  it('a diagnostic with no line goes nowhere', async () => {
+    const before = app.jumpRequest;
+    await jumpToDiagnostic({ ...underscore, line: null });
+    expect(app.jumpRequest).toBe(before);
   });
 });

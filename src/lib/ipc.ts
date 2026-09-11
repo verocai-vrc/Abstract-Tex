@@ -28,11 +28,20 @@ export interface EngineInfo {
   path: string;
 }
 
-/** The sprint-1 stand-in for a real diagnostic (texlog::QuickError). */
-export interface QuickError {
-  message: string;
+/** One explained problem from `texlog::Diagnostic` (S2.6): sentences, never a log line. */
+export interface Diagnostic {
+  /** A short noun phrase naming the mistake: "Underscore used outside maths". */
+  title: string;
+  /** Complete sentences saying what happened and what to do. */
+  explanation: string;
+  /** TeX's `l.NN` claim — often approximate, sometimes absent. No file yet: that is S5.2. */
   line: number | null;
-  context: string | null;
+  severity: 'error' | 'warning';
+  /** The rule that matched, or `null` when the catalog has no explanation and `explanation`
+   * is a fallback that quotes TeX. */
+  rule: string | null;
+  /** TeX's own words, kept for the raw view and for support reports. */
+  rawMessage: string;
 }
 
 export type CompileEvent =
@@ -44,7 +53,7 @@ export type CompileEvent =
       success: boolean;
       pdfPath: string | null;
       logPath: string | null;
-      errors: QuickError[];
+      diagnostics: Diagnostic[];
       durationMs: number;
       stderr: string;
     }

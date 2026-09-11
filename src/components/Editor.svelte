@@ -3,11 +3,14 @@
   import { app } from '../lib/state.svelte';
   import { resolveConflict } from '../lib/controller.svelte';
   import { createEditor, goToLine } from '../lib/editor/setup';
+  import { applyDiagnostics } from '../lib/editor/diagnostics';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
 
   let host: HTMLDivElement | undefined = $state();
-  let view: EditorView | null = null;
+  // `$state.raw` rather than a plain `let` so the gutter effect below re-runs when a tab switch
+  // replaces the view; raw because CodeMirror's view must never be proxied.
+  let view = $state.raw<EditorView | null>(null);
 
   // Rebuild the editor whenever the open document changes — including switching tabs: each
   // open file keeps its own Y.Doc (S2.3), but only the active one has a live CodeMirror view.
@@ -26,6 +29,14 @@
   $effect(() => {
     const request = app.jumpRequest;
     if (request && view) goToLine(view, request.line);
+  });
+
+  // Gutter dots for the last build (S2.7). A diagnostic carries a line but no file until S5.2,
+  // so the dots are drawn only on the root file's tab — any other tab would be a guess.
+  $effect(() => {
+    const diagnostics = app.compile.diagnostics;
+    const isRoot = app.activePath !== null && app.activePath === app.project?.rootFile;
+    if (view) applyDiagnostics(view, isRoot ? diagnostics : []);
   });
 </script>
 

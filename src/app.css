@@ -239,6 +239,10 @@ kbd {
   display: inline-block;
   vertical-align: middle;
 }
+.statusbar button.ghost {
+  padding: 1px 6px;
+  font-size: 12px;
+}
 .statusbar .dot {
   display: inline-block;
   width: 8px;
@@ -338,16 +342,27 @@ kbd {
   border-radius: 0 var(--radius) var(--radius) 0;
   cursor: pointer;
 }
+.drawer .diag.warning {
+  border-left-color: var(--warn);
+  background: transparent;
+}
+/* No rule matched: the explanation quotes TeX, and the border says "we are not sure". */
+.drawer .diag.unexplained {
+  border-left-style: dashed;
+}
 .drawer .diag .loc {
   font-family: var(--font-mono);
   color: var(--fg-muted);
   font-size: 12px;
+  padding-top: 1px;
 }
-.drawer .diag .ctx {
+.drawer .diag .title {
+  font-weight: 600;
+}
+.drawer .diag .explanation {
   grid-column: 2;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
   white-space: pre-wrap;
 }
 .drawer pre {

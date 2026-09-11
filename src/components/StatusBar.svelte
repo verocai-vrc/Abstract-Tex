@@ -23,8 +23,15 @@
     </span>
   {:else if app.compile.phase === 'ok'}
     <span class="ok"><span class="dot"></span>Built in {((app.compile.durationMs ?? 0) / 1000).toFixed(1)}s</span>
+    {#if app.warningCount > 0}
+      <button class="ghost warn" onclick={() => (app.drawerOpen = !app.drawerOpen)}>
+        {app.warningCount === 1 ? '1 warning' : `${app.warningCount} warnings`}
+      </button>
+    {/if}
   {:else if app.compile.phase === 'error'}
-    <span class="error"><span class="dot"></span>Build failed</span>
+    <span class="error"><span class="dot"></span>
+      {app.errorCount === 0 ? 'Build failed' : app.errorCount === 1 ? '1 error' : `${app.errorCount} errors`}
+    </span>
   {:else if app.compile.phase === 'failed'}
     <span class="error"><span class="dot"></span>Could not build</span>
   {:else}

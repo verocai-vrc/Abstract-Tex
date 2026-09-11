@@ -43,8 +43,11 @@ pub enum CompileEvent {
         /// Absolute path to the PDF, if one exists. The frontend converts it to an asset URL.
         pdf_path: Option<String>,
         log_path: Option<String>,
-        /// The crude sprint-1 error list. Replaced by real diagnostics in v0.3.
-        errors: Vec<texlog::QuickError>,
+        /// One entry per problem, already explained in sentences by `texlog`'s rule catalog
+        /// (S2.6). Errors and warnings both; the frontend tells them apart by `severity`.
+        /// Carries a line but not yet a file — the paren-stack resolver is S5.2 — so the
+        /// frontend attributes every one to the root file until then.
+        diagnostics: Vec<texlog::Diagnostic>,
         duration_ms: u64,
         /// Engine stderr, for the "raw output" view that is one click away.
         stderr: String,
@@ -151,14 +154,14 @@ impl Orchestrator {
 
             match result {
                 Ok(outcome) => {
-                    let errors = outcome.log.as_deref().map(read_quick_errors).unwrap_or_default();
-                    info!(generation, success = outcome.success, errors = errors.len(), "build finished");
+                    let diagnostics = outcome.log.as_deref().map(read_diagnostics).unwrap_or_default();
+                    info!(generation, success = outcome.success, diagnostics = diagnostics.len(), "build finished");
                     on_event(CompileEvent::Finished {
                         generation,
                         success: outcome.success,
                         pdf_path: outcome.pdf.map(|p| p.to_string_lossy().into_owned()),
                         log_path: outcome.log.map(|p| p.to_string_lossy().into_owned()),
-                        errors,
+                        diagnostics,
                         duration_ms: outcome.duration.as_millis() as u64,
                         stderr: outcome.stderr,
                     });
@@ -186,10 +189,10 @@ impl Orchestrator {
     }
 }
 
-fn read_quick_errors(log_path: &Path) -> Vec<texlog::QuickError> {
+fn read_diagnostics(log_path: &Path) -> Vec<texlog::Diagnostic> {
     match std::fs::read(log_path) {
         // TeX logs are not reliably UTF-8; lossy conversion keeps the parser simple.
-        Ok(bytes) => texlog::quick_errors(&String::from_utf8_lossy(&bytes)),
+        Ok(bytes) => texlog::diagnostics(&String::from_utf8_lossy(&bytes)),
         Err(_) => Vec::new(),
     }
 }

@@ -145,7 +145,7 @@ and the first five error rules exist so the demo never shows a raw log.
 | [~] | S2.4 Keyboard: `Ctrl S` save, `Ctrl B`/`F5` compile, `Ctrl O` open folder, `Ctrl P` quick-open file (seed of the palette) | S | S2.3 | smoke §4 |
 | [~] | S2.5 Fixtures: `fixtures/paper` (a real 8-page article), `fixtures/broken` (underscore, undefined control sequence, missing brace), `fixtures/paper/SMOKE.md` manual script | S | — | `cargo test -p preamble-engine -- --ignored` |
 | [x] | S2.6 First five diagnostic rules in `texlog`: undefined control sequence, missing `$`, missing `}`/runaway argument, undefined reference/citation, file not found — each with a sentence and a fixture (brought forward from sprint 5 so the demo is honest) | M | S1.11 | `cargo test -p texlog` |
-| [ ] | S2.7 Diagnostics drawer v0: sentence per error, click jumps to line, gutter marker; raw log one click away | M | S2.6 | smoke §5 |
+| [~] | S2.7 Diagnostics drawer v0: sentence per error, click jumps to line, gutter marker; raw log one click away | M | S2.6 | smoke §5 |
 | [ ] | S2.8 CI: 3-OS matrix runs `pnpm verify`; Linux installs WebKitGTK deps; engine fetched in CI; `cargo build` of the Tauri app on all three | M | S1.1 | green Actions run |
 | [~] | S2.9 Name decision recorded in `DESIGN.md` §10; README moved to repository root with a real *Building* section; installer smoke on Windows via `pnpm tauri build` | S | — | installer launches and opens `fixtures/paper` |
 
@@ -254,6 +254,32 @@ only. Three things a reader should take from the diff:
 3. **`EditorCallbacks` is deleted, not deprecated.** `createEditor(host, doc)` no longer takes
    save/compile callbacks because CodeMirror no longer has any reason to know those actions
    exist. Less plumbing than before the loop, which is the shape a keyboard loop should have.
+
+**S2.7 (11 September 2026).** `[~]`: rungs 1–2 green, smoke §5 (rewritten for what the drawer
+now does) waits on the webview. The loop that connects S2.6 to the screen.
+
+1. **Rust: one line changed in meaning, ten in text.** `CompileEvent::Finished.errors:
+   Vec<QuickError>` became `diagnostics: Vec<texlog::Diagnostic>` and `read_quick_errors`
+   became `read_diagnostics`. Verified the way S2.2 was: `compile.rs` copied unmodified but for
+   `tauri::async_runtime::spawn` → `tokio::spawn` into a throwaway crate on the real
+   `preamble-engine` and `texlog`; 4 tests and clippy green there. `cargo test -p preamble`
+   still needs a machine that can link Tauri.
+2. **The drawer renders sentences and nothing else.** `Drawer.svelte` shows title +
+   explanation per card, errors before warnings, a dashed border when no rule matched (the
+   explanation then quotes TeX, but says so), and *Raw log* is still one click. `errorCount`
+   and `warningCount` are `$derived` on the state so the drawer's summary and the status bar
+   phrase themselves from the same two numbers: a failed build says `1 error`; a clean build
+   with undefined citations says `Built in 1.3s · 1 warning` and does **not** open the drawer,
+   because the PDF was produced and shouting would be wrong (DESIGN.md §6).
+3. **Gutter dots, and where they are allowed to be.** `src/lib/editor/diagnostics.ts` is a
+   `StateField` of `GutterMarker`s replaced by a `StateEffect` — CodeMirror's own lint-gutter
+   pattern, spelled out with comments for a first reader — that maps its ranges through edits
+   so a dot follows its line as the author types above it. `build()` is exported and tested for
+   the three things that matter: one dot per line, error beats warning on the same line, a line
+   TeX claims past the end of the file is clamped onto the last line. A diagnostic has a line
+   but no *file* until S5.2, so the dots are drawn only on the root file's tab, and
+   `jumpToDiagnostic` brings that tab to the front before moving the cursor — the best
+   available guess, stated as one in the code rather than hidden.
 
 **S2.6 (10 September 2026).** `crates/texlog/src/rules.rs`: a `Rule` is a matcher `fn` plus an
 explanation `fn`, and `CATALOG` is a `const` slice of them, so S5.5 generalises this rather than

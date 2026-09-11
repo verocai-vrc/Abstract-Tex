@@ -2,7 +2,7 @@
 // build finishing, react to a file changing on disk. Components call these; nothing else
 // mutates `app`.
 
-import { ipc, type CompileEvent, type FsEvent } from './ipc';
+import { ipc, type CompileEvent, type Diagnostic, type FsEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { isTexSource, toRelative } from './paths';
@@ -44,7 +44,7 @@ export async function openFolder(path?: string): Promise<void> {
     closeAllDocuments();
     app.project = info;
     app.pdfUrl = null;
-    app.compile = { ...app.compile, phase: 'idle', errors: [], message: null };
+    app.compile = { ...app.compile, phase: 'idle', diagnostics: [], message: null };
     app.notice = null;
     if (info.rootFile) {
       await openFile(info.rootFile);
@@ -177,6 +177,18 @@ export function jumpToLine(line: number): void {
   app.jumpRequest = { line, nonce: ++jumpNonce };
 }
 
+/**
+ * Go to where a diagnostic points. Until the paren-stack resolver lands (S5.2) a diagnostic
+ * carries a line but no file, so every one is taken to be about the root file — which is
+ * right for a single-file paper and the best available guess for anything else.
+ */
+export async function jumpToDiagnostic(diagnostic: Diagnostic): Promise<void> {
+  if (diagnostic.line === null) return;
+  const rootFile = app.project?.rootFile;
+  if (rootFile && app.activePath !== rootFile) await openFile(rootFile);
+  jumpToLine(diagnostic.line);
+}
+
 export async function toggleRawLog(): Promise<void> {
   app.showRawLog = !app.showRawLog;
   if (app.showRawLog) {
@@ -215,7 +227,7 @@ function handleCompileEvent(event: CompileEvent): void {
         generation: event.generation,
         startedAt: Date.now(),
         durationMs: null,
-        errors: [],
+        diagnostics: [],
         message: null,
         stderr: '',
         progress: null,
@@ -234,7 +246,7 @@ function handleCompileEvent(event: CompileEvent): void {
         generation: event.generation,
         startedAt: app.compile.startedAt,
         durationMs: event.durationMs,
-        errors: event.errors,
+        diagnostics: event.diagnostics,
         message: null,
         stderr: event.stderr,
         progress: null,

@@ -2,7 +2,7 @@
 // (controller.svelte.ts) writes to it. Keeping writes in one place makes the flows in
 // DESIGN.md §6 traceable: every state change is a named function there.
 
-import type { EngineInfo, ProjectInfo, QuickError } from './ipc';
+import type { Diagnostic, EngineInfo, ProjectInfo } from './ipc';
 import type { OpenDocument } from './document';
 
 export type CompilePhase = 'idle' | 'running' | 'ok' | 'error' | 'failed';
@@ -13,7 +13,7 @@ export interface CompileState {
   generation: number;
   startedAt: number;
   durationMs: number | null;
-  errors: QuickError[];
+  diagnostics: Diagnostic[];
   /** Why a build could not run at all (no engine, spawn failure). */
   message: string | null;
   stderr: string;
@@ -55,11 +55,16 @@ class AppState {
     generation: 0,
     startedAt: 0,
     durationMs: null,
-    errors: [],
+    diagnostics: [],
     message: null,
     stderr: '',
     progress: null,
   });
+
+  /** How many of the last build's diagnostics are errors, and how many are warnings. The drawer
+   * and the status bar both phrase themselves around these two numbers. */
+  errorCount = $derived(this.compile.diagnostics.filter((d) => d.severity === 'error').length);
+  warningCount = $derived(this.compile.diagnostics.filter((d) => d.severity === 'warning').length);
 
   /** Asset URL of the last *successful* PDF. Stays put when a build fails (DESIGN.md §6). */
   pdfUrl = $state<string | null>(null);
