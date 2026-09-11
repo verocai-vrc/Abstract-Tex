@@ -14,6 +14,8 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "fetch-engine": "node scripts/fetch-tectonic.mjs",
+    "fetch-lsp": "node scripts/fetch-texlab.mjs",
+    "fetch-sidecars": "pnpm fetch-engine && pnpm fetch-lsp",
     "verify:rust": "cargo test --workspace && cargo clippy --workspace --all-targets -- -D warnings",
     "verify:web": "pnpm check && pnpm test",
     "verify": "pnpm verify:rust && pnpm verify:web"

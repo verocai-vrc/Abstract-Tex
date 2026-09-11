@@ -119,23 +119,3 @@ pub trait Engine: Send + Sync {
     ) -> Result<BuildOutcome, EngineError>;
 }
 
-/// Searches `PATH` for an executable. Small enough to write ourselves rather than pull a crate.
-pub(crate) fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-/// `"tectonic"` on Unix, `"tectonic.exe"` on Windows.
-pub(crate) fn exe_name(base: &str) -> String {
-    if cfg!(windows) {
-        format!("{base}.exe")
-    } else {
-        base.to_string()
-    }
-}

@@ -1,0 +1,27 @@
+[package]
+name = "preamble-lsp"
+description = "Owns the TexLab language server process for Preamble: find it, spawn it, frame its stdio. The JSON-RPC bridge to the editor sits on top (S3.2)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+preamble-sidecar = { path = "../preamble-sidecar" }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# A stand-in language server for the process tests: it echoes every frame it receives. A
+# separate binary rather than a trick with the test harness, because the harness prints to
+# stdout and would corrupt the frame stream. `cargo test` builds it and hands its path to the
+# integration tests as CARGO_BIN_EXE_fake-lsp-echo.
+[[bin]]
+name = "fake-lsp-echo"
+path = "src/bin/fake_lsp_echo.rs"
+test = false
+doc = false

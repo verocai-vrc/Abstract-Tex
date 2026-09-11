@@ -66,7 +66,7 @@ jobs:
           key: tectonic-0.17.0-${{ runner.os }}-${{ runner.arch }}
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm fetch-engine
+      - run: pnpm fetch-sidecars
       # `dist/` must exist before the app crate compiles — `generate_context!` embeds it.
       - run: pnpm build
 

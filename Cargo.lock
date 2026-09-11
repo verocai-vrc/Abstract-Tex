@@ -2492,11 +2492,23 @@ name = "preamble-engine"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "preamble-sidecar",
  "serde",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "preamble-lsp"
+version = "0.1.0"
+dependencies = [
+ "preamble-sidecar",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
  "tracing",
 ]
 
@@ -2507,6 +2519,14 @@ dependencies = [
  "proptest",
  "serde",
  "similar",
+]
+
+[[package]]
+name = "preamble-sidecar"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]

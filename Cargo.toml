@@ -9,7 +9,9 @@
 resolver = "2"
 members = [
     "src-tauri",
+    "crates/preamble-sidecar",
     "crates/preamble-engine",
+    "crates/preamble-lsp",
     "crates/preamble-reconcile",
     "crates/texlog",
 ]

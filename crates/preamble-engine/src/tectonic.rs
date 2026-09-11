@@ -12,7 +12,7 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::{exe_name, find_on_path, BuildJob, BuildOutcome, Engine, EngineError, EngineInfo, ProgressSink};
+use crate::{BuildJob, BuildOutcome, Engine, EngineError, EngineInfo, ProgressSink};
 
 /// Set this to point Preamble at a specific Tectonic binary. Useful for testing a new release.
 pub const ENV_OVERRIDE: &str = "PREAMBLE_TECTONIC";
@@ -24,35 +24,14 @@ pub struct Tectonic {
 }
 
 impl Tectonic {
-    /// Locate a Tectonic binary, or return `EngineError::NotFound`.
-    ///
-    /// Order matters and is deliberate:
-    /// 1. `PREAMBLE_TECTONIC` — an explicit choice always wins.
-    /// 2. The sidecar Tauri bundles next to our executable — the "zero setup" path.
-    /// 3. `PATH` — a user who already has Tectonic installed.
+    /// Locate a Tectonic binary, or return `EngineError::NotFound`. The search order — an
+    /// explicit `PREAMBLE_TECTONIC`, then the bundled sidecar, then `PATH` — lives in
+    /// `preamble-sidecar`, shared with the language server (S3.1).
     pub fn locate() -> Result<Self, EngineError> {
-        if let Some(explicit) = std::env::var_os(ENV_OVERRIDE) {
-            let path = PathBuf::from(explicit);
-            if path.is_file() {
-                info!(?path, "using Tectonic from {ENV_OVERRIDE}");
-                return Ok(Self { binary: path });
-            }
-            warn!(?path, "{ENV_OVERRIDE} is set but is not a file; ignoring");
+        match preamble_sidecar::locate("tectonic", ENV_OVERRIDE) {
+            Some(found) => Ok(Self { binary: found.path }),
+            None => Err(EngineError::NotFound),
         }
-
-        if let Some(sidecar) = Self::sidecar_path() {
-            if sidecar.is_file() {
-                info!(?sidecar, "using bundled Tectonic sidecar");
-                return Ok(Self { binary: sidecar });
-            }
-        }
-
-        if let Some(on_path) = find_on_path(&exe_name("tectonic")) {
-            info!(?on_path, "using Tectonic from PATH");
-            return Ok(Self { binary: on_path });
-        }
-
-        Err(EngineError::NotFound)
     }
 
     /// Use a specific binary. Tests use this; the app uses `locate()`.
@@ -62,16 +41,6 @@ impl Tectonic {
 
     pub fn binary(&self) -> &Path {
         &self.binary
-    }
-
-    /// Tauri places `externalBin` sidecars beside the main executable, with the target triple
-    /// stripped from the name: `binaries/tectonic-x86_64-pc-windows-msvc.exe` in the repo
-    /// becomes `tectonic.exe` next to `preamble.exe`. This is true in `tauri dev` too, because
-    /// `tauri-build` copies sidecars into `target/debug/`.
-    fn sidecar_path() -> Option<PathBuf> {
-        let exe = std::env::current_exe().ok()?;
-        let dir = exe.parent()?;
-        Some(dir.join(exe_name("tectonic")))
     }
 
     /// The command line for one job. Split out so a unit test can check it without running
@@ -253,6 +222,7 @@ fn hide_console_window(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use preamble_sidecar::find_on_path;
     use std::time::Duration;
 
     fn job(dir: &Path) -> BuildJob {
@@ -306,15 +276,7 @@ mod tests {
                 // Tests run from target/debug/deps, so the sidecar is not beside us. Fall back
                 // to the repo's binaries/ folder before giving up.
                 let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-                let bin_dir = repo.join("src-tauri").join("binaries");
-                let found = std::fs::read_dir(&bin_dir)
-                    .ok()
-                    .and_then(|rd| {
-                        rd.filter_map(Result::ok)
-                            .map(|e| e.path())
-                            .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("tectonic-")))
-                    })
-                    .expect("run `pnpm fetch-engine` first");
+                let found = preamble_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine` first");
                 Tectonic::at(found)
             }
             Err(e) => panic!("{e}"),

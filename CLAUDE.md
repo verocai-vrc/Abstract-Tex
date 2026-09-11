@@ -29,6 +29,20 @@ cargo test -p <crate>        # one crate
 cargo test -p preamble-engine -- --ignored   # real Tectonic build of fixtures/minimal (network on first run)
 ```
 
+## The team
+
+Four role agents live in `.claude/agents/`; `/sprint-loop [S<n>.<m>]` runs a loop through them.
+
+| Agent | Owns | Writes |
+|---|---|---|
+| `architect` | loop cards, dependency checks, splits, `DESIGN.md` decisions | nothing (read-only) |
+| `builder` | steps 1–4 of the loop: orient, build, test, verify | code, tests, fixtures |
+| `reviewer` | verification ladder, §2 commitments, §5 never-do list, real bugs | nothing (read-only) |
+| `scribe` | `SPRINTS.md` tick + outcome, commit message, maintainer debrief | docs only |
+
+The card is the contract between them. Briefs carry the card and the previous agent's report
+verbatim, nothing else. Fix rounds resume the same builder rather than spawning a new one.
+
 On this Windows machine cargo lives at `%USERPROFILE%\.cargo\bin`; new shells may need it on PATH.
 
 ## Rust is written for a learner
