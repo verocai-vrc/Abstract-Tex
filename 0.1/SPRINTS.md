@@ -353,12 +353,67 @@ through `compile.rs` to the drawer, which is S2.7.
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S3.1 TexLab sidecar fetch script and `externalBin`; Rust owns process lifecycle and stdio (`DESIGN.md` §4.1 note 3) | M | S1.3 |
-| [ ] | S3.2 JSON-RPC bridge: Rust ↔ TexLab over stdio, Tauri events ↔ TypeScript; request/response correlation, restart on crash | L | S3.1 |
+| [x] | S3.1 TexLab sidecar fetch script and `externalBin`; Rust owns process lifecycle and stdio (`DESIGN.md` §4.1 note 3) | M | S1.3 |
+| [~] | S3.2 JSON-RPC bridge: Rust ↔ TexLab over stdio, Tauri events ↔ TypeScript; request/response correlation, restart on crash | L | S3.1 |
 | [ ] | S3.3 CodeMirror LSP adapter: completion, hover, diagnostics, go-to-definition, document symbols | L | S3.2 |
 | [ ] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
 | [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
+
+**S3.1 (11 September 2026).** `[x]`. The crate, the fetch script and the `externalBin` entry
+were already written; what closed the loop was running its `--ignored` test against the real
+TexLab 5.26.0 for the first time, on Windows, which failed twice and for two real reasons:
+
+1. **`format!("file://{path}")` is not a URI on Windows.** A temp dir is `C:\Users\…\.tmpXYZ`,
+   so that format string produces `file://C:\Users\…` — backslashes kept, and two slashes where
+   a drive letter needs three. TexLab parsed `C:` as the *host*, rejected the request and exited;
+   the test saw only `Err(Exited)` with no explanation. The conversion now lives in exactly one
+   place, `bridge::path_to_uri`, and the test calls it.
+2. **`initialized` is not optional.** The test sent `initialize`, then `shutdown`. TexLab 5.26
+   enforces the spec's ordering and answers that with `expected initialized notification, got:
+   shutdown`, then exits — so the assertion that failed was the *shutdown* reply, three lines
+   below the real mistake. `Bridge::initialize` sends the notification for real callers; the
+   process-level test now sends it by hand.
+
+Worth keeping: `Error: disconnected channel` on TexLab's stderr is what it prints when stdin
+closes, **not** a failure. It appears on a perfectly good one-shot `printf | texlab` probe, and
+cost a detour before that was clear.
+
+**S3.2 (11 September 2026).** `[~]`: the Rust half is built, tested and green on rungs 1–3; the
+`Tauri events ↔ TypeScript` half of the card is **not written**, and neither is the frontend
+client. `crates/preamble-lsp/src/bridge.rs` is 25 tests' worth of correlation and supervision and
+depends on neither Tauri nor the editor, so it tests with no window — the same separation §4 chose
+the library crates for. What a reader should take from the diff:
+
+1. **Correlation is a table of parked `oneshot` senders, and the id goes in *before* the send.**
+   `request` allocates an id, inserts its half of a `oneshot` into `Arc<Mutex<HashMap<i64, …>>>`,
+   and only then writes the frame — because a fast server can reply before `send` returns, and an
+   entry inserted afterwards would race a response that has already arrived. The test that earns
+   the module is `answers_go_to_the_right_caller_when_they_arrive_out_of_order`: a `slow` request
+   answered after a `quick` one sent later. Anything matching answers by arrival order swaps them.
+2. **One `select!` loop owns the process, not two tasks.** Writing and reading could each be their
+   own task, but a restart swaps *both* pipes at once, and a writer holding the old stdin would
+   write into a dead process. One loop means one place where `running` is replaced. On a crash the
+   supervisor clears the pending table first — dropping every `oneshot` sender wakes its receiver
+   with `Dropped` — so a caller waiting on the dead server gets an error rather than hanging
+   forever. `MAX_RESTARTS` is 5: a server dying repeatedly is broken in a way respawning will not
+   fix, and an unbounded loop would burn a core instead of surfacing the problem.
+3. **The bridge never interprets a method.** `textDocument/completion` is a string here. Turning
+   protocol into CodeMirror behaviour is S3.3's job, in TypeScript (DESIGN.md §4.1).
+
+**The machine question from sprints 1 and 2 is half answered.** `cargo test -p preamble` — the
+Tauri app crate — **builds and passes here**: 18 tests, including the four in `compile.rs` that
+S2.2 and S2.7 could only verify by copying the file into a throwaway crate. The cancel-and-restart
+test and S2.2's event-ordering fix pass in place, so that `tokio::spawn`-for-`tauri::async_runtime
+::spawn` swap was indeed the only thing between the two, as those outcomes hoped. The whole
+workspace is clippy-clean with `-D warnings`. What this does **not** answer is the webview: no
+`pnpm tauri dev` was attempted, so every smoke section and the v0.1 exit demo still wait.
+
+Two things fixed in passing, both pre-existing: `crates/preamble-engine/src/tectonic.rs` imported
+`warn` without using it, which fails `cargo clippy -- -D warnings` and so had been breaking
+`pnpm verify` at rung 2; and `src-tauri/binaries/` was empty on this machine, which fails
+`tauri_build` before any Rust compiles — `pnpm fetch-sidecars` fixes it, and both sidecars
+(Tectonic 0.17.0, TexLab 5.26.0) are now present here.
 
 ### Sprint 4 — v0.2 exit: navigation
 

@@ -101,7 +101,10 @@ async fn the_real_texlab_answers_initialize() {
     let root = tempfile::tempdir().unwrap();
     let mut server = texlab.spawn(root.path()).await.unwrap();
 
-    let uri = format!("file://{}", root.path().display());
+    // `format!("file://{path}")` is wrong on Windows: a path there is `C:\Users\...`, so the
+    // result keeps its backslashes and has only two slashes — TexLab reads `C:` as the host and
+    // exits. `path_to_uri` is the one place that conversion lives.
+    let uri = preamble_lsp::bridge::path_to_uri(root.path());
     let initialize = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"processId":null,"rootUri":"{uri}","capabilities":{{}}}}}}"#
     );
@@ -111,6 +114,11 @@ async fn the_real_texlab_answers_initialize() {
     assert!(reply.contains(r#""id":1"#), "{reply}");
     assert!(reply.contains("capabilities"), "{reply}");
     assert!(reply.contains("completionProvider"), "TexLab should offer completion: {reply}");
+
+    // The spec requires `initialized` before any other request, and TexLab 5.26 enforces it:
+    // without this it refuses the `shutdown` below and exits. `Bridge::initialize` sends it for
+    // real callers; at this layer the test sends it by hand.
+    server.send(br#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#).await.unwrap();
 
     server.send(br#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#).await.unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), server.recv()).await.unwrap().unwrap();

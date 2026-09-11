@@ -1,6 +1,6 @@
 [package]
 name = "preamble-lsp"
-description = "Owns the TexLab language server process for Preamble: find it, spawn it, frame its stdio. The JSON-RPC bridge to the editor sits on top (S3.2)."
+description = "Owns the TexLab language server process for Preamble: find it, spawn it, frame its stdio, and speak JSON-RPC over it with response correlation and restart-on-crash."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 preamble-sidecar = { path = "../preamble-sidecar" }
 tokio = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
@@ -23,5 +24,13 @@ tempfile = { workspace = true }
 [[bin]]
 name = "fake-lsp-echo"
 path = "src/bin/fake_lsp_echo.rs"
+test = false
+doc = false
+
+# Speaks enough JSON-RPC for the bridge tests (correlation, errors, crash-and-restart). Separate
+# from fake-lsp-echo because that one answers below the JSON layer, and both are still useful.
+[[bin]]
+name = "fake-lsp-rpc"
+path = "src/bin/fake_lsp_rpc.rs"
 test = false
 doc = false

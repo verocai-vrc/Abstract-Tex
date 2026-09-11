@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::{BuildJob, BuildOutcome, Engine, EngineError, EngineInfo, ProgressSink};
 
