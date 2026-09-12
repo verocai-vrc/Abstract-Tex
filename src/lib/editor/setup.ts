@@ -4,7 +4,7 @@
 // fight the Yjs undo manager. Everything else from it is listed explicitly below so a reader
 // can see what the editor is made of.
 
-import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { autocompletion, closeBrackets, closeBracketsKeymap, type CompletionSource } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { bracketMatching, HighlightStyle, indentOnInput, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
@@ -57,7 +57,11 @@ const theme = EditorView.theme({
   '.cm-matchingBracket': { outline: '1px solid var(--syn-bracket)', backgroundColor: 'transparent' },
 });
 
-export function createEditor(parent: HTMLElement, doc: OpenDocument): EditorView {
+export function createEditor(
+  parent: HTMLElement,
+  doc: OpenDocument,
+  completionSource?: CompletionSource,
+): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
     doc: doc.text(),
@@ -79,6 +83,13 @@ export function createEditor(parent: HTMLElement, doc: OpenDocument): EditorView
       EditorView.lineWrapping,
       StreamLanguage.define(stex),
       syntaxHighlighting(latexHighlight),
+      // `override` replaces CodeMirror's built-in word-scanning source entirely rather than
+      // running alongside it — once a language server can answer, its answers are what a LaTeX
+      // author wants (real environment and command names), not words already in the buffer. With
+      // no source (no project open yet) this is simply omitted, and `closeBrackets` above is
+      // still enough to make typing feel finished with no server at all (DESIGN.md §2 commitment
+      // 6).
+      ...(completionSource ? [autocompletion({ override: [completionSource] })] : []),
       // No app shortcuts here: `Ctrl S`, `Ctrl B`, `F5` and the rest are handled once, on the
       // window, by App.svelte (S2.4). A binding in this keymap does not stop propagation, so a
       // copy here would fire the action twice for a keypress inside the editor.

@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
   import { app } from '../lib/state.svelte';
-  import { resolveConflict } from '../lib/controller.svelte';
+  import { lspCompletion, resolveConflict } from '../lib/controller.svelte';
   import { createEditor, goToLine } from '../lib/editor/setup';
   import { applyDiagnostics } from '../lib/editor/diagnostics';
+  import { lspCompletionSource } from '../lib/editor/completion';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
 
@@ -17,13 +18,19 @@
   // CodeMirror owns everything inside `host`; Svelte only provides the element.
   $effect(() => {
     const doc = app.activeDoc;
-    if (!host || !doc) return;
+    const path = app.activePath;
+    if (!host || !doc || !path) return;
     // The teardown below assigns to `view`, and `view` is reactive state this component also
     // reads. An $effect that writes state it depends on re-runs itself forever
     // (effect_update_depth_exceeded), so the instance the teardown needs is held in a local
     // that is never read reactively; `view` is only ever *written* here, for the benefit of
     // the two effects below.
-    const created = createEditor(host, doc);
+    //
+    // The completion source is built fresh per tab, closing over `path`, rather than reading
+    // `app.activePath` at call time: the source runs asynchronously and a tab switch mid-request
+    // must not silently redirect an in-flight query to a different file.
+    const completionSource = lspCompletionSource((line, character) => lspCompletion(path, line, character));
+    const created = createEditor(host, doc, completionSource);
     view = created;
     created.focus();
     return () => {

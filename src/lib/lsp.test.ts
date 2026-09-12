@@ -173,6 +173,46 @@ describe('LspClient document sync', () => {
     expect(client.openUris()).toEqual([]);
     expect(sent).toHaveLength(before);
   });
+
+  /**
+   * The race the reviewer found: the save debounce and a completion request's just-in-time
+   * flush (`controller.svelte.ts`'s `lspCompletion`) can both call `didChange` for the same
+   * file. Each bump of `document.version` happens synchronously, so the numbers themselves are
+   * never wrong — but before this fix, the two `notify` calls could still be in flight at once,
+   * and whichever one's underlying IPC round trip resolved first is the one TexLab would see
+   * first. A transport whose *second* call resolves before its *first* is exactly that ordering
+   * — the version-6 change would have reached the wire before version 5.
+   */
+  it('never lets a later didChange notify before an earlier one for the same file', async () => {
+    const arrived: number[] = [];
+    let releaseFirst: () => void = () => {};
+    const firstIsBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let callCount = 0;
+    const transport: LspTransport = {
+      notify: async (method, params: any) => {
+        callCount++;
+        if (method === 'textDocument/didChange' && callCount === 1) {
+          // Hold the first call open until the test explicitly releases it, simulating a slow
+          // IPC round trip that a second, faster call could otherwise overtake.
+          await firstIsBlocked;
+        }
+        if (method === 'textDocument/didChange') arrived.push(params.textDocument.version);
+      },
+      request: async () => null as never,
+    };
+    const client = new LspClient(transport);
+    await client.didOpen('/p/main.tex', 'a');
+
+    const first = client.didChange('/p/main.tex', 'ab'); // version 2, held open
+    const second = client.didChange('/p/main.tex', 'abc'); // version 3, queued behind it
+
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    expect(arrived).toEqual([2, 3]); // never [3, 2], no matter which IPC call would return first
+  });
 });
 
 describe('LspClient queries', () => {

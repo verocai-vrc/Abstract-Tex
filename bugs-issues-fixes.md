@@ -38,6 +38,15 @@ _(none as of 12 September 2026 — see Fixed below for everything closed this se
 
 ## Fixed
 
+- **`positions.test.ts` asserted the wrong clamp offset for an out-of-range line.** (S3.3a,
+  12 Sep 2026) The test `clamps a line number past the end of the document to the last line`
+  called `positionToOffset(doc, { line: 50, character: 0 })` on a one-line document and expected
+  `doc.line(1).to` (the end of the line) — but `character: 0` clamps to the *start* of the
+  clamped line, `doc.line(1).from`, which is what `positionToOffset` correctly returns. Caught
+  immediately by `pnpm verify` (the assertion failed, not the code), so nothing shipped; logged
+  because CLAUDE.md asks for every bug found during development, test bugs included. Fixed by
+  correcting the expected value to `doc.line(1).from`.
+
 - **PDF pane stayed blank after a fully successful build.** (12 Sep 2026)
   Root cause: `#[serde(tag = "status", rename_all = "camelCase")]` on `CompileEvent`
   (`src-tauri/src/compile.rs`) renames the enum's variant *tags* only, not the fields inside

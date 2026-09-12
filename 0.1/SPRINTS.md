@@ -355,7 +355,9 @@ through `compile.rs` to the drawer, which is S2.7.
 |---|---|---|---|
 | [x] | S3.1 TexLab sidecar fetch script and `externalBin`; Rust owns process lifecycle and stdio (`DESIGN.md` §4.1 note 3) | M | S1.3 |
 | [x] | S3.2 JSON-RPC bridge: Rust ↔ TexLab over stdio, Tauri events ↔ TypeScript; request/response correlation, restart on crash | L | S3.1 |
-| [ ] | S3.3 CodeMirror LSP adapter: completion, hover, diagnostics, go-to-definition, document symbols | L | S3.2 |
+| [x] | S3.3a Protocol types and the completion source: typed `lsp.ts`, `textDocument/completion` as a CodeMirror `autocompletion()` source | M | S3.2 |
+| [ ] | S3.3b Diagnostics merge: `publishDiagnostics` into the editor's problem markers | M | S3.3a |
+| [ ] | S3.3c Hover, go-to-definition, document symbols | M | S3.3a |
 | [ ] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
 | [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
@@ -499,6 +501,45 @@ Running it found four bugs that no test had caught, three of them in code writte
 Rungs 1–2 stay green throughout: 94 Rust tests, clippy clean with `-D warnings`, `svelte-check`
 clean, 93 Vitest.
 
+**S3.3a (12 September 2026).** `[x]`: rungs 1–3 are green; rung 4 (`pnpm tauri dev`, typing
+`\begin{` by hand) is still pending — no webview in this environment, the same standing
+sprint-3 gate as S3.1 and S3.2. `src/lib/lsp-protocol.ts` gives `lsp.ts`'s four request methods
+typed unions instead of `Promise<unknown>`, and `src/lib/editor/completion.ts` turns
+`textDocument/completion` into a CodeMirror `autocompletion()` source. 408 files clean on
+`svelte-check`, 120/120 Vitest across 11 files, clippy clean. What a reader should take from
+the diff:
+
+1. **Hand-written protocol types, not `vscode-languageserver-types`.** `lsp-protocol.ts` defines
+   the ~30 fields this app actually reads (`Position`, `CompletionItem`, `Hover`, …) plus
+   narrowing helpers (`isCompletionList`, `isHover`) instead of pulling in a dependency whose
+   full surface no one here will read. Recorded in §4: a dependency tax on the learner-reader
+   outweighs the benefit at this size.
+2. **`apply` is a plain string, not a captured-offset function.** `completion.ts`'s
+   `lspCompletionSource` sets a completion's `apply` to
+   `textEdit.newText ?? insertText ?? label` and lets CodeMirror remap `from`/`to` itself.
+   The alternative — a closure capturing the offsets at request time — goes stale the moment an
+   intervening edit shifts the document, and would insert into the wrong place. This was a
+   round-1 required finding (corruption like `\begin{itemizeem}`) that the fix round closed.
+3. **`validFor: /^[A-Za-z*]*$/` keeps the request round-trip out of the keystroke path.** Without
+   it, every character typed inside an open completion popup re-queries TexLab and re-flushes
+   `lsp.ts`'s `didChange` first — a second required finding from round 1. With it, CodeMirror
+   filters the existing list client-side until the pattern breaks.
+4. **A per-URI send queue in `lsp.ts` serializes concurrent `didChange` calls.** Completion's
+   just-in-time flush and the save debounce's flush are two independent callers writing to the
+   same file; unserialized, a slow first send can arrive after a fast second one and leave the
+   server holding an older version number than the file it just parsed.
+   `lsp.test.ts` reproduces the old code delivering versions `[3, 2]` and the fix delivering
+   `[2, 3]` — a non-vacuous regression test, not just an assertion that a promise resolved.
+5. **UTF-16 boundaries are tested with an emoji and a CJK line.** `positions.ts` converts between
+   CodeMirror's UTF-16 offsets and LSP's UTF-16 `Position`; `positions.test.ts` pins the
+   surrogate-pair case an ASCII-only fixture would never catch. A bug in the test itself — a
+   wrong clamp assertion for a line past the end of the document — was caught and fixed during
+   this loop's own verify run and is logged in `bugs-issues-fixes.md`.
+
+Carried forward, advisory, not blocking this tick: the reviewer flagged that `src-tauri/gen/`
+and `Abstract-Tex.code-workspace` are untracked and not gitignored. Neither belongs to this
+loop; whichever loop next touches `.gitignore` should add them.
+
 ### Sprint 4 — v0.2 exit: navigation
 
 **Exit demo.** `DESIGN.md` §7 v0.2 on `fixtures/thesis` (six files).
@@ -595,6 +636,7 @@ open. Change them here and in `DESIGN.md` before changing code.
 | CRDT op indices | UTF-16 code units | Y.Text and JavaScript strings count in UTF-16; Rust strings do not. The reconciler converts so the frontend never has to. |
 | File writes | Atomic: write `name.tex.tmp`, then rename | A crash mid-write can never leave a truncated manuscript (`DESIGN.md` §9, row 1). |
 | Self-echo suppression | Content hash of the last write, not a time window | A time window races with slow disks; a hash cannot. |
+| LSP type definitions | Hand-written subset in `src/lib/lsp-protocol.ts`, not `vscode-languageserver-types` | ~30 fields are used; a dependency tax on the learner-reader outweighs the benefit. |
 
 ---
 

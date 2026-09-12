@@ -58,6 +58,45 @@ function syncDocumentToServer(relativePath: string): void {
   }, relativePath);
 }
 
+/**
+ * Ask the language server for completions at a position in the given file, for the editor layer
+ * (`completion.ts`) to call. Returns `null` for every case that must degrade silently rather
+ * than error — no project, no server, or a `didChange` that failed to send — matching what
+ * `tellServer` already does for the fire-and-forget calls above.
+ *
+ * `didChange` normally rides the 700 ms save debounce (S3.2 note 5), which is fine for
+ * `publishDiagnostics` but wrong for completion: an author who has typed `\begin{it` and paused
+ * to read the list must not be offered completions computed from the text before those four
+ * letters. So this flushes the document's *current* text with `lsp.didChange` before asking —
+ * one extra notification per completion request, cheap next to the round trip it precedes, and
+ * it keeps `LspClient`'s version bookkeeping as the one source of truth rather than teaching
+ * `completion.ts` about versions too.
+ */
+export async function lspCompletion(
+  relativePath: string,
+  line: number,
+  character: number,
+): ReturnType<LspClient['completion']> {
+  if (!app.lspReady) return null;
+  const absolute = absolutePath(relativePath);
+  if (!absolute) return null;
+  const text = manager.get(relativePath)?.text();
+  if (text !== undefined) {
+    try {
+      await lsp.didChange(absolute, text);
+    } catch (error) {
+      console.warn('language server:', error);
+      return null;
+    }
+  }
+  try {
+    return await lsp.completion(absolute, line, character);
+  } catch (error) {
+    console.warn('language server:', error);
+    return null;
+  }
+}
+
 /** Ask Rust to start TexLab for the open project. Never throws: a missing language server is a
  * degraded mode, not a failure to open the folder. */
 async function startLanguageServer(): Promise<void> {
