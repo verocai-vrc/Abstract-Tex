@@ -23,8 +23,13 @@ use tracing::{debug, info};
 ///
 /// `#[serde(tag = "status")]` serialises as `{"status": "started", ...}`: one JSON shape the
 /// TypeScript side can switch on.
+// `rename_all` on the enum renames the *variant tags* (`Finished` -> `finished`), not the
+// fields inside each variant: without `rename_all_fields`, `pdf_path` serialised as
+// `pdf_path` while `src/lib/ipc.ts` declared `pdfPath`. TypeScript read `undefined`, the
+// frontend never set `app.pdfUrl`, and the PDF pane stayed blank on a perfectly good build
+// — silently, because nothing had failed. Both attributes are needed.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "status", rename_all = "camelCase")]
+#[serde(tag = "status", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CompileEvent {
     Started {
         generation: u64,
@@ -206,6 +211,54 @@ fn read_diagnostics(log_path: &Path) -> Vec<texlog::Diagnostic> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The frontend reads `event.pdfPath`; serde must spell it that way.
+    ///
+    /// This test exists because the app shipped with `rename_all = "camelCase"` alone, which
+    /// renames variant *tags* and not the fields inside them. Every field of `Finished`
+    /// reached TypeScript as snake_case, `event.pdfPath` was `undefined`, and the PDF pane
+    /// stayed blank after a build that had succeeded — with no error anywhere, because
+    /// nothing had failed. 94 Rust tests and 93 Vitest tests passed throughout: nothing
+    /// asserted on the wire format, which is the one thing the two languages must agree on.
+    #[test]
+    fn finished_serialises_its_fields_in_camel_case() {
+        let event = CompileEvent::Finished {
+            generation: 1,
+            success: true,
+            pdf_path: Some("/tmp/main.pdf".to_string()),
+            log_path: Some("/tmp/main.log".to_string()),
+            diagnostics: Vec::new(),
+            duration_ms: 1234,
+            stderr: String::new(),
+        };
+        let json = serde_json::to_value(&event).expect("event serialises");
+
+        // The names `src/lib/ipc.ts` declares, and the tag the frontend switches on.
+        assert_eq!(json["status"], "finished");
+        assert_eq!(json["pdfPath"], "/tmp/main.pdf");
+        assert_eq!(json["logPath"], "/tmp/main.log");
+        assert_eq!(json["durationMs"], 1234);
+
+        // The snake_case spellings must not be there at all: a field present under both
+        // names would let the frontend keep working while the contract silently rotted.
+        assert!(json.get("pdf_path").is_none(), "pdf_path leaked: {json}");
+        assert!(json.get("log_path").is_none(), "log_path leaked: {json}");
+        assert!(json.get("duration_ms").is_none(), "duration_ms leaked: {json}");
+    }
+
+    /// `Started` carries the other two-word field the frontend reads.
+    #[test]
+    fn started_serialises_root_file_as_camel_case() {
+        let event = CompileEvent::Started {
+            generation: 7,
+            root_file: "main.tex".to_string(),
+        };
+        let json = serde_json::to_value(&event).expect("event serialises");
+        assert_eq!(json["status"], "started");
+        assert_eq!(json["rootFile"], "main.tex");
+        assert!(json.get("root_file").is_none(), "root_file leaked: {json}");
+    }
+
     use preamble_engine::{BuildOutcome, EngineInfo};
     use std::path::PathBuf;
     use std::time::Duration;

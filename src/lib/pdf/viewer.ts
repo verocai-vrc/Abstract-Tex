@@ -9,9 +9,28 @@
 
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?worker&url';
 
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+// The worker is handed to pdf.js as a live Worker object rather than as a URL, and which
+// spelling we use to build it matters more than it looks.
+//
+// The bug this replaces: `?url` yields a root-absolute `/assets/…` path. Under `tauri dev`
+// the page's origin is tauri://localhost while Vite serves from http://localhost:1420, so
+// that path resolves against the wrong origin and the browser refuses to start a
+// cross-origin worker — the PDF pane stays blank with an empty window.error.
+//
+// `new URL(…, import.meta.url)` is *not* a fix here either: Vite compiles it to
+// `new URL('/assets/…', import.meta.url)`, and a root-absolute first argument discards the
+// base, so it lands back on the page origin.
+//
+// `?worker&url` is the spelling that works: Vite bundles the file as a dedicated worker
+// entry and hands back a URL it guarantees is loadable from the page, in dev and in a
+// packaged build alike. `type: 'module'` is required — pdf.js 5 ships an ESM worker — and
+// we set `workerPort` rather than `workerSrc` because we already hold the instance, and
+// pdf.js would otherwise fetch a second copy of it.
+const pdfWorker = new Worker(workerUrl, { type: 'module' });
+
+pdfjs.GlobalWorkerOptions.workerPort = pdfWorker;
 
 export class PdfViewer {
   private document: PDFDocumentProxy | null = null;

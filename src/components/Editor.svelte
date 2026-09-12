@@ -18,10 +18,16 @@
   $effect(() => {
     const doc = app.activeDoc;
     if (!host || !doc) return;
-    view = createEditor(host, doc);
-    view.focus();
+    // The teardown below assigns to `view`, and `view` is reactive state this component also
+    // reads. An $effect that writes state it depends on re-runs itself forever
+    // (effect_update_depth_exceeded), so the instance the teardown needs is held in a local
+    // that is never read reactively; `view` is only ever *written* here, for the benefit of
+    // the two effects below.
+    const created = createEditor(host, doc);
+    view = created;
+    created.focus();
     return () => {
-      view?.destroy();
+      created.destroy();
       view = null;
     };
   });

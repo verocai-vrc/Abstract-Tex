@@ -22,7 +22,10 @@ use tracing::{info, warn};
 /// Same shape as `CompileEvent`: a `#[serde(tag)]` enum, so the TypeScript side switches on one
 /// field. The three cases are the three things that can happen without us asking.
 #[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+// `rename_all_fields` for the reason given on `CompileEvent`: every field here is a single
+// word today, so it changes nothing yet, but a two-word field added later would silently
+// reach TypeScript as snake_case.
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum LspEvent {
     /// The server sent a notification. `method` is the LSP method name, `params` its payload,
     /// both untouched.

@@ -81,6 +81,16 @@ replacement, no semantic PDF library, no mobile.
 - CodeMirror and pdf.js own their DOM subtrees. Svelte mounts a container and stops.
 - Vitest tests live beside the module: `foo.ts` → `foo.test.ts`.
 
+## Bug ledger
+
+Every bug found during development — while building, reviewing, or just running the app —
+gets an entry in `bugs-issues-fixes.md` at the repository root, the moment it is found, not
+after it is fixed. This is how a found problem survives to be fixed instead of being
+forgotten between sessions or, worse, shipped. Update the entry's status in place once
+resolved; never delete one. A `Won't fix` still needs a reason a future reader would accept.
+This applies to every agent role, not only the builder — a reviewer or the maintainer
+finding something while doing something else still logs it there before moving on.
+
 ## Commit messages
 
 `S<sprint>.<loop>: <what changed>` on the first line, then a body that says what a reader should

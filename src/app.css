@@ -115,6 +115,15 @@ kbd {
   background: var(--bg-panel);
 }
 
+/* The Svelte mount point. Without this rule the app renders into roughly the top half of
+   the window: `.app` below asks for `height: 100%`, and a percentage height resolves
+   against the parent's height, but #app is height:auto and so sizes to its content
+   instead of to the viewport. html and body being 100% is not enough — every element in
+   the chain between them and `.app` has to carry the height too. */
+#app {
+  height: 100%;
+}
+
 /* Application layout: toolbar / [sidebar | editor(+drawer) | pdf] / status bar. */
 .app {
   display: grid;

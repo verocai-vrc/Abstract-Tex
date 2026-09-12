@@ -22,6 +22,7 @@
     if (!url || !viewer) return;
     loadError = null;
     viewer.load(url).catch((error: unknown) => {
+      console.error('[pdf] load failed', url, error);
       loadError = String(error);
     });
   });
@@ -35,11 +36,16 @@
 </script>
 
 <section class="pdf-pane" bind:this={container} onwheel={onWheel}>
-  {#if !app.pdfUrl}
+  <!-- A load failure must show even once a URL exists: before, `loadError` was rendered
+       only inside `{#if !app.pdfUrl}`, so a PDF that failed to load left the pane silently
+       blank — indistinguishable from "no build yet". -->
+  {#if loadError}
     <div class="placeholder">
-      {#if loadError}
-        <p>{loadError}</p>
-      {:else if app.compile.phase === 'running'}
+      <p>{loadError}</p>
+    </div>
+  {:else if !app.pdfUrl}
+    <div class="placeholder">
+      {#if app.compile.phase === 'running'}
         <p>Compiling…</p>
       {:else if app.project}
         <p>The PDF will appear here after the first build.</p>
