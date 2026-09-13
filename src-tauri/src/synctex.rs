@@ -129,4 +129,37 @@ mod tests {
         let result = to_relative(Path::new("/proj"), hit);
         assert_eq!(result.file, None);
     }
+
+    /// The whole S3.5 chain against `preamble-synctex`'s own real fixture: `open` finds the
+    /// `.synctex.gz` this module resolves the path for, `inverse_search` answers from it, and
+    /// `to_relative` turns the hit into the shape `synctex_inverse`'s caller gets back — the same
+    /// three calls the Tauri command makes, minus the `State` plumbing `commands.rs` adds.
+    #[test]
+    fn inverse_search_end_to_end_against_the_real_fixture() {
+        // preamble-synctex's fixture directory doubles as this module's "build dir": the
+        // committed `.synctex.gz` is named after the `.tex` it was built from, exactly the
+        // `<stem>.synctex.gz` convention `synctex_path` implements.
+        //
+        // `std::path::absolute` (not `.join("../…")` left as-is) because `paths_match` in
+        // `preamble-synctex` compares paths as strings, and a literal `..` component never gets
+        // resolved by string comparison alone — the `.gz` itself records the fully-resolved path
+        // Tectonic saw when it built this fixture, so this side has to match that, not a
+        // string that merely *points to* the same file. Found by running this test, not guessed.
+        let fixtures =
+            std::path::absolute(Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/preamble-synctex/fixtures"))
+                .unwrap();
+        let table = open(&fixtures, Path::new("multi.tex")).expect("the committed fixture should open");
+
+        // Forward search first, to get a real point on page 1 to click "near" — the same
+        // approach the crate's own real-fixture test uses, rather than guessing coordinates.
+        let source = fixtures.join("multi.tex");
+        let forward = table.forward_search(&source, 3).expect("line 3 is on page 1");
+
+        let position = preamble_synctex::PdfPosition { page: forward.page, x: forward.x, y: forward.y };
+        let hit = table.inverse_search(position).expect("a record exists at this exact point");
+        let result = to_relative(&fixtures, hit);
+
+        assert_eq!(result.file.as_deref(), Some("multi.tex"));
+        assert_eq!(result.line, 3);
+    }
 }

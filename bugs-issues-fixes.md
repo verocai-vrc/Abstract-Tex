@@ -58,6 +58,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **`src-tauri/src/synctex.rs`'s own end-to-end test compared an unresolved `..` path
+  against SyncTeX's fully-resolved one.** (S3.5, 13 Sep 2026) `Path::new(CARGO_MANIFEST_DIR)
+  .join("../crates/preamble-synctex/fixtures")` keeps the literal `..` component; `preamble-
+  synctex::paths_match` compares paths as normalised strings, which never resolves a `..`
+  against a real path built without one — so the test's own path never matched the fixture's
+  `Input:` line, which records the fully-resolved path Tectonic saw when it built the fixture.
+  Fixed by wrapping the join in `std::path::absolute` (the same function `Project::open` in
+  `project.rs` already uses, and for the same stated reason: it normalises without touching the
+  filesystem, unlike `canonicalize`, which would additionally emit Windows's `\\?\` prefix).
+
 - **`mergeMarkers` gave the LSP marker the exact-severity tie, not texlog.** (S3.3b,
   13 Sep 2026) The merge reused `build`'s displacement condition —
   `existing.severity === 'warning' && incoming.severity === 'error'` — for the second pass over

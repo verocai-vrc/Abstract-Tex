@@ -360,7 +360,7 @@ through `compile.rs` to the drawer, which is S2.7.
 | [x] | S3.3c Hover, go-to-definition, document symbols | M | S3.3a |
 | [x] | S3.3d Inline squiggles and diagnostic hover: `Decoration.mark` over LSP ranges | M | S3.3b, S3.3c |
 | [x] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
-| [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
+| [x] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
 | [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
 
 **S3.1 (11 September 2026).** `[x]`. The crate, the fetch script and the `externalBin` entry
@@ -749,6 +749,40 @@ since a single click is pdf.js's own text-selection gesture and must not be stol
 line an editor's cursor is on," so there was no existing convention to match — `Ctrl-Alt-J` was
 chosen fresh, next to `Alt-F12` (go-to-definition) and clear of every binding already in
 `setup.ts`'s keymap and `shortcuts.ts`'s window-level table.
+
+**S3.5 (13 September 2026).** `[x]`: rungs 1–3 are green — `cargo test --workspace` (113 tests,
+one new), `cargo clippy --workspace --all-targets -- -D warnings` clean, `svelte-check` unchanged
+at 0 errors, `pnpm vitest run` 220/220 (the S3.4 commit already added `syncTexInverse`'s tests).
+Rung 4 was not driven interactively this session, the same standing gap S3.4 recorded.
+
+Most of this card's plumbing — the `synctex_inverse` command, `preamble-synctex::inverse_search`
+sharing S3.4's parsed `SyncTex` rather than a second parser, `syncTexInverse` in the controller,
+and `PdfViewer::onInverseSearch`'s double-click handler — was built and tested in the S3.4 commit,
+because the card's own dependency line pointed S3.5 at exactly that shape and building the
+direction twice, a commit apart, would have meant either reparsing or an awkward half-finished
+`SyncTex` API in between. What this loop added:
+
+1. **An end-to-end test through the real committed fixture, not just the two halves separately.**
+   `src-tauri/src/synctex.rs` gained `inverse_search_end_to_end_against_the_real_fixture`: forward
+   search finds a real point on page 1, inverse search is asked about that exact point, and the
+   result is checked against the file and line the fixture is actually built from — the same
+   "prove it against real bytes" standard `preamble-synctex`'s own tests already hold to, applied
+   one layer up, at the layer that turns a hit back into the project-relative path `openFile`
+   needs.
+2. **That test found a third real path bug the same day as S3.4's first two.** `Path::new(...)
+   .join("../crates/preamble-synctex/fixtures")` keeps the literal `..` component, and
+   `paths_match`'s string comparison never resolves it against the fully-resolved path the `.gz`
+   itself records — so the test's own path construction, not the library code, was wrong at
+   first. Fixed with `std::path::absolute`, the same function `project.rs`'s `Project::open`
+   already uses and for the same reason (normalises without `canonicalize`'s `\\?\` prefix).
+   Logged in `bugs-issues-fixes.md` alongside S3.4's two.
+3. **`InverseResult::file` being `None` is not an error, and `syncTexInverse` treats it that
+   way.** A click can resolve to a record whose file lies outside the project (a package's own
+   `.sty`, in principle, though not exercised by the current fixture) — there is no tab to open
+   for that, so the controller simply returns rather than raising a notice. Only a page with no
+   SyncTeX records at all — a stale click after the document changed shape — surfaces a sentence,
+   via the `Err` path `synctex_inverse` already returns a clean message for (`synctex.rs`'s
+   `open`, from S3.4).
 
 ### Sprint 4 — v0.2 exit: navigation
 
