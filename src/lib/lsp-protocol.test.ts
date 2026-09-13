@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { completionItemsOf, isCompletionList, markupToPlainText } from './lsp-protocol';
+import {
+  completionItemsOf,
+  isCompletionList,
+  isPublishDiagnosticsParams,
+  markupToPlainText,
+} from './lsp-protocol';
 
 describe('isCompletionList', () => {
   it('accepts the {items: [...]} shape', () => {
@@ -63,5 +68,37 @@ describe('markupToPlainText', () => {
 
   it('trims surrounding whitespace left behind by stripped fences', () => {
     expect(markupToPlainText({ kind: 'markdown', value: '```\ntext\n```\n' })).toBe('text');
+  });
+});
+
+describe('isPublishDiagnosticsParams', () => {
+  it('accepts a well-formed payload, including an empty diagnostics array', () => {
+    expect(isPublishDiagnosticsParams({ uri: 'file:///proj/main.tex', diagnostics: [] })).toBe(true);
+    expect(
+      isPublishDiagnosticsParams({
+        uri: 'file:///proj/main.tex',
+        diagnostics: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, message: 'x' }],
+      }),
+    ).toBe(true);
+  });
+
+  /** The failure this guard exists for: without it a missing `uri` keys the store under
+   * `undefined`, where no lookup can ever find it and no publish can ever clear it. */
+  it('rejects a payload with no uri', () => {
+    expect(isPublishDiagnosticsParams({ diagnostics: [] })).toBe(false);
+    expect(isPublishDiagnosticsParams({ uri: 42, diagnostics: [] })).toBe(false);
+  });
+
+  it('rejects a payload whose diagnostics is not an array', () => {
+    expect(isPublishDiagnosticsParams({ uri: 'file:///x.tex' })).toBe(false);
+    expect(isPublishDiagnosticsParams({ uri: 'file:///x.tex', diagnostics: null })).toBe(false);
+    expect(isPublishDiagnosticsParams({ uri: 'file:///x.tex', diagnostics: { 0: 'x' } })).toBe(false);
+  });
+
+  it('rejects null, primitives and arrays without throwing', () => {
+    expect(isPublishDiagnosticsParams(null)).toBe(false);
+    expect(isPublishDiagnosticsParams(undefined)).toBe(false);
+    expect(isPublishDiagnosticsParams('file:///x.tex')).toBe(false);
+    expect(isPublishDiagnosticsParams([])).toBe(false);
   });
 });

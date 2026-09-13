@@ -15,7 +15,27 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
-_(none as of 12 September 2026 — see Fixed below for everything closed this session)_
+- **LSP diagnostic lookups can miss on a drive-letter casing mismatch.**
+  `src/lib/lsp-diagnostics.ts` keys its map by the server's URI spelling on write
+  (`publish`) but by our own (`pathToUri`) on read (`forPath`). If the folder picker returns
+  `c:\Proj` (lowercase drive, which the Windows picker does produce) and TexLab round-trips
+  through `Url::from_file_path` after canonicalizing, it publishes
+  `file:///C:/Proj/main.tex` while `forPath` builds `file:///c:/Proj/main.tex` — the lookup
+  misses, zero dots ever appear, and nothing errors. Latent, not observed: the reviewer
+  confirmed `pathToUri` is case-preserving and that our percent-encoding matches the Rust
+  `url` crate exactly, so this only bites when the two drive spellings actually differ. Fix
+  is one line — normalize the URI (lowercase the drive letter) on both `publish` and
+  `forPath`. Found by the reviewer, S3.3b, 13 Sep 2026. This is the third Windows-path-
+  spelling bug in this subsystem, after the two logged in the S3.1/S3.2 outcomes above — an
+  argument for the normalization living in one place rather than at each call site.
+
+- **The gutter's `markers` callback re-merges on every view update.**
+  `src/lib/editor/diagnostics.ts` runs `mergeMarkers` on every CodeMirror view update,
+  allocating two Map/array/RangeSet triples per keystroke on the typing path (DESIGN.md §2
+  commitment 2, <16 ms). Almost certainly under budget at realistic diagnostic counts, so
+  not blocking — logged as the one place in this diff that allocates per key, for a future
+  loop to memoize on the two field values (`markers`, `lspMarkers`) instead of the view
+  update. Found by the reviewer, S3.3b, 13 Sep 2026.
 
 - **`PREAMBLE_OPEN` env var resolves relative to the wrong directory.**
   `src-tauri/src/commands.rs:42` filters `PREAMBLE_OPEN` through `Path::new(p).is_dir()`,
@@ -37,6 +57,19 @@ _(none as of 12 September 2026 — see Fixed below for everything closed this se
   someone owns the style decision.
 
 ## Fixed
+
+- **`mergeMarkers` gave the LSP marker the exact-severity tie, not texlog.** (S3.3b,
+  13 Sep 2026) The merge reused `build`'s displacement condition —
+  `existing.severity === 'warning' && incoming.severity === 'error'` — for the second pass over
+  the texlog set. That condition is right for two markers from *one* source, where either may
+  displace the other only by being more severe, but it silently folds two different rules
+  together when the sources differ: a texlog error arriving over a sitting LSP error is not
+  "more severe", so it never displaced it, and the LSP row won the tie. The card, and
+  DESIGN.md §5.2 behind it, require the opposite — the log parser's title is the *explained*
+  sentence written by the rule catalog, so on an equal severity it is the one the author should
+  see. Caught by the test written for exactly this rule, before any of it ran in the app. Fixed
+  by separating the two rules in `mergeMarkers`: severity decides first, and source is the
+  tie-break, with the texlog pass allowed to overwrite an equal-severity LSP marker.
 
 - **`positions.test.ts` asserted the wrong clamp offset for an out-of-range line.** (S3.3a,
   12 Sep 2026) The test `clamps a line number past the end of the document to the last line`

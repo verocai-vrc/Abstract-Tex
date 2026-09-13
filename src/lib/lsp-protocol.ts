@@ -108,14 +108,24 @@ export interface DocumentSymbol {
 
 export type LspSeverity = 1 | 2 | 3 | 4; // Error, Warning, Information, Hint
 
+/** One problem the server found in a file. Named rather than left inline in
+ * `PublishDiagnosticsParams` because `lsp-diagnostics.ts` maps over these one at a time and an
+ * anonymous element type cannot be spelled in that function's signature.
+ *
+ * `severity` really is optional in the spec — the server may leave the choice to the client —
+ * and `lsp-diagnostics.ts` decides what an absent one means. */
+export interface LspDiagnostic {
+  range: Range;
+  severity?: LspSeverity;
+  message: string;
+  /** Which analysis produced it, e.g. `"texlab"`. Shown nowhere yet; kept because it is the one
+   * field that distinguishes two servers' opinions if a second one is ever attached. */
+  source?: string;
+}
+
 export interface PublishDiagnosticsParams {
   uri: string;
-  diagnostics: Array<{
-    range: Range;
-    severity?: LspSeverity;
-    message: string;
-    source?: string;
-  }>;
+  diagnostics: LspDiagnostic[];
 }
 
 /** True when `value` has the shape of a `CompletionList` rather than a bare `CompletionItem[]`.
@@ -144,6 +154,23 @@ export function completionItemsOf(value: unknown): CompletionItem[] | null {
   if (isCompletionList(value)) return value.items;
   if (isCompletionItemArray(value)) return value;
   return null;
+}
+
+/** True when `value` has the shape of `PublishDiagnosticsParams`.
+ *
+ * A notification's `params` arrives as `unknown` — it crossed the Tauri event boundary as JSON
+ * and nothing on this side has looked at it yet. The same discipline as `isCompletionList`: a
+ * bad payload is dropped, not cast. An `as` here would let a `params` with no `uri` reach the
+ * store and key an entry under `undefined`, which no `forPath` could ever match again and no
+ * `clear` short of a restart would visibly fix.
+ *
+ * Only the two fields the store reads are checked. The elements are not validated one by one:
+ * `severityOf` and `titleOf` in `lsp-diagnostics.ts` already tolerate a missing severity and a
+ * non-string message, so per-element checking would buy nothing but a longer function. */
+export function isPublishDiagnosticsParams(value: unknown): value is PublishDiagnosticsParams {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as { uri?: unknown; diagnostics?: unknown };
+  return typeof candidate.uri === 'string' && Array.isArray(candidate.diagnostics);
 }
 
 /** True when `value` has the shape of a `Hover` response. */

@@ -17,6 +17,10 @@ const calls = {
 };
 /** Set to a message to make `lsp_start` fail, as a machine with no TexLab would. */
 let lspStartError: string | null = null;
+/** What `lspRequest` answers with next, for the hover/definition/documentSymbol tests below.
+ * `unknown` because that is genuinely what crosses the Tauri event boundary; each test narrows
+ * it to whatever shape it is pretending TexLab sent. */
+let lspRequestAnswer: unknown = null;
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
 let lspHandler: (event: LspEvent) => void = () => {};
@@ -78,7 +82,7 @@ vi.mock('./ipc', () => ({
       if (lspStartError) throw new Error(lspStartError);
       return {};
     },
-    lspRequest: async () => null,
+    lspRequest: async () => lspRequestAnswer,
     lspNotify: async (method: string, params: unknown) => {
       calls.lsp.push({ method, params });
     },
@@ -90,8 +94,21 @@ vi.mock('./ipc', () => ({
   },
 }));
 
-const { closeTab, jumpToDiagnostic, openFile, openFolder, quickOpenPick, resolveConflict, start, toggleQuickOpen, triggerCompile } =
-  await import('./controller.svelte');
+const {
+  closeTab,
+  jumpToDiagnostic,
+  lspDiagnosticsFor,
+  lspDocumentSymbols,
+  lspGoToDefinition,
+  lspHover,
+  openFile,
+  openFolder,
+  quickOpenPick,
+  resolveConflict,
+  start,
+  toggleQuickOpen,
+  triggerCompile,
+} = await import('./controller.svelte');
 const { app } = await import('./state.svelte');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
@@ -122,6 +139,7 @@ beforeEach(async () => {
   calls.lsp = [];
   calls.lspStarts = 0;
   lspStartError = null;
+  lspRequestAnswer = null;
   app.conflict = null;
   app.notice = null;
   await start();
@@ -518,5 +536,203 @@ describe('the language server (S3.2)', () => {
     await vi.advanceTimersByTimeAsync(700);
     expect(disk.get('main.tex')).toBe('hello there');
     expect(calls.compiles).toBe(1);
+  });
+});
+
+describe('hover, go-to-definition, document symbols (S3.3c)', () => {
+  it('lspHover asks the server and returns its answer', async () => {
+    lspRequestAnswer = { contents: 'undefined command' };
+    const hover = await lspHover('main.tex', 0, 1);
+    expect(hover).toEqual({ contents: 'undefined command' });
+  });
+
+  it('lspHover returns null with no project open', async () => {
+    // `openFolder`/`start` in `beforeEach` already opened /proj; simulate "no project" the way
+    // the rest of this file does not need to for its other tests, by clearing it directly.
+    app.project = null;
+    expect(await lspHover('main.tex', 0, 0)).toBeNull();
+  });
+
+  it('lspHover returns null when the server is not ready', async () => {
+    lspHandler({ kind: 'stopped', message: 'gone' });
+    expect(await lspHover('main.tex', 0, 0)).toBeNull();
+  });
+
+  it('lspGoToDefinition moves the cursor within the same file', async () => {
+    lspRequestAnswer = {
+      uri: 'file:///proj/main.tex',
+      range: { start: { line: 3, character: 0 }, end: { line: 3, character: 5 } },
+    };
+    const found = await lspGoToDefinition('main.tex', 0, 0);
+
+    expect(found).toBe(true);
+    expect(app.activePath).toBe('main.tex');
+    expect(app.jumpRequest?.line).toBe(4); // LSP's 0-based line 3 -> CodeMirror's 1-based line 4
+  });
+
+  it('lspGoToDefinition opens the target file when the definition is elsewhere', async () => {
+    disk.set('sections/results.tex', 'Results.\nSee \\label{fig:one}\n');
+    lspRequestAnswer = {
+      uri: 'file:///proj/sections/results.tex',
+      range: { start: { line: 1, character: 4 }, end: { line: 1, character: 18 } },
+    };
+    const found = await lspGoToDefinition('main.tex', 0, 0);
+
+    expect(found).toBe(true);
+    expect(app.activePath).toBe('sections/results.tex');
+    expect(app.jumpRequest?.line).toBe(2);
+  });
+
+  it('lspGoToDefinition takes the first of several locations', async () => {
+    lspRequestAnswer = [
+      { uri: 'file:///proj/main.tex', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } },
+      { uri: 'file:///proj/main.tex', range: { start: { line: 9, character: 0 }, end: { line: 9, character: 1 } } },
+    ];
+    await lspGoToDefinition('main.tex', 0, 0);
+    expect(app.jumpRequest?.line).toBe(1);
+  });
+
+  it('lspGoToDefinition returns false and does nothing for a null answer', async () => {
+    lspRequestAnswer = null;
+    const before = app.activePath;
+    expect(await lspGoToDefinition('main.tex', 0, 0)).toBe(false);
+    expect(app.activePath).toBe(before);
+  });
+
+  it('lspGoToDefinition returns false when the server is not ready', async () => {
+    lspHandler({ kind: 'stopped', message: 'gone' });
+    lspRequestAnswer = {
+      uri: 'file:///proj/main.tex',
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+    };
+    expect(await lspGoToDefinition('main.tex', 0, 0)).toBe(false);
+  });
+
+  it('lspDocumentSymbols flattens the server\'s tree', async () => {
+    lspRequestAnswer = [
+      {
+        name: 'Introduction',
+        kind: 1,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      },
+    ];
+    const symbols = await lspDocumentSymbols('main.tex');
+    expect(symbols).toEqual([{ name: 'Introduction', detail: null, kind: 1, line: 1, depth: 0 }]);
+  });
+
+  it('lspDocumentSymbols returns an empty list when the server is not ready', async () => {
+    lspHandler({ kind: 'stopped', message: 'gone' });
+    expect(await lspDocumentSymbols('main.tex')).toEqual([]);
+  });
+});
+
+describe('publishDiagnostics reaching the gutter (S3.3b)', () => {
+  /** One wire diagnostic, 0-based as the server sends it. */
+  function wire(line: number, severity: 1 | 2 | 3 | 4 | undefined, message = 'Undefined reference.') {
+    return {
+      range: { start: { line, character: 0 }, end: { line, character: 6 } },
+      severity,
+      message,
+      source: 'texlab',
+    };
+  }
+
+  /** Push a notification through the same path a real event takes. */
+  function publish(uri: string, diagnostics: unknown[]): void {
+    lspHandler({ kind: 'notification', method: 'textDocument/publishDiagnostics', params: { uri, diagnostics } });
+  }
+
+  it('puts a diagnostic on the right 1-based line of the file it names', () => {
+    publish('file:///proj/main.tex', [wire(3, 1)]);
+
+    const rows = lspDiagnosticsFor('main.tex');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ startLine: 4, severity: 'error', title: 'Undefined reference.' });
+    expect(app.lspDiagnosticsVersion).toBeGreaterThan(0);
+  });
+
+  /** The case that rots silently: the server saying "this file is clean now". */
+  it('a second publish with an empty array leaves the file with nothing', () => {
+    publish('file:///proj/main.tex', [wire(3, 1)]);
+    expect(lspDiagnosticsFor('main.tex')).toHaveLength(1);
+    const versionAfterFirst = app.lspDiagnosticsVersion;
+
+    publish('file:///proj/main.tex', []);
+    expect(lspDiagnosticsFor('main.tex')).toEqual([]);
+    // The gutter only redraws if the counter moved, so an empty publish must still bump it.
+    expect(app.lspDiagnosticsVersion).toBeGreaterThan(versionAfterFirst);
+  });
+
+  it('a publish for a file with no open tab is kept and changes nothing about the active one', () => {
+    publish('file:///proj/main.tex', [wire(1, 2)]);
+    publish('file:///proj/sections/results.tex', [wire(9, 1)]);
+
+    expect(app.openTabs).toEqual(['main.tex']);
+    expect(lspDiagnosticsFor('sections/results.tex').map((r) => r.startLine)).toEqual([10]);
+    expect(lspDiagnosticsFor('main.tex').map((r) => r.startLine)).toEqual([2]);
+  });
+
+  it('drops a malformed payload without throwing', () => {
+    publish('file:///proj/main.tex', [wire(3, 1)]);
+    const before = app.lspDiagnosticsVersion;
+
+    expect(() => {
+      lspHandler({ kind: 'notification', method: 'textDocument/publishDiagnostics', params: { diagnostics: [] } });
+      lspHandler({
+        kind: 'notification',
+        method: 'textDocument/publishDiagnostics',
+        params: { uri: 'file:///proj/main.tex', diagnostics: 'not an array' },
+      });
+      lspHandler({ kind: 'notification', method: 'textDocument/publishDiagnostics', params: null });
+    }).not.toThrow();
+
+    // Nothing was stored and nothing was withdrawn: the good publish still stands.
+    expect(lspDiagnosticsFor('main.tex')).toHaveLength(1);
+    expect(app.lspDiagnosticsVersion).toBe(before);
+  });
+
+  it('ignores a notification for any other method', () => {
+    publish('file:///proj/main.tex', [wire(3, 1)]);
+    const before = app.lspDiagnosticsVersion;
+
+    lspHandler({ kind: 'notification', method: '$/progress', params: { token: 1, value: {} } });
+    expect(app.lspDiagnosticsVersion).toBe(before);
+    expect(lspDiagnosticsFor('main.tex')).toHaveLength(1);
+  });
+
+  it('a stopped server takes its diagnostics with it', () => {
+    publish('file:///proj/main.tex', [wire(3, 1)]);
+    lspHandler({ kind: 'stopped', message: 'TexLab crashed 5 times' });
+
+    expect(lspDiagnosticsFor('main.tex')).toEqual([]);
+  });
+
+  it('a restart empties the store before the resync republishes', async () => {
+    publish('file:///proj/main.tex', [wire(3, 1)]);
+    lspHandler({ kind: 'restarted', restarts: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(lspDiagnosticsFor('main.tex')).toEqual([]);
+  });
+
+  /** The design decision this loop records, asserted rather than assumed: LSP diagnostics reach
+   * the gutter and nothing else. Two cadences in one counter makes the status bar flicker per
+   * keystroke, and the drawer's contract is an explained sentence, not a raw server string. */
+  it('never touches the drawer, the compile diagnostics, or the two counts', () => {
+    app.compile = { ...app.compile, diagnostics: [] };
+    const drawerWasOpen = app.drawerOpen;
+
+    publish('file:///proj/main.tex', [wire(3, 1), wire(8, 2)]);
+
+    expect(app.compile.diagnostics).toEqual([]);
+    expect(app.errorCount).toBe(0);
+    expect(app.warningCount).toBe(0);
+    expect(app.drawerOpen).toBe(drawerWasOpen);
+  });
+
+  it('answers with nothing for a path when no project is open', () => {
+    app.project = null;
+    expect(lspDiagnosticsFor('main.tex')).toEqual([]);
   });
 });

@@ -356,8 +356,9 @@ through `compile.rs` to the drawer, which is S2.7.
 | [x] | S3.1 TexLab sidecar fetch script and `externalBin`; Rust owns process lifecycle and stdio (`DESIGN.md` §4.1 note 3) | M | S1.3 |
 | [x] | S3.2 JSON-RPC bridge: Rust ↔ TexLab over stdio, Tauri events ↔ TypeScript; request/response correlation, restart on crash | L | S3.1 |
 | [x] | S3.3a Protocol types and the completion source: typed `lsp.ts`, `textDocument/completion` as a CodeMirror `autocompletion()` source | M | S3.2 |
-| [ ] | S3.3b Diagnostics merge: `publishDiagnostics` into the editor's problem markers | M | S3.3a |
-| [ ] | S3.3c Hover, go-to-definition, document symbols | M | S3.3a |
+| [x] | S3.3b Diagnostics merge: `publishDiagnostics` into the editor's problem markers | M | S3.3a |
+| [x] | S3.3c Hover, go-to-definition, document symbols | M | S3.3a |
+| [ ] | S3.3d Inline squiggles and diagnostic hover: `Decoration.mark` over LSP ranges | M | S3.3b, S3.3c |
 | [ ] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
 | [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
@@ -540,6 +541,106 @@ Carried forward, advisory, not blocking this tick: the reviewer flagged that `sr
 and `Abstract-Tex.code-workspace` are untracked and not gitignored. Neither belongs to this
 loop; whichever loop next touches `.gitignore` should add them.
 
+**S3.3b (13 September 2026).** `[x]`: rungs 1–3 are green — `pnpm verify` exit 0, cargo test
+workspace green, clippy `-D warnings` clean (no Rust touched this loop), svelte-check 410 files /
+0 errors / 0 warnings, Vitest 166/166 across 12 files. Rung 4 stays `[~]` for want of a webview:
+`jsdom` is not installed in this repo, so there is no `EditorView` test at any level and
+`pnpm tauri dev` was not attempted — the same standing sprint-3 gate as S3.1–S3.3a. `src/lib/
+lsp-diagnostics.ts` is the new module, translating TexLab's `publishDiagnostics` into rows the
+gutter draws; `src/lib/editor/diagnostics.ts` gained a second `StateField` and the merge that
+combines it with the build's own. What a reader should take from the diff:
+
+1. **Two `StateField`s, not one merged list.** `diagnostics.ts` keeps `markers` (per build) and
+   `lspMarkers` (per publish) apart because they live on different clocks — a build every few
+   seconds, a publish potentially every keystroke burst — and a single field would mean each
+   source wiping the other's dots every time it spoke. Only the `markers` callback passed to
+   `gutter()` ever looks at both, via `mergeMarkers`.
+2. **A tie-break bug the test caught before the app ever ran it.** `mergeMarkers`'s first cut
+   reused `build`'s displacement rule (`existing is a warning && incoming is an error`) for the
+   pass that is supposed to prefer texlog on an *equal* severity — which quietly hands an exact
+   tie to whichever source is read first instead of to the log parser's explained sentence,
+   DESIGN.md §5.2's requirement. `mergeMarkers gave the LSP marker the exact-severity tie, not
+   texlog` in `bugs-issues-fixes.md` is the record; the fix separates "more severe wins" from
+   "equal severity, texlog wins" into two conditions instead of one that tried to do both.
+3. **The reviewer mutation-tested rather than trusted the count.** Deleting `+ 1` from
+   `toEditorDiagnostic`'s `startLine` (the 0-based-to-1-based line conversion) fails seven tests
+   across two files; neutering `equalAndFromLog` in `mergeMarkers` fails the §5.2 tie-break test
+   on its own. Both were restored. Green suites answer "does it work"; a mutation answers "would
+   a test have told us if it didn't" — the project's own recurring worry, checked rather than
+   assumed, for the two lines this loop most needed to trust.
+4. **A version counter carries a publish into a `$derived` without the store becoming a rune.**
+   `LspDiagnosticStore` (`lsp-diagnostics.ts`) is a plain class so it tests with no Svelte
+   runtime; `app.lspDiagnosticsVersion` (`state.svelte.ts`) is the one reactive value that moves
+   on every `publish`, and `Editor.svelte` takes it as an argument to `lspDiagnosticsFor` rather
+   than reading it and discarding the result — a bare `app.lspDiagnosticsVersion;` statement
+   reads like dead code to a later editor and invites deleting the subscription along with it.
+
+One card deviation, self-reported and not a defect: `src/lib/state.svelte.ts` was touched
+without being named in the card's `Files` list, because `lspDiagnosticsVersion` has nowhere else
+to live. A card gap, not a builder error.
+
+Decided this loop, recorded in §4 below: LSP diagnostics reach the gutter and nothing else —
+never `app.compile.diagnostics`, the drawer, or `errorCount`/`warningCount`.
+
+Left advisory by the reviewer, for a later loop to pick up: a drive-letter casing mismatch
+between `publish`'s URI (the server's spelling) and `forPath`'s (`pathToUri`'s spelling) can
+make a lookup miss with nothing erroring — the third Windows-path-spelling bug in this
+subsystem, an argument for normalizing in one place; S3.3c or whichever loop next touches
+`lsp-diagnostics.ts` should close it. And `diagnostics.ts`'s `markers` callback re-runs
+`mergeMarkers` on every view update, allocating two Map/array/RangeSet triples per keystroke —
+almost certainly under the <16 ms budget at realistic diagnostic counts, so not blocking, but
+worth memoizing on the two field values whenever that loop lands. Both are in
+`bugs-issues-fixes.md`, filed 13 September 2026.
+
+`EditorDiagnostic.from`/`to` carry the original 0-based LSP range but nothing reads them yet —
+kept deliberately for S3.3d's squiggles, now split out as its own row in the table above.
+
+**S3.3c (13 September 2026).** `[x]`: rungs 1–3 are green — `pnpm verify` exit 0 (94 Rust tests
+unchanged, no Rust touched this loop, clippy `-D warnings` clean), `svelte-check` 416 files / 0
+errors / 0 warnings, Vitest 200/200 across 15 files (33 new). Rung 4 (`pnpm tauri dev`,
+Ctrl-clicking a `\ref` and hovering an undefined command by hand) is still pending — no webview
+in this environment, the same standing sprint-3 gate as S3.1–S3.3b. Three new modules under
+`src/lib/editor/` — `hover.ts`, `definition.ts`, `symbols.ts` — plus three new controller
+functions (`lspHover`, `lspGoToDefinition`, `lspDocumentSymbols`) and their wiring into
+`setup.ts`/`Editor.svelte`. What a reader should take from the diff:
+
+1. **`hoverTooltip`'s source function is exported apart from the extension it builds, because
+   the extension gives no other way to call it.** `hoverTooltip(source)`'s return value exposes
+   only an `active` state field for reading what is *currently* shown, not `source` itself — so
+   `hover.ts` exports `hoverSource(view, pos, request)` as a plain async function and
+   `lspHoverSource` is a two-line wrapper around it. `hover.test.ts` calls `hoverSource` directly;
+   without the split, testing it at all would mean driving CodeMirror's real hover lifecycle
+   (idle timers, pointer events) from Vitest.
+2. **Go-to-definition is one `DefinitionRequester`, not a `Promise<Location | null>`, because
+   the CodeMirror layer must not know about tabs.** `completion.ts` and `hover.ts` both stop at
+   "ask a position, get an answer back" and leave rendering to CodeMirror's own machinery; a
+   definition can point at a file that has no tab open yet, and only `controller.svelte.ts` (via
+   `DocumentManager`) can open one. So `definition.ts`'s `DefinitionRequester` returns
+   `Promise<boolean>` — "was something found" — and `lspGoToDefinition` in the controller does
+   the whole job: request, resolve `Location | Location[] | null` down to one location
+   (`firstLocation`), turn its `uri` back into a project-relative path with `uriToPath` +
+   `toRelative`, and either move the cursor or call `openFile` first.
+3. **This environment cannot construct a real `EditorView` at all, which shaped every test in
+   this loop, not just one of them.** `vite.config.ts` runs Vitest under `environment: 'node'`
+   (recorded as a gap in S3.3b's outcome); `new EditorView(...)` calls `document.createElement`
+   internally and throws `document is not defined`. `hover.test.ts` and `definition.test.ts`
+   pass structural stand-ins — a bare `{ state: { doc } }` — cast to `EditorView`, since the
+   functions under test only ever read `view.state.doc` (and, for the click handler,
+   `posAtCoords`); `completion.test.ts` already did the analogous thing for `CompletionContext`.
+   A `MouseEvent` is faked the same way in `definition.test.ts`, for the same reason.
+4. **`documentSymbol` shipped as data with tests and no UI, on purpose.** The card allows this —
+   "a plain data-returning function with tests may be sufficient for this loop" — and S4.2's
+   Document map panel is explicitly where a tree view belongs. `symbols.ts`'s `flattenSymbols`
+   depth-first-flattens `DocumentSymbol.children` into a list with an explicit `depth` field, so
+   S4.2 starts from a working request instead of inventing the walk under UI pressure.
+
+One thing checked and found already safe, not a new fix: `lspGoToDefinition` turns a server URI
+back into a path with `uriToPath` + `toRelative`, which is the same drive-letter-casing hazard
+flagged advisory in S3.3b's outcome for `lsp-diagnostics.ts`'s raw `Map` lookup — but
+`toRelative` (`paths.ts`) already compares path segments case-insensitively, so this call site
+does not reproduce that bug. The advisory item itself is unchanged and still open, since fixing
+it belongs with `lsp-diagnostics.ts`'s own `Map`, which this loop did not touch.
+
 ### Sprint 4 — v0.2 exit: navigation
 
 **Exit demo.** `DESIGN.md` §7 v0.2 on `fixtures/thesis` (six files).
@@ -637,6 +738,7 @@ open. Change them here and in `DESIGN.md` before changing code.
 | File writes | Atomic: write `name.tex.tmp`, then rename | A crash mid-write can never leave a truncated manuscript (`DESIGN.md` §9, row 1). |
 | Self-echo suppression | Content hash of the last write, not a time window | A time window races with slow disks; a hash cannot. |
 | LSP type definitions | Hand-written subset in `src/lib/lsp-protocol.ts`, not `vscode-languageserver-types` | ~30 fields are used; a dependency tax on the learner-reader outweighs the benefit. |
+| Where LSP diagnostics surface | **Gutter only** — `publishDiagnostics` never enters `app.compile.diagnostics`, the drawer, or `errorCount`/`warningCount` | Two cadences in one counter makes the status bar flicker per keystroke (§2 commitment 2, and §6's "never shout when nothing is wrong"). The drawer's contract under §5.2 is an *explained* sentence from the rule catalog; a raw TexLab string in that list is a raw log wearing a card, against commitment 3. |
 
 ---
 

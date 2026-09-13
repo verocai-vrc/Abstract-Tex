@@ -25,7 +25,9 @@ import {
 import { tags } from '@lezer/highlight';
 import { yCollab } from 'y-codemirror.next';
 import type { OpenDocument } from '../document';
+import { definitionClickHandler, definitionKeymap, type DefinitionRequester } from './definition';
 import { diagnosticGutter } from './diagnostics';
+import { lspHoverSource, type HoverRequester } from './hover';
 
 // Colours come from the CSS custom properties in app.css so light and dark both work.
 const latexHighlight = HighlightStyle.define([
@@ -57,10 +59,22 @@ const theme = EditorView.theme({
   '.cm-matchingBracket': { outline: '1px solid var(--syn-bracket)', backgroundColor: 'transparent' },
 });
 
+const hoverTheme = EditorView.baseTheme({
+  '.cm-lsp-hover': {
+    maxWidth: '480px',
+    padding: '4px 8px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '12px',
+    whiteSpace: 'pre-wrap',
+  },
+});
+
 export function createEditor(
   parent: HTMLElement,
   doc: OpenDocument,
   completionSource?: CompletionSource,
+  hoverRequest?: HoverRequester,
+  definitionRequest?: DefinitionRequester,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -90,6 +104,8 @@ export function createEditor(
       // still enough to make typing feel finished with no server at all (DESIGN.md §2 commitment
       // 6).
       ...(completionSource ? [autocompletion({ override: [completionSource] })] : []),
+      // Same "omit when there is no server" rule as completion above.
+      ...(hoverRequest ? [lspHoverSource(hoverRequest), hoverTheme] : []),
       // No app shortcuts here: `Ctrl S`, `Ctrl B`, `F5` and the rest are handled once, on the
       // window, by App.svelte (S2.4). A binding in this keymap does not stop propagation, so a
       // copy here would fire the action twice for a keypress inside the editor.
@@ -97,8 +113,12 @@ export function createEditor(
         ...closeBracketsKeymap,
         ...defaultKeymap,
         ...searchKeymap,
+        ...(definitionRequest ? definitionKeymap(definitionRequest) : []),
         indentWithTab,
       ]),
+      ...(definitionRequest
+        ? [EditorView.domEventHandlers({ mousedown: definitionClickHandler(definitionRequest) })]
+        : []),
       // No awareness yet (that is v0.8); the undo manager is the document's own.
       yCollab(doc.ytext, null, { undoManager: doc.undo }),
       theme,

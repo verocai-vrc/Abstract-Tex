@@ -39,6 +39,19 @@ class AppState {
   lspMessage = $state<string | null>(null);
 
   /**
+   * Bumped every time the language server publishes diagnostics for any file (S3.3b).
+   *
+   * A counter, not the diagnostics themselves. The rows live in a plain, non-reactive
+   * `LspDiagnosticStore` in the controller; this is the only reactive thing about them, so
+   * `Editor.svelte`'s gutter effect has something to depend on *without* depending on a map it
+   * would then cause to be re-read and re-written (MEMORY: `effect_update_depth_exceeded`).
+   *
+   * Note what it deliberately does not touch: `errorCount` and `warningCount` below stay derived
+   * from `compile.diagnostics` alone. LSP diagnostics reach the gutter and nothing else.
+   */
+  lspDiagnosticsVersion = $state(0);
+
+  /**
    * Every file currently open in a tab, keyed by project-relative path (S2.3). Not deeply
    * reactive — each value is a class with its own listeners — so the controller replaces the
    * whole map, rather than mutating it in place, whenever a tab opens or closes; see

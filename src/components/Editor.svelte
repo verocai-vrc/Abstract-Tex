@@ -1,9 +1,15 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
   import { app } from '../lib/state.svelte';
-  import { lspCompletion, resolveConflict } from '../lib/controller.svelte';
+  import {
+    lspCompletion,
+    lspDiagnosticsFor,
+    lspGoToDefinition,
+    lspHover,
+    resolveConflict,
+  } from '../lib/controller.svelte';
   import { createEditor, goToLine } from '../lib/editor/setup';
-  import { applyDiagnostics } from '../lib/editor/diagnostics';
+  import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
   import { lspCompletionSource } from '../lib/editor/completion';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
@@ -26,11 +32,14 @@
     // that is never read reactively; `view` is only ever *written* here, for the benefit of
     // the two effects below.
     //
-    // The completion source is built fresh per tab, closing over `path`, rather than reading
-    // `app.activePath` at call time: the source runs asynchronously and a tab switch mid-request
-    // must not silently redirect an in-flight query to a different file.
+    // The completion source, and the hover/definition requesters below, are all built fresh per
+    // tab, closing over `path`, rather than reading `app.activePath` at call time: each runs
+    // asynchronously and a tab switch mid-request must not silently redirect an in-flight query
+    // to a different file.
     const completionSource = lspCompletionSource((line, character) => lspCompletion(path, line, character));
-    const created = createEditor(host, doc, completionSource);
+    const hoverRequest = (line: number, character: number) => lspHover(path, line, character);
+    const definitionRequest = (line: number, character: number) => lspGoToDefinition(path, line, character);
+    const created = createEditor(host, doc, completionSource, hoverRequest, definitionRequest);
     view = created;
     created.focus();
     return () => {
@@ -50,6 +59,23 @@
     const diagnostics = app.compile.diagnostics;
     const isRoot = app.activePath !== null && app.activePath === app.project?.rootFile;
     if (view) applyDiagnostics(view, isRoot ? diagnostics : []);
+  });
+
+  // Gutter dots from the language server (S3.3b), in a second effect so a publish and a build
+  // never clear each other's dots — `applyLspDiagnostics` writes its own CodeMirror field.
+  //
+  // Unlike the effect above this is not root-file-only: a `publishDiagnostics` names its own
+  // URI, so the controller can answer for whichever tab is open.
+  //
+  // The rows themselves live in a plain, non-reactive store, so the only thing in `app` that
+  // moves when the server publishes is `lspDiagnosticsVersion`, a counter. It is passed as an
+  // argument rather than read and discarded, so the `$derived` depends on it visibly and no
+  // later reader mistakes the subscription for dead code. Nothing here writes what it reads
+  // (MEMORY: `effect_update_depth_exceeded`).
+  const lspRows = $derived(lspDiagnosticsFor(app.activePath, app.lspDiagnosticsVersion));
+
+  $effect(() => {
+    if (view) applyLspDiagnostics(view, lspRows);
   });
 </script>
 

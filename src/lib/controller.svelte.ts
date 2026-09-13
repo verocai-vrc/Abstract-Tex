@@ -5,7 +5,11 @@
 import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
-import { LspClient } from './lsp';
+import { firstLocation } from './editor/definition';
+import { flattenSymbols, type FlatSymbol } from './editor/symbols';
+import { LspClient, uriToPath } from './lsp';
+import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
+import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
 import { isTexSource, toRelative } from './paths';
 import { app } from './state.svelte';
 
@@ -31,6 +35,10 @@ const lsp = new LspClient({
   request: (method, params) => ipc.lspRequest(method, params),
   notify: (method, params) => ipc.lspNotify(method, params),
 });
+
+/** Everything TexLab has said is wrong with each file, keyed by URI. Deliberately not a rune:
+ * see `app.lspDiagnosticsVersion`, which is the reactive half of this pair. */
+const lspDiagnostics = new LspDiagnosticStore();
 
 /** The language server's absolute path for a project-relative one. LSP addresses files by URI,
  * and a URI needs the whole path; the rest of the app speaks in relative paths. */
@@ -97,12 +105,111 @@ export async function lspCompletion(
   }
 }
 
+/**
+ * Ask the language server for hover contents at a position in the given file, for
+ * `hover.ts`'s `hoverTooltip` to call. `null` for every degraded case — no project, no server,
+ * a dead request — matching `lspCompletion`'s contract, and for the same reason: a hover popup
+ * that shows an error where a tooltip should be is a notice nobody asked for (commitment 6).
+ *
+ * Unlike completion this does not flush a `didChange` first. A hover is read-only and answers
+ * from whatever text the server already has; forcing a resend on every pause between keystrokes
+ * would be a round trip for a feature nobody would notice was one keystroke stale.
+ */
+export async function lspHover(relativePath: string, line: number, character: number): Promise<Hover | null> {
+  if (!app.lspReady) return null;
+  const absolute = absolutePath(relativePath);
+  if (!absolute) return null;
+  try {
+    return await lsp.hover(absolute, line, character);
+  } catch (error) {
+    console.warn('language server:', error);
+    return null;
+  }
+}
+
+/**
+ * Ask the language server where the symbol at a position is defined, and act on the answer:
+ * move the cursor if it is in the same file that is already open, or open the target file's tab
+ * (creating it if needed) and move the cursor there. Returns whether anything was found, which
+ * is all `definitionCommand` needs — the jump itself already happened by the time this resolves.
+ *
+ * This is the one LSP-backed function in this file that does more than answer a question: a
+ * `Location`'s `uri` is the server's business, but turning that into "which tab is this" is
+ * `openFile`'s job (S2.3), so go-to-definition has to live where both are reachable rather than
+ * in `definition.ts`, which knows about neither.
+ */
+export async function lspGoToDefinition(relativePath: string, line: number, character: number): Promise<boolean> {
+  if (!app.lspReady) return false;
+  const absolute = absolutePath(relativePath);
+  if (!absolute) return false;
+  let answer;
+  try {
+    answer = await lsp.definition(absolute, line, character);
+  } catch (error) {
+    console.warn('language server:', error);
+    return false;
+  }
+  const location = firstLocation(answer);
+  if (!location) return false;
+
+  const root = app.project?.rootDir;
+  const targetPath = root ? toRelative(uriToPath(location.uri), root) : null;
+  if (targetPath === null) return false;
+
+  if (app.activePath !== targetPath) await openFile(targetPath);
+  jumpToLine(location.range.start.line + 1);
+  return true;
+}
+
+/**
+ * The document's symbol tree, flattened, for whatever first wants one (S4.2's Document map
+ * panel, most likely). No UI reads this today; it exists so that loop starts from a request that
+ * already works rather than from nothing, the same "plumbing before the visual layer" shape
+ * `lsp.ts`'s other three request methods were built in.
+ */
+export async function lspDocumentSymbols(relativePath: string): Promise<FlatSymbol[]> {
+  if (!app.lspReady) return [];
+  const absolute = absolutePath(relativePath);
+  if (!absolute) return [];
+  try {
+    const symbols = await lsp.documentSymbols(absolute);
+    return flattenSymbols(symbols);
+  } catch (error) {
+    console.warn('language server:', error);
+    return [];
+  }
+}
+
+/**
+ * The language server's diagnostics for one project-relative file, for `Editor.svelte`'s gutter.
+ * Empty for a file the server has said nothing about, for a null path, and with no project open.
+ *
+ * Unlike the compile diagnostics this is *not* restricted to the root file: a
+ * `publishDiagnostics` names its own URI, so a dot can be placed on the right tab. `Diagnostic`
+ * from the log parser has no file until S5.2, which is why the other effect in `Editor.svelte`
+ * still guards on the active tab being the root.
+ *
+ * `publishVersion` is not read. It exists so the caller can pass `app.lspDiagnosticsVersion` and
+ * have a `$derived` genuinely depend on it: the rows live in a plain non-reactive store, and the
+ * counter is the only reactive trace of a publish. Taking it as an argument beats a bare
+ * `app.lspDiagnosticsVersion;` statement at the call site, which reads like dead code and
+ * invites a later reader to delete the subscription along with it.
+ */
+export function lspDiagnosticsFor(relativePath: string | null, publishVersion?: number): EditorDiagnostic[] {
+  void publishVersion;
+  if (relativePath === null) return [];
+  const absolute = absolutePath(relativePath);
+  if (!absolute) return [];
+  return lspDiagnostics.forPath(absolute);
+}
+
 /** Ask Rust to start TexLab for the open project. Never throws: a missing language server is a
  * degraded mode, not a failure to open the folder. */
 async function startLanguageServer(): Promise<void> {
   app.lspReady = false;
   app.lspMessage = null;
   lsp.reset();
+  clearLspDiagnostics();
   try {
     await ipc.lspStart();
     app.lspReady = true;
@@ -111,11 +218,17 @@ async function startLanguageServer(): Promise<void> {
   }
 }
 
+/** Empty the diagnostic store and tell the gutter effect to redraw. Both halves are needed: the
+ * store holds the rows, the counter is what any `$effect` reading them is subscribed to. */
+function clearLspDiagnostics(): void {
+  lspDiagnostics.clear();
+  app.lspDiagnosticsVersion += 1;
+}
+
 /** Everything TexLab says without being asked.
  *
- * Only the lifecycle cases are handled here. Turning `publishDiagnostics`, completion and hover
- * into things on screen is S3.3 — this loop's job is to make sure the server is *correct* by
- * the time that arrives, which is what the restart case below is about. */
+ * The lifecycle cases and `publishDiagnostics` (S3.3b). Completion is a request, not a
+ * notification, and hover is S3.3c; every other notification method keeps today's silence. */
 function handleLspEvent(event: LspEvent): void {
   switch (event.kind) {
     case 'restarted':
@@ -124,17 +237,34 @@ function handleLspEvent(event: LspEvent): void {
       // completion silently answers from stale text.
       app.lspReady = true;
       app.lspMessage = null;
+      // Before the resync, not after: the old process's diagnostics describe text the new one
+      // has never seen, and the new one will republish for every file as it re-parses them.
+      clearLspDiagnostics();
       void lsp.resync().catch((error) => console.warn('language server resync:', error));
       break;
     case 'stopped':
       app.lspReady = false;
       app.lspMessage = event.message;
       lsp.reset();
+      // A dead server's opinions must not outlive it: without this, dots for problems the author
+      // has since fixed would sit in the gutter with nothing left alive to withdraw them.
+      clearLspDiagnostics();
       break;
     case 'notification':
+      if (event.method === 'textDocument/publishDiagnostics') {
+        // `params` is `unknown` here — it crossed the Tauri event boundary as JSON. Narrowing
+        // rather than casting means a malformed payload is dropped silently instead of keying
+        // the store under `undefined` (`lsp-protocol.ts`).
+        if (isPublishDiagnosticsParams(event.params)) {
+          lspDiagnostics.publish(event.params);
+          app.lspDiagnosticsVersion += 1;
+        }
+      }
+      // Every other method stays ignored rather than logged: TexLab's progress notifications
+      // arrive on every keystroke burst and would drown the console.
+      break;
     case 'request':
-      // S3.3 routes these. Ignored rather than logged: `publishDiagnostics` arrives on every
-      // keystroke burst and would drown the console.
+      // S3.3c routes these.
       break;
   }
 }
