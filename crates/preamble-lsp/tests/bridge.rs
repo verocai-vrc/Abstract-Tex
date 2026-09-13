@@ -129,7 +129,7 @@ async fn the_real_texlab_initializes_and_completes_through_the_bridge() {
 
     let capabilities = tokio::time::timeout(
         Duration::from_secs(20),
-        bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}})),
+        bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}}), None),
     )
     .await
     .unwrap()
@@ -160,7 +160,7 @@ async fn the_real_texlab_completes_an_environment_name() {
     std::fs::write(&file, source).unwrap();
 
     let (bridge, _incoming) = Bridge::start(texlab, root.path()).await.unwrap();
-    bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}})).await.unwrap();
+    bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}}), None).await.unwrap();
 
     let uri = preamble_lsp::bridge::path_to_uri(&file);
     bridge

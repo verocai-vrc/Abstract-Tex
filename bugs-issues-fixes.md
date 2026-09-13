@@ -199,4 +199,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Won't fix
 
-_(none yet)_
+- **TexLab's own README claims a `texlab.rootDirectory` setting that does not exist in the
+  pinned 5.26.0 binary.** (S3.6, 13 Sep 2026) The card asked for "root file, build dir"
+  passthrough; the README (`tug.ctan.org/support/texlab/README.md`) says "you may need to
+  set the `texlab.rootDirectory` option for some multi-folder projects," which reads as
+  exactly what the card wants. Checked against the actual deserialisation code at the pinned
+  tag (`crates/texlab/src/server/options.rs`'s `Options` struct, fetched from
+  `raw.githubusercontent.com/latex-lsp/texlab/v5.26.0/...`) rather than trusted from prose:
+  no `root_directory` field exists anywhere on `Options` or `BuildOptions` at this version.
+  Won't fix, because there is nothing to fix — TexLab genuinely has no such field to send at
+  this version, so `texlab_settings` (`src-tauri/src/lsp.rs`) only passes the three build
+  subdirectories. Documented in the S3.6 outcome and the function's own doc comment so a
+  future reader who finds the same README passage does not repeat the same detour.

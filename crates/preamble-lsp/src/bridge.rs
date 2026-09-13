@@ -167,17 +167,30 @@ impl Bridge {
 
     /// The LSP handshake, in the order the spec requires: `initialize`, then `initialized`.
     /// Returns the server's capabilities, which the frontend needs to know what it may ask for.
-    pub async fn initialize(&self, root: &Path, capabilities: Value) -> Result<Value, CallError> {
-        let result = self
-            .request(
-                "initialize",
-                json!({
-                    "processId": std::process::id(),
-                    "rootUri": path_to_uri(root),
-                    "capabilities": capabilities,
-                }),
-            )
-            .await?;
+    ///
+    /// `initialization_options` is server-specific by design (the LSP spec calls it "any", left
+    /// for each server to define its own shape) — for TexLab this is where `preamble` passes the
+    /// project's build directory (S3.6). `None` omits the field entirely rather than sending
+    /// `null`, so a server with no options to offer sees exactly what it would from a client that
+    /// never learned about this parameter.
+    pub async fn initialize(
+        &self,
+        root: &Path,
+        capabilities: Value,
+        initialization_options: Option<Value>,
+    ) -> Result<Value, CallError> {
+        let mut params = json!({
+            "processId": std::process::id(),
+            "rootUri": path_to_uri(root),
+            "capabilities": capabilities,
+        });
+        if let Some(options) = initialization_options {
+            // `params` was just built above as an object literal, so indexing to insert is safe;
+            // this is the one place that shape could change silently, which is why it is kept
+            // right next to where the object is constructed rather than done from further away.
+            params["initializationOptions"] = options;
+        }
+        let result = self.request("initialize", params).await?;
         self.notify("initialized", json!({}))?;
         Ok(result.get("capabilities").cloned().unwrap_or(Value::Null))
     }

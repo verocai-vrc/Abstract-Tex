@@ -241,17 +241,18 @@ pub fn synctex_inverse(state: State<'_, AppState>, query: InverseQuery) -> Comma
 /// session stops whatever was running first.
 #[tauri::command]
 pub async fn lsp_start(app: AppHandle, state: State<'_, AppState>) -> CommandResult<serde_json::Value> {
-    // Take the directory out from under the lock before any `.await` — the module rule in
+    // Take what's needed out from under the lock before any `.await` — the module rule in
     // `commands`'s doc comment, and the reason this is not one `with_project` call.
-    let root_dir = {
+    let (root_dir, build_dir) = {
         let guard = state.project.lock().unwrap();
-        guard.as_ref().ok_or_else(|| "No project is open.".to_string())?.root_dir.clone()
+        let project = guard.as_ref().ok_or_else(|| "No project is open.".to_string())?;
+        (project.root_dir.clone(), project.build_dir())
     };
 
     let emitter = app.clone();
     state
         .lsp
-        .start(&root_dir, move |event: LspEvent| {
+        .start(&root_dir, &build_dir, move |event: LspEvent| {
             let _ = emitter.emit("lsp", event);
         })
         .await

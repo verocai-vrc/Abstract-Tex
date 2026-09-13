@@ -361,7 +361,7 @@ through `compile.rs` to the drawer, which is S2.7.
 | [x] | S3.3d Inline squiggles and diagnostic hover: `Decoration.mark` over LSP ranges | M | S3.3b, S3.3c |
 | [x] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [x] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
-| [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
+| [x] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
 
 **S3.1 (11 September 2026).** `[x]`. The crate, the fetch script and the `externalBin` entry
 were already written; what closed the loop was running its `--ignored` test against the real
@@ -783,6 +783,53 @@ direction twice, a commit apart, would have meant either reparsing or an awkward
    SyncTeX records at all — a stale click after the document changed shape — surfaces a sentence,
    via the `Err` path `synctex_inverse` already returns a clean message for (`synctex.rs`'s
    `open`, from S3.4).
+
+**S3.6 (13 September 2026).** `[x]`: rungs 1–3 are green — `cargo test --workspace` (117 tests,
+4 new), `cargo clippy --workspace --all-targets -- -D warnings` clean, `svelte-check` and
+`pnpm vitest run` unchanged since this loop touched no frontend file. Rung 4 was not driven
+interactively this session, the same standing gap S3.4/S3.5 recorded.
+
+**The card turned out narrower than its own title, and the reason is worth recording rather than
+guessing past.** "Root file, build dir" reads as two things to pass; checked against TexLab
+5.26.0's actual deserialisation code (`crates/texlab/src/server/options.rs`'s `Options` struct, at
+the exact pinned tag — not the README, which mentions a `texlab.rootDirectory` setting that turned
+out not to exist at this version, logged as a "won't fix" in `bugs-issues-fixes.md` since there
+was nothing on our side to fix), there is only one: TexLab finds its own root document by walking
+up for `\begin{document}`, and offers no field to be told which file that is. What it does accept
+are three build-output directories — `build.auxDirectory`, `build.logDirectory`,
+`build.pdfDirectory` — all relative to the root document's own directory since TexLab 5.0, not the
+workspace root. So this loop passes exactly that: the project's `.preamble/build`, as a path
+relative to the project folder, through `initializationOptions` on the `initialize` request.
+
+1. **`Bridge::initialize` gained a third parameter rather than a second overload,** because LSP's
+   own spec leaves `initializationOptions` as "any" — server-defined — and threading `Option<Value>`
+   through one signature keeps every caller (there is exactly one, in `src-tauri/src/lsp.rs`, plus
+   two real-server tests in `preamble-lsp/tests/bridge.rs` that pass `None`) explicit about
+   whether it has anything to say, rather than silently sending `null` to servers with nothing to
+   configure. `crates/preamble-lsp/src/bridge.rs`'s own doc comment is where this is recorded,
+   since `preamble-lsp` is the crate a future server integration would read first.
+2. **`texlab_settings` is a pure function returning `Option<Value>`, not four lines inlined into
+   `start()`.** `None` when the build directory cannot be expressed relative to the project root
+   (`pathdiff`'s `strip_prefix` failing) — which cannot happen through this app's own
+   `Project::build_dir`, but a function this cheap to test should say "I don't know" rather than
+   emit a relative path that starts climbing out of the project with `..`. Four tests pin the
+   three field names, the forward-slash normalisation (`\` never survives on Windows, the same
+   normalisation `preamble-synctex`'s `paths_match` needed for the same reason this week), and the
+   `None` case.
+3. **A real gap, named rather than silently accepted:** `texlab_settings` computes the build
+   directory relative to `Project::root_dir` (the project folder), not the root `.tex` file's own
+   directory, because `LspSession::start` is only ever given the project directory today — the
+   two coincide for every project `detect_root` actually finds a root in (`main.tex`, or any
+   `.tex` up to three folders deep, always inside the project folder), but would be wrong for a
+   root file `set_root_file` places in a subfolder. Fixing it needs the root file's own path
+   threaded alongside the directory, which is a bigger change than this S-sized card's scope;
+   left as an open question below rather than solved speculatively.
+
+**Open question for the architect:** should a later loop thread the root file's path (not only
+the project directory) into `LspSession::start`, so `texlab_settings`'s relative-path computation
+is correct for a root file in a subfolder too? Low priority — `detect_root`'s own search order
+makes a root file outside the project's top level the less common case — but worth a decision
+before `set_root_file` is more prominently exposed in the UI.
 
 ### Sprint 4 — v0.2 exit: navigation
 

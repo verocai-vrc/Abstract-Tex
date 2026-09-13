@@ -72,10 +72,14 @@ impl LspSession {
 
     /// Start TexLab for `root` and forward its events through `on_event`.
     ///
+    /// `build_dir` is the project's `.preamble/build` (S3.6): TexLab is told about it through
+    /// `initializationOptions` so it writes and finds `.aux`/`.pdf`/`.log` where our own build
+    /// actually puts them, instead of guessing the project root and finding nothing there.
+    ///
     /// Returns the server's capabilities, so the frontend knows what it may ask for rather than
     /// guessing. A missing TexLab is reported as an error and nothing else: the editor must keep
     /// working without it (DESIGN.md §2, commitment 6).
-    pub async fn start<F>(&self, root: &Path, on_event: F) -> Result<Value, String>
+    pub async fn start<F>(&self, root: &Path, build_dir: &Path, on_event: F) -> Result<Value, String>
     where
         F: Fn(LspEvent) + Send + Sync + 'static,
     {
@@ -120,16 +124,60 @@ impl LspSession {
         // cause. Found by running the app against a project path containing spaces.
         *self.bridge.lock().unwrap() = Some(bridge.clone());
 
-        let capabilities = match bridge.initialize(root, client_capabilities()).await {
-            Ok(capabilities) => capabilities,
-            Err(error) => {
-                self.stop();
-                return Err(format!("The language server did not start: {error}"));
-            }
-        };
+        let capabilities =
+            match bridge.initialize(root, client_capabilities(), texlab_settings(root, build_dir)).await {
+                Ok(capabilities) => capabilities,
+                Err(error) => {
+                    self.stop();
+                    return Err(format!("The language server did not start: {error}"));
+                }
+            };
         info!(root = %root.display(), "language server ready");
         Ok(capabilities)
     }
+}
+
+/// The `texlab` settings object TexLab reads from `initializationOptions` (S3.6). Its schema is
+/// server-specific and only loosely documented, so every field name here was checked against
+/// TexLab 5.26.0's own deserialisation code (`crates/texlab/src/server/options.rs`'s `Options`
+/// and `BuildOptions` structs) rather than guessed from the README's prose, which turned out to
+/// describe a `texlab.rootDirectory` setting that **does not exist** in that struct at this
+/// version — see the S3.6 outcome in SPRINTS.md for how that was confirmed. Because there is no
+/// root-file field to set, this crate can only tell TexLab where build output lives, not which
+/// file is the root; TexLab keeps finding the root itself by walking up for a `\begin{document}`.
+///
+/// `aux_directory`/`log_directory`/`pdf_directory` are documented (in TexLab's changelog, not its
+/// README) as relative to the *root document's own directory* since TexLab 5.0, not the
+/// workspace root. `root` here is `Project::root_dir` — the project folder, also sent as
+/// `rootUri` — which coincides with the root document's directory for every project this app's
+/// own `detect_root` (`project.rs`) can find one in today: `main.tex`, or any `.tex` up to three
+/// folders deep, always sits inside the project folder, but `set_root_file` lets an author name
+/// one nested in a subfolder, where this computation would be inaccurate. Recorded here rather
+/// than solved: correcting it needs `Project`'s own root-file path threaded in alongside the
+/// directory, which is a bigger change than this card's "root file, build dir" scope asked for,
+/// and is exactly what S3.6's open question below asks the architect to weigh in on.
+fn texlab_settings(root_dir: &Path, build_dir: &Path) -> Option<Value> {
+    let relative_build_dir = pathdiff(build_dir, root_dir)?;
+    Some(json!({
+        "texlab": {
+            "build": {
+                "auxDirectory": relative_build_dir,
+                "logDirectory": relative_build_dir,
+                "pdfDirectory": relative_build_dir,
+            },
+        }
+    }))
+}
+
+/// `build_dir` relative to `root_dir`, forward slashes. Both are always absolute here (`Project`
+/// only ever hands out absolute paths), so a plain `strip_prefix` covers this application's one
+/// real layout — `.preamble/build` under the project root, which is always an ancestor of
+/// `root_dir` even when the root `.tex` sits in a subfolder. A build directory that is *not*
+/// under the project at all cannot happen through this app's own `Project::build_dir`, so `None`
+/// in that case is a signal something upstream changed, not a path this function needs to solve.
+fn pathdiff(build_dir: &Path, root_dir: &Path) -> Option<String> {
+    let relative = build_dir.strip_prefix(root_dir).ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
 /// What we tell TexLab we can do. Deliberately modest: every entry here is something S3.3 will
@@ -149,4 +197,38 @@ fn client_capabilities() -> Value {
         },
         "workspace": { "workspaceFolders": false },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn texlab_settings_points_the_three_build_directories_at_the_preamble_build_folder() {
+        let options = texlab_settings(Path::new("/proj"), Path::new("/proj/.preamble/build")).unwrap();
+        let build = &options["texlab"]["build"];
+        assert_eq!(build["auxDirectory"], ".preamble/build");
+        assert_eq!(build["logDirectory"], ".preamble/build");
+        assert_eq!(build["pdfDirectory"], ".preamble/build");
+    }
+
+    #[test]
+    fn texlab_settings_uses_forward_slashes_even_on_windows() {
+        let options = texlab_settings(Path::new("/proj"), Path::new("/proj/.preamble/build")).unwrap();
+        let aux = options["texlab"]["build"]["auxDirectory"].as_str().unwrap();
+        assert!(!aux.contains('\\'), "expected forward slashes, got {aux}");
+    }
+
+    #[test]
+    fn texlab_settings_is_none_when_the_build_dir_is_not_under_the_project() {
+        // Cannot happen through this app's own `Project::build_dir`, but a function this small
+        // should still say "I don't know" rather than emit a nonsensical relative path.
+        assert!(texlab_settings(Path::new("/proj"), Path::new("/elsewhere/build")).is_none());
+    }
+
+    #[test]
+    fn pathdiff_handles_a_build_dir_nested_several_levels_deep() {
+        let relative = pathdiff(Path::new("/a/b/.preamble/build"), Path::new("/a/b")).unwrap();
+        assert_eq!(relative, ".preamble/build");
+    }
 }
