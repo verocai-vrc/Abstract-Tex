@@ -25,6 +25,7 @@ tauri-plugin-dialog = "2"
 preamble-engine = { path = "../crates/preamble-engine" }
 preamble-lsp = { path = "../crates/preamble-lsp" }
 preamble-reconcile = { path = "../crates/preamble-reconcile" }
+preamble-synctex = { path = "../crates/preamble-synctex" }
 texlog = { path = "../crates/texlog" }
 
 tokio = { workspace = true }

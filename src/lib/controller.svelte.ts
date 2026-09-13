@@ -435,6 +435,42 @@ export function jumpToLine(line: number): void {
   app.jumpRequest = { line, nonce: ++jumpNonce };
 }
 
+let syncTexNonce = 0;
+
+/**
+ * SyncTeX forward search (S3.4): the cursor's line in the active file to a spot in the PDF.
+ * Silent on every failure the author did not cause on purpose — no project, no build yet,
+ * nothing typeset for a blank line — because this fires on ordinary cursor movement, not on an
+ * explicit action, and a notice on every idle pause over a blank line would be noise DESIGN.md
+ * §2 commitment 6 does not ask for. `PdfPane.svelte` is what turns the request into a scroll.
+ */
+export async function syncTexForward(relativePath: string, line: number): Promise<void> {
+  if (!app.project) return;
+  try {
+    const hit = await ipc.synctexForward(relativePath, line);
+    app.syncTexScrollRequest = { page: hit.page, x: hit.x, y: hit.y, nonce: ++syncTexNonce };
+  } catch {
+    /* no build yet, or nothing typeset for this line — both ordinary, neither worth a notice */
+  }
+}
+
+/**
+ * SyncTeX inverse search (S3.5): a double-click in the PDF, in PDF points, to a source line —
+ * opening the file first if it has no tab yet (S2.3's `openFile` already does that, so this adds
+ * nothing beyond the coordinate translation `synctex_inverse` did in Rust).
+ */
+export async function syncTexInverse(page: number, x: number, y: number): Promise<void> {
+  if (!app.project) return;
+  try {
+    const hit = await ipc.synctexInverse(page, x, y);
+    if (!hit.file) return; // resolved outside the project (a package's own file); nothing to open
+    if (app.activePath !== hit.file) await openFile(hit.file);
+    jumpToLine(hit.line);
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
 /**
  * Go to where a diagnostic points. Until the paren-stack resolver lands (S5.2) a diagnostic
  * carries a line but no file, so every one is taken to be about the root file — which is

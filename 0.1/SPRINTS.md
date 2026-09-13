@@ -359,7 +359,7 @@ through `compile.rs` to the drawer, which is S2.7.
 | [x] | S3.3b Diagnostics merge: `publishDiagnostics` into the editor's problem markers | M | S3.3a |
 | [x] | S3.3c Hover, go-to-definition, document symbols | M | S3.3a |
 | [x] | S3.3d Inline squiggles and diagnostic hover: `Decoration.mark` over LSP ranges | M | S3.3b, S3.3c |
-| [ ] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
+| [x] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
 | [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
 
@@ -693,6 +693,62 @@ The advisory drive-letter-casing bug on `lsp-diagnostics.ts`'s `Map` lookup (log
 that already came out of `LspDiagnosticStore.forPath`, the same lookup the gutter has always used,
 so this loop neither closes nor worsens it. Still open, still a one-line fix wherever
 `lsp-diagnostics.ts` next gets touched for its own reasons.
+
+**S3.4 (13 September 2026).** `[x]`: rungs 1–3 are green, run for real on this Windows machine
+rather than through the Linux-sandbox workaround earlier loops needed — `cargo test --workspace`
+(112 tests, one new `--ignored` real-Tectonic test), `cargo clippy --workspace --all-targets -- -D
+warnings` clean, `svelte-check` 418 files / 0 errors, `pnpm vitest run` 220/220 (11 new). Rung 4
+(`pnpm tauri dev`, moving the cursor and checking the PDF highlights) was **not** driven
+interactively this session: the debug build compiles cleanly on its own
+(`cargo build -p preamble`), but nobody clicked through the running window to watch a highlight
+appear, so that check is still owed to a human at the keyboard.
+
+A new library crate, `crates/preamble-synctex/`, parses `.synctex.gz` and answers both directions
+(forward here; inverse is S3.5, sharing the same parsed `SyncTex` value rather than a second
+parser). Three things worth a reader's attention:
+
+1. **The fixture is a real Tectonic build, not hand-typed bytes, and that discipline caught two
+   real bugs the same day.** `fixtures/multi.synctex.gz` was produced by running the bundled
+   Tectonic sidecar against `fixtures/multi.tex` (a two-page, four-paragraph document), the same
+   "verification that edits the code cannot see" lesson this project already carries applied to a
+   *binary format* rather than a Rust file. It found: (a) `inverse_search`'s naive `min_by` kept
+   the *first* record at a tied minimum distance, which was the enclosing paragraph's box, not the
+   more specific line a `h` void-box record at the same point actually named — fixed by preferring
+   the *last* tied record, since SyncTeX writes outermost-first; (b) `paths_match` compared
+   `to_string_lossy()` case-insensitively but not separator-insensitively, so a test path built as
+   `dir.join("fixtures/multi.tex")` (a literal forward slash inside one Windows `Path` component)
+   silently failed to match SyncTeX's own backslash-separated `Input:` line for the identical
+   file. Both are logged in `bugs-issues-fixes.md` with the fixture that exposed them.
+2. **The coordinate constant, 65781.76, was verified against a second real implementation, not
+   derived from the spec alone.** SyncTeX stores scaled points (1/65536 of a *TeX* point, 72.27
+   dpi), but PDF and pdf.js want *PDF* points (72 dpi); the man page never states the combined
+   constant outright. `65536.0 * 72.27 / 72.0 = 65781.76` was cross-checked against LaTeX
+   Workshop's shipped, maintained `synctexjs.ts`, which divides by the identical literal — recorded
+   in `preamble-synctex/src/lib.rs`'s module doc comment so a future reader does not have to
+   re-derive it from the spec's prose.
+3. **The crate is a flat scan over every record, on purpose, not a box tree.** Real SyncTeX nests
+   `[`/`]` and `(`/`)` to describe TeX's box structure, but neither forward nor inverse search asks
+   a nesting question — both only need "which record is at/near this point" — so `parse` tracks
+   only the enclosing page (`{`/`}`) and pulls a flat `(tag, line, h, v)` out of any content line
+   shaped that way, ignoring record-type and nesting entirely. Simpler than a real box-tree parser,
+   and a linear scan over a few thousand records is well inside the keystroke budget (DESIGN.md
+   §2) without an index — worth revisiting only if a real thesis's SyncTeX file proves otherwise.
+
+The Tauri side is a new `src-tauri/src/synctex.rs` (path resolution: `build_dir/<stem>.synctex.gz`,
+the same convention `commands::read_log` already used for `.log`) plus `synctex_forward`/
+`synctex_inverse` commands — both wired now since S3.5 needed the inverse command's shape decided
+anyway and the card's own dependency line points S3.5 at this loop's output. On the frontend,
+`editor/synctex.ts` mirrors `definition.ts`'s "ask, do not act" seam (`Ctrl-Alt-J` reads the
+cursor's line and calls a requester); `pdf/viewer.ts` gained `scrollToPosition` (an absolutely
+positioned, CSS-faded `<div>` over the target canvas, never drawn into the canvas itself, so a
+reload's `replaceChildren` clears it for free) and `onInverseSearch` (a double-click handler,
+since a single click is pdf.js's own text-selection gesture and must not be stolen).
+
+**Design call made without an architect, recorded here per the card's instruction:** TexLab's own
+`initializationOptions` schema (checked for S3.6, not this loop) has no equivalent field for "the
+line an editor's cursor is on," so there was no existing convention to match — `Ctrl-Alt-J` was
+chosen fresh, next to `Alt-F12` (go-to-definition) and clear of every binding already in
+`setup.ts`'s keymap and `shortcuts.ts`'s window-level table.
 
 ### Sprint 4 — v0.2 exit: navigation
 

@@ -2473,6 +2473,7 @@ dependencies = [
  "preamble-engine",
  "preamble-lsp",
  "preamble-reconcile",
+ "preamble-synctex",
  "serde",
  "serde_json",
  "tauri",
@@ -2529,6 +2530,16 @@ version = "0.1.0"
 dependencies = [
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "preamble-synctex"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "preamble-sidecar",
+ "tempfile",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

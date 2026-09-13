@@ -7,6 +7,7 @@
     lspGoToDefinition,
     lspHover,
     resolveConflict,
+    syncTexForward,
   } from '../lib/controller.svelte';
   import { createEditor, goToLine } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
@@ -39,7 +40,8 @@
     const completionSource = lspCompletionSource((line, character) => lspCompletion(path, line, character));
     const hoverRequest = (line: number, character: number) => lspHover(path, line, character);
     const definitionRequest = (line: number, character: number) => lspGoToDefinition(path, line, character);
-    const created = createEditor(host, doc, completionSource, hoverRequest, definitionRequest);
+    const forwardSearchRequest = (line: number) => void syncTexForward(path, line);
+    const created = createEditor(host, doc, completionSource, hoverRequest, definitionRequest, forwardSearchRequest);
     view = created;
     created.focus();
     return () => {

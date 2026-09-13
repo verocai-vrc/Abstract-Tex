@@ -83,6 +83,21 @@ export interface TextOp {
   insert: string;
 }
 
+/** Where a source line lands in the compiled PDF (S3.4), in PDF points from the page's top-left
+ * corner — the same coordinate system pdf.js's viewport uses at scale 1. */
+export interface SyncTexForwardResult {
+  page: number;
+  x: number;
+  y: number;
+}
+
+/** Where a click in the PDF came from in the source (S3.5). `file` is `null` when the click
+ * resolved to something outside the project (a package's own file) that has no tab to open. */
+export interface SyncTexInverseResult {
+  file: string | null;
+  line: number;
+}
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -96,6 +111,14 @@ export const ipc = {
   cancelCompile: () => invoke<void>('cancel_compile'),
   readLog: () => invoke<string>('read_log'),
   diffOps: (oldText: string, newText: string) => invoke<TextOp[]>('diff_ops', { old: oldText, new: newText }),
+
+  /** Forward search: a source line to a spot in the last build's PDF (S3.4). Rejects with a
+   * sentence — no build yet, or nothing typeset for that line — rather than an engine detail. */
+  synctexForward: (file: string, line: number) =>
+    invoke<SyncTexForwardResult>('synctex_forward', { query: { file, line } }),
+  /** Inverse search: a click in the PDF to a source line (S3.5). */
+  synctexInverse: (page: number, x: number, y: number) =>
+    invoke<SyncTexInverseResult>('synctex_inverse', { query: { page, x, y } }),
 
   /** Start TexLab for the open project; resolves to its capabilities. Rejects with a sentence
    * if the binary is missing — the editor keeps working without it. */

@@ -166,6 +166,27 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cause was never identified, only that it stopped: if it returns, this entry is the prior
   history.
 
+- **`preamble-synctex` inverse search picked the enclosing box, not the specific line, on an
+  exact-distance tie.** (S3.4, 13 Sep 2026) A box body (`(tag,line:h,v:...`) and the void
+  marker (`h tag,line:h,v:...`) for its first line are frequently recorded at the exact same
+  `(h, v)` in real SyncTeX output — confirmed against `fixtures/multi.synctex.gz`, a real
+  Tectonic build, not a hand-written excerpt. `Iterator::min_by` keeps the *first* minimum it
+  sees, which was the enclosing paragraph's record, not the more specific line the click was
+  actually nearest to. Fixed by keeping the *last* record on an exact tie (`distance <=
+  best_distance`), since SyncTeX writes records in outermost-first order, so a later record
+  at the same point is the more specific one. Caught by a test built from the real fixture;
+  a hand-typed fixture without this exact coincidence would not have found it.
+
+- **`preamble-synctex` path comparison did not normalise path separators.** (S3.4, 13 Sep
+  2026) `paths_match` compared `Path::to_string_lossy()` output case-insensitively, but not
+  separator-insensitively: `PathBuf::from(dir).join("fixtures/multi.tex")` embeds a literal
+  forward slash inside one component on Windows, which never gets rewritten to `\`, so it
+  failed to match SyncTeX's own backslash-separated `Input:` line for the identical file.
+  Fixed by replacing `\` with `/` on both sides before comparing. Found by the crate's own
+  test against the real fixture — the exact "verification that edits the code cannot see"
+  risk this project already tracks, in the opposite direction: here the *test's own path
+  construction* was the fabricated part.
+
 ## Won't fix
 
 _(none yet)_

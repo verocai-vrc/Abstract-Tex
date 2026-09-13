@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::compile::CompileEvent;
 use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
+use crate::synctex::{self, ForwardQuery, ForwardResult, InverseQuery, InverseResult};
 use crate::watcher::{self, remember_write};
 use crate::AppState;
 
@@ -195,6 +196,39 @@ pub fn read_log(state: State<'_, AppState>) -> CommandResult<String> {
 #[tauri::command]
 pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
     preamble_reconcile::diff_ops(&old, &new)
+}
+
+// ---------------------------------------------------------------------------
+// SyncTeX (S3.4 forward, S3.5 inverse). `synctex` resolves the .synctex.gz path and turns typed
+// parser errors into a sentence; this is only the Tauri glue on top of it.
+// ---------------------------------------------------------------------------
+
+/// Cursor in the editor → page and point in the PDF (S3.4).
+#[tauri::command]
+pub fn synctex_forward(state: State<'_, AppState>, query: ForwardQuery) -> CommandResult<ForwardResult> {
+    with_project(&state, |project| {
+        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
+        let source = project.resolve(&query.file)?;
+        let table = synctex::open(&project.build_dir(), &root_file).map_err(|e| anyhow::anyhow!(e))?;
+        table
+            .forward_search(&source, query.line)
+            .map(ForwardResult::from)
+            .ok_or_else(|| anyhow::anyhow!("Nothing typeset for {}:{} in the last build.", query.file, query.line))
+    })
+}
+
+/// Click in the PDF → file and line in the source (S3.5).
+#[tauri::command]
+pub fn synctex_inverse(state: State<'_, AppState>, query: InverseQuery) -> CommandResult<InverseResult> {
+    with_project(&state, |project| {
+        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
+        let table = synctex::open(&project.build_dir(), &root_file).map_err(|e| anyhow::anyhow!(e))?;
+        let position = preamble_synctex::PdfPosition { page: query.page, x: query.x, y: query.y };
+        let hit = table
+            .inverse_search(position)
+            .ok_or_else(|| anyhow::anyhow!("Nothing on page {} of the last build near that point.", query.page))?;
+        Ok(synctex::to_relative(&project.root_dir, hit))
+    })
 }
 
 // ---------------------------------------------------------------------------

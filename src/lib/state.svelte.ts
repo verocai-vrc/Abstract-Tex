@@ -102,6 +102,10 @@ class AppState {
   /** A request for the editor to move the cursor. `nonce` makes repeat requests distinct. */
   jumpRequest = $state<{ line: number; nonce: number } | null>(null);
 
+  /** A request for the PDF pane to scroll to and highlight a point (S3.4's forward search).
+   * `nonce` makes repeat requests to the same spot distinct, matching `jumpRequest`. */
+  syncTexScrollRequest = $state<{ page: number; x: number; y: number; nonce: number } | null>(null);
+
   projectName = $derived(this.project ? (this.project.rootDir.split(/[\\/]/).filter(Boolean).pop() ?? '') : '');
 }
 

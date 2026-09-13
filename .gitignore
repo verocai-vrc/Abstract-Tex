@@ -25,9 +25,11 @@ node_modules/
 *.synctex.gz
 *.toc
 
-# ...except the logs captured deliberately as parser fixtures, which are the whole point.
+# ...except the logs and SyncTeX output captured deliberately as parser fixtures, the whole
+# point of both crates that read them.
 !crates/texlog/fixtures/**/*.log
 !fixtures/**/*.log
+!crates/preamble-synctex/fixtures/**/*.synctex.gz
 
 # OS and editor noise
 .DS_Store

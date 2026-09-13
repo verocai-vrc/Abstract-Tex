@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { syncTexInverse } from '../lib/controller.svelte';
   import { PdfViewer } from '../lib/pdf/viewer';
 
   let container: HTMLElement | undefined = $state();
@@ -8,11 +9,19 @@
 
   $effect(() => {
     if (!container) return;
-    viewer = new PdfViewer(container);
+    const created = new PdfViewer(container);
+    created.onInverseSearch((page, x, y) => void syncTexInverse(page, x, y));
+    viewer = created;
     return () => {
       void viewer?.destroy();
       viewer = null;
     };
+  });
+
+  // SyncTeX forward search (S3.4): scroll to and highlight wherever the editor last asked for.
+  $effect(() => {
+    const request = app.syncTexScrollRequest;
+    if (request && viewer) viewer.scrollToPosition(request.page, request.x, request.y);
   });
 
   // Reload whenever a new successful build publishes a URL. A failed build leaves `pdfUrl`

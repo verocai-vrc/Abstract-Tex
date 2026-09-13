@@ -218,6 +218,25 @@ kbd {
   line-height: 1.8;
 }
 
+/* SyncTeX forward search (S3.4): a brief marker at the target point, not drawn into the canvas
+   itself so a reload never has to know to erase it (`viewer.ts`'s own note on why). Sized and
+   positioned in `viewer.ts`; only the look lives here. */
+.pdf-pane .synctex-highlight {
+  position: absolute;
+  width: 140px;
+  height: 1.4em;
+  margin-left: -8px;
+  margin-top: -0.2em;
+  background: var(--accent);
+  opacity: 0.35;
+  border-radius: 3px;
+  pointer-events: none;
+  transition: opacity 700ms ease-out;
+}
+.pdf-pane .synctex-highlight.fade {
+  opacity: 0;
+}
+
 .statusbar {
   display: flex;
   align-items: center;

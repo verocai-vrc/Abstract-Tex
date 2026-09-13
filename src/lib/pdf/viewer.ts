@@ -44,6 +44,31 @@ export class PdfViewer {
     container.appendChild(this.pagesHost);
   }
 
+  /**
+   * Call `handler` with `(page, x, y)` in PDF points whenever the reader double-clicks a page —
+   * the inverse-search gesture (S3.5). A plain callback rather than an event the caller
+   * subscribes to elsewhere, matching how `definition.ts`'s click handler hands CodeMirror a
+   * function rather than knowing about tabs itself: this class stays ignorant of IPC, projects,
+   * and tab-opening, and only turns a DOM event into the coordinates SyncTeX needs.
+   *
+   * Double-click, not single-click: a single click inside the text layer is how pdf.js's own
+   * selection and search already work, and stealing it would break "select text in the PDF",
+   * which the exit demo for v0.2 does not ask this loop to give up.
+   */
+  onInverseSearch(handler: (page: number, x: number, y: number) => void): void {
+    this.pagesHost.addEventListener('dblclick', (event) => {
+      const canvas = event.target;
+      if (!(canvas instanceof HTMLCanvasElement)) return;
+      const page = Number(canvas.dataset.page);
+      const pointWidth = Number(canvas.dataset.pointWidth ?? canvas.clientWidth);
+      const cssPerPoint = canvas.clientWidth / pointWidth;
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) / cssPerPoint;
+      const y = (event.clientY - rect.top) / cssPerPoint;
+      handler(page, x, y);
+    });
+  }
+
   get pageCount(): number {
     return this.document?.numPages ?? 0;
   }
@@ -99,6 +124,10 @@ export class PdfViewer {
       canvas.style.width = `${Math.floor(viewport.width / dpr)}px`;
       canvas.style.height = `${Math.floor(viewport.height / dpr)}px`;
       canvas.dataset.page = String(pageNumber);
+      // PDF points (72 dpi), the unit SyncTeX answers in — recorded here rather than recomputed
+      // by whoever needs it later, so a click handler or `scrollToPosition` never has to redo
+      // this division against a differently-scaled read of the same canvas.
+      canvas.dataset.pointWidth = String(natural.width);
 
       const context = canvas.getContext('2d');
       if (!context) return null;
@@ -106,6 +135,50 @@ export class PdfViewer {
       fragment.appendChild(canvas);
     }
     return fragment;
+  }
+
+  /**
+   * Scroll to and briefly highlight a spot from a SyncTeX forward search (S3.4): `page` is
+   * 1-based, `x`/`y` are PDF points from the page's top-left corner — the same convention
+   * `renderAllPages`'s own `page.getViewport({ scale: 1 })` uses, which is why the only
+   * conversion needed here is CSS-pixels-per-point, read back from `data-point-width`
+   * (`renderAllPages` records it at render time so this method never has to re-derive a scale
+   * from the canvas's device-pixel-ratio-scaled backing size).
+   *
+   * A highlight is a short-lived absolutely positioned `<div>` over the target canvas rather
+   * than anything drawn into the canvas itself: the canvas is replaced wholesale on every
+   * reload (this file's own header comment), so anything baked into pixels would vanish on the
+   * next build and there would be nothing to fade back out.
+   */
+  scrollToPosition(page: number, x: number, y: number): void {
+    const canvas = this.pagesHost.querySelector<HTMLCanvasElement>(`canvas[data-page="${page}"]`);
+    if (!canvas) return;
+
+    const pointWidth = Number(canvas.dataset.pointWidth ?? canvas.clientWidth);
+    const cssPerPoint = canvas.clientWidth / pointWidth;
+
+    const highlightTop = canvas.offsetTop + y * cssPerPoint;
+    const highlightLeft = canvas.offsetLeft + x * cssPerPoint;
+
+    this.container.scrollTo({
+      top: Math.max(0, highlightTop - this.container.clientHeight / 3),
+      left: 0,
+      behavior: 'smooth',
+    });
+
+    this.flashHighlight(highlightLeft, highlightTop);
+  }
+
+  private flashHighlight(left: number, top: number): void {
+    const mark = window.document.createElement('div');
+    mark.className = 'synctex-highlight';
+    mark.style.left = `${left}px`;
+    mark.style.top = `${top}px`;
+    this.pagesHost.appendChild(mark);
+    // A CSS transition, not a `setTimeout` removal: if a new PDF loads mid-flash,
+    // `replaceChildren` in `load()` already removes this node, so nothing needs to race it.
+    requestAnimationFrame(() => mark.classList.add('fade'));
+    mark.addEventListener('transitionend', () => mark.remove());
   }
 
   setZoom(zoom: number): void {

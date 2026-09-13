@@ -5,6 +5,7 @@
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
+//! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `preamble-synctex`.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
 //!
 //! State that lives for the whole app is in [`AppState`], handed to Tauri with `.manage()` and
@@ -14,6 +15,7 @@ pub mod commands;
 pub mod compile;
 pub mod lsp;
 pub mod project;
+pub mod synctex;
 pub mod watcher;
 
 use std::sync::{Arc, Mutex};
@@ -89,6 +91,8 @@ pub fn run() {
             commands::cancel_compile,
             commands::read_log,
             commands::diff_ops,
+            commands::synctex_forward,
+            commands::synctex_inverse,
             commands::lsp_start,
             commands::lsp_request,
             commands::lsp_notify,

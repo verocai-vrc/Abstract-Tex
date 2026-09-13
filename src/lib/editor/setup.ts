@@ -28,6 +28,7 @@ import type { OpenDocument } from '../document';
 import { definitionClickHandler, definitionKeymap, type DefinitionRequester } from './definition';
 import { diagnosticGutter } from './diagnostics';
 import { lspHoverSource, type HoverRequester } from './hover';
+import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
 
 // Colours come from the CSS custom properties in app.css so light and dark both work.
 const latexHighlight = HighlightStyle.define([
@@ -75,6 +76,7 @@ export function createEditor(
   completionSource?: CompletionSource,
   hoverRequest?: HoverRequester,
   definitionRequest?: DefinitionRequester,
+  forwardSearchRequest?: ForwardSearchRequester,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -114,6 +116,7 @@ export function createEditor(
         ...defaultKeymap,
         ...searchKeymap,
         ...(definitionRequest ? definitionKeymap(definitionRequest) : []),
+        ...(forwardSearchRequest ? forwardSearchKeymap(forwardSearchRequest) : []),
         indentWithTab,
       ]),
       ...(definitionRequest

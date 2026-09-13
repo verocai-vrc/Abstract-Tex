@@ -1,0 +1,16 @@
+[package]
+name = "preamble-synctex"
+description = "Parses .synctex.gz and answers forward (cursor to PDF) and inverse (click to source) queries."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+flate2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+preamble-sidecar = { path = "../preamble-sidecar" }

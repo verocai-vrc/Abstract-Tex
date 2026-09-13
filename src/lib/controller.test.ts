@@ -17,6 +17,9 @@ const calls = {
 };
 /** Set to a message to make `lsp_start` fail, as a machine with no TexLab would. */
 let lspStartError: string | null = null;
+/** What `synctexForward`/`synctexInverse` answer with, or throw, for the S3.4/S3.5 tests below. */
+let synctexForwardAnswer: { page: number; x: number; y: number } | Error = { page: 1, x: 10, y: 20 };
+let synctexInverseAnswer: { file: string | null; line: number } | Error = { file: 'main.tex', line: 3 };
 /** What `lspRequest` answers with next, for the hover/definition/documentSymbol tests below.
  * `unknown` because that is genuinely what crosses the Tauri event boundary; each test narrows
  * it to whatever shape it is pretending TexLab sent. */
@@ -69,6 +72,14 @@ vi.mock('./ipc', () => ({
     },
     readLog: async () => '',
     assetUrl: (p: string) => `asset://${p}`,
+    synctexForward: async () => {
+      if (synctexForwardAnswer instanceof Error) throw synctexForwardAnswer;
+      return synctexForwardAnswer;
+    },
+    synctexInverse: async () => {
+      if (synctexInverseAnswer instanceof Error) throw synctexInverseAnswer;
+      return synctexInverseAnswer;
+    },
     onCompile: async (handler: (event: CompileEvent) => void) => {
       compileHandler = handler;
       return () => {};
@@ -106,6 +117,8 @@ const {
   quickOpenPick,
   resolveConflict,
   start,
+  syncTexForward,
+  syncTexInverse,
   toggleQuickOpen,
   triggerCompile,
 } = await import('./controller.svelte');
@@ -140,6 +153,8 @@ beforeEach(async () => {
   calls.lspStarts = 0;
   lspStartError = null;
   lspRequestAnswer = null;
+  synctexForwardAnswer = { page: 1, x: 10, y: 20 };
+  synctexInverseAnswer = { file: 'main.tex', line: 3 };
   app.conflict = null;
   app.notice = null;
   await start();
@@ -734,5 +749,64 @@ describe('publishDiagnostics reaching the gutter (S3.3b)', () => {
   it('answers with nothing for a path when no project is open', () => {
     app.project = null;
     expect(lspDiagnosticsFor('main.tex')).toEqual([]);
+  });
+});
+
+describe('syncTexForward (S3.4)', () => {
+  it('turns a hit into a scroll request the PDF pane can react to', async () => {
+    synctexForwardAnswer = { page: 2, x: 100, y: 200 };
+    await syncTexForward('main.tex', 7);
+    expect(app.syncTexScrollRequest).toMatchObject({ page: 2, x: 100, y: 200 });
+  });
+
+  it('bumps the nonce on every call so a repeat request to the same spot still fires', async () => {
+    await syncTexForward('main.tex', 7);
+    const first = app.syncTexScrollRequest!.nonce;
+    await syncTexForward('main.tex', 7);
+    expect(app.syncTexScrollRequest!.nonce).not.toBe(first);
+  });
+
+  it('is silent when there is nothing typeset for the line yet — not a notice', async () => {
+    synctexForwardAnswer = new Error('Nothing typeset for main.tex:7 in the last build.');
+    app.syncTexScrollRequest = null;
+    app.notice = null;
+    await syncTexForward('main.tex', 7);
+    expect(app.syncTexScrollRequest).toBeNull();
+    expect(app.notice).toBeNull();
+  });
+
+  it('does nothing with no project open', async () => {
+    app.project = null;
+    await syncTexForward('main.tex', 7);
+    expect(app.syncTexScrollRequest).toBeNull();
+  });
+});
+
+describe('syncTexInverse (S3.5)', () => {
+  it('moves the cursor in the already-open tab the click resolved to', async () => {
+    synctexInverseAnswer = { file: 'main.tex', line: 5 };
+    await syncTexInverse(1, 10, 20);
+    expect(app.activePath).toBe('main.tex');
+    expect(app.jumpRequest?.line).toBe(5);
+  });
+
+  it('opens the file first when the click resolves to a tab that is not open yet', async () => {
+    disk.set('sections/intro.tex', 'Intro');
+    synctexInverseAnswer = { file: 'sections/intro.tex', line: 1 };
+    await syncTexInverse(1, 10, 20);
+    expect(app.activePath).toBe('sections/intro.tex');
+  });
+
+  it('does nothing when the click resolves outside the project', async () => {
+    synctexInverseAnswer = { file: null, line: 0 };
+    const before = app.activePath;
+    await syncTexInverse(1, 10, 20);
+    expect(app.activePath).toBe(before);
+  });
+
+  it('reports a notice when the backend has nothing on that page', async () => {
+    synctexInverseAnswer = new Error('Nothing on page 9 of the last build near that point.');
+    await syncTexInverse(9, 0, 0);
+    expect(app.notice).toContain('Nothing on page 9');
   });
 });
