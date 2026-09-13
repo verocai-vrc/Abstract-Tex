@@ -358,7 +358,7 @@ through `compile.rs` to the drawer, which is S2.7.
 | [x] | S3.3a Protocol types and the completion source: typed `lsp.ts`, `textDocument/completion` as a CodeMirror `autocompletion()` source | M | S3.2 |
 | [x] | S3.3b Diagnostics merge: `publishDiagnostics` into the editor's problem markers | M | S3.3a |
 | [x] | S3.3c Hover, go-to-definition, document symbols | M | S3.3a |
-| [ ] | S3.3d Inline squiggles and diagnostic hover: `Decoration.mark` over LSP ranges | M | S3.3b, S3.3c |
+| [x] | S3.3d Inline squiggles and diagnostic hover: `Decoration.mark` over LSP ranges | M | S3.3b, S3.3c |
 | [ ] | S3.4 SyncTeX forward: cursor → PDF highlight, parsed from `.synctex.gz` in Rust | M | S1.10 |
 | [ ] | S3.5 SyncTeX inverse: click in PDF → `file:line`, opening the file if needed | M | S3.4, S2.3 |
 | [ ] | S3.6 LSP settings passthrough from `preamble.toml` (root file, build dir) | S | S3.2 |
@@ -640,6 +640,59 @@ flagged advisory in S3.3b's outcome for `lsp-diagnostics.ts`'s raw `Map` lookup 
 `toRelative` (`paths.ts`) already compares path segments case-insensitively, so this call site
 does not reproduce that bug. The advisory item itself is unchanged and still open, since fixing
 it belongs with `lsp-diagnostics.ts`'s own `Map`, which this loop did not touch.
+
+**S3.3d (13 September 2026).** `[x]`: rungs 1–3 are green, and for the first time this loop
+verified them for real rather than through the throwaway-crate workaround — this session runs on
+the maintainer's Windows machine, where `cargo test --workspace` (105 tests: 25 + 0 + 6/7 + 18 +
+6/8 + 5/6 + 9 + 4 + 23, the fractions being the `--ignored` real-server/real-Tectonic tests this
+run skipped) and `cargo clippy --workspace --all-targets -- -D warnings` both build `src-tauri`
+and pass in place. `svelte-check` 416 files / 0 errors, Vitest 209/209 across 15 files (9 new).
+Rung 4 (`pnpm tauri dev`, hovering a squiggle by hand) is still pending — no webview attempted
+this session — the same standing sprint-3 gate as S3.1–S3.3c, though for the first time that gate
+is "wasn't tried" rather than "can't be tried here." Only `src/lib/editor/diagnostics.ts` and its
+test changed; no other file needed touching, and no Rust changed. What a reader should take from
+the diff:
+
+1. **The squiggle is a third `StateField`, not a repaint of the gutter's.** `EditorDiagnostic.
+   from`/`to` were written by S3.3b and read by nothing until now — the 0-based LSP range the
+   gutter's line-only markers threw away. `squiggles` is a `StateField<DecorationSet>` fed by its
+   own `StateEffect` (`setSquiggles`), dispatched alongside `setLspDiagnostics` from the same
+   `applyLspDiagnostics` call, in one transaction — they are two views of one publish, not two
+   stores that could drift apart for a frame. Build diagnostics never get a squiggle: a texlog
+   line claim has no column, so there is nothing to underline, and the card scopes this to LSP
+   ranges only.
+2. **`Decoration.mark` needs a `RangeSetBuilder`, not `RangeSet.of`, and the difference is an
+   ordering contract, not a style choice.** `build`/`buildLsp` above already had working code that
+   maps diagnostics into a `RangeSet` via `RangeSet.of(ranges, true)`, which sorts its input for
+   you. `RangeSetBuilder.add` does not — it throws if ranges arrive out of order — so
+   `buildSquiggles` sorts once before the loop rather than trusting every future caller (or a
+   server that publishes diagnostics out of position order) to hand them over pre-sorted. A test
+   passes diagnostics in reverse-line order specifically to pin this.
+3. **The diagnostic hover is synchronous, and that is the whole reason it needed no `hover.ts`
+   wrapper.** `hover.ts`'s `HoverRequester` exists because `textDocument/hover` is a round trip to
+   TexLab; a diagnostic's message is already sitting in the `squiggles` field from the last
+   publish, so `diagnosticHoverSource` just reads it back with `DecorationSet.between` — no
+   promise, no requester type, no controller wiring. `diagnosticAt` is split out from it the same
+   way `hoverSource` is split from `lspHoverSource`: a pure function over a `DecorationSet` and a
+   position, callable from Vitest without driving `hoverTooltip`'s real idle-timer lifecycle.
+4. **The wave is an inline SVG `background-image`, not `text-decoration: wavy`.** CSS's own wavy
+   underline has no controllable amplitude or stroke width across engines, and rather than fight
+   that, `squiggleTheme` draws a 6×3 SVG tile and repeats it — same `EditorView.baseTheme` pattern
+   as the gutter's `theme` and `setup.ts`'s `hoverTheme`, and the same `var(--error)`/`var(--warn)`
+   colour pair the gutter dots already use (as literal hex in the SVG, since `url()` values cannot
+   reference a CSS custom property).
+
+One `EditorDiagnostic` field this loop leaned on that the drawer/gutter never needed: the
+zero-width range case (`from === to`, legal under the spec, and a real shape for a point
+diagnostic like "expected a `}` here"). `Decoration.mark` throws on `to <= from`; `buildSquiggles`
+widens such a range to one character rather than silently dropping the diagnostic's underline.
+Covered by its own test.
+
+The advisory drive-letter-casing bug on `lsp-diagnostics.ts`'s `Map` lookup (logged in
+`bugs-issues-fixes.md`, S3.3b) is unchanged by this loop: squiggles read `EditorDiagnostic` rows
+that already came out of `LspDiagnosticStore.forPath`, the same lookup the gutter has always used,
+so this loop neither closes nor worsens it. Still open, still a one-line fix wherever
+`lsp-diagnostics.ts` next gets touched for its own reasons.
 
 ### Sprint 4 — v0.2 exit: navigation
 

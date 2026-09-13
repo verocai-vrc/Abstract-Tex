@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { build, buildLsp, mergeMarkers } from './diagnostics';
+import { build, buildLsp, buildSquiggles, diagnosticAt, mergeMarkers } from './diagnostics';
 import type { Diagnostic } from '../ipc';
 import type { EditorDiagnostic } from '../lsp-diagnostics';
+import type { Position } from '../lsp-protocol';
 
 function diag(line: number | null, severity: Diagnostic['severity'], title = 't'): Diagnostic {
   return { title, explanation: '', line, severity, rule: null, rawMessage: '' };
@@ -143,5 +144,87 @@ describe('mergeMarkers', () => {
     expect(lines(lspOnly)).toEqual([[3, 'warning', 'lsp']]);
 
     expect(lines(mergeMarkers(build([], 10, lineStart), buildLsp([], 10, lineStart)))).toEqual([]);
+  });
+});
+
+/** Pretend every line is 10 characters long, matching the rest of this file's `lineStart`, so a
+ * `Position` converts to an offset the same simple way: `line * 10 + character`. */
+const toOffset = (position: Position) => position.line * 10 + position.character;
+
+/** A diagnostic whose `from`/`to` sit on one line, matching what `toEditorDiagnostic` actually
+ * produces (LSP never spans lines for the cases this app underlines). */
+function rangedDiag(
+  line: number,
+  fromChar: number,
+  toChar: number,
+  severity: EditorDiagnostic['severity'] = 'error',
+  title = 'squiggle',
+): EditorDiagnostic {
+  return {
+    severity,
+    title,
+    startLine: line + 1,
+    from: { line, character: fromChar },
+    to: { line, character: toChar },
+    source: 'texlab',
+  };
+}
+
+describe('buildSquiggles', () => {
+  it("marks the diagnostic's own range, not its whole line", () => {
+    const set = buildSquiggles([rangedDiag(0, 4, 12)], toOffset);
+    const cursor = set.iter();
+    expect(cursor.from).toBe(4);
+    expect(cursor.to).toBe(12);
+    cursor.next();
+    expect(cursor.value).toBeNull();
+  });
+
+  it('widens a zero-width range by one character rather than dropping it', () => {
+    const set = buildSquiggles([rangedDiag(0, 5, 5)], toOffset);
+    const cursor = set.iter();
+    expect(cursor.from).toBe(5);
+    expect(cursor.to).toBe(6);
+  });
+
+  it('sorts out-of-order diagnostics before building, since RangeSetBuilder requires it', () => {
+    const set = buildSquiggles([rangedDiag(2, 0, 3), rangedDiag(0, 0, 3)], toOffset);
+    const starts: number[] = [];
+    const cursor = set.iter();
+    while (cursor.value) {
+      starts.push(cursor.from);
+      cursor.next();
+    }
+    expect(starts).toEqual([0, 20]);
+  });
+
+  it('carries the severity into the decoration class', () => {
+    const set = buildSquiggles([rangedDiag(0, 0, 3, 'warning')], toOffset);
+    expect(set.iter().value?.spec.class).toBe('cm-diag-squiggle cm-diag-squiggle-warning');
+  });
+
+  it('builds an empty set for no diagnostics', () => {
+    expect(buildSquiggles([], toOffset).iter().value).toBeNull();
+  });
+});
+
+describe('diagnosticAt', () => {
+  it('finds the diagnostic whose range covers the position', () => {
+    const set = buildSquiggles([rangedDiag(0, 4, 12, 'error', 'undefined control sequence')], toOffset);
+    expect(diagnosticAt(set, 6)?.title).toBe('undefined control sequence');
+  });
+
+  it('returns null just outside the range', () => {
+    const set = buildSquiggles([rangedDiag(0, 4, 12)], toOffset);
+    expect(diagnosticAt(set, 20)).toBeNull();
+  });
+
+  it('returns null when there are no squiggles at all', () => {
+    expect(diagnosticAt(buildSquiggles([], toOffset), 0)).toBeNull();
+  });
+
+  it('picks one diagnostic when two ranges overlap, rather than throwing', () => {
+    const set = buildSquiggles([rangedDiag(0, 0, 10, 'warning', 'a'), rangedDiag(0, 4, 6, 'error', 'b')], toOffset);
+    expect(diagnosticAt(set, 5)).not.toBeNull();
   });
 });
