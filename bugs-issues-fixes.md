@@ -15,6 +15,28 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`frames_keep_their_boundaries_under_load` deadlocks on Linux's 64 KB pipe buffer.**
+  `crates/preamble-lsp/tests/process.rs` sends all 50 test frames (~125 KB total) before
+  reading any reply back, and `Running::send`/`Running::recv`
+  (`crates/preamble-lsp/src/server.rs:91-103`) are direct, unbuffered `write_all`/read calls
+  on the child's piped stdin/stdout with no background pump task. Once the OS pipe buffer
+  fills in either direction the write blocks; `fake_lsp_echo.rs`'s stand-in server uses
+  blocking, synchronous `std::io` and echoes every frame the instant it reads one, so once
+  its own stdout pipe back to us fills (we are still inside the `send` loop, not yet
+  reading) its write blocks, it stops draining stdin, and our own `stdin.write_all().await`
+  then never completes either — a classic bidirectional pipe deadlock. Reproduced by running
+  `cargo test --workspace --exclude preamble` on a fresh Ubuntu 26.04 sandbox with no prior
+  cargo cache: the test prints Rust's own "has been running for over 60 seconds" warning and
+  never returns; killed manually after ~7 minutes. Not observed on the Windows sessions this
+  project has run on so far (S3.2/S3.3d recorded this exact suite passing there), which
+  suggests Windows's anonymous pipes tolerate more in-flight data before blocking — an
+  environment difference, not a fix. Real fix is either read-while-writing in the test (pump
+  `recv` concurrently with `send`, e.g. via `tokio::join!` or interleaving one send per read)
+  or making `Running::send`/`recv` route through a buffering task the way the LSP bridge
+  proper does — the test as written assumes an OS pipe with no meaningful capacity limit,
+  which Linux does not give it. Found running the full workspace suite for the first time on
+  Linux, 14 Sep 2026.
+
 - **LSP diagnostic lookups can miss on a drive-letter casing mismatch.**
   `src/lib/lsp-diagnostics.ts` keys its map by the server's URI spelling on write
   (`publish`) but by our own (`pathToUri`) on read (`forPath`). If the folder picker returns
