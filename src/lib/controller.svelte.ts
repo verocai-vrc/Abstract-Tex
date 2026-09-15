@@ -10,7 +10,7 @@ import { flattenSymbols, type FlatSymbol } from './editor/symbols';
 import { LspClient, uriToPath } from './lsp';
 import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
 import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
-import { isTexSource, toRelative } from './paths';
+import { shouldCompileFor, toRelative } from './paths';
 import { app } from './state.svelte';
 
 const backend: DocumentBackend = {
@@ -579,11 +579,14 @@ async function handleFsEvent(event: FsEvent): Promise<void> {
 
   await reconcileOpenDocument(relative, event.exists);
 
-  // A .tex or .bib changed by something else (git checkout, another editor): recompile. Not
+  // A compile input changed by something else (git checkout, another editor): recompile. Not
   // while this very file is waiting on an answer, though — building one version of the file
   // while the author is being asked which version they want is noise on top of a question.
+  // `shouldCompileFor` (S4.1) is what keeps a change to a `.tex` file nothing includes from
+  // triggering a rebuild, while still recompiling for every `.tex` when the include graph
+  // doesn't fully resolve — see its own doc comment for why that is the safe default.
   const waitingOnThisFile = app.conflict?.path === relative;
-  if (event.exists && isTexSource(relative) && !waitingOnThisFile) await triggerCompile();
+  if (event.exists && shouldCompileFor(relative, project) && !waitingOnThisFile) await triggerCompile();
 }
 
 /**

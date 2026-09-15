@@ -11,6 +11,7 @@ members = [
     "src-tauri",
     "crates/preamble-sidecar",
     "crates/preamble-engine",
+    "crates/preamble-includes",
     "crates/preamble-lsp",
     "crates/preamble-reconcile",
     "crates/preamble-synctex",

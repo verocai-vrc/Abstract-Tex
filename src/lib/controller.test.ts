@@ -33,6 +33,11 @@ const project: ProjectInfo = {
   rootFile: 'main.tex',
   buildDir: '/proj/.preamble/build',
   tree: [],
+  // Every test that triggers a filesystem event uses main.tex (see `fileChanged` below), so a
+  // complete graph that lists it is enough to keep `shouldCompileFor` compiling as these tests
+  // expect, without every test needing to know about S4.1's include graph.
+  documentFiles: ['main.tex'],
+  documentFilesComplete: true,
 };
 
 // `vi.mock` with a factory means the real ./ipc — and with it @tauri-apps/api — is never

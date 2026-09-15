@@ -1,0 +1,11 @@
+[package]
+name = "preamble-includes"
+description = "The \\input/\\include/\\subfile graph of a project: which files make up the document, and the 'no other file includes this one' check root detection needs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -837,13 +837,93 @@ before `set_root_file` is more prominently exposed in the UI.
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
+| [~] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
 | [ ] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
 | [ ] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
 | [ ] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
 | [ ] | S4.5 Focus and typewriter modes | S | S1.9 |
 | [ ] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
 | [ ] | S4.7 Linux and macOS smoke on CI artifacts; WebKitGTK issues logged as loops | M | S2.8 |
+
+**S4.1 (14 September 2026).** `[~]`: rungs 1–2 are green — `cargo test -p preamble-includes` 19
+passed, `cargo clippy -p preamble-includes --all-targets -- -D warnings` clean; `cargo test -p
+preamble -- project` still cannot link in this sandbox (no WebKitGTK, no root — the standing gap
+since sprint 2), so `project.rs` was verified the S2.2/S2.7 way instead, copied unmodified into a
+throwaway crate path-depending on the real `preamble-includes`: 14 passed, clippy clean, an
+in-place run on a machine that can link Tauri is still owed; `pnpm test -- paths` 11 passed;
+`pnpm verify:web` 0 errors, 225 vitest; the rest of the workspace (`cargo test --workspace
+--exclude preamble`, minus the two pre-existing Linux-only failures already logged before this
+loop started) stayed green, clippy clean throughout. Rung 4 (`pnpm tauri dev` smoke) is still
+pending: no webview in this Linux sandbox — the card's own verify line scopes rung 4 as pending
+rather than required for this loop, but the file's own convention keeps the tick at `[~]` until a
+webview exists here to run it on. This was also the first session on a brand-new Linux sandbox
+with no prior cargo/pnpm cache and, for the first time, no system C compiler at all; the
+orchestrating session bootstrapped rustup, Node 22/pnpm 9, and a Zig-backed `cc`/`gcc`/`c++`/`g++`
+wrapper under `~/.local/bin`, all user-level and outside this loop's own diff, before any of the
+above could run.
+
+A new crate, `crates/preamble-includes`, splits pure text scanning from filesystem walking the way
+`preamble-reconcile` already models: `scan.rs`'s `scan_includes(&str) -> Vec<Directive>` never
+touches disk; `graph.rs`'s `build_graph(project_dir, root_relative) -> IncludeGraph` does the BFS,
+the visited-set dedup by resolved path, and the depth cap. `project.rs`'s `detect_root` now
+excludes any `.tex` candidate another file's scan includes before its name/depth tie-break, and
+`ProjectInfo` carries `document_files`/`document_files_complete` to the frontend; `paths.ts`'s new
+`shouldCompileFor(relative, project)` is what `controller.svelte.ts`'s `handleFsEvent` now gates
+recompilation on, in place of `isTexSource`.
+
+1. **Two bugs the fix round caught before either shipped, both about trusting an argument string
+   too literally.** `scan.rs`'s `is_literal_argument` accepted `\input{chapters/#1}` — the body of
+   a `\newcommand`, never expanded by a scanner that only reads source text — as a real path, so a
+   chapter loaded that way silently dropped out of `document_files` with nothing saying so; the fix
+   rejects any argument containing `#` as a macro placeholder, turning it `Unparsed`, which is what
+   makes the graph correctly report itself incomplete. `graph.rs`'s `resolve_include_argument` used
+   `PathBuf::set_extension("tex")` to add the implicit extension LaTeX assumes — but
+   `set_extension` *replaces* whatever follows the last `.`, so `\input{data.2024}` resolved to
+   `data.tex` and lost `2024` entirely. `append_tex_extension` fixes it via `with_file_name`
+   instead, and its doc comment names the trap for a reader who has not hit `set_extension`'s
+   surprise yet — worth the maintainer's ten minutes on its own.
+2. **The BFS terminates a cycle by dedup, and a pathological chain by depth, and the two are
+   deliberately separate limits.** `IncludeGraph`'s visited set is keyed on resolved path, so a
+   two-file `\input` cycle stops after each file is scanned exactly once; `MAX_DEPTH = 32` is a
+   second, independent backstop, not the cycle's own guard. The reviewer's one gap here — the cap
+   drops a branch past depth 32 with no `Unresolved` entry, contradicting the module's own promise
+   never to skip silently — is logged rather than fixed this loop.
+3. **Root detection resolves against a directory it has not found yet, and the deviation was
+   flagged rather than hidden.** `detect_root`'s preliminary include scan (which candidate is
+   included by another) has no root to resolve arguments relative to — the root is exactly what is
+   undetermined at that point — so it resolves against the project directory instead. The reviewer
+   showed this can misfire: two files that `\input` each other are now *both* excluded, and
+   `detect_root` returns `None` instead of the old name tie-break picking one. Not fixed here;
+   logged as an `Open` advisory with a fix direction (fall back to the un-excluded list rather than
+   `None`).
+
+Carried forward as `Open` advisories in `bugs-issues-fixes.md`, none `required` so none blocks this
+tick, each pointed at whoever should absorb it:
+
+- `detect_root`'s exclusion has no fallback and ignores depth (`project.rs:220-233`) — no sprint-4
+  card owns hardening root detection yet; whoever next touches it should start here.
+- The include graph's depth cap drops nodes with no `Unresolved` entry (`graph.rs`) — same file,
+  same absence of an owning card.
+- `root_relative` reaches `build_graph` unnormalised, so a hand-edited `preamble.toml` with
+  `root = "./main.tex"` can desync `shouldCompileFor` from the watcher — same file, same gap.
+- Includes reached only through a `.sty`/`.cls`, `\InputIfFileExists`, or `\subimport` stay
+  invisible while `is_complete()` still reports `true` — the `.sty`/`.cls` half is a design question
+  for the architect to settle, not a bug to fix; the other two are a straightforward `COMMANDS`
+  addition for whoever picks the rest of this up.
+- `documentFiles.includes` does a case-exact match (`paths.ts:40`), traced upstream to
+  `resolve_include_argument` not canonicalising case — owned by whoever next touches that function.
+- No controller-level test covers the `isTexSource` → `shouldCompileFor` swap itself — S4.4's
+  `fixtures/thesis` six-file skeleton is the natural place to add one once it exists.
+- `Project::info()` re-reads every document file on every debounced tree refresh, measured at
+  128 ms on a synthetic 200-chapter project — the architect's own card already pointed this at
+  sprint 9 (S9.1's benchmark corpus).
+
+Two implementation choices the builder flagged as open questions rather than silent decisions,
+neither judged here to need a `DESIGN.md` §10 row: resolving `detect_root`'s preliminary scan
+against the project root instead of each file's own directory (recorded in-line at the call site),
+and a flat `Unresolved` enum in place of the card's suggested single
+`UnresolvedInclude{from,line,reason}` shape, since `Unreadable` has no natural `from`/`line`. Both
+are cheap to revisit if the architect disagrees.
 
 ### Sprint 5 — The log parser
 

@@ -2471,6 +2471,7 @@ dependencies = [
  "notify",
  "notify-debouncer-mini",
  "preamble-engine",
+ "preamble-includes",
  "preamble-lsp",
  "preamble-reconcile",
  "preamble-synctex",
@@ -2501,6 +2502,13 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "preamble-includes"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]

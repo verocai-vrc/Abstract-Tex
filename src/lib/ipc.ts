@@ -20,6 +20,13 @@ export interface ProjectInfo {
   rootFile: string | null;
   buildDir: string;
   tree: TreeNode[];
+  /** The \input/\include/\subfile graph's nodes, root first, project-relative (S4.1). Empty
+   * when there is no root file. */
+  documentFiles: string[];
+  /** False when at least one directive in the document could not be resolved. `shouldCompileFor`
+   * (paths.ts) then treats every `.tex` file as part of the document rather than risk ignoring
+   * one that actually is. */
+  documentFilesComplete: boolean;
 }
 
 export interface EngineInfo {

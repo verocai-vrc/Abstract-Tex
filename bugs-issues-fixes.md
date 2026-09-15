@@ -15,6 +15,98 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`detect_root`'s "no other file includes it" exclusion has no fallback and ignores depth.**
+  (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:220-233` removes every candidate that
+  the preliminary include scan says another file includes, then picks the first survivor —
+  nothing runs if the exclusion empties the list, and nothing prefers a shallower file among the
+  ones that remain. Two scenarios: (1) two `\documentclass` files that each `\input` the other —
+  both get excluded, `candidates` is empty, `detect_root` returns `None` where before this loop
+  it would have returned one of them by the name tie-break; no root means nothing compiles at
+  all. (2) `paper.tex` (the real root) plus `old/submission.tex` (a depth-2 draft) containing
+  `\input{paper}` — `paper.tex` is now "included by another file" and gets excluded, so
+  `old/submission.tex` wins even though it is shallower-vs-deeper reasoning would normally never
+  pick it. The project-root-as-base-dir resolution deviation this loop's outcome recorded (see
+  its own report) makes false-positive exclusions like this easier, since an argument that would
+  not actually resolve to that target once the real root's directory is known still gets counted
+  here. Needs: a fallback when exclusion empties `candidates` (fall back to the un-excluded list
+  rather than `None`), and depth should still out-rank "not excluded" the way it does among
+  never-excluded candidates today.
+
+- **The include graph's depth cap drops nodes without recording anything.**
+  (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs`'s `if depth >= MAX_DEPTH
+  { continue; }` (the check right after popping the BFS queue) stops expanding a branch with no
+  `Unresolved` entry and no other trace. A chain of 41 files nested one `\input` inside another
+  yields 33 nodes (`MAX_DEPTH` is 32) and `is_complete() == true` — silently contradicting the
+  module's own `//!` promise to never skip silently. Vanishingly unlikely in a real thesis (the
+  comment at the `MAX_DEPTH` constant says as much), but the contract violation is real. Fix
+  needs either a new `Unresolved` variant (`DepthLimitReached` or similar) pushed when the cap
+  stops a branch, or the module doc's promise narrowed to say what it actually covers.
+
+- **`build_graph`'s `root_relative` is not normalised before becoming the root node's path.**
+  (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs:78-82` calls
+  `to_forward_slashes(root_relative)` directly on whatever `Project::root_file()` returned. A
+  hand-edited `preamble.toml` with `root = "./main.tex"` passes `Project::root_file`'s own
+  `is_file()` check (`./main.tex` and `main.tex` name the same file on disk) and reaches
+  `build_graph` unnormalised, producing the node path `./main.tex` — which the frontend's
+  `documentFiles` list then carries verbatim. `shouldCompileFor('main.tex')` compares against
+  that literal string and misses, so the root file's own external edits (a `git checkout`, a
+  save from another editor) stop triggering a recompile. Fix belongs wherever paths first enter
+  the graph — either `resolve_include_argument`'s `normalize_relative` applied to `root_relative`
+  too, or `Project::root_file`/`set_root_file` normalising `./`-prefixed and similar spellings
+  before they are ever stored.
+
+- **Includes reached only through a `.sty`/`.cls`, `\InputIfFileExists`, or `\subimport` are
+  invisible *and* leave `is_complete() == true`.** (S4.1, reviewer, 14 Sep 2026) Verified:
+  `mystyle.sty` containing `\input{macros}`, pulled in via `\usepackage{mystyle}`, gives
+  `nodes = ["main.tex"]`, `complete = true` — `macros.tex` never appears and nothing says the
+  graph might be missing something. Two separate gaps produce the same symptom: (1) the graph
+  never reads a `.sty`/`.cls` file's content even when one is reachable, so an `\input` inside a
+  style file is never scanned at all (`\usepackage` is correctly out of scope per the card, but
+  the file it names is never followed either, unlike a `\documentclass` chapter's own `\input`s);
+  (2) `\InputIfFileExists` and `\subimport` are not in `scan.rs`'s `COMMANDS` list, so a directive
+  using either one produces no `Directive` at all — not even `Unparsed` — meaning it is invisible
+  to `unresolved` too, unlike `\import` (which the card named explicitly and this loop wired up
+  to always report `Unparsed`). Fix for (2) is straightforward — add both names to `COMMANDS`
+  with the same "always unparsed" treatment `\import` gets. Fix for (1) is a bigger design
+  question (does the graph need to walk `.sty`/`.cls` files at all, given `\usepackage` itself is
+  explicitly out of scope) that the architect should settle before anyone builds it.
+
+- **`documentFiles.includes(relative)` is a case-exact string match.**
+  (S4.1, reviewer, 14 Sep 2026) `src/lib/paths.ts:40`'s `shouldCompileFor` compares `relative`
+  against the graph's `documentFiles` list with plain `===`-style `Array.includes`. The root
+  cause is upstream, in how a node's `path` is built: `resolve_include_argument`
+  (`crates/preamble-includes/src/graph.rs`) never canonicalises case, so `\input{Sections/Intro}`
+  resolving against a real `sections/intro.tex` on a case-insensitive filesystem (Windows,
+  default macOS) produces the node path `Sections/Intro.tex` — the graph correctly finds the file
+  exists (`is_file()` is case-insensitive there too) but records the directive's own spelling, not
+  the on-disk one. `shouldCompileFor('sections/intro.tex')` (the path the file watcher and tree
+  actually use) then misses that entry and returns `false`, so external edits to that file stop
+  recompiling. Fix likely belongs in `resolve_include_argument`: once a literal or `literal.tex`
+  candidate is confirmed to exist, read the real on-disk casing back (e.g. via the directory
+  listing `list_tree` already produces) rather than trusting the argument's spelling.
+
+- **No test covers the S4.1 swap from `isTexSource` to `shouldCompileFor` in the controller.**
+  (S4.1, reviewer, 14 Sep 2026) `src/lib/controller.svelte.ts:589`'s `handleFsEvent` now gates
+  recompilation on `shouldCompileFor(relative, project)` instead of `isTexSource(relative)`, but
+  every `controller.test.ts` scenario that reaches this line uses `main.tex`, which is (correctly)
+  in the shared test fixture's `documentFiles`. Reverting the line back to `isTexSource(relative)`
+  leaves all 225 vitest tests green — the behavioural difference this loop exists to add (a
+  `.tex` file the graph knows is not included should *not* trigger a recompile) has unit coverage
+  in `paths.test.ts` for the pure function, but no coverage at the controller/`handleFsEvent`
+  integration level. Needs a `controller.test.ts` case with a second, non-included `.tex` tab or
+  fixture file and an assertion that changing it does not call `compile`.
+
+- **`Project::info()` re-reads every document file on every debounced tree refresh.**
+  (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:169` calls `preamble_includes::
+  build_graph`, which does a fresh `fs::read_to_string` of every node, on every `refresh_tree`
+  Tauri command — fired on the 250 ms debounce in `controller.svelte.ts`'s
+  `scheduleTreeRefresh` after *any* filesystem event, and `refresh_tree` is a synchronous command
+  (blocks the main Tauri thread while it runs). Reviewer measured 128 ms on a synthetic
+  200-chapter, 4 MB project — comfortably past the <16 ms keystroke budget if it ever runs on the
+  UI thread during typing, though `refresh_tree` is not on that path today. The architect's own
+  risk note on this loop's card already flagged this as "trivial at thesis size, worth a note for
+  sprint 9" — this entry is that note, with a measurement attached.
+
 - **`frames_keep_their_boundaries_under_load` deadlocks on Linux's 64 KB pipe buffer.**
   `crates/preamble-lsp/tests/process.rs` sends all 50 test frames (~125 KB total) before
   reading any reply back, and `Running::send`/`Running::recv`
@@ -79,6 +171,33 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   someone owns the style decision.
 
 ## Fixed
+
+- **A macro-body `\input` with a parameter placeholder resolved as if `#1` were a literal path
+  component.** (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/scan.rs`'s
+  `is_literal_argument` checked for a backslash-letter control sequence but not for `#`. Since
+  the scanner reads raw source text rather than expanding macros, a definition like
+  `\newcommand{\loadchapter}[1]{\input{chapters/#1}}` scans exactly as if `\input{chapters/#1}`
+  had been written at top level; the argument `chapters/#1` has no backslash, so it was accepted
+  as literal and resolved to the node `chapters/#1.tex` (`exists: false`), while the real
+  `chapters/intro.tex` that a `\loadchapter{intro}` invocation actually meant never appeared in
+  `documentFiles` — and `is_complete()` still reported `true`, so `shouldCompileFor` did not fall
+  back to compiling every `.tex` either. Net effect: an external edit to any chapter loaded this
+  way silently stopped triggering a recompile. Fixed by making `is_literal_argument` reject any
+  argument containing `#`, which now makes such a directive `Unparsed` and correctly marks the
+  graph incomplete. Regression tests: `scan::tests::a_macro_parameter_placeholder_is_unparsed`
+  and `graph::tests::a_macro_bodys_input_with_a_parameter_placeholder_marks_the_graph_incomplete`.
+
+- **Appending `.tex` to an argument with a dot in it replaced text instead of appending.**
+  (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs`'s
+  `resolve_include_argument` used `PathBuf::set_extension("tex")` to add the implicit `.tex`
+  LaTeX itself assumes. Rust's `set_extension` *replaces* whatever follows the last `.` in the
+  file name, which it treats as "the extension" regardless of whether it looks like one — so
+  `\input{data.2024}` (with `data.2024.tex` really on disk) resolved to the node `data.tex`,
+  `exists: false`, losing `2024` entirely; the real file never appeared in `documentFiles`; the
+  graph still reported `is_complete() == true`. Fixed with a new `append_tex_extension` helper
+  that builds the new file name as a string and reattaches it via `with_file_name`, appending
+  rather than replacing. Regression test:
+  `graph::tests::resolve_include_argument_appends_tex_without_swallowing_an_existing_dotted_suffix`.
 
 - **`src-tauri/src/synctex.rs`'s own end-to-end test compared an unresolved `..` path
   against SyncTeX's fully-resolved one.** (S3.5, 13 Sep 2026) `Path::new(CARGO_MANIFEST_DIR)

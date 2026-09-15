@@ -5,6 +5,7 @@
 //! `preamble.toml` and the files the author edits; every other artifact goes under `.preamble/`,
 //! which must be deletable at any moment at the cost of one slow compile.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -65,6 +66,14 @@ pub struct ProjectInfo {
     pub root_file: Option<String>,
     pub build_dir: String,
     pub tree: Vec<TreeNode>,
+    /// The `\input`/`\include`/`\subfile` graph's nodes, root first, project-relative and
+    /// forward-slash (S4.1). Empty when there is no root file to walk from.
+    pub document_files: Vec<String>,
+    /// `false` when at least one directive in the document could not be resolved
+    /// (`preamble_includes::IncludeGraph::is_complete`). The frontend's `shouldCompileFor` falls
+    /// back to recompiling on every `.tex` change while this is false: an include graph that
+    /// might be missing a file is a worse mistake to compile around than an extra rebuild.
+    pub document_files_complete: bool,
 }
 
 /// An open project: an absolute folder path and its configuration.
@@ -158,11 +167,30 @@ impl Project {
     }
 
     pub fn info(&self) -> ProjectInfo {
+        // Borrowed to build the graph, then moved into the response below: the borrow checker
+        // allows this because the borrow (inside the `match`) ends before the `.map()` that
+        // consumes `root_file` runs.
+        let root_file = self.root_file();
+        let (document_files, document_files_complete) = match &root_file {
+            Some(root) => {
+                let graph = preamble_includes::build_graph(&self.root_dir, root);
+                // `is_complete` first: `into_iter()` below moves `graph.nodes` out of `graph`,
+                // and calling it after would be a partial-move error (a method on `graph` used
+                // once one of its fields has already been moved out).
+                let complete = graph.is_complete();
+                (graph.nodes.into_iter().map(|node| node.path).collect(), complete)
+            }
+            // No root at all: there is no document to walk, and nothing to be incomplete about.
+            None => (Vec::new(), true),
+        };
+
         ProjectInfo {
             root_dir: self.root_dir.to_string_lossy().into_owned(),
-            root_file: self.root_file().map(|p| to_forward_slashes(&p)),
+            root_file: root_file.map(|p| to_forward_slashes(&p)),
             build_dir: self.build_dir().to_string_lossy().into_owned(),
             tree: list_tree(&self.root_dir),
+            document_files,
+            document_files_complete,
         }
     }
 }
@@ -178,8 +206,13 @@ fn load_config(root_dir: &Path) -> Result<ProjectConfig> {
 
 /// Find the root `.tex` file of a folder, or `None` if there is no candidate.
 ///
-/// Order: `main.tex` at the top level; then any top-level `.tex` containing `\documentclass`;
-/// then the same test up to three folders deep. Ties go to the shortest path, then the name.
+/// Order: `main.tex` at the top level; then any top-level `.tex` containing `\documentclass`
+/// that no other file in the project includes; then the same test up to three folders deep.
+/// Ties go to the shortest path, then the name.
+///
+/// "No other file includes it" is what stops a chapter that happens to carry its own
+/// `\documentclass` (a `\subfile`-style chapter, meant to compile standalone for a quick preview)
+/// from outranking the real root just because it was found first.
 pub fn detect_root(dir: &Path) -> Option<PathBuf> {
     let main = dir.join("main.tex");
     if main.is_file() {
@@ -187,7 +220,12 @@ pub fn detect_root(dir: &Path) -> Option<PathBuf> {
     }
 
     let mut candidates: Vec<PathBuf> = Vec::new();
-    collect_documentclass_files(dir, dir, 0, &mut candidates);
+    // Every include target seen anywhere in the walk, kept as forward-slash strings rather than
+    // `PathBuf`s so comparing them against `candidates` below can never fall over a separator
+    // mismatch (`to_forward_slashes` exists for exactly this reason; S3.4/S3.6 both hit it).
+    let mut included: HashSet<String> = HashSet::new();
+    collect_documentclass_files(dir, dir, 0, &mut candidates, &mut included);
+    candidates.retain(|candidate| !included.contains(&to_forward_slashes(candidate)));
     candidates.sort_by(|a, b| {
         let depth = |p: &PathBuf| p.components().count();
         depth(a).cmp(&depth(b)).then_with(|| a.cmp(b))
@@ -195,7 +233,13 @@ pub fn detect_root(dir: &Path) -> Option<PathBuf> {
     candidates.into_iter().next()
 }
 
-fn collect_documentclass_files(root: &Path, dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+fn collect_documentclass_files(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    candidates: &mut Vec<PathBuf>,
+    included: &mut HashSet<String>,
+) {
     const MAX_DEPTH: usize = 3;
     let Ok(entries) = fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
@@ -203,20 +247,40 @@ fn collect_documentclass_files(root: &Path, dir: &Path, depth: usize, out: &mut 
         let name = entry.file_name().to_string_lossy().into_owned();
         if path.is_dir() {
             if depth < MAX_DEPTH && !is_ignored_dir(&name) {
-                collect_documentclass_files(root, &path, depth + 1, out);
+                collect_documentclass_files(root, &path, depth + 1, candidates, included);
             }
-        } else if path.extension().is_some_and(|e| e == "tex") && file_declares_documentclass(&path) {
+            continue;
+        }
+        if !path.extension().is_some_and(|e| e == "tex") {
+            continue;
+        }
+        // Read once, use twice: the `\documentclass` check below and the include scan both want
+        // the file's text, and a second read would be wasted work for the same answer.
+        let Ok(text) = fs::read_to_string(&path) else { continue };
+
+        // Resolved against the project root, not this file's own directory: at this point we do
+        // not yet know which file the root even is (that is what this function is deciding), and
+        // a document's root is overwhelmingly at the top level in practice — the `main.tex` fast
+        // path above already covers the common case where it is not this file doing the
+        // including. `build_graph` re-resolves properly once a root is actually chosen.
+        for directive in preamble_includes::scan_includes(&text) {
+            if let preamble_includes::Directive::Include { argument, .. } = directive {
+                if let Some(target) = preamble_includes::resolve_include_argument(root, Path::new(""), &argument) {
+                    included.insert(target);
+                }
+            }
+        }
+
+        if file_declares_documentclass(&text) {
             if let Ok(rel) = path.strip_prefix(root) {
-                out.push(rel.to_path_buf());
+                candidates.push(rel.to_path_buf());
             }
         }
     }
 }
 
-/// Cheap check: does the file mention `\documentclass` outside a comment? Reads the whole file,
-/// which is fine for `.tex` sizes; a thesis chapter is kilobytes, not megabytes.
-fn file_declares_documentclass(path: &Path) -> bool {
-    let Ok(text) = fs::read_to_string(path) else { return false };
+/// Cheap check: does the file mention `\documentclass` outside a comment?
+fn file_declares_documentclass(text: &str) -> bool {
     text.lines().any(|line| {
         let code = line.split('%').next().unwrap_or("");
         code.contains("\\documentclass")
@@ -321,6 +385,18 @@ mod tests {
     }
 
     #[test]
+    fn a_file_another_file_includes_is_not_treated_as_a_root_candidate() {
+        let dir = scaffold(&[
+            ("outer.tex", "\\documentclass{article}\n\\input{inner}\n"),
+            ("inner.tex", "\\documentclass{article}\n"),
+        ]);
+        // Same depth, so a name tie-break alone would pick "inner.tex" first; it must lose
+        // because outer.tex includes it — a chapter that can also compile alone is still a
+        // chapter, not the document (S4.1).
+        assert_eq!(detect_root(dir.path()), Some(PathBuf::from("outer.tex")));
+    }
+
+    #[test]
     fn no_candidate_yields_none() {
         let dir = scaffold(&[("readme.md", "hi")]);
         assert_eq!(detect_root(dir.path()), None);
@@ -373,6 +449,43 @@ mod tests {
         let reloaded = Project::open(dir.path()).unwrap();
         assert_eq!(reloaded.config.project.root.as_deref(), Some("b.tex"));
         assert!(fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap().contains("root = \"b.tex\""));
+    }
+
+    #[test]
+    fn document_files_matches_the_done_when_fixture_in_order() {
+        let dir = scaffold(&[
+            ("main.tex", "\\input{preamble}\n\\include{sections/intro}\n"),
+            ("preamble.tex", ""),
+            ("sections/intro.tex", "\\input{sections/fig}\n"),
+            ("sections/fig.tex", ""),
+            ("figures/plot.tex", "\\documentclass{standalone}\n"),
+        ]);
+        let project = Project::open(dir.path()).unwrap();
+        let info = project.info();
+        assert_eq!(info.root_file.as_deref(), Some("main.tex"));
+        assert_eq!(
+            info.document_files,
+            vec!["main.tex", "preamble.tex", "sections/intro.tex", "sections/fig.tex"]
+        );
+        assert!(info.document_files_complete);
+    }
+
+    #[test]
+    fn an_unresolved_include_marks_document_files_incomplete() {
+        let dir = scaffold(&[("main.tex", "\\input{\\chapdir/x}\n")]);
+        let project = Project::open(dir.path()).unwrap();
+        let info = project.info();
+        assert!(!info.document_files_complete);
+    }
+
+    #[test]
+    fn no_root_file_means_an_empty_but_complete_document() {
+        let dir = scaffold(&[("readme.md", "hi")]);
+        let project = Project::open(dir.path()).unwrap();
+        let info = project.info();
+        assert_eq!(info.root_file, None);
+        assert!(info.document_files.is_empty());
+        assert!(info.document_files_complete);
     }
 
     #[test]
