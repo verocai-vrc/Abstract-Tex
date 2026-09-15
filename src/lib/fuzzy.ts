@@ -68,3 +68,26 @@ export function rank<T>(query: string, items: readonly T[], keyOf: (item: T) => 
   if (query.length > 0) ranked.sort((a, b) => b.match.score - a.match.score);
   return ranked;
 }
+
+export interface HighlightSegment {
+  text: string;
+  hit: boolean;
+}
+
+/**
+ * Split `text` into runs of matched/unmatched characters, for a template to wrap the matched
+ * runs in `<mark>`. Shared by every list that renders a `Match`'s `positions` (quick-open's file
+ * list, S2.4; the command palette, S4.3) so there is one highlighting rule to get right rather
+ * than a copy per component.
+ */
+export function highlightMatch(text: string, positions: readonly number[]): HighlightSegment[] {
+  const hits = new Set(positions);
+  const segments: HighlightSegment[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const hit = hits.has(i);
+    const last = segments[segments.length - 1];
+    if (last && last.hit === hit) last.text += text[i];
+    else segments.push({ text: text[i]!, hit });
+  }
+  return segments;
+}

@@ -5,7 +5,7 @@
   import { tick } from 'svelte';
   import { app } from '../lib/state.svelte';
   import { quickOpenPick } from '../lib/controller.svelte';
-  import { rank } from '../lib/fuzzy';
+  import { highlightMatch, rank } from '../lib/fuzzy';
   import { listFiles } from '../lib/paths';
 
   let query = $state('');
@@ -58,18 +58,6 @@
     }
   }
 
-  /** The path with matched characters marked, as segments the template can render. */
-  function highlight(path: string, positions: number[]): Array<{ text: string; hit: boolean }> {
-    const hits = new Set(positions);
-    const segments: Array<{ text: string; hit: boolean }> = [];
-    for (let i = 0; i < path.length; i++) {
-      const hit = hits.has(i);
-      const last = segments[segments.length - 1];
-      if (last && last.hit === hit) last.text += path[i];
-      else segments.push({ text: path[i]!, hit });
-    }
-    return segments;
-  }
 </script>
 
 {#if app.quickOpenVisible}
@@ -101,7 +89,7 @@
             onmousemove={() => (selected = i)}
             onclick={() => void quickOpenPick(result.item)}
           >
-            {#each highlight(result.item, result.match.positions) as segment, j (j)}
+            {#each highlightMatch(result.item, result.match.positions) as segment, j (j)}
               {#if segment.hit}<mark>{segment.text}</mark>{:else}{segment.text}{/if}
             {/each}
             {#if app.dirtyPaths.has(result.item)}<span class="dot" aria-label="unsaved"></span>{/if}

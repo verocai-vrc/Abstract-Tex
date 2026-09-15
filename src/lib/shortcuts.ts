@@ -7,7 +7,7 @@
 // CodeMirror binding that handles a key calls preventDefault but does *not* stop propagation,
 // so `Ctrl B` pressed inside the editor reached both handlers and compiled twice.
 
-export type Action = 'save' | 'compile' | 'open-folder' | 'quick-open';
+export type Action = 'save' | 'compile' | 'open-folder' | 'quick-open' | 'command-palette';
 
 export interface Shortcut {
   action: Action;
@@ -22,6 +22,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'compile', keys: 'F5', label: 'Build' },
   { action: 'open-folder', keys: 'Mod-O', label: 'Open folder…' },
   { action: 'quick-open', keys: 'Mod-P', label: 'Go to file…' },
+  { action: 'command-palette', keys: 'Mod-K', label: 'Command palette…' },
 ];
 
 /** The fields of a `KeyboardEvent` the table cares about, so tests need not build a real one. */

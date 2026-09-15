@@ -839,7 +839,7 @@ before `set_root_file` is more prominently exposed in the UI.
 |---|---|---|---|
 | [~] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
 | [~] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
-| [ ] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
+| [~] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
 | [ ] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
 | [ ] | S4.5 Focus and typewriter modes | S | S1.9 |
 | [ ] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
@@ -951,6 +951,28 @@ presenting it as equivalent to S4.1's reviewed tick. Whoever picks up the deferr
 should look first at the brace-balanced title extraction (the architect's own risk note) and at
 whether the 250 ms debounce and the tab-switch guard actually hold under a controller-level test,
 not just a scan-level one.
+
+**S4.3 (14 September 2026).** `[~]`: built, not yet reviewer-approved (review deferred to a
+later batched pass, same as S4.2). `pnpm verify:web` green — svelte-check 0 errors, 250 vitest
+tests (7 new). Frontend-only, no Rust touched. Rung 4 pending, same standing no-webview gate.
+
+`src/lib/commands.ts` is a new plain registry (`Command`, `registerCommand`, `allCommands`,
+`searchCommands`) holding only *actions* (save, compile, open folder, go-to-file); files and
+outline sections are built dynamically in `CommandPalette.svelte` since they change with the
+open project, then ranked through the same `fuzzy.ts` used by the existing `Ctrl P` quick-open.
+`Ctrl K` (`Mod-K` in `shortcuts.ts`, alongside the four existing chords, unchanged) opens the
+palette; `Ctrl P`/`QuickOpen.svelte` was deliberately kept as its own separate dialog rather than
+folded in, to guarantee zero regression risk on that existing chord — the two share `fuzzy.ts`'s
+ranking and a newly-extracted `highlightMatch` (factored out of `QuickOpen.svelte`, which is a
+file outside the card's own list — a flagged, low-risk deviation) rather than duplicating the
+list-highlighting logic.
+
+Two things the builder flagged rather than deciding silently, left open for the deferred review:
+whether "Go to file…" belongs in the palette as an action given it just reopens `Ctrl P`'s own
+dialog now that file search also lives directly in the palette; and whether touching
+`QuickOpen.svelte` (outside the card's `Files` list) to extract `highlightMatch` needed sign-off
+first — done because it removed a real duplication and is covered by the full vitest suite, but
+named here rather than assumed fine.
 
 ### Sprint 5 — The log parser
 

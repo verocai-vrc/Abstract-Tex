@@ -1,13 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { app } from './lib/state.svelte';
-  import { openFolder, saveNow, start, toggleQuickOpen, triggerCompile } from './lib/controller.svelte';
+  import {
+    openFolder,
+    saveNow,
+    start,
+    toggleCommandPalette,
+    toggleQuickOpen,
+    triggerCompile,
+  } from './lib/controller.svelte';
   import { shortcutFor } from './lib/shortcuts';
   import Sidebar from './components/Sidebar.svelte';
   import Editor from './components/Editor.svelte';
   import PdfPane from './components/PdfPane.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
+  import CommandPalette from './components/CommandPalette.svelte';
 
   onMount(() => {
     void start();
@@ -33,6 +41,9 @@
         break;
       case 'quick-open':
         toggleQuickOpen();
+        break;
+      case 'command-palette':
+        toggleCommandPalette();
         break;
     }
   }
@@ -65,3 +76,4 @@
 </div>
 
 <QuickOpen />
+<CommandPalette />

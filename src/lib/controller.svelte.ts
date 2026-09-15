@@ -2,6 +2,7 @@
 // build finishing, react to a file changing on disk. Components call these; nothing else
 // mutates `app`.
 
+import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
@@ -414,6 +415,7 @@ function closeAllDocuments() {
   // A bar asking about a tab that no longer exists would be a question with no answer.
   app.conflict = null;
   app.quickOpenVisible = false;
+  app.commandPaletteVisible = false;
   app.outline = [];
 }
 
@@ -471,10 +473,13 @@ export async function createFile(relativePath: string): Promise<void> {
   }
 }
 
-/** Show or hide the `Ctrl P` list. Pressing the chord again while it is up dismisses it. */
+/** Show or hide the `Ctrl P` list. Pressing the chord again while it is up dismisses it. Opening
+ * it closes the command palette, so the two never sit on screen together. */
 export function toggleQuickOpen(): void {
   if (!app.project) return;
-  app.quickOpenVisible = !app.quickOpenVisible;
+  const opening = !app.quickOpenVisible;
+  app.quickOpenVisible = opening;
+  if (opening) app.commandPaletteVisible = false;
 }
 
 /** The list's answer: open the chosen file and put the list away. */
@@ -482,6 +487,43 @@ export async function quickOpenPick(relativePath: string): Promise<void> {
   app.quickOpenVisible = false;
   await openFile(relativePath);
 }
+
+/** Show or hide the `Ctrl K` command palette (S4.3). Opening it closes quick-open, for the same
+ * reason `toggleQuickOpen` closes this one. */
+export function toggleCommandPalette(): void {
+  if (!app.project) return;
+  const opening = !app.commandPaletteVisible;
+  app.commandPaletteVisible = opening;
+  if (opening) app.quickOpenVisible = false;
+}
+
+// Every action a chord in `shortcuts.ts` reaches gets a matching entry here, run against the
+// same function the chord calls — one action, one callback, so the palette can never drift from
+// what the keyboard does. Registered once at module load: `registerCommand` only writes into a
+// `Map`, so doing it here (rather than from `start()`) needs no project to be open yet, and the
+// palette can list "Open folder…" before there is one.
+registerCommand({ id: 'save', title: 'Save', category: 'action', shortcut: 'Ctrl S', run: () => void saveNow() });
+registerCommand({
+  id: 'compile',
+  title: 'Build',
+  category: 'action',
+  shortcut: 'Ctrl B',
+  run: () => void triggerCompile(),
+});
+registerCommand({
+  id: 'open-folder',
+  title: 'Open folder…',
+  category: 'action',
+  shortcut: 'Ctrl O',
+  run: () => void openFolder(),
+});
+registerCommand({
+  id: 'quick-open',
+  title: 'Go to file…',
+  category: 'action',
+  shortcut: 'Ctrl P',
+  run: () => toggleQuickOpen(),
+});
 
 export function jumpToLine(line: number): void {
   app.jumpRequest = { line, nonce: ++jumpNonce };
