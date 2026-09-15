@@ -524,6 +524,32 @@ registerCommand({
   shortcut: 'Ctrl P',
   run: () => toggleQuickOpen(),
 });
+registerCommand({
+  id: 'toggle-focus-mode',
+  title: 'Toggle focus mode',
+  category: 'action',
+  run: () => toggleFocusMode(),
+});
+registerCommand({
+  id: 'toggle-typewriter-mode',
+  title: 'Toggle typewriter mode',
+  category: 'action',
+  run: () => toggleTypewriterMode(),
+});
+
+/** Flip focus mode (S4.5): dim every paragraph but the one under the cursor. No chord in
+ * `shortcuts.ts` reaches this yet — command palette only, following S4.3's own "Open folder…"
+ * and "Go to file…" entries, which also have no raw keybinding beyond the ones already listed
+ * there. */
+export function toggleFocusMode(): void {
+  app.focusModeEnabled = !app.focusModeEnabled;
+}
+
+/** Flip typewriter mode (S4.5): keep the cursor's line vertically centred. Independent of focus
+ * mode — either, both, or neither can be on. */
+export function toggleTypewriterMode(): void {
+  app.typewriterModeEnabled = !app.typewriterModeEnabled;
+}
 
 export function jumpToLine(line: number): void {
   app.jumpRequest = { line, nonce: ++jumpNonce };

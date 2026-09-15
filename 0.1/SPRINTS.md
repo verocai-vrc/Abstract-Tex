@@ -841,7 +841,7 @@ before `set_root_file` is more prominently exposed in the UI.
 | [~] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
 | [~] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
 | [~] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
-| [ ] | S4.5 Focus and typewriter modes | S | S1.9 |
+| [~] | S4.5 Focus and typewriter modes | S | S1.9 |
 | [ ] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
 | [ ] | S4.7 Linux and macOS smoke on CI artifacts; WebKitGTK issues logged as loops | M | S2.8 |
 

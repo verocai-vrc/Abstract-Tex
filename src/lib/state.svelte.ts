@@ -104,6 +104,15 @@ class AppState {
    * file's outline, searched together. */
   commandPaletteVisible = $state(false);
 
+  /** Focus mode (S4.5): dim every paragraph but the one under the cursor. Purely a CodeMirror
+   * decoration — see `editor/focus.ts` — never persisted across restarts; every session starts
+   * with both writing modes off. */
+  focusModeEnabled = $state(false);
+  /** Typewriter mode (S4.5): keep the cursor's line vertically centred as the author types or
+   * moves. Purely a scroll-position effect — see `editor/typewriter.ts`. Independent of focus
+   * mode; either, both, or neither can be on. */
+  typewriterModeEnabled = $state(false);
+
   /** A request for the editor to move the cursor. `nonce` makes repeat requests distinct. */
   jumpRequest = $state<{ line: number; nonce: number } | null>(null);
 

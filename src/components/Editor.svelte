@@ -9,7 +9,7 @@
     resolveConflict,
     syncTexForward,
   } from '../lib/controller.svelte';
-  import { createEditor, goToLine } from '../lib/editor/setup';
+  import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
   import { lspCompletionSource } from '../lib/editor/completion';
   import Drawer from './Drawer.svelte';
@@ -41,7 +41,16 @@
     const hoverRequest = (line: number, character: number) => lspHover(path, line, character);
     const definitionRequest = (line: number, character: number) => lspGoToDefinition(path, line, character);
     const forwardSearchRequest = (line: number) => void syncTexForward(path, line);
-    const created = createEditor(host, doc, completionSource, hoverRequest, definitionRequest, forwardSearchRequest);
+    const created = createEditor(
+      host,
+      doc,
+      completionSource,
+      hoverRequest,
+      definitionRequest,
+      forwardSearchRequest,
+      app.focusModeEnabled,
+      app.typewriterModeEnabled,
+    );
     view = created;
     created.focus();
     return () => {
@@ -53,6 +62,19 @@
   $effect(() => {
     const request = app.jumpRequest;
     if (request && view) goToLine(view, request.line);
+  });
+
+  // S4.5's two writing modes: the card that defined this loop did not list this file, but the
+  // toggle lives in `app` (state.svelte.ts) and something has to push a changed value into the
+  // live `EditorView`'s `Compartment` — the same "state changes, an effect applies it to the
+  // view" shape `applyDiagnostics`/`applyLspDiagnostics` below already use. Reconfiguring is
+  // idempotent, so these also run harmlessly once at view creation, in addition to the initial
+  // values already passed into `createEditor`.
+  $effect(() => {
+    if (view) setFocusMode(view, app.focusModeEnabled);
+  });
+  $effect(() => {
+    if (view) setTypewriterMode(view, app.typewriterModeEnabled);
   });
 
   // Gutter dots for the last build (S2.7). A diagnostic carries a line but no file until S5.2,

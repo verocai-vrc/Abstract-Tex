@@ -191,6 +191,13 @@ kbd {
   position: absolute;
   inset: 0;
 }
+/* Focus mode (S4.5): every line outside the paragraph under the cursor. Opacity against the
+   theme's own foreground colour, so it dims correctly in both light and dark rather than fading
+   toward a hard-coded grey. A transition would fire on every keystroke as the dimmed set is
+   rebuilt, so there is none — the change is meant to read as instant anyway. */
+.cm-focus-dim {
+  opacity: 0.4;
+}
 .editor-column .empty {
   flex: 1;
   display: grid;

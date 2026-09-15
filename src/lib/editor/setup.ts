@@ -9,7 +9,7 @@ import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { bracketMatching, HighlightStyle, indentOnInput, StreamLanguage, syntaxHighlighting } from '@codemirror/language';
 import { stex } from '@codemirror/legacy-modes/mode/stex';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import {
   crosshairCursor,
   drawSelection,
@@ -27,8 +27,18 @@ import { yCollab } from 'y-codemirror.next';
 import type { OpenDocument } from '../document';
 import { definitionClickHandler, definitionKeymap, type DefinitionRequester } from './definition';
 import { diagnosticGutter } from './diagnostics';
+import { focusModeExtension } from './focus';
 import { lspHoverSource, type HoverRequester } from './hover';
 import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
+import { typewriterModeExtension } from './typewriter';
+
+// `Compartment` is CodeMirror's slot for an extension that needs to change after the editor is
+// built, without tearing the whole `EditorView` down: `compartment.reconfigure(newExtension)` is
+// a `StateEffect` you dispatch like any other transaction effect. Focus and typewriter mode
+// (S4.5) are each held in one of these, module-level so every tab's view shares the same slot
+// identity, which is what lets `setFocusMode`/`setTypewriterMode` below address any of them.
+const focusModeCompartment = new Compartment();
+const typewriterModeCompartment = new Compartment();
 
 // Colours come from the CSS custom properties in app.css so light and dark both work.
 const latexHighlight = HighlightStyle.define([
@@ -77,6 +87,8 @@ export function createEditor(
   hoverRequest?: HoverRequester,
   definitionRequest?: DefinitionRequester,
   forwardSearchRequest?: ForwardSearchRequester,
+  focusModeEnabled = false,
+  typewriterModeEnabled = false,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -125,9 +137,27 @@ export function createEditor(
       // No awareness yet (that is v0.8); the undo manager is the document's own.
       yCollab(doc.ytext, null, { undoManager: doc.undo }),
       theme,
+      // S4.5's two writing modes: pure view behaviour behind a `Compartment` each, so
+      // `setFocusMode`/`setTypewriterMode` can flip them per keystroke of the command palette
+      // rather than needing a fresh `createEditor` call.
+      focusModeCompartment.of(focusModeExtension(focusModeEnabled)),
+      typewriterModeCompartment.of(typewriterModeExtension(typewriterModeEnabled)),
     ],
   });
   return new EditorView({ state, parent });
+}
+
+/** Turn focus mode on or off in a live view (S4.5). A no-op reconfigure (toggling to the state
+ * it is already in) is harmless — CodeMirror simply redraws the same decoration set — so callers
+ * need not check first. */
+export function setFocusMode(view: EditorView, enabled: boolean): void {
+  view.dispatch({ effects: focusModeCompartment.reconfigure(focusModeExtension(enabled)) });
+}
+
+/** Turn typewriter mode on or off in a live view (S4.5). Same reconfigure-is-idempotent contract
+ * as `setFocusMode`. */
+export function setTypewriterMode(view: EditorView, enabled: boolean): void {
+  view.dispatch({ effects: typewriterModeCompartment.reconfigure(typewriterModeExtension(enabled)) });
 }
 
 /** Move the cursor to a 1-based line, centre it, and focus the editor. */
