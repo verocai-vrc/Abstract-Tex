@@ -1,0 +1,30 @@
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+\sysname{} answers the question posed in Chapter~\ref{ch:introduction}: a rate limiter can
+give a bounded, known guarantee without a coordinator on the request path, provided clients
+accept a probabilistic bound during the brief window after traffic shifts rather than an
+exact one at all times. The results in Chapter~\ref{ch:results} show that window closing
+within $O(\log n)$ gossip rounds, and Figure~\ref{fig:latency} shows the excess a client
+experiences during it falling below the burst the underlying token bucket already permits.
+The price is small and the latency win, shown in Table~\ref{tab:throughput}, is not.
+
+\section{Limitations}
+
+The evaluation in Chapter~\ref{ch:results} uses a synthetic workload with one traffic shift
+per run; production traffic shifts continuously, and it remains open whether overlapping
+shifts compound the excess-admission fraction or whether the estimator's exponential
+decay term keeps them independent. The construction also assumes a gossip layer already
+exists in the deployment, which is true of the systems we evaluated against but is an
+additional operational dependency for a deployment starting from nothing.
+
+\section{Future work}
+
+Three extensions seem tractable. First, the estimator in
+Section~\ref{sec:distributed-bucket} assumes uniform node weight; weighting gossip
+exchanges by a node's recent traffic share might shorten convergence further under skew.
+Second, the token bucket parameters $C$ and $r$ from Section~\ref{sec:token-bucket} are
+fixed for the lifetime of a deployment in this thesis; making them adaptive to observed
+traffic is a natural next step. Third, the evaluation never asks what an adversarial client
+can do to the estimator itself, and a treatment of gossip poisoning would be needed before
+\sysname{} could be recommended for a rate limiter facing untrusted clients directly.

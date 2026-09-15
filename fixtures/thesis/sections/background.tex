@@ -1,0 +1,56 @@
+\chapter{Background}
+\label{ch:background}
+
+This chapter reviews the two ingredients \sysname{} combines: the token bucket, a
+single-node rate-limiting algorithm with a long history, and gossip protocols, a family of
+techniques for estimating an aggregate quantity across a cluster without a coordinator. The
+contribution of Chapter~\ref{ch:introduction} is the combination, not either ingredient on
+its own, so this chapter treats both as known quantities and fixes the notation the rest of
+the thesis uses.
+
+\section{The token bucket}
+\label{sec:token-bucket}
+
+A token bucket holds a capacity $C$ and a fill rate $r$. Tokens accumulate at rate $r$ up
+to the capacity, and a request of size $s$ is admitted if and only if the bucket currently
+holds at least $s$ tokens, in which case $s$ tokens are removed. The construction bounds the
+burst a client can send to $C$ and its sustained rate to $r$, and both bounds are exact when
+the bucket lives on a single machine that serializes every check-and-decrement.
+
+\begin{lemma}
+\label{lem:token-bucket-exact}
+A single-node token bucket with capacity $C$ and rate $r$ admits at most $C + rt$ tokens'
+worth of requests in any interval of length $t$.
+\end{lemma}
+
+The proof is the standard one and we omit it; the bound is tight because a client that
+sends nothing for a long interval and then bursts can consume the full accumulated
+capacity in an instant. Section~\ref{sec:distributed-bucket} in this chapter asks what
+happens when the single machine becomes many.
+
+\subsection{Distributing the bucket}
+\label{sec:distributed-bucket}
+
+The naive distributed token bucket gives each node a local bucket sized at $C / n$ and
+$r / n$ for $n$ nodes, and accepts that a client whose requests happen to land on a single
+node can locally burst up to $C/n$ regardless of what other nodes have available. When
+traffic is skewed across nodes, as it almost always is, this wastes most of the aggregate
+capacity: a node with no traffic holds tokens no request will ever spend, while a busy node
+rejects requests it could have admitted had it known about the surplus elsewhere. Fixing
+this without a coordinator requires each node to learn, cheaply and approximately, what the
+aggregate rate across the cluster actually is.
+
+\section{Gossip protocols}
+
+A \term{gossip protocol} disseminates state by having each node periodically exchange its
+local view with a small number of randomly chosen peers, merging what it receives into its
+own view. After $O(\log n)$ rounds, with high probability every node's view reflects every
+other node's initial state, at a communication cost per node per round that does not grow
+with cluster size. Gossip protocols are attractive here precisely because they trade an
+exact global answer, which would require a coordinator, for an approximate one that
+converges quickly and degrades gracefully when messages are dropped or delayed.
+
+The estimator \sysname{} builds on this exchange is described in
+Chapter~\ref{ch:results}, alongside the experiments that measure how quickly it converges
+and how the resulting local decisions compare to the centralized baseline of
+Lemma~\ref{lem:token-bucket-exact}.

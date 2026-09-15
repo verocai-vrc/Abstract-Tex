@@ -1,0 +1,65 @@
+\chapter{Results}
+\label{ch:results}
+
+This chapter evaluates \sysname{}, the gossip-estimated token bucket motivated in
+Section~\ref{sec:intro-contributions} and built on the primitives of
+Chapter~\ref{ch:background}, against the centralized baseline of
+Lemma~\ref{lem:token-bucket-exact}. All experiments use a synthetic workload with skewed
+per-node traffic, since Section~\ref{sec:distributed-bucket} identified skew as the case
+where a naive per-node split wastes the most capacity.
+
+\section{Experimental setup}
+
+Each run fixes a cluster of $n$ nodes and a target aggregate rate, then replays a trace in
+which one node receives a disproportionate share of requests for a random interval before
+traffic redistributes. We vary the gossip fan-out and round interval and record two
+quantities: the tail latency of the admit-or-reject decision, and the fraction of admitted
+requests that exceeded the client's nominal per-node budget because the estimator had not
+yet converged.
+
+\begin{table}[ht]
+  \centering
+  \caption{Median and 99th-percentile decision latency, centralized coordinator versus
+    \sysname{}, at three cluster sizes.}
+  \label{tab:throughput}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Nodes & Coord.\ p50 & Coord.\ p99 & \sysname{} p50 & \sysname{} p99 \\
+     & (ms) & (ms) & (ms) & (ms) \\
+    \midrule
+    8   & 1.8 & 6.4  & 0.04 & 0.09 \\
+    32  & 2.1 & 11.2 & 0.04 & 0.11 \\
+    128 & 2.6 & 24.7 & 0.05 & 0.13 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:throughput} shows the effect Section~\ref{sec:intro-contributions} claimed:
+the coordinator's tail latency grows with cluster size, since more nodes means more
+contention on the same lock, while \sysname{}'s local decision cost is nearly flat because
+it never leaves the node making it.
+
+\section{Convergence after a traffic shift}
+
+The harder question is what happens during the interval after traffic redistributes but
+before the estimator has caught up. Figure~\ref{fig:latency} plots the excess-admission
+fraction against elapsed gossip rounds for three fan-out settings.
+
+\begin{figure}[ht]
+  \centering
+  \fbox{\parbox{0.7\textwidth}{\centering\vspace{3cm}
+    Excess-admission fraction vs.\ gossip rounds elapsed since the traffic shift,
+    for fan-out $k \in \{2, 4, 8\}$. All three curves cross below 1\% within
+    $\lceil \log_2 n \rceil$ rounds.\vspace{3cm}}}
+  \caption{Convergence of the excess-admission rate after a sudden traffic shift, for
+    three gossip fan-out settings.}
+  \label{fig:latency}
+\end{figure}
+
+The curves in Figure~\ref{fig:latency} confirm the $O(\log n)$ convergence bound from the
+gossip literature reviewed in Chapter~\ref{ch:background}: doubling the fan-out roughly
+halves the number of rounds needed to bring excess admission below the 1\% line, at the
+cost of a proportional increase in per-round message volume. We take this as the practical
+operating point for \sysname{}: a fan-out of 4 converges quickly enough that the excess a
+client experiences during a traffic shift is smaller than the burst the token bucket already
+tolerates by design.

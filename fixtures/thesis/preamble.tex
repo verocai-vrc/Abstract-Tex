@@ -1,0 +1,28 @@
+% Shared preamble for the six-file thesis skeleton (DESIGN.md §7, v0.2 exit criterion).
+% Pulled into main.tex with \input so every chapter file compiles against the same
+% packages and custom commands. Only packages already proven to work in
+% fixtures/paper/main.tex — Tectonic's bundled TeX Live subset has these without a
+% network fetch beyond what fixtures/paper already exercises.
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{microtype}
+% pageanchor=false: report's \maketitle titlepage and the first \include chapter both
+% land on the physical first page, and hyperref's per-page anchors collide there,
+% producing a harmless but noisy "Object @page.1 already defined" warning from
+% xdvipdfmx. Turning off the anchor (used for named PDF destinations, not for SyncTeX)
+% avoids the collision without touching the visible layout.
+\usepackage[hidelinks,pageanchor=false]{hyperref}
+
+% \term{...} marks a piece of vocabulary the glossary chapter would define later; for now
+% it just italicises, giving the document map something to index besides section titles.
+\newcommand{\term}[1]{\emph{#1}}
+
+% \sysname is the name of the system the thesis describes, kept as one command so a
+% rename is a one-line change instead of a find-and-replace across six files.
+\newcommand{\sysname}{Tideglass}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}

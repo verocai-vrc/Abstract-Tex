@@ -840,7 +840,7 @@ before `set_root_file` is more prominently exposed in the UI.
 | [~] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
 | [~] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
 | [~] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
-| [ ] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
+| [~] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
 | [ ] | S4.5 Focus and typewriter modes | S | S1.9 |
 | [ ] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
 | [ ] | S4.7 Linux and macOS smoke on CI artifacts; WebKitGTK issues logged as loops | M | S2.8 |
@@ -973,6 +973,33 @@ dialog now that file search also lives directly in the palette; and whether touc
 `QuickOpen.svelte` (outside the card's `Files` list) to extract `highlightMatch` needed sign-off
 first — done because it removed a real duplication and is covered by the full vitest suite, but
 named here rather than assumed fine.
+
+**S4.4 (14 September 2026).** `[~]`: built, not yet reviewer-approved (review deferred to a
+later batched pass). `fixtures/thesis/` is a real six-file skeleton — `main.tex`,
+`preamble.tex`, and four `sections/*.tex` chapters on a plausible CS topic (gossip-estimated
+distributed rate limiting) — that compiles clean with the bundled Tectonic: verified directly
+by invoking `src-tauri/binaries/tectonic-x86_64-unknown-linux-gnu -X compile` against it,
+exit 0, `main.pdf` produced (9 pages, 42 KiB), zero warnings and zero errors in stderr. `main.tex`
+uses four `\include`s (page-break-per-chapter, unlike `fixtures/paper`'s `\input`-only style)
+specifically to exercise S4.1's include graph against a different structure than its own test
+fixtures used. Each chapter has real multi-paragraph prose, section/subsection structure, at
+least one `\label`, and deliberate cross-file `\ref`s (introduction → background, results →
+introduction and background, conclusion → results and background) so S3.3c's go-to-definition
+and S3.4/S3.5's SyncTeX both have something meaningful to resolve across files; `results.tex`
+carries a captioned `table` and `figure` for S4.2's document map to render. `SMOKE.md` is a
+manual walkthrough in `fixtures/paper/SMOKE.md`'s style, covering the include graph, document
+map, `Ctrl K` palette, and cross-file navigation.
+
+One deviation, resolved rather than left broken: an initial `\tableofcontents` produced an
+`Object @page.1 already defined` xdvipdfmx warning — a real collision between hyperref's
+per-page anchors and `report`'s titlepage landing on the same physical first page as the first
+`\include`d chapter, reproduced independently in a throwaway minimal case to confirm the cause
+had nothing to do with the fixture's prose. Fixed with `pageanchor=false` on hyperref's load
+(commented in `preamble.tex`) rather than dropping the table of contents from a still-open
+question — a real thesis normally has one, but the card's `Done when` clause did not require it
+and a definitely-clean compile was preferred over matching that convention exactly. Worth an
+architect nod on whether to add it back once the anchor interaction is well enough understood
+to keep.
 
 ### Sprint 5 — The log parser
 

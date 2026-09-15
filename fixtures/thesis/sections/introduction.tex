@@ -1,0 +1,43 @@
+\chapter{Introduction}
+\label{ch:introduction}
+
+Rate limiting protects a shared resource by rejecting or delaying requests once a client
+exceeds an agreed budget. The textbook implementation keeps a counter behind a lock: every
+request checks the counter, and the counter lives on one machine so that every client sees
+the same number. That design works until the service the rate limiter protects itself
+becomes distributed, at which point the counter becomes a second service that every request
+must reach before it can reach the first one. The coordinator meant to bound latency has
+become a new source of it.
+
+This thesis asks whether a rate limiter can give the same guarantee---no client exceeds its
+budget by more than a bounded, known amount---without a machine that every request must
+consult. We answer yes, for the common case where clients are willing to accept a
+probabilistic bound instead of an exact one, using a construction we call \sysname{}.
+\sysname{} lets each node estimate the global request rate from a small amount of gossiped
+state and make an admit-or-reject decision locally, in the time it takes to read a counter
+from memory.
+
+\section{Contributions}
+\label{sec:intro-contributions}
+
+The thesis makes three contributions, in the order a reader would want to evaluate them.
+First, we give a \term{gossip-based} estimator for the global request rate that converges
+within a bounded number of rounds regardless of cluster size, described in
+Section~\ref{sec:token-bucket}. Second, we show that combining this estimator with a local
+\term{token bucket} preserves the standard token-bucket guarantee up to an error term that
+shrinks as the gossip fan-out grows. Third, we evaluate the construction against a
+centralized baseline on a synthetic workload and report the latency and accuracy trade-off
+in Chapter~\ref{ch:results}; the headline result is a reduction in tail latency with no
+client observing more than a small, bounded excess over its budget.
+
+\section{Why a coordinator is the wrong default}
+
+The appeal of a central counter is that it is trivially correct: there is exactly one
+number, and every decision reads and writes it under a lock. The cost is that the counter
+sits on the path of every request the system serves, so its own latency and availability
+become the rate limiter's latency and availability. A rate limiter that is slower or less
+reliable than the service it protects has made things worse, not better, and this failure
+mode is easy to miss in a single-region deployment where the coordinator's round trip is a
+few milliseconds. It stops being easy to miss the moment the deployment crosses a region
+boundary, where the same round trip is measured in tens of milliseconds and the coordinator
+becomes the dominant term in every request's latency budget.
