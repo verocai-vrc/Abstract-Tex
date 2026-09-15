@@ -159,10 +159,20 @@ kbd {
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-panel);
-  overflow: auto;
-  padding: 6px 0;
+  overflow: hidden;
+  padding: 6px 0 0;
+}
+/* Files and the Document map (S4.2) split the sidebar's height and scroll independently — a
+   long file tree must not push the outline off screen, or the other way round. */
+.sidebar .files-section {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .editor-column {

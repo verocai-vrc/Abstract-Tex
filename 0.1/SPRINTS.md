@@ -838,7 +838,7 @@ before `set_root_file` is more prominently exposed in the UI.
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [~] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
-| [ ] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
+| [~] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
 | [ ] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
 | [ ] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
 | [ ] | S4.5 Focus and typewriter modes | S | S1.9 |
@@ -924,6 +924,33 @@ against the project root instead of each file's own directory (recorded in-line 
 and a flat `Unresolved` enum in place of the card's suggested single
 `UnresolvedInclude{from,line,reason}` shape, since `Unreadable` has no natural `from`/`line`. Both
 are cheap to revisit if the architect disagrees.
+
+**S4.2 (14 September 2026).** `[~]`: built, not yet reviewer-approved (review deferred to a
+later batched pass, per the maintainer). `pnpm verify:web` is green — svelte-check 0 errors,
+243 vitest tests (18 new). No Rust or `src-tauri` file was touched, so the standing WebKitGTK
+link gap does not apply to this loop at all. Rung 4 (click a section in `pnpm tauri dev`, watch
+a new one appear while typing) is pending, the same standing no-webview gate as every loop since
+S3.1.
+
+`src/lib/outline.ts` is a new pure module: `scanOutline(text)` walks the buffer once for
+sections (six levels plus starred forms, brace-balanced single-line titles), figure/table
+environments (with a `\caption` lookahead or a bare-word fallback), `\label` keys, and
+`%TODO`/`%FIXME` comments (an unescaped-`%` detector keeps `100\%` from being misread as a
+comment). `mergeOutline` layers TexLab's `documentSymbol` answer over the scan when the server
+is ready — our TODO rows have no server equivalent, so they always survive; the scan is the whole
+outline when there is no server. `state.svelte.ts` gained a raw `outline` field; `controller.
+svelte.ts`'s `refreshOutline()`/`scheduleOutlineRefresh()` (250 ms debounced off a new
+`onTextChange` hook in `document.ts`, fired for every observed change including
+`ORIGIN_LOAD`/`ORIGIN_EXTERNAL`) guard a tab-switch race the same way `Editor.svelte`'s per-tab
+closures already do — capture `activePath` before the `lspDocumentSymbols` await, compare after,
+drop the answer if the tab moved on. `DocumentMap.svelte` renders one `<button>` per row under
+`Sidebar.svelte`'s existing file tree, each reachable by Tab/Enter.
+
+Not yet independently verified by a reviewer pass — flagging here rather than silently
+presenting it as equivalent to S4.1's reviewed tick. Whoever picks up the deferred review round
+should look first at the brace-balanced title extraction (the architect's own risk note) and at
+whether the 250 ms debounce and the tab-switch guard actually hold under a controller-level test,
+not just a scan-level one.
 
 ### Sprint 5 — The log parser
 

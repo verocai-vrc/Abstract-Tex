@@ -2,6 +2,7 @@
   import { app } from '../lib/state.svelte';
   import { createFile, openFile, setRootFile } from '../lib/controller.svelte';
   import TreeItem from './TreeItem.svelte';
+  import DocumentMap from './DocumentMap.svelte';
 
   async function newFile() {
     const name = window.prompt('New file name (relative to the project):', 'sections/new.tex');
@@ -11,23 +12,26 @@
 
 <aside class="sidebar">
   {#if app.project}
-    <div class="sidebar-head">
-      <span class="label">Files</span>
-      <button class="ghost" title="New file" onclick={newFile}>+</button>
+    <div class="files-section">
+      <div class="sidebar-head">
+        <span class="label">Files</span>
+        <button class="ghost" title="New file" onclick={newFile}>+</button>
+      </div>
+      <ul class="tree" role="tree">
+        {#each app.project.tree as node (node.path)}
+          <TreeItem
+            {node}
+            depth={0}
+            activePath={app.activePath}
+            rootFile={app.project.rootFile}
+            dirtyPaths={app.dirtyPaths}
+            onOpen={(p) => void openFile(p)}
+            onSetRoot={(p) => void setRootFile(p)}
+          />
+        {/each}
+      </ul>
     </div>
-    <ul class="tree" role="tree">
-      {#each app.project.tree as node (node.path)}
-        <TreeItem
-          {node}
-          depth={0}
-          activePath={app.activePath}
-          rootFile={app.project.rootFile}
-          dirtyPaths={app.dirtyPaths}
-          onOpen={(p) => void openFile(p)}
-          onSetRoot={(p) => void setRootFile(p)}
-        />
-      {/each}
-    </ul>
+    <DocumentMap />
   {:else}
     <p class="hint">Open a folder to see its files.</p>
   {/if}

@@ -10,6 +10,7 @@ import { flattenSymbols, type FlatSymbol } from './editor/symbols';
 import { LspClient, uriToPath } from './lsp';
 import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
 import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
+import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
 import { app } from './state.svelte';
 
@@ -271,6 +272,53 @@ function handleLspEvent(event: LspEvent): void {
 
 let jumpNonce = 0;
 let treeRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let outlineRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Rescan the active file for its Document map (S4.2) and, if the language server is answering,
+ * merge in its `documentSymbol` structure (`mergeOutline`'s doc comment says why symbols win over
+ * the scan on a shared line). No project or no active tab clears the panel rather than leaving
+ * a stale outline pointing at a file that is no longer open.
+ *
+ * `path` is captured before the `await` and checked again after it, the same guard
+ * `Editor.svelte`'s per-tab closures use for exactly this reason: a tab switch that lands while
+ * `lspDocumentSymbols` is in flight must not paint the new tab with the old tab's structure.
+ */
+export async function refreshOutline(): Promise<void> {
+  const path = app.activePath;
+  const doc = app.activeDoc;
+  if (!path || !doc) {
+    app.outline = [];
+    return;
+  }
+  const scanned = scanOutline(doc.text());
+  if (!app.lspReady) {
+    app.outline = scanned;
+    return;
+  }
+  const symbols = await lspDocumentSymbols(path);
+  if (app.activePath !== path) return; // a different tab is active now; that call's own refresh owns this
+  app.outline = mergeOutline(scanned, symbols);
+}
+
+/** Coalesce the flood of `onTextChange` calls a busy keystroke burst produces into one rescan
+ * ~250 ms after typing stops. Rescanning and asking the language server on every keystroke would
+ * put this on the same path as the <16 ms keystroke budget in DESIGN.md §2 — the whole reason
+ * `onTextChange` exists as a separate hook from the save debounce is that this one has to be
+ * shorter than a save, not that it can skip debouncing altogether. */
+function scheduleOutlineRefresh(): void {
+  if (outlineRefreshTimer) clearTimeout(outlineRefreshTimer);
+  outlineRefreshTimer = setTimeout(() => {
+    outlineRefreshTimer = null;
+    void refreshOutline();
+  }, 250);
+}
+
+/** A Document map row was activated: move the cursor to it. The panel does not know what a line
+ * request looks like — `jumpToLine` already does, from `jumpToDiagnostic` and go-to-definition. */
+export function goToOutlineItem(item: OutlineItem): void {
+  jumpToLine(item.line);
+}
 
 /** Called once from App.svelte. Subscribes to backend events and probes the engine. */
 export async function start(): Promise<void> {
@@ -329,15 +377,18 @@ export async function openFile(relativePath: string): Promise<void> {
   }
   if (manager.isOpen(relativePath)) {
     app.activePath = relativePath;
+    void refreshOutline();
     return;
   }
   try {
     const text = await ipc.readFile(relativePath);
     const doc = manager.open(relativePath, text);
     doc.onDirtyChange = (isDirty) => setDirty(relativePath, isDirty);
+    doc.onTextChange = () => scheduleOutlineRefresh();
     syncTabs();
     app.activePath = relativePath;
     tellServer((absolute) => lsp.didOpen(absolute, text), relativePath);
+    void refreshOutline();
   } catch (error) {
     app.notice = `Could not open ${relativePath}: ${String(error)}`;
   }
@@ -363,6 +414,7 @@ function closeAllDocuments() {
   // A bar asking about a tab that no longer exists would be a question with no answer.
   app.conflict = null;
   app.quickOpenVisible = false;
+  app.outline = [];
 }
 
 /** Copy the manager's tab list and dirty set into reactive state. Called after every open,

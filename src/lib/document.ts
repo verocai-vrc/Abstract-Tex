@@ -64,6 +64,13 @@ export class OpenDocument {
   dirty = false;
   onDirtyChange?: (dirty: boolean) => void;
 
+  /** Fired on *every* observed change to `ytext`, including `ORIGIN_LOAD` and `ORIGIN_EXTERNAL` —
+   * the two origins `onChange` below deliberately does not dirty the buffer for. The Document
+   * map (S4.2) needs to notice a `git checkout` that changes the outline under the author's feet
+   * even though it is not a dirty-buffer event; the controller is what debounces this before it
+   * touches anything expensive, keeping it off the <16 ms keystroke path (DESIGN.md §2). */
+  onTextChange?: () => void;
+
   /**
    * The text we believe is on disk, or `null` for "nothing on disk matches this buffer" — which
    * is the state after the file is deleted underneath us. `null` is not the same as the empty
@@ -98,7 +105,11 @@ export class OpenDocument {
   }
 
   private onChange(origin: unknown) {
-    if (origin === ORIGIN_LOAD || origin === ORIGIN_EXTERNAL || this.disposed) return;
+    if (this.disposed) return;
+    // Every observed change reaches the outline, load and external changes included; only the
+    // dirty/save path below cares which origin this was.
+    this.onTextChange?.();
+    if (origin === ORIGIN_LOAD || origin === ORIGIN_EXTERNAL) return;
     this.setDirty(true);
     this.scheduleSave();
   }

@@ -112,6 +112,7 @@ vi.mock('./ipc', () => ({
 
 const {
   closeTab,
+  goToOutlineItem,
   jumpToDiagnostic,
   lspDiagnosticsFor,
   lspDocumentSymbols,
@@ -120,6 +121,7 @@ const {
   openFile,
   openFolder,
   quickOpenPick,
+  refreshOutline,
   resolveConflict,
   start,
   syncTexForward,
@@ -813,5 +815,84 @@ describe('syncTexInverse (S3.5)', () => {
     synctexInverseAnswer = new Error('Nothing on page 9 of the last build near that point.');
     await syncTexInverse(9, 0, 0);
     expect(app.notice).toContain('Nothing on page 9');
+  });
+});
+
+describe('the Document map (S4.2)', () => {
+  it('scans the active buffer', async () => {
+    type('\\section{Intro}'); // appended after the beforeEach's 'hello', all on line 1
+    await refreshOutline();
+    expect(app.outline).toEqual([{ kind: 'section', title: 'Intro', line: 1, level: 2 }]);
+  });
+
+  it('refills for the newly active tab on switch, including a tab that was already open', async () => {
+    // `openFile` fires its outline refresh without awaiting it — the same fire-and-forget shape
+    // as `tellServer` — so a settled promise only means the *tab switch* is done; a further
+    // microtask flush is what "and then it merged the server's answer in" needs in a test.
+    disk.set('sections/results.tex', '\\section{Results}\n');
+    await openFile('sections/results.tex');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.outline).toEqual([{ kind: 'section', title: 'Results', line: 1, level: 2 }]);
+
+    await openFile('main.tex');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.outline).toEqual([]); // main.tex is still just 'hello' — no sectioning commands
+
+    await openFile('sections/results.tex'); // switching back, not re-reading from disk
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.outline).toEqual([{ kind: 'section', title: 'Results', line: 1, level: 2 }]);
+  });
+
+  it("merges the server's document symbols in once it is ready, preferring them over the scan", async () => {
+    type('\\section{Local}'); // the scan would find this on its own
+    lspRequestAnswer = [
+      {
+        name: 'Server Intro',
+        kind: 1,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+        selectionRange: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
+      },
+    ];
+    await refreshOutline();
+    // The server's answer describes line 1 too (0-based 0 -> 1-based 1), so it wins there —
+    // the scanned 'Local' section is dropped rather than shown twice.
+    expect(app.outline).toEqual([{ kind: 'section', title: 'Server Intro', line: 1, level: 0 }]);
+  });
+
+  it('scans without the server when it is not ready', async () => {
+    lspHandler({ kind: 'stopped', message: 'gone' });
+    type('\\section{Offline}');
+    await refreshOutline();
+    expect(app.outline).toEqual([{ kind: 'section', title: 'Offline', line: 1, level: 2 }]);
+  });
+
+  it('clears when the project closes', async () => {
+    type('\\section{Intro}');
+    await refreshOutline();
+    expect(app.outline.length).toBe(1);
+
+    await openFolder('/proj'); // closeAllDocuments runs before the new project is opened
+    expect(app.outline).toEqual([]);
+  });
+
+  it("goToOutlineItem moves the cursor to the item's line", () => {
+    goToOutlineItem({ kind: 'section', title: 'X', line: 42, level: 0 });
+    expect(app.jumpRequest?.line).toBe(42);
+  });
+
+  it('debounces a buffer change into one rescan ~250 ms after typing stops', async () => {
+    await refreshOutline();
+    expect(app.outline).toEqual([]); // 'hello' has none of the five kinds
+
+    type('\\section{New}');
+    // Nothing yet: onTextChange must not reach the scan on the keystroke path itself
+    // (DESIGN.md §2's <16 ms budget is the reason this is debounced at all).
+    expect(app.outline).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(249);
+    expect(app.outline).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(app.outline).toEqual([{ kind: 'section', title: 'New', line: 1, level: 2 }]);
   });
 });
