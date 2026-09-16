@@ -14,6 +14,7 @@ Three of the five S2.6 rules were wrong until the captures below existed — see
 | `unbalanced-braces` | Tectonic 0.17.0 (XeTeX) | An unclosed `\emph{`. **`Runaway argument?` is printed with no leading `!`**, so it never reaches a scanner that keys on `!`; the real message is `! File ended while scanning use of \emph .` and it carries **no `l.NN` marker at all**. |
 | `missing-package` | Tectonic 0.17.0 (XeTeX) | A `\usepackage` of something that does not exist. **Tectonic doubles the bang**: `! ! LaTeX Error: File \`nosuchpackage.sty' not found..` The `l.3` marker points at `\begin{document}`, not at the `\usepackage` on line 2. |
 | `undefined-reference` | Tectonic 0.17.0 (XeTeX) | A `\ref` and a `\cite` with nothing behind them. Both are **warnings, not `!` errors**, and carry their line number in prose (`on input line 4`) rather than as a marker. The same log also holds `There were undefined references.` and an `Empty \`thebibliography' environment` warning, which must *not* be reported as separate problems. |
+| `wrapped-file-open` | Tectonic 0.17.0 (XeTeX) | Used by `tokenizer.rs` (S5.1), not by the rule catalog. An `\input` of a file under a deliberately long directory name so the `(` line TeX prints when opening it exceeds 79 columns and hard-wraps mid-word: `...the-open-paren-li` / `ne/chapter` — confirms the exact wrap width this project's bundled engine uses and that a wrapped file-open path survives unwrapping intact. |
 
 Capture a new one with the engine flags Preamble itself uses:
 

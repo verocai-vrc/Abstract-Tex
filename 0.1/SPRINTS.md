@@ -1111,11 +1111,56 @@ whoever runs this loop's card on a machine with a webview.
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S5.1 Tokenizer: unwrap 79-column lines, classify `!`, `l.NN`, warnings, `(`/`)` file events | L | S1.11 |
+| [x] | S5.1 Tokenizer: unwrap 79-column lines, classify `!`, `l.NN`, warnings, `(`/`)` file events | L | S1.11 |
 | [ ] | S5.2 Paren-stack resolver: track the open file through interleaved output; fixtures for the known pathological cases | L | S5.1 |
 | [ ] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
 | [ ] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
 | [ ] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
+
+**S5.1 (16 September 2026).** `[x]`: `cargo test -p texlog` 44 passed (20 new), `cargo clippy -p
+texlog --all-targets -- -D warnings` clean, rest of the workspace still builds
+(`cargo build --workspace --exclude preamble`). A pure library-crate loop with no webview
+dependency at all, so there is no rung-4 gate to carry here, unlike every frontend loop since
+S3.1 — `crates/texlog/src/tokenizer.rs` is a new module, additive only: `rules.rs`'s existing
+`quick_errors`/`diagnostics` path (what the app calls today) is untouched, so nothing already
+shipped changed behaviour this loop.
+
+New captured fixture: `crates/texlog/fixtures/wrapped-file-open`, an `\input` of a file under a
+deliberately long directory name, chosen to force the real bug DESIGN.md §5.2 names ("messages
+wrap at 79 columns mid-word") rather than assume its shape. Real Tectonic output confirmed two
+things worth a reader's attention:
+
+1. **The wrap rule is per physical line, not per logical line, and the difference only shows up
+   on a message long enough to wrap twice.** The obvious first implementation checked whether the
+   *accumulated* logical line so far was exactly 79 characters before deciding to keep joining —
+   which is wrong, and would silently truncate a message that wraps three or more times, because
+   after the first join the running total is never 79 again. TeX counts columns from zero on
+   every physical line it writes, so the correct check is on each raw physical line's own length.
+   Caught by a test built for exactly this shape
+   (`keeps_joining_across_a_message_long_enough_to_wrap_twice`) before it reached the fixture,
+   not by the fixture itself — the real capture only exercises a single join.
+2. **A coincidentally-79-character line and a genuine wrap are indistinguishable by this rule,
+   and that is stated rather than hidden.** The fixture also captured atbegshi-ltx's own
+   two-physical-line banner (73 then 27 characters) sitting right next to the real wrap (79 then
+   10) — proof the heuristic does not fire on an ordinary short multi-line message, but not proof
+   it never will on some other package's banner that happens to hit exactly 79. `unwrap_lines`'s
+   own doc comment names the failure mode instead of pretending the heuristic is exact.
+
+`(`/`)` classification is deliberately shallow: [`ParenEvent`] reports every paren's position and,
+for a `(`, the candidate token after it, with no attempt to decide whether it is a real file
+boundary or an incidental parenthetical (`(Unicode)`, `(HO)`) — a test pins exactly this
+ambiguity (`an_incidental_parenthetical_is_reported_the_same_way_as_a_real_file_open`) as the
+reason that decision is S5.2's own loop, with its own fixtures for the pathological cases the
+card asks for, rather than guessed at here. Warning classification generalises the narrow scan
+`rules.rs` has carried since S2.6 (its own doc comment names this exact gap: "the general warning
+tokenizer is S5.1") to any `LaTeX Warning:`, `LaTeX Font Warning:`, or `Package <name> Warning:`
+banner, by requiring `Warning: ` to appear within the first 40 characters of the line rather than
+matching two hand-picked phrases.
+
+Not done here, on purpose: wiring `tokenizer` into `rules.rs`/`diagnostics` (that rebuild is
+S5.2's, once the paren stack exists to resolve a file against); one-click fixes (S6.2); and the
+`expected.json` fixture harness (S5.3) `wrapped-file-open` does not yet have, since it is not a
+rule-catalog fixture and carries no diagnostic to assert on yet.
 
 ### Sprint 6 — v0.3 exit: the rule catalog
 

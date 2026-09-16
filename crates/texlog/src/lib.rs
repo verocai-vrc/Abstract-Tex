@@ -1,10 +1,12 @@
 //! TeX log parsing — the differentiating subsystem (DESIGN.md §5.2).
 //!
-//! **Sprint 1 status: a stub.** [`quick_errors`] does the simplest useful thing: find lines that
-//! start with `!` and the `l.NN` marker that follows each one. It does *not* yet track which file
-//! is open (the paren-stack resolver, S5.2), unwrap 79-column lines (S5.1), or explain anything
-//! (S5.5, S6.1). It exists so sprint 1 has something better than a raw log to show and so the
-//! crate boundary is in place before the real work begins.
+//! **Sprint 5 status.** [`rules::diagnostics`] is still what the app calls today, and it still
+//! works the sprint-1/2 way: [`quick_errors`] finds `!` lines and the `l.NN` marker after each
+//! one, on raw, un-unwrapped log lines, with no notion of which file is open. [`tokenizer`]
+//! (S5.1) is the new, separate foundation the paren-stack resolver (S5.2) builds on next — it
+//! unwraps 79-column line wrapping and classifies every logical line, but nothing wires it into
+//! `diagnostics` yet. The two paths run side by side until S5.2 lands and `rules.rs` is rebuilt
+//! on top of the tokenizer instead of `quick_errors`'s own ad hoc scan.
 //!
 //! This crate must never read a file, spawn anything, or know about the editor. Text in, data
 //! out, so it can be extracted as a standalone MIT crate at S6.5.
@@ -13,8 +15,10 @@
 //! the scan through the rule catalog and returns sentences instead of TeX's own wording.
 
 pub mod rules;
+pub mod tokenizer;
 
 pub use rules::{diagnostics, Diagnostic, Severity};
+pub use tokenizer::{tokenize, LineKind, LogLine, ParenEvent};
 
 /// The crudest useful diagnostic: TeX's own message and the line it claims.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
