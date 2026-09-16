@@ -23,12 +23,16 @@ import {
   rectangularSelection,
 } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
+// KaTeX's stylesheet (fonts, spacing classes) for the maths popover. A bare `import` of a CSS
+// file is Vite's way of adding a stylesheet to the bundle; nothing is bound to a name.
+import 'katex/dist/katex.min.css';
 import { yCollab } from 'y-codemirror.next';
 import type { OpenDocument } from '../document';
 import { definitionClickHandler, definitionKeymap, type DefinitionRequester } from './definition';
 import { diagnosticGutter } from './diagnostics';
 import { focusModeExtension } from './focus';
 import { lspHoverSource, type HoverRequester } from './hover';
+import { mathPreview } from './math-preview';
 import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
 import { typewriterModeExtension } from './typewriter';
 
@@ -80,6 +84,28 @@ const hoverTheme = EditorView.baseTheme({
   },
 });
 
+// The maths popover (S4.6). KaTeX's own CSS sizes the glyphs; this only frames them with the
+// editor's tokens so light and dark both work, and colours the one-line parse message like the
+// diagnostics drawer does.
+const mathPreviewTheme = EditorView.baseTheme({
+  '.cm-math-preview': {
+    maxWidth: '640px',
+    padding: '6px 12px',
+    backgroundColor: 'var(--bg-panel)',
+    color: 'var(--fg)',
+    fontSize: '15px',
+    overflowX: 'auto',
+  },
+  '.cm-math-preview-error': {
+    maxWidth: '480px',
+    padding: '4px 8px',
+    backgroundColor: 'var(--bg-panel)',
+    color: 'var(--error)',
+    fontFamily: 'var(--font-ui)',
+    fontSize: '12px',
+  },
+});
+
 export function createEditor(
   parent: HTMLElement,
   doc: OpenDocument,
@@ -120,6 +146,10 @@ export function createEditor(
       ...(completionSource ? [autocompletion({ override: [completionSource] })] : []),
       // Same "omit when there is no server" rule as completion above.
       ...(hoverRequest ? [lspHoverSource(hoverRequest), hoverTheme] : []),
+      // Unconditional, unlike the two above: the maths preview needs no server, only KaTeX in
+      // the bundle, so it is the non-LSP path that still works with nothing running.
+      mathPreview(),
+      mathPreviewTheme,
       // No app shortcuts here: `Ctrl S`, `Ctrl B`, `F5` and the rest are handled once, on the
       // window, by App.svelte (S2.4). A binding in this keymap does not stop propagation, so a
       // copy here would fire the action twice for a keypress inside the editor.

@@ -842,7 +842,7 @@ before `set_root_file` is more prominently exposed in the UI.
 | [~] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
 | [~] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
 | [~] | S4.5 Focus and typewriter modes | S | S1.9 |
-| [ ] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
+| [~] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
 | [ ] | S4.7 Linux and macOS smoke on CI artifacts; WebKitGTK issues logged as loops | M | S2.8 |
 
 **S4.1 (14 September 2026).** `[~]`: rungs 1–2 are green — `cargo test -p preamble-includes` 19
@@ -1001,6 +1001,53 @@ and a definitely-clean compile was preferred over matching that convention exact
 architect nod on whether to add it back once the anchor interaction is well enough understood
 to keep.
 
+**S4.6 (16 September 2026).** `[~]`: rungs 1–2 are green — `pnpm verify:web` (svelte-check 431
+files / 0 errors, Vitest 21 files / 283 tests, 20 new), no Rust changed so the standing
+WebKitGTK link gap does not apply; the library-crate half of `pnpm verify`'s rung 1 stayed
+green too, apart from the two pre-existing, environment-bound failures S4.1 and this session
+both already carry (the `preamble-lsp` pipe deadlock and `preamble-synctex`'s Windows-path
+fixture, the latter newly ledgered this loop). Rung 4 (`pnpm tauri dev` on `fixtures/thesis`,
+hovering `$C$`/`$r$`/`$k \in \{2,4,8\}$`, then a deliberately broken `$\frac{a}{b$`) is still
+pending — no Tauri link on this Linux box, the same standing gate every frontend-only loop
+since S3.1 has carried. Reviewed: APPROVE, no required findings.
+
+`src/lib/editor/math-preview.ts` is a second, independent `hoverTooltip` alongside S3.3c's
+`lspHoverSource`, built the way `hover.ts` and `focus.ts` already model this codebase's split
+between pure logic and the CodeMirror shell around it.
+
+1. **The scanner is bounded by the paragraph, not the document, for the same reason
+   `focus.ts`'s dimming is.** `mathAtOffset` calls `currentParagraphRange` before it looks at a
+   single character, so a hover near the end of a long chapter costs a few lines of scanning, not
+   the whole file — the latency commitment (§2.2) is kept by never doing document-sized work on a
+   300 ms idle timer, not by making that work fast.
+2. **`renderMath` returns a `{html}|{error}` union instead of throwing, and that shape is the
+   whole reason the "never a raw log" promise holds here.** A `katex.ParseError` becomes one
+   short sentence off `e.message`; an unresolved `\newcommand` lands in the same branch. The
+   architect's decision below is what makes that acceptable rather than a gap: KaTeX gets no
+   macro table in v0.2, so a preamble command shows KaTeX's own "undefined control sequence"
+   line, not a stack trace — cheap now, revisited once Sprint 6's rule catalog already parses
+   preambles.
+3. **A real bug in the scanner, caught by review, not by the 20 tests that shipped with it.**
+   None of the card's cases put a bare `$` inside a `%` comment next to real maths in the same
+   paragraph; the reviewer's scenario — `% price is $5` followed by `The value $x$ is` — shows
+   the unstripped `%` shifting every pairing after it, so hovering `x` finds nothing and hovering
+   "The value" renders `5\nThe value` as if it were a formula. Left `Open` rather than fixed in
+   this pass; whoever next touches `math-preview.ts` should blank each unescaped `%` to end of
+   line before scanning, the same trick the scanner already uses for `\%`.
+4. **`multline` needed a KaTeX-specific patch, not a card-level one.** KaTeX has no `multline`
+   environment at all ("No such environment"); the card's own rule keeps the `\begin`/`\end`
+   wrapper verbatim for every environment, so `mathAtOffset` stays generic and the substitution
+   (`multline`→`gather`) lives only in `renderMath`, the one place that already knows it is
+   talking to KaTeX specifically.
+
+Two more advisories from the reviewer, neither fixed this loop: `katex`'s default
+`strict: 'warn'` logs a console warning on every hover over a non-ASCII glyph (e.g. `$é$`) —
+not user-visible, but `strict: 'ignore'` would quiet it, worth folding into whichever loop next
+touches `renderMath`. And an offset exactly on a second opener in `$a$$b$` previews the first
+span, not the second — cosmetic, left alone unless it bites. Rung 4 itself (two `hoverTooltip`s
+stacking, real KaTeX fonts under the CSP) is still owed and is the natural first check for
+whoever runs this loop's card on a machine with a webview.
+
 ### Sprint 5 — The log parser
 
 **Exit demo.** Twenty captured logs resolve to the right `file:line`, every one.
@@ -1085,6 +1132,7 @@ open. Change them here and in `DESIGN.md` before changing code.
 | Self-echo suppression | Content hash of the last write, not a time window | A time window races with slow disks; a hash cannot. |
 | LSP type definitions | Hand-written subset in `src/lib/lsp-protocol.ts`, not `vscode-languageserver-types` | ~30 fields are used; a dependency tax on the learner-reader outweighs the benefit. |
 | Where LSP diagnostics surface | **Gutter only** — `publishDiagnostics` never enters `app.compile.diagnostics`, the drawer, or `errorCount`/`warningCount` | Two cadences in one counter makes the status bar flicker per keystroke (§2 commitment 2, and §6's "never shout when nothing is wrong"). The drawer's contract under §5.2 is an *explained* sentence from the rule catalog; a raw TexLab string in that list is a raw log wearing a card, against commitment 3. |
+| Maths preview and user macros | **KaTeX renders with no macro table in v0.2; a preamble `\newcommand` shows KaTeX's "undefined control sequence" line** | Resolving `\newcommand` needs the include graph (S4.1) walked to the preamble and a mini-parser; that is its own loop. Showing the honest message keeps §2 commitment 3 (never a raw log) and the popover cheap. Revisit when the rule catalog (Sprint 6) already parses preambles. |
 
 ---
 
