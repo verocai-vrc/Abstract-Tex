@@ -215,6 +215,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **`fixtures/thesis/SMOKE.md` §3 step 3 described a command-palette search the app cannot do.**
+  (S4.4, deferred reviewer pass, 16 Sep 2026) The step asked the reader to search `convergence`
+  while `sections/conclusion.tex` was the active tab and expected a section from
+  `sections/results.tex` to appear from "the document map's own section list" — but the palette's
+  section search (S4.3) is scoped to the active file's outline only (S4.2's own design choice), so
+  a section belonging to a different, inactive file can never surface there. Fixed by reordering
+  the walkthrough to make `results.tex` the active tab before searching for its own section.
+
 - **The Document map's section scanner had no word boundary after a sectioning command name, so
   `\partial` and `\paragraphindent` were misread as an empty-titled "Part"/"Paragraph" row.**
   (S4.2, deferred reviewer pass, 16 Sep 2026) `src/lib/outline.ts`'s `SECTION_RE` matched

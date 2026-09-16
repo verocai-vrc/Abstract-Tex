@@ -1017,6 +1017,22 @@ and a definitely-clean compile was preferred over matching that convention exact
 architect nod on whether to add it back once the anchor interaction is well enough understood
 to keep.
 
+**Deferred reviewer pass (16 September 2026).** The fixture's own cross-references were checked
+against the actual chapter files (every `\ref`/`\label` pair `SMOKE.md` §1/§2/§4 names does exist
+and does sit under the section the script claims), and one real mismatch was found and fixed:
+**`SMOKE.md` §3 step 3 described a search the application cannot do.** It asked the reader to
+type `convergence` while `sections/conclusion.tex` was the active tab and expected
+`Convergence after a traffic shift` (a section that lives in `sections/results.tex`) to surface
+from "the document map's own section list" — but `CommandPalette.svelte`'s `sectionCommands`
+(S4.3) is deliberately scoped to `app.outline`, which is only ever the *active* file's outline
+(S4.2's own design note: "a palette is for getting somewhere fast, not for browsing every section
+of every file in the project at once"). As written, a maintainer running this step by hand would
+watch it fail. Fixed by reordering the walkthrough to open `sections/results.tex` first, so the
+section it searches for is the active file's own — same demonstration, accurate to what the code
+actually does. No `.tex` file changed; the fixture itself already compiles clean (verified at
+build time in this loop's own outcome above). Still `[~]`: rung 4 (walking the script by hand)
+still needs a real webview.
+
 **S4.5 (14 September 2026, outcome backfilled 16 September 2026).** `[~]`: this row's own
 outcome paragraph was never written at the time — a scribing gap in the loop that built it; the
 commit message (`85fdfca`) carries what should have landed here. `pnpm verify:web` was green at

@@ -50,12 +50,14 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 1. `Ctrl K` opens the palette with the input focused. With nothing typed, open tabs come
    first, then other project actions.
-2. Type `conclusion`: `sections/conclusion.tex` rises to the top with the matched letters
-   bold. `Enter` opens it in a new tab and closes the palette.
-3. Type `convergence` (no file has that name, only a section title): the palette's
-   fuzzy match still surfaces `Convergence after a traffic shift` in
-   `sections/results.tex` from the document map's own section list. `Enter` opens that
-   file with the cursor on the section line.
+2. Type `results`: `sections/results.tex` rises to the top with the matched letters bold.
+   `Enter` opens it in a new tab and closes the palette.
+3. With `sections/results.tex` now the active tab, open the palette again and type
+   `convergence` (no file has that name, only a section title in this chapter): the
+   palette's fuzzy match surfaces `Convergence after a traffic shift` from the active
+   file's own document map — the section list is scoped to whichever tab is in front, the
+   same as the document map panel in §2, so this only works because `results.tex` is the
+   active tab. `Enter` moves the cursor to that section's line without opening a new tab.
 4. `Esc` closes the palette without navigating anywhere. Clicking outside the palette
    also closes it.
 
