@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"LaTeX Error: Environment nosuchenv undefined\". The raw log has the surrounding output.",
+    "line": 3,
+    "rawMessage": "LaTeX Error: Environment nosuchenv undefined.",
+    "rule": null,
+    "severity": "error",
+    "title": "TeX reported an error"
+  }
+]

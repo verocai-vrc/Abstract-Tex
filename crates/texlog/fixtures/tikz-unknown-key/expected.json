@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am go\". The raw log has the surrounding output.",
+    "line": 5,
+    "rawMessage": "Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am go",
+    "rule": null,
+    "severity": "error",
+    "title": "TeX reported an error"
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Misplaced alignment tab character &\". The raw log has the surrounding output.",
+    "line": 3,
+    "rawMessage": "Misplaced alignment tab character &.",
+    "rule": null,
+    "severity": "error",
+    "title": "TeX reported an error"
+  }
+]

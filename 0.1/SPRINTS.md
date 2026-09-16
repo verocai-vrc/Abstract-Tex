@@ -1114,7 +1114,7 @@ whoever runs this loop's card on a machine with a webview.
 | [x] | S5.1 Tokenizer: unwrap 79-column lines, classify `!`, `l.NN`, warnings, `(`/`)` file events | L | S1.11 |
 | [x] | S5.2 Paren-stack resolver: track the open file through interleaved output; fixtures for the known pathological cases | L | S5.1 |
 | [x] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
-| [ ] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
+| [x] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
 | [ ] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
 
 **S5.1 (16 September 2026).** `[x]`: `cargo test -p texlog` 44 passed (20 new), `cargo clippy -p
@@ -1245,6 +1245,59 @@ reader should take from the diff:
    `texlog`'s own production code — the crate's "never read a file" rule (`lib.rs`) is about what
    ships, and a test harness reading fixtures off disk is the same thing every fixture test in this
    crate has always done with `include_str!`.
+
+**S5.4 (16 September 2026).** `[x]`: `cargo test -p texlog` 77 passed (11 new: 15 generated
+fixture tests, up from 5, plus one new hand-written resolver test), `cargo clippy -p texlog
+--all-targets -- -D warnings` clean, rest of the workspace still builds. No rung-4 gate, same as
+every loop in this sprint. Eleven new real Tectonic 0.17.0 captures bring
+`crates/texlog/fixtures/` to twenty directories, the sprint's own exit-demo number; ten got an
+`expected.json` through the S5.3 harness, one (`nested-include`) got a hand-written `resolver.rs`
+test instead, matching the precedent the four S5.1/S5.2 tokenizer/resolver-only fixtures already
+set. `crates/texlog/fixtures/README.md`'s table has the full list and what each one exercises.
+
+1. **A real discovery that reshapes what "the torture document" can mean.** Every attempt at
+   capturing two different `!` errors in one real log produced the same shape: Tectonic halts the
+   run at the *first* one, full stop — confirmed across every erroring fixture captured this loop,
+   not just asserted from one example. A classic engine's batch mode would keep going and log
+   several; this bundled one does not. Warnings are unaffected (`torture`, this loop's fixture,
+   holds two before the halting error), but S6.4's own card — "twenty-error torture document" —
+   cannot mean twenty `!` errors surviving in a single compile. Recorded in the fixtures README
+   rather than silently discovered and forgotten; S6.4 will need twenty separate compiles, or a
+   document that is mostly warnings, whichever the architect prefers when that loop starts.
+2. **Three of the ten new rule-catalog fixtures land in the long tail on purpose.**
+   `misplaced-alignment-tab`, `undefined-environment`, and `tikz-unknown-key` are real, common
+   LaTeX mistakes with no rule in the catalog yet (DESIGN.md §5.2 names alignment tabs explicitly;
+   the other two are not on that list at all but are exactly the kind of thing a real author
+   hits). Each gets `rule: null` in its `expected.json` — a captured pin of today's honest
+   fallback, not a bug, and a ready-made worklist for S6.1's "rules 6–40."
+3. **`tikz-unknown-key` is the first real capture of DESIGN.md §5.2's own wrapping problem inside
+   the rule catalog's path, not just `tokenizer.rs`'s.** The pgfkeys error message is long enough
+   to wrap at column 79 mid-word — `...and I am go` / `ing to ignore it...` — and `rules.rs` still
+   runs on `quick_errors`, which (unlike `tokenizer::unwrap_lines`, S5.1) never undoes that wrap.
+   So today's real `raw_message` for this fixture is the truncated half-word, and its
+   `expected.json` pins that as current, honest behaviour — the concrete case that will need
+   re-generating (via the same harness) once `rules.rs` is finally rebuilt on `tokenizer`/
+   `resolver`, which `lib.rs`'s own module doc says has not happened yet.
+4. **`nested-include` is a positive result, and the one real capture worth writing a dedicated
+   assertion for.** `main.tex` → `\input{outer}` (no extension, so — like `bare-input-no-extension`
+   — not recognised as a file) → `\input{chapters/inner}` (a `/`, so recognised despite also
+   lacking an extension) → an undefined control sequence, three files deep. `resolver.rs`'s new
+   test confirms `file_at` correctly returns `chapters/inner`, skipping straight past the
+   unrecognised `outer` wrapper in the middle — real evidence that an intermediate file the
+   resolver cannot name does not break resolution of the real file nested inside it, which no
+   existing fixture (all one level deep) could have shown either way.
+5. **`missing-closing-brace` exercises a fallback branch no fixture had reached before.** `$x^{2$`
+   produces a real `! Missing } inserted.` whose message contains no `\command` for
+   `trailing_command` to find, so `explain_unbalanced_braces` falls to its generic "a brace was
+   never closed" wording — previously only reached by a hand-written log, never a real one.
+6. **`diagnostics()` groups by scan, not by document order, and `torture` is the first real log
+   with enough diagnostics for that to be visible.** Its citation warning appears before its
+   reference warning in the source, but *after* the halting error in `diagnostics()`'s own output,
+   because `diagnostics` runs `quick_errors` (the `!` scan) to completion before
+   `undefined_reference_warnings` (the warning scan) even starts. Existing, deliberate, unchanged
+   by this loop — `errors_and_warnings_from_one_log_come_back_together` already pinned the
+   two-diagnostic case — but worth naming here since a three-diagnostic real capture is the first
+   place it is genuinely visible rather than incidental.
 
 ### Sprint 6 — v0.3 exit: the rule catalog
 

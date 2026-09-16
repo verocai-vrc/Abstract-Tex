@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "This document includes `chapters/intro.tex`, and it is not where TeX looked. Check the spelling and the path — it is resolved relative to the folder holding the main file, not the file that includes it.",
+    "line": 3,
+    "rawMessage": "! LaTeX Error: File `chapters/intro.tex' not found..",
+    "rule": "file-not-found",
+    "severity": "error",
+    "title": "`chapters/intro.tex` could not be found"
+  }
+]

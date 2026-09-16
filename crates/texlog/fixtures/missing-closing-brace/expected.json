@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "A { was opened and the group it started never ended, so TeX ran past the end of the argument it was collecting. The mistake is earlier than the line reported here: look for a command whose argument is missing its closing }.",
+    "line": 3,
+    "rawMessage": "Missing } inserted.",
+    "rule": "unbalanced-braces",
+    "severity": "error",
+    "title": "A brace was never closed"
+  }
+]

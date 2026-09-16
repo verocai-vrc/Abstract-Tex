@@ -271,6 +271,29 @@ mod tests {
         }
 
         #[test]
+        fn the_captured_nested_include_resolves_to_the_innermost_real_file() {
+            // main.tex `\input`s `outer` (no extension given, so — like
+            // `bare-input-no-extension` — Tectonic echoes it with none: `(outer`, not
+            // recognised as a file) which itself `\input`s `chapters/inner` (a `/`, so
+            // recognised despite also having no extension). Three files deep, but `outer` never
+            // joins the *file* stack — proof that an unrecognised wrapper in the middle does not
+            // break resolution of the real file nested inside it: `main.tex` is still on the
+            // stack underneath (it does have a recognised extension), but the diagnostic itself
+            // resolves to `chapters/inner`, not to `outer` or to `main.tex`.
+            let log = include_str!("../fixtures/nested-include/main.log");
+            let lines = tokenize(log);
+            let stacks = open_files(&lines);
+            let error_line = lines.iter().position(|l| matches!(l.kind, LineKind::Error(_))).unwrap();
+            assert_eq!(file_at(&stacks, error_line), Some("chapters/inner"));
+            assert_eq!(
+                stacks[error_line],
+                vec!["main.tex".to_string(), "chapters/inner".to_string()],
+                "{:?}",
+                stacks[error_line]
+            );
+        }
+
+        #[test]
         fn the_captured_bare_extensionless_input_resolves_to_its_parent_instead() {
             // Pins the documented limitation: `plainchapter` never becomes its own stack entry,
             // so a diagnostic inside it is reported against main.tex, not itself.

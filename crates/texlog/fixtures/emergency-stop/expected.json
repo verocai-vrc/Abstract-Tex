@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Emergency stop\". The raw log has the surrounding output.",
+    "line": null,
+    "rawMessage": "Emergency stop",
+    "rule": null,
+    "severity": "error",
+    "title": "TeX reported an error"
+  }
+]
