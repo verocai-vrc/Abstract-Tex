@@ -1112,7 +1112,7 @@ whoever runs this loop's card on a machine with a webview.
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S5.1 Tokenizer: unwrap 79-column lines, classify `!`, `l.NN`, warnings, `(`/`)` file events | L | S1.11 |
-| [ ] | S5.2 Paren-stack resolver: track the open file through interleaved output; fixtures for the known pathological cases | L | S5.1 |
+| [x] | S5.2 Paren-stack resolver: track the open file through interleaved output; fixtures for the known pathological cases | L | S5.1 |
 | [ ] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
 | [ ] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
 | [ ] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
@@ -1161,6 +1161,55 @@ Not done here, on purpose: wiring `tokenizer` into `rules.rs`/`diagnostics` (tha
 S5.2's, once the paren stack exists to resolve a file against); one-click fixes (S6.2); and the
 `expected.json` fixture harness (S5.3) `wrapped-file-open` does not yet have, since it is not a
 rule-catalog fixture and carries no diagnostic to assert on yet.
+
+**S5.2 (16 September 2026).** `[x]`: `cargo test -p texlog` 61 passed (17 new), `cargo clippy -p
+texlog --all-targets -- -D warnings` clean, rest of the workspace still builds. `crates/texlog/
+src/resolver.rs` walks `tokenizer`'s classified lines and treats `(`/`)` as a stack push/pop,
+exposing `open_files` (the stack after each logical line) and `file_at` (the top of it at a given
+line — the direct answer to "what file was this diagnostic in").
+
+**The card asked for "fixtures for the known pathological cases," so three were captured before
+any classification rule was written, the same discipline S2.6 and S5.1 both leaned on — and each
+one overturned a rule that looked reasonable on paper:**
+
+1. **Position does not distinguish a real file boundary from an incidental parenthetical.** The
+   first attempt required a `(` to sit at the start of a line or right after another paren before
+   trusting it. `fixtures/space-in-path/main.log` (an `\input` under a directory with a space in
+   its name — this project's own working directory has one) opens `article.cls` mid-line, straight
+   after a version string. Worse, an incidental one can sit at column 0: the same log's
+   `(rerunfilecheck)             Checksum: ...` is a package echoing its own name at the very start
+   of a line, not a file. Position was dropped entirely.
+2. **A file extension is not reliably present either.** `fixtures/bare-input-no-extension/main.log`
+   captures `\input{plainchapter}` (no extension given at the call site) being echoed as
+   `(plainchapter)` — no extension at all, and lexically identical in shape to `(rerunfilecheck)`.
+   There is no text-only rule that tells these apart; the only way to be sure is to check whether
+   `plainchapter` is a real path in the project, which this crate is chartered to never do (it
+   never reads a file). Stated as a real, accepted limitation in `resolver.rs`'s own doc comment,
+   pinned by a test (`the_captured_bare_extensionless_input_resolves_to_its_parent_instead`) rather
+   than hidden: a diagnostic inside a bare extensionless `\input` resolves to its parent file
+   instead of itself, until a caller with the real file tree (the app, not this crate) can improve
+   on it.
+3. **What does work: a `/` anywhere, or a `.` followed by 1-4 letters running to the true end of
+   the candidate.** Between them these two signals cover every real file these three fixtures (plus
+   the five from S2.6/S5.1) load, and neither ever fires on an incidental parenthetical also
+   captured (`(HO)`, `(DPC)`, `(Unicode)`) or on `fixtures/overfull-hbox/main.log`'s `Overfull
+   \hbox (48.75pt too wide)` — a decimal number has a `.` too, but not immediately before the
+   closing paren, so it is not mistaken for a `.pt` extension. Parens are additionally only walked
+   on `LineKind::Text` lines, so a warning's own prose quoting a real filename in passing (rare, but
+   possible) is never read as a file boundary either.
+
+A leaf file that opens and closes again within one line (every `.sty`/`.clo` load in these
+fixtures does exactly this) is invisible to `open_files`'s once-per-line snapshot, since it is
+already popped again by the time that line's snapshot is taken — this is correct for the resolver's
+actual job (a diagnostic is never on the same line as the file-open/close pair itself), but made
+the `space-in-path` fixture's own test need the lower-level `apply` function directly rather than
+`open_files`, which its own doc comment now explains.
+
+Not done here, on purpose: wiring this into `rules.rs`/`diagnostics` (`rules.rs` still runs on
+`quick_errors`, untouched); the `expected.json` fixture harness (S5.3, which the three fixtures
+captured this loop do not yet have, matching `wrapped-file-open`'s own precedent); and any
+project-aware disambiguation of the extensionless-`\input` case, which needs the app's own file
+tree and so belongs above this crate's boundary, not inside it.
 
 ### Sprint 6 — v0.3 exit: the rule catalog
 

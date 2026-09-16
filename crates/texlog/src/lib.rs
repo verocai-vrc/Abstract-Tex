@@ -3,10 +3,11 @@
 //! **Sprint 5 status.** [`rules::diagnostics`] is still what the app calls today, and it still
 //! works the sprint-1/2 way: [`quick_errors`] finds `!` lines and the `l.NN` marker after each
 //! one, on raw, un-unwrapped log lines, with no notion of which file is open. [`tokenizer`]
-//! (S5.1) is the new, separate foundation the paren-stack resolver (S5.2) builds on next — it
-//! unwraps 79-column line wrapping and classifies every logical line, but nothing wires it into
-//! `diagnostics` yet. The two paths run side by side until S5.2 lands and `rules.rs` is rebuilt
-//! on top of the tokenizer instead of `quick_errors`'s own ad hoc scan.
+//! (S5.1) and [`resolver`] (S5.2) are the new, separate foundation that will replace it: the
+//! former unwraps 79-column wrapping and classifies every logical line, the latter walks those
+//! lines' `(`/`)` characters as a stack to say which file was open at each one — but nothing
+//! wires either into `diagnostics` yet. The two paths run side by side until `rules.rs` is
+//! rebuilt on top of them instead of `quick_errors`'s own ad hoc scan.
 //!
 //! This crate must never read a file, spawn anything, or know about the editor. Text in, data
 //! out, so it can be extracted as a standalone MIT crate at S6.5.
@@ -14,9 +15,11 @@
 //! [`quick_errors`] is the raw scan. [`rules::diagnostics`] is what the app should call: it runs
 //! the scan through the rule catalog and returns sentences instead of TeX's own wording.
 
+pub mod resolver;
 pub mod rules;
 pub mod tokenizer;
 
+pub use resolver::{file_at, open_files};
 pub use rules::{diagnostics, Diagnostic, Severity};
 pub use tokenizer::{tokenize, LineKind, LogLine, ParenEvent};
 
