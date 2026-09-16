@@ -29,19 +29,17 @@ cargo test -p <crate>        # one crate
 cargo test -p preamble-engine -- --ignored   # real Tectonic build of fixtures/minimal (network on first run)
 ```
 
-## The team
+## Working solo
 
-Four role agents live in `.claude/agents/`; `/sprint-loop [S<n>.<m>]` runs a loop through them.
+No subagents for this project. The main agent does it all: architecture and design calls
+(what used to be `architect`), implementation (`builder`), and review (`reviewer`) — all in
+one session, to keep the context window small and avoid re-deriving context across spawns.
+Scribing (updating `SPRINTS.md`, writing the commit message) is mandatory at the end of a
+session rather than a dedicated role — never skip it.
 
-| Agent | Owns | Writes |
-|---|---|---|
-| `architect` | loop cards, dependency checks, splits, `DESIGN.md` decisions | nothing (read-only) |
-| `builder` | steps 1–4 of the loop: orient, build, test, verify | code, tests, fixtures |
-| `reviewer` | verification ladder, §2 commitments, §5 never-do list, real bugs | nothing (read-only) |
-| `scribe` | `SPRINTS.md` tick + outcome, commit message, maintainer debrief | docs only |
-
-The card is the contract between them. Briefs carry the card and the previous agent's report
-verbatim, nothing else. Fix rounds resume the same builder rather than spawning a new one.
+If a task genuinely calls for a different profile (e.g. a second opinion, a fresh read on a
+design question), ask for it explicitly in a separate session rather than spawning a subagent
+mid-session.
 
 On this Windows machine cargo lives at `%USERPROFILE%\.cargo\bin`; new shells may need it on PATH.
 
