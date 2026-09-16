@@ -52,6 +52,14 @@ describe('scanOutline', () => {
     expect(items.map((i) => i.title)).toEqual(['One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Starred']);
   });
 
+  it('does not mistake \\partial or \\paragraphindent for a sectioning command', () => {
+    // Both are real commands whose names start with a sectioning keyword but continue with more
+    // letters (`\part`+`ial`, `\paragraph`+`indent`) — a scan with no word boundary matches the
+    // prefix and leaves an empty-titled row behind.
+    const items = scanOutline('$\\partial x / \\partial t$ and \\paragraphindent0pt');
+    expect(items).toEqual([]);
+  });
+
   it('falls back to the bare kind name for a figure with no caption', () => {
     const items = scanOutline('\\begin{table}\n1 & 2 \\\\\n\\end{table}');
     expect(items).toEqual([{ kind: 'table', title: 'Table', line: 1, level: 0 }]);

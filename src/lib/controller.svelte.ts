@@ -518,13 +518,6 @@ registerCommand({
   run: () => void openFolder(),
 });
 registerCommand({
-  id: 'quick-open',
-  title: 'Go to file…',
-  category: 'action',
-  shortcut: 'Ctrl P',
-  run: () => toggleQuickOpen(),
-});
-registerCommand({
   id: 'toggle-focus-mode',
   title: 'Toggle focus mode',
   category: 'action',
@@ -539,8 +532,7 @@ registerCommand({
 
 /** Flip focus mode (S4.5): dim every paragraph but the one under the cursor. No chord in
  * `shortcuts.ts` reaches this yet — command palette only, following S4.3's own "Open folder…"
- * and "Go to file…" entries, which also have no raw keybinding beyond the ones already listed
- * there. */
+ * entry, which also has no raw keybinding beyond the ones already listed there. */
 export function toggleFocusMode(): void {
   app.focusModeEnabled = !app.focusModeEnabled;
 }

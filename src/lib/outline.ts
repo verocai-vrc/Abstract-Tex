@@ -38,7 +38,12 @@ const SECTION_LEVELS: Record<string, number> = {
   subsubsection: 4,
   paragraph: 5,
 };
-const SECTION_RE = /\\(subsubsection|subsection|chapter|section|paragraph|part)(\*)?/g;
+// `(?![a-zA-Z])` after the name is not optional decoration: a LaTeX control word is the whole
+// run of letters after the backslash, so without it `\partial` matches the `part` alternative
+// with `ial` left dangling, and `\paragraphindent` matches `paragraph` with `indent` left
+// dangling — both real commands in math-heavy prose, both would otherwise show up as an
+// empty-titled "Part"/"Paragraph" row in the Document map.
+const SECTION_RE = /\\(subsubsection|subsection|chapter|section|paragraph|part)(?![a-zA-Z])(\*)?/g;
 const BEGIN_ENV_RE = /\\begin\{(figure|table)(\*)?\}/g;
 const LABEL_RE = /\\label\{/g;
 const CAPTION_RE = /\\caption\{/;

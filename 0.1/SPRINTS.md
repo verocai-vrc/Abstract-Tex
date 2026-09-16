@@ -946,11 +946,22 @@ closures already do — capture `activePath` before the `lspDocumentSymbols` awa
 drop the answer if the tab moved on. `DocumentMap.svelte` renders one `<button>` per row under
 `Sidebar.svelte`'s existing file tree, each reachable by Tab/Enter.
 
-Not yet independently verified by a reviewer pass — flagging here rather than silently
-presenting it as equivalent to S4.1's reviewed tick. Whoever picks up the deferred review round
-should look first at the brace-balanced title extraction (the architect's own risk note) and at
-whether the 250 ms debounce and the tab-switch guard actually hold under a controller-level test,
-not just a scan-level one.
+**Reviewer pass (16 September 2026).** `pnpm verify:web` green — svelte-check 0 errors, 285
+vitest (1 new). The two questions this loop's own outcome flagged for the deferred round are both
+settled: `extractBraceGroup`'s brace balancing was checked against nested titles and holds; the
+250 ms debounce and the tab-switch guard already had controller-level coverage
+(`controller.test.ts`'s "the Document map (S4.2)" block — the debounce test advances fake timers
+to 249 ms then 1 more, the switch test reopens a tab and asserts the outline repaints for the
+newly active one), so nothing was missing there after all.
+
+What the pass did find, and fixed: **`SECTION_RE` had no word boundary after the command name**,
+so `\partial` (common in any document with calculus) matched the `part` alternative with `ial`
+left dangling — no `{` follows, so the title comes out empty, and the Document map would have
+shown a spurious untitled "Part" row on real math-heavy prose. `\paragraphindent` has the same
+problem with `paragraph`. Fixed with a `(?![a-zA-Z])` lookahead between the alternation and the
+optional `\*`; regression test and full writeup in `bugs-issues-fixes.md` (Fixed, 16 Sep 2026).
+Still `[~]`: rung 4 (`pnpm tauri dev` on `fixtures/thesis`, clicking a row) is the same standing
+no-webview gate every frontend loop since S3.1 has carried.
 
 **S4.3 (14 September 2026).** `[~]`: built, not yet reviewer-approved (review deferred to a
 later batched pass, same as S4.2). `pnpm verify:web` green — svelte-check 0 errors, 250 vitest
@@ -967,12 +978,17 @@ ranking and a newly-extracted `highlightMatch` (factored out of `QuickOpen.svelt
 file outside the card's own list — a flagged, low-risk deviation) rather than duplicating the
 list-highlighting logic.
 
-Two things the builder flagged rather than deciding silently, left open for the deferred review:
-whether "Go to file…" belongs in the palette as an action given it just reopens `Ctrl P`'s own
-dialog now that file search also lives directly in the palette; and whether touching
-`QuickOpen.svelte` (outside the card's `Files` list) to extract `highlightMatch` needed sign-off
-first — done because it removed a real duplication and is covered by the full vitest suite, but
-named here rather than assumed fine.
+Two things the builder flagged rather than deciding silently, settled by the deferred reviewer
+pass (16 September 2026): touching `QuickOpen.svelte` to extract `highlightMatch` is fine as is —
+it removed a real duplication, both dialogs still pass their own suites, and nothing about it was
+`Ctrl K`-specific. "Go to file…" is **removed** from the registry: with `Ctrl K` already listing
+every project file as its own searchable entries (`fileCommands`), the action added nothing but a
+second modal on top of the one the user is already in — selecting it from inside the palette just
+closed the palette and reopened `QuickOpen` for a list the palette had just shown. `Ctrl P` itself
+is untouched and still opens `QuickOpen` directly, so the standalone shortcut loses nothing.
+`pnpm verify:web` stayed green after the removal (no test pinned the registry entry by id or
+title). Still `[~]`: rung 4 is the same standing no-webview gate as every frontend loop since
+S3.1.
 
 **S4.4 (14 September 2026).** `[~]`: built, not yet reviewer-approved (review deferred to a
 later batched pass). `fixtures/thesis/` is a real six-file skeleton — `main.tex`,

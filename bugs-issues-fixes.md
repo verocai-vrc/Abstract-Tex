@@ -205,6 +205,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **The Document map's section scanner had no word boundary after a sectioning command name, so
+  `\partial` and `\paragraphindent` were misread as an empty-titled "Part"/"Paragraph" row.**
+  (S4.2, deferred reviewer pass, 16 Sep 2026) `src/lib/outline.ts`'s `SECTION_RE` matched
+  `\\(subsubsection|subsection|chapter|section|paragraph|part)(\*)?` — a LaTeX control word is the
+  whole run of letters after the backslash, but the regex only checked a prefix, so `\partial`
+  matched the `part` alternative with `ial` left dangling (and no `{` following, so the title came
+  out empty) and `\paragraphindent` matched `paragraph` the same way. `\partial` in particular is
+  common in any math-heavy document (`$\partial x/\partial t$`), so this would have spammed the
+  Document map on a real paper. Fixed by adding a negative lookahead, `(?![a-zA-Z])`, between the
+  command-name alternation and the optional `\*`. Regression test:
+  `outline.test.ts`'s "does not mistake \partial or \paragraphindent for a sectioning command".
+
 - **A macro-body `\input` with a parameter placeholder resolved as if `#1` were a literal path
   component.** (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/scan.rs`'s
   `is_literal_argument` checked for a backslash-letter control sequence but not for `#`. Since
