@@ -5,6 +5,7 @@
     "rawMessage": "LaTeX Error: Environment nosuchenv undefined.",
     "rule": null,
     "severity": "error",
-    "title": "TeX reported an error"
+    "title": "TeX reported an error",
+    "fix": null
   }
 ]

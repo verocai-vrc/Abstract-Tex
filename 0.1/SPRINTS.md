@@ -1115,7 +1115,26 @@ whoever runs this loop's card on a machine with a webview.
 | [x] | S5.2 Paren-stack resolver: track the open file through interleaved output; fixtures for the known pathological cases | L | S5.1 |
 | [x] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
 | [x] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
-| [ ] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
+| [x] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
+
+**Outcome (16 September 2026).** All five loops ticked and green — 66 `texlog` lib tests, 15
+generated fixture tests, `cargo clippy -p texlog --all-targets -- -D warnings` clean, rest of the
+workspace unaffected. **The exit demo as written — "twenty captured logs resolve to the right
+`file:line`"** — cannot be performed, and this is a real gap rather than an oversight: no card in
+this sprint's own table wires `tokenizer`/`resolver` (S5.1/S5.2) into `rules::diagnostics`
+(S2.6's rule catalog, now S5.5's trait-based one). `Diagnostic` carries a `line` from TeX's own
+`l.NN` claim — the same approximate number sprint 2 shipped with — and no `file` field at all.
+S5.4's fixtures README names this explicitly (`lib.rs`'s own module doc has said as much since
+S5.1), and this was a design call made without an architect back in S5.4, not one hidden here:
+wiring the resolver into the rule catalog looked like it could grow past any one of these five
+cards' own scope, so it was left for whichever loop rebuilds `rules.rs` on top of `tokenizer`/
+`resolver` for real, which no sprint 5 or sprint 6 card currently names. **Open question for the
+architect:** sprint 6's own table (`S6.1`, "Rules 6–40") assumes the six existing rules' shape
+carries forward unchanged; if `file:line` resolution is meant to land before the twenty-error
+torture document (S6.4), a card for that wiring needs adding — to sprint 6, or as a corrective
+sprint-5 loop first. Twenty real fixtures (S5.4) and a resolver that already answers `file_at`
+correctly (S5.2, including three files deep, S5.4's `nested-include`) are both ready and waiting
+for it; nothing further needs capturing first.
 
 **S5.1 (16 September 2026).** `[x]`: `cargo test -p texlog` 44 passed (20 new), `cargo clippy -p
 texlog --all-targets -- -D warnings` clean, rest of the workspace still builds
@@ -1298,6 +1317,51 @@ set. `crates/texlog/fixtures/README.md`'s table has the full list and what each 
    by this loop — `errors_and_warnings_from_one_log_come_back_together` already pinned the
    two-diagnostic case — but worth naming here since a three-diagnostic real capture is the first
    place it is genuinely visible rather than incidental.
+
+**S5.5 (16 September 2026).** `[x]`: `cargo test -p texlog` 81 passed (66 lib, 4 new: two
+fix-detection tests, a no-fix case, and a sweep asserting the other five rules stay `fix: None`;
+plus 15 unchanged generated fixture tests), `cargo clippy -p texlog --all-targets -- -D warnings`
+clean, rest of the workspace unaffected. `pnpm check` 0 errors, `pnpm vitest run` 284/284
+(`src/lib/ipc.ts`'s `Diagnostic` mirror gained the new field, which meant fixing two test
+fixtures that had gone stale the moment `fix` became a real, always-present key). No rung-4 gate:
+a pure library-crate loop, same as every other loop this sprint. Net +180 lines in
+`crates/texlog/src/rules.rs`.
+
+1. **`Rule` is now a trait, `dyn`-dispatched, for a reason S5.1–S5.4 already made concrete rather
+   than a hypothetical one.** The six rules in this catalog all need real logic (`explain_missing_
+   dollar` picks between "subscript" and "superscript"; `explain_file_not_found` quotes a name)
+   — but S6.1's next thirty-four will not all be that shape, and a trait is what lets a future
+   rule that is pure data (a fixed prefix, a fixed sentence) sit in the same `CATALOG` slice as
+   these six without forcing it through fn-pointer fields it does not need. `FnRule` is the one
+   implementation this loop actually adds — a rename of the old `Rule` struct, now implementing
+   the new trait by delegating to its own fields — so all six existing rules' behaviour is
+   unchanged; every pre-existing test in `rules.rs` passed without modification.
+2. **`&dyn Rule` needed no `Box`, no `Vec`, and no runtime allocation.** `CATALOG` stays a `const
+   &[&dyn Rule]`, each entry a `&FnRule { .. }` literal — Rust promotes a constant struct literal
+   borrowed inside a `const` initializer to `'static` storage automatically ("rvalue static
+   promotion"), the same mechanism that already let the old `CATALOG` hold plain `Rule` values
+   with no allocation. `&dyn Rule` is a *trait object*: a fat pointer of data plus a vtable of the
+   trait's methods, which is what lets `CATALOG` hold different `Rule`-implementing types later,
+   not that it does yet.
+3. **`Fix` only has one real implementation, and the other five rules were checked, not assumed,
+   to have none worth offering.** `fix_missing_dollar` — "Escape as `\_`" — is the one case in
+   DESIGN.md §5.2's own worked example, and the only one this crate can compute at all: it never
+   reads the `.tex` source (`lib.rs`'s own rule), so a `find`/`replace` pair on a literal known
+   character is the limit of what it can describe without a byte offset it does not have.
+   `explain_missing_dollar` and `fix_missing_dollar` now share one `detect_math_symbol` helper so
+   the explanation and the fix can never name different symbols for the same error — previously
+   two separate `if`/`else` chains that happened to agree. `only_missing_dollar_offers_a_fix_in_
+   this_catalog` is a real test, not a comment asserting it: all five other rules, run through
+   `explain`, are asserted to return `fix: None`.
+4. **A field addition, not a new feature, rippled into two other layers, and both were caught by
+   `pnpm check` rather than discovered at review.** `Option<Fix>` serialises to a `fix` key that is
+   always present (`null` or an object, never omitted), so `src/lib/ipc.ts`'s `Diagnostic`
+   mirror — which `src-tauri/src/compile.rs` already sends this struct through unchanged since
+   S2.7 — went stale the moment the Rust field existed; left alone, the frontend's own type would
+   have quietly lied about the shape of its own IPC payload. Fixed by adding `fix: Fix | null` to
+   the interface and a matching `Fix` interface beside it, and updating the two test fixtures
+   (`controller.test.ts`, `editor/diagnostics.test.ts`) `svelte-check` flagged as now missing a
+   required field. Nothing in the UI reads `fix` yet — applying one is S6.2's job.
 
 ### Sprint 6 — v0.3 exit: the rule catalog
 

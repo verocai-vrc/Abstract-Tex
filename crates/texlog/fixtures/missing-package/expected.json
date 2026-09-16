@@ -5,6 +5,7 @@
     "rawMessage": "! LaTeX Error: File `nosuchpackage.sty' not found..",
     "rule": "file-not-found",
     "severity": "error",
-    "title": "`nosuchpackage.sty` could not be found"
+    "title": "`nosuchpackage.sty` could not be found",
+    "fix": null
   }
 ]

@@ -5,7 +5,8 @@
     "rawMessage": "Reference `fig:setup' on page 1 undefined on input line 4.",
     "rule": "undefined-reference",
     "severity": "warning",
-    "title": "`fig:setup` is referenced but never defined"
+    "title": "`fig:setup` is referenced but never defined",
+    "fix": null
   },
   {
     "explanation": "No entry with the key `knuth1984` was found in this project's .bib files, so the citation printed as [?] in the PDF. Check the key for a typo, and make sure the .bib file holding it is listed in \\bibliography or \\addbibresource.",
@@ -13,6 +14,7 @@
     "rawMessage": "Citation `knuth1984' on page 1 undefined on input line 4.",
     "rule": "undefined-citation",
     "severity": "warning",
-    "title": "`knuth1984` is cited but not in the bibliography"
+    "title": "`knuth1984` is cited but not in the bibliography",
+    "fix": null
   }
 ]

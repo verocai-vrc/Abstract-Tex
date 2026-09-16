@@ -392,6 +392,7 @@ describe('diagnostics (S2.7)', () => {
     severity: 'error' as const,
     rule: 'missing-dollar',
     rawMessage: 'Missing $ inserted.',
+    fix: { description: 'Escape as \\_', find: '_', replace: '\\_' },
   };
   const citation = {
     title: '`knuth1984` is cited but not in the bibliography',
@@ -400,6 +401,7 @@ describe('diagnostics (S2.7)', () => {
     severity: 'warning' as const,
     rule: 'undefined-citation',
     rawMessage: "Citation `knuth1984' on page 1 undefined on input line 7.",
+    fix: null,
   };
 
   function finished(success: boolean, diagnostics: Array<typeof underscore | typeof citation>) {

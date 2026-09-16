@@ -20,7 +20,7 @@ pub mod rules;
 pub mod tokenizer;
 
 pub use resolver::{file_at, open_files};
-pub use rules::{diagnostics, Diagnostic, Severity};
+pub use rules::{diagnostics, Diagnostic, Fix, Severity};
 pub use tokenizer::{tokenize, LineKind, LogLine, ParenEvent};
 
 /// The crudest useful diagnostic: TeX's own message and the line it claims.

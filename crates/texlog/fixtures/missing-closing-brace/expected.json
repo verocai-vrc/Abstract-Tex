@@ -5,6 +5,7 @@
     "rawMessage": "Missing } inserted.",
     "rule": "unbalanced-braces",
     "severity": "error",
-    "title": "A brace was never closed"
+    "title": "A brace was never closed",
+    "fix": null
   }
 ]

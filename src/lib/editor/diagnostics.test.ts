@@ -5,7 +5,7 @@ import type { EditorDiagnostic } from '../lsp-diagnostics';
 import type { Position } from '../lsp-protocol';
 
 function diag(line: number | null, severity: Diagnostic['severity'], title = 't'): Diagnostic {
-  return { title, explanation: '', line, severity, rule: null, rawMessage: '' };
+  return { title, explanation: '', line, severity, rule: null, rawMessage: '', fix: null };
 }
 
 /** One row as the language server's side produces them. `startLine` is already 1-based;

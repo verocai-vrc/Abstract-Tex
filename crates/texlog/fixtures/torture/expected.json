@@ -1,11 +1,12 @@
 [
   {
-    "explanation": "TeX reached \\textbold and had no definition for it. Either it is a typo for a command that does exist, or it comes from a package this document does not load yet — check the spelling first, then the \\usepackage lines in your preamble.",
+    "explanation": "TeX reached \\textbold and had no definition for it. Either it is a typo for a command that does exist, or it comes from a package this document does not load yet \u2014 check the spelling first, then the \\usepackage lines in your preamble.",
     "line": 5,
     "rawMessage": "Undefined control sequence.",
     "rule": "undefined-control-sequence",
     "severity": "error",
-    "title": "\\textbold is not a command TeX knows"
+    "title": "\\textbold is not a command TeX knows",
+    "fix": null
   },
   {
     "explanation": "No entry with the key `knuth1984` was found in this project's .bib files, so the citation printed as [?] in the PDF. Check the key for a typo, and make sure the .bib file holding it is listed in \\bibliography or \\addbibresource.",
@@ -13,7 +14,8 @@
     "rawMessage": "Citation `knuth1984' on page 1 undefined on input line 4.",
     "rule": "undefined-citation",
     "severity": "warning",
-    "title": "`knuth1984` is cited but not in the bibliography"
+    "title": "`knuth1984` is cited but not in the bibliography",
+    "fix": null
   },
   {
     "explanation": "Nothing in this document calls \\label{tab:results}, so the reference printed as ?? in the PDF. Check the spelling against the \\label you meant, and remember that a \\label must come *after* the \\caption inside a figure or table.",
@@ -21,6 +23,7 @@
     "rawMessage": "Reference `tab:results' on page 1 undefined on input line 4.",
     "rule": "undefined-reference",
     "severity": "warning",
-    "title": "`tab:results` is referenced but never defined"
+    "title": "`tab:results` is referenced but never defined",
+    "fix": null
   }
 ]

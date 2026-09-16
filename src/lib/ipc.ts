@@ -49,6 +49,18 @@ export interface Diagnostic {
   rule: string | null;
   /** TeX's own words, kept for the raw view and for support reports. */
   rawMessage: string;
+  /** A safe, unambiguous edit (S5.5), or `null` — most rules have none. *Applying* it is
+   * S6.2's job; nothing reads this field yet. */
+  fix: Fix | null;
+}
+
+/** One unambiguous edit from `texlog::Fix` (S5.5): a literal find/replace on the diagnosed
+ * line, not a byte offset — `texlog` never reads the `.tex` source, only the log. */
+export interface Fix {
+  /** Shown on the button, e.g. "Escape as \_". */
+  description: string;
+  find: string;
+  replace: string;
 }
 
 export type CompileEvent =

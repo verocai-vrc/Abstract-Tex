@@ -5,6 +5,7 @@
     "rawMessage": "Too many }'s.",
     "rule": "unbalanced-braces",
     "severity": "error",
-    "title": "One closing brace too many"
+    "title": "One closing brace too many",
+    "fix": null
   }
 ]

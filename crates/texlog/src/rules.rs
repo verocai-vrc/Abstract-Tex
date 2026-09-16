@@ -4,12 +4,17 @@
 //! It must never read a file, spawn anything, or know about the editor — text in, data out —
 //! so this crate can be extracted as a standalone MIT crate at S6.5.
 //!
-//! **Sprint 2 status: five rules of about forty.** These five are brought forward from sprint 5
-//! so the v0.1 demo can show an explanation instead of a raw log (SPRINTS.md §2). What is
+//! **Six rule ids of about forty (S2.6's five errors, one split into two ids), landed early in
+//! sprint 2 so the v0.1 demo could show an explanation instead of a raw log (SPRINTS.md §2)
+//! rather than waiting for the sprint the rule catalog otherwise belongs to.** What is
 //! deliberately *not* here yet: the paren-stack resolver that says which *file* an error is in
-//! (S5.2 — every diagnostic here carries only a line number, from TeX's own often-approximate
-//! `l.NN` marker), 79-column unwrapping (S5.1), and one-click fixes (S6.2). The `Rule` shape
-//! below is a matcher plus an explanation; S5.5 generalises it into a catalog loaded as data.
+//! is built (`resolver.rs`, S5.2) but not wired into [`diagnostics`], which still runs on
+//! [`crate::quick_errors`]'s un-unwrapped scan — see `lib.rs`'s own module doc — and *applying*
+//! a fix (S6.2) rather than only describing one. [`Rule`] is the matcher-plus-explanation-plus-
+//! optional-fix shape every entry in [`CATALOG`] implements (S5.5); [`FnRule`] is the one
+//! implementation this crate needs today, wrapping the plain functions each of these six rules
+//! already had. A future rule with no logic at all — a fixed prefix and a fixed sentence, no
+//! dynamic content — would implement [`Rule`] directly instead, as pure data with no `fn`.
 //!
 //! A rule never guesses. If no rule matches, the diagnostic still appears with TeX's own words
 //! rather than being dropped, because an unexplained error the author can see beats a silent
@@ -44,39 +49,105 @@ pub struct Diagnostic {
     pub rule: Option<&'static str>,
     /// TeX's original message, kept for the "raw log" affordance and for support reports.
     pub raw_message: String,
+    /// A safe, unambiguous edit the drawer can offer as a button, or `None` — most rules have no
+    /// automatic fix (DESIGN.md §5.2's own rule: only offer one when the correction cannot be
+    /// wrong). *Applying* it is S6.2's job; this crate only describes one.
+    pub fix: Option<Fix>,
 }
 
-/// A matcher and its explanation.
+/// One unambiguous edit, named the way DESIGN.md §5.2's own worked example does: "Escape as
+/// `\_`". `find`/`replace` are literal substrings, not byte offsets — this crate never reads the
+/// `.tex` source (`lib.rs`'s own rule), so it has no position to give, only the text either side
+/// of the change. The caller, which does have the source line (the file, plus this diagnostic's
+/// `line`), finds `find` on that line and replaces it with `replace`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Fix {
+    /// Shown on the button, e.g. "Escape as \_".
+    pub description: String,
+    pub find: String,
+    pub replace: String,
+}
+
+/// What every entry in [`CATALOG`] must be able to do: recognise a message, explain it, and
+/// optionally offer a [`Fix`]. `fix` defaults to `None` because that is the common case —
+/// DESIGN.md §5.2 is explicit that most rules have nothing safe to offer.
 ///
-/// `fn(&QuickError) -> bool` is a *function pointer*, not a closure: every rule is a plain `fn`
-/// with no captured state, so the catalog can be a `const` slice with no allocation and no
-/// trait objects. S5.5 replaces this with a trait when rules start carrying fixes and data.
-struct Rule {
-    /// Stable identifier, used by tests and later by the fix catalogue. Never shown to a person.
+/// [`CATALOG`] holds these as *trait objects* (`&dyn Rule`, a fat pointer of data plus a vtable
+/// of these three methods) rather than one concrete type, because not every rule S6.1 adds will
+/// need the same shape: some will be pure data (a fixed prefix, a fixed sentence, no logic at
+/// all), others will need real code the way [`explain_missing_dollar`] does (picking between
+/// "subscript" and "superscript"). A trait lets both kinds sit in the same slice; today
+/// [`FnRule`] is the only implementation this crate needs, since none of its six rules are simple
+/// enough yet to be pure data.
+trait Rule {
+    /// Stable identifier, used by tests and shown to nobody.
+    fn id(&self) -> &'static str;
+    fn severity(&self) -> Severity;
+    /// Does this rule recognise the message? Cheap; called for every rule until one says yes.
+    fn matches(&self, error: &QuickError) -> bool;
+    /// Build the title and the sentences. Only called for the rule that matched.
+    fn explain(&self, error: &QuickError) -> (String, String);
+    fn fix(&self, error: &QuickError) -> Option<Fix> {
+        let _ = error;
+        None
+    }
+}
+
+/// A [`Rule`] built from plain functions — what every rule in this catalog is today.
+/// `fn(&QuickError) -> bool` is a *function pointer*, not a closure: every one of these is
+/// written with no captured state, so a `FnRule` value needs no allocation and can be built
+/// straight inside the `const` [`CATALOG`] slice below.
+struct FnRule {
     id: &'static str,
     severity: Severity,
-    /// Does this rule recognise the message? Cheap; called for every rule until one says yes.
     matches: fn(&QuickError) -> bool,
-    /// Build the title and the sentences. Only called for the rule that matched.
     explain: fn(&QuickError) -> (String, String),
+    /// `None` for every rule below except `missing-dollar`, the one case in this catalog where
+    /// the fix is unambiguous enough to offer automatically.
+    fix: Option<fn(&QuickError) -> Option<Fix>>,
+}
+
+impl Rule for FnRule {
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn severity(&self) -> Severity {
+        self.severity
+    }
+
+    fn matches(&self, error: &QuickError) -> bool {
+        (self.matches)(error)
+    }
+
+    fn explain(&self, error: &QuickError) -> (String, String) {
+        (self.explain)(error)
+    }
+
+    fn fix(&self, error: &QuickError) -> Option<Fix> {
+        self.fix.and_then(|f| f(error))
+    }
 }
 
 /// The catalog, tried in order. Order matters only where two matchers could both fire; keep the
 /// more specific rule first.
-const CATALOG: &[Rule] = &[
-    Rule {
+const CATALOG: &[&dyn Rule] = &[
+    &FnRule {
         id: "undefined-control-sequence",
         severity: Severity::Error,
         matches: |e| e.message.starts_with("Undefined control sequence"),
         explain: explain_undefined_control_sequence,
+        fix: None,
     },
-    Rule {
+    &FnRule {
         id: "missing-dollar",
         severity: Severity::Error,
         matches: |e| e.message.starts_with("Missing $ inserted"),
         explain: explain_missing_dollar,
+        fix: Some(fix_missing_dollar),
     },
-    Rule {
+    &FnRule {
         id: "unbalanced-braces",
         severity: Severity::Error,
         // `File ended while scanning use of \cmd` is the wording XeTeX actually produces for an
@@ -89,24 +160,28 @@ const CATALOG: &[Rule] = &[
                 || e.message.contains("ended before") && e.message.contains("was complete")
         },
         explain: explain_unbalanced_braces,
+        fix: None,
     },
-    Rule {
+    &FnRule {
         id: "file-not-found",
         severity: Severity::Error,
         matches: |e| e.message.contains("not found") && e.message.contains("File "),
         explain: explain_file_not_found,
+        fix: None,
     },
-    Rule {
+    &FnRule {
         id: "undefined-reference",
         severity: Severity::Warning,
         matches: |e| e.message.starts_with("Reference ") && e.message.contains("undefined"),
         explain: explain_undefined_reference,
+        fix: None,
     },
-    Rule {
+    &FnRule {
         id: "undefined-citation",
         severity: Severity::Warning,
         matches: |e| e.message.starts_with("Citation ") && e.message.contains("undefined"),
         explain: explain_undefined_citation,
+        fix: None,
     },
 ];
 
@@ -123,15 +198,16 @@ pub fn diagnostics(log: &str) -> Vec<Diagnostic> {
 /// Run one raw error through the catalog.
 pub fn explain(error: &QuickError) -> Diagnostic {
     for rule in CATALOG {
-        if (rule.matches)(error) {
-            let (title, explanation) = (rule.explain)(error);
+        if rule.matches(error) {
+            let (title, explanation) = rule.explain(error);
             return Diagnostic {
                 title,
                 explanation,
                 line: error.line,
-                severity: rule.severity,
-                rule: Some(rule.id),
+                severity: rule.severity(),
+                rule: Some(rule.id()),
                 raw_message: error.message.clone(),
+                fix: rule.fix(error),
             };
         }
     }
@@ -148,6 +224,7 @@ pub fn explain(error: &QuickError) -> Diagnostic {
         severity: Severity::Error,
         rule: None,
         raw_message: error.message.clone(),
+        fix: None,
     }
 }
 
@@ -225,16 +302,25 @@ fn explain_undefined_control_sequence(error: &QuickError) -> (String, String) {
     }
 }
 
-fn explain_missing_dollar(error: &QuickError) -> (String, String) {
-    // The two characters that cause almost every one of these. Naming the actual character the
-    // author typed is the whole difference between this and TeX's own message, which names a
-    // `$` they did not type (DESIGN.md §5.2).
-    let context = error.context.as_deref().unwrap_or("");
-    let (symbol, name) = if context.ends_with('_') || context.contains('_') {
-        ("_", "subscript")
+/// The character that broke maths mode, and its name — the two shapes this crate recognises.
+/// Shared between the explanation ([`explain_missing_dollar`]) and the fix
+/// ([`fix_missing_dollar`]) so the two can never end up naming different symbols for the same
+/// error.
+fn detect_math_symbol(context: &str) -> Option<(&'static str, &'static str)> {
+    if context.ends_with('_') || context.contains('_') {
+        Some(("_", "subscript"))
     } else if context.ends_with('^') || context.contains('^') {
-        ("^", "superscript")
+        Some(("^", "superscript"))
     } else {
+        None
+    }
+}
+
+fn explain_missing_dollar(error: &QuickError) -> (String, String) {
+    // Naming the actual character the author typed is the whole difference between this and
+    // TeX's own message, which names a `$` they did not type (DESIGN.md §5.2).
+    let context = error.context.as_deref().unwrap_or("");
+    let Some((symbol, name)) = detect_math_symbol(context) else {
         return (
             "A maths symbol used outside maths".to_string(),
             "This line uses a character that only means something inside maths mode, so TeX \
@@ -251,6 +337,21 @@ fn explain_missing_dollar(error: &QuickError) -> (String, String) {
              part in $…$ — or, if you meant a literal {symbol}, write \\{symbol}."
         ),
     )
+}
+
+/// The one unambiguous fix in this catalog so far: escaping the literal symbol TeX choked on.
+/// The explanation's *other* suggestion — "wrap the mathematical part in $…$" — is not offered as
+/// a button: this crate never reads the `.tex` source (`lib.rs`'s own rule), so it has no way to
+/// know where the mathematical part *starts*, only where the symbol that broke it is. DESIGN.md
+/// §5.2's own design rule is exactly this: a fix may only be automatic when it cannot be wrong,
+/// and escaping one known character always qualifies where guessing a span does not.
+fn fix_missing_dollar(error: &QuickError) -> Option<Fix> {
+    let (symbol, _name) = detect_math_symbol(error.context.as_deref().unwrap_or(""))?;
+    Some(Fix {
+        description: format!("Escape as \\{symbol}"),
+        find: symbol.to_string(),
+        replace: format!("\\{symbol}"),
+    })
 }
 
 fn explain_unbalanced_braces(error: &QuickError) -> (String, String) {
@@ -396,6 +497,52 @@ mod tests {
         let d = diagnostic_from(log, "missing-dollar");
         assert_eq!(d.title, "^ used outside maths");
         assert!(d.explanation.contains("superscript"), "{}", d.explanation);
+    }
+
+    #[test]
+    fn rule_2_offers_the_escape_fix_for_an_underscore() {
+        let log = "! Missing $ inserted.\nl.87 The sample size n_\n";
+        let d = diagnostic_from(log, "missing-dollar");
+        let fix = d.fix.expect("an underscore has an unambiguous escape fix");
+        assert_eq!(fix.description, "Escape as \\_");
+        assert_eq!(fix.find, "_");
+        assert_eq!(fix.replace, "\\_");
+    }
+
+    #[test]
+    fn rule_2_offers_the_escape_fix_for_a_superscript_too() {
+        let log = "! Missing $ inserted.\nl.9 the 3^\n";
+        let d = diagnostic_from(log, "missing-dollar");
+        let fix = d.fix.expect("a superscript has an unambiguous escape fix too");
+        assert_eq!(fix.find, "^");
+        assert_eq!(fix.replace, "\\^");
+    }
+
+    #[test]
+    fn rule_2_offers_no_fix_when_neither_symbol_is_recognised() {
+        // The same case `explain_missing_dollar` falls back to its generic wording for: no `_`
+        // or `^` in the context line, so there is no symbol to escape.
+        let log = "! Missing $ inserted.\nl.3 something else entirely\n";
+        let d = diagnostic_from(log, "missing-dollar");
+        assert_eq!(d.fix, None);
+    }
+
+    #[test]
+    fn only_missing_dollar_offers_a_fix_in_this_catalog() {
+        // DESIGN.md §5.2's own rule: a fix may only be automatic when the correction cannot be
+        // wrong. None of this catalog's other five rules — an unknown command, a brace problem, a
+        // missing file, an undefined reference or citation — can be resolved by an edit this
+        // crate could describe from the log alone, so every one of them must offer `None`.
+        for (log, rule_id) in [
+            ("! Undefined control sequence.\nl.12 \\textbold\n", "undefined-control-sequence"),
+            ("! Missing } inserted.\nl.5 x\n", "unbalanced-braces"),
+            ("! LaTeX Error: File `nosuch.sty' not found.\n", "file-not-found"),
+            ("LaTeX Warning: Reference `x' on page 1 undefined on input line 1.\n", "undefined-reference"),
+            ("LaTeX Warning: Citation `x' on page 1 undefined on input line 1.\n", "undefined-citation"),
+        ] {
+            let d = diagnostic_from(log, rule_id);
+            assert_eq!(d.fix, None, "{rule_id} should not offer a fix yet");
+        }
     }
 
     #[test]
