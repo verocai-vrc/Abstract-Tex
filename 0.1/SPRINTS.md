@@ -1113,7 +1113,7 @@ whoever runs this loop's card on a machine with a webview.
 |---|---|---|---|
 | [x] | S5.1 Tokenizer: unwrap 79-column lines, classify `!`, `l.NN`, warnings, `(`/`)` file events | L | S1.11 |
 | [x] | S5.2 Paren-stack resolver: track the open file through interleaved output; fixtures for the known pathological cases | L | S5.1 |
-| [ ] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
+| [x] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
 | [ ] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
 | [ ] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
 
@@ -1210,6 +1210,41 @@ Not done here, on purpose: wiring this into `rules.rs`/`diagnostics` (`rules.rs`
 captured this loop do not yet have, matching `wrapped-file-open`'s own precedent); and any
 project-aware disambiguation of the extensionless-`\input` case, which needs the app's own file
 tree and so belongs above this crate's boundary, not inside it.
+
+**S5.3 (16 September 2026).** `[x]`: `cargo test -p texlog` 66 passed (5 new), `cargo clippy -p
+texlog --all-targets -- -D warnings` clean, rest of the workspace still builds and tests clean
+except the two pre-existing, already-logged Linux-only failures (`preamble-lsp`'s pipe deadlock,
+`preamble-synctex`'s checkout-path fixture — neither touched by this loop, both confirmed
+unchanged in `bugs-issues-fixes.md`). No rung-4 gate: a pure library-crate loop, same as S5.1/S5.2.
+
+`crates/texlog/build.rs` is new — the first build script in this workspace — and
+`crates/texlog/tests/fixtures.rs` is the first integration test directory for this crate. What a
+reader should take from the diff:
+
+1. **The card's "generated from the directory" is literal, not figurative.** `build.rs` walks
+   `fixtures/` at compile time and writes one `#[test] fn fixture_<name>()` per directory that
+   carries both `main.log` and `expected.json` into a file under `OUT_DIR`, which
+   `tests/fixtures.rs` pulls in with `include!`. Adding S5.4's twenty fixtures is meant to be
+   dropping in two files per fixture, no Rust edited — checked by hand this loop: writing a
+   fixture's `expected.json` wrong and re-running `cargo test` shows a normal named test failure
+   (`fixture_missing_package`) with a diff, not a compile error or a silently-skipped case.
+2. **The failure message writes its own fix.** `run_fixture` compares parsed `serde_json::Value`s
+   rather than raw text — so `expected.json`'s key order and whitespace never matter — and a
+   mismatch's panic pretty-prints exactly what the parser produced, ready to paste in as the new
+   `expected.json`. That is how the five fixtures already captured for `rules.rs`
+   (`undefined-control-sequence`, `broken-underscore`, `unbalanced-braces`, `missing-package`,
+   `undefined-reference`) got their `expected.json` this loop: each started as `[]`, and the
+   panic's own suggested JSON became the real file.
+3. **Only fixtures with an `expected.json` are in scope, on purpose.** `wrapped-file-open`,
+   `space-in-path`, `bare-input-no-extension`, and `overfull-hbox` exercise `tokenizer.rs` and
+   `resolver.rs` (S5.1/S5.2), not `rules::diagnostics` — running the rule catalog against them
+   would assert nothing meaningful, so `build.rs` skips any directory missing the file rather than
+   erroring, and their own hand-written tests are untouched.
+4. **`serde_json` is a dev-dependency only.** It is already a pinned workspace dependency (used by
+   `src-tauri` and `preamble-lsp`), so this adds no new crate to the project, and it never reaches
+   `texlog`'s own production code — the crate's "never read a file" rule (`lib.rs`) is about what
+   ships, and a test harness reading fixtures off disk is the same thing every fixture test in this
+   crate has always done with `include_str!`.
 
 ### Sprint 6 — v0.3 exit: the rule catalog
 

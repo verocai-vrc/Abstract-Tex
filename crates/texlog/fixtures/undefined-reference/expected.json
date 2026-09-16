@@ -1,0 +1,18 @@
+[
+  {
+    "explanation": "Nothing in this document calls \\label{fig:setup}, so the reference printed as ?? in the PDF. Check the spelling against the \\label you meant, and remember that a \\label must come *after* the \\caption inside a figure or table.",
+    "line": 4,
+    "rawMessage": "Reference `fig:setup' on page 1 undefined on input line 4.",
+    "rule": "undefined-reference",
+    "severity": "warning",
+    "title": "`fig:setup` is referenced but never defined"
+  },
+  {
+    "explanation": "No entry with the key `knuth1984` was found in this project's .bib files, so the citation printed as [?] in the PDF. Check the key for a typo, and make sure the .bib file holding it is listed in \\bibliography or \\addbibresource.",
+    "line": 4,
+    "rawMessage": "Citation `knuth1984' on page 1 undefined on input line 4.",
+    "rule": "undefined-citation",
+    "severity": "warning",
+    "title": "`knuth1984` is cited but not in the bibliography"
+  }
+]

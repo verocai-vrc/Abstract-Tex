@@ -10,3 +10,8 @@ rust-version.workspace = true
 
 [dependencies]
 serde = { workspace = true }
+
+[dev-dependencies]
+# Only the fixture harness (tests/fixtures.rs, S5.3) needs this, to compare parsed diagnostics
+# against expected.json as structured data rather than as text.
+serde_json = { workspace = true }

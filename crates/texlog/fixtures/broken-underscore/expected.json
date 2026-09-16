@@ -1,0 +1,10 @@
+[
+  {
+    "explanation": "`_` means \"subscript\" and only works inside maths mode. This line is ordinary text, so TeX tried to open maths mode for you and gave up. Wrap the mathematical part in $…$ — or, if you meant a literal _, write \\_.",
+    "line": 5,
+    "rawMessage": "Missing $ inserted.",
+    "rule": "missing-dollar",
+    "severity": "error",
+    "title": "_ used outside maths"
+  }
+]

@@ -1,8 +1,20 @@
 # texlog fixtures
 
 Each directory holds a `main.log` captured from a real engine run, the `main.tex` that produced
-it, and (from S5.3) an `expected.json` with the diagnostics the parser must produce. The parser
-is the most fragile code in the project (DESIGN.md §8), so every rule ships with one of these.
+it, and — for the fixtures that exercise the rule catalog — an `expected.json` with the
+diagnostics [`rules::diagnostics`] must produce for that log. The parser is the most fragile code
+in the project (DESIGN.md §8), so every rule ships with one of these.
+
+**A directory with both `main.log` and `expected.json` gets a test for free.** `build.rs` (S5.3)
+scans this folder at build time and generates one `#[test]` per such directory into
+`tests/fixtures.rs`; adding a fixture is enough to add its test; nothing in `src/` or `tests/`
+needs editing. A fixture used only by `tokenizer.rs` or `resolver.rs` (below the rule catalog, and
+already covered by their own hand-written tests) carries no `expected.json` and is skipped by the
+generator, not treated as an error.
+
+Write a new `expected.json` by first dropping in an empty `[]`: the generated test's failure
+message pretty-prints the diagnostics the parser actually produced, in the exact JSON shape
+`expected.json` needs, ready to paste in as the real file.
 
 Hand-written log excerpts test the matcher against *our idea of* TeX. These test it against TeX.
 Three of the five S2.6 rules were wrong until the captures below existed — see the notes column.
