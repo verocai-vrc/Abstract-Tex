@@ -15,6 +15,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Focus mode rebuilds every line's decoration on every keystroke and cursor move.**
+  (S4.5, deferred reviewer pass, 16 Sep 2026) `src/lib/editor/focus.ts`'s `buildDecorations`
+  iterates every line in the document on every `ViewUpdate` where the doc changed or the
+  selection moved, to rebuild which lines are dimmed. Almost certainly under the <16 ms keystroke
+  budget (DESIGN.md §2) at thesis-length documents — each line costs one `RangeSetBuilder.add` —
+  but the same shape as two findings already logged here (`mergeMarkers` re-running per view
+  update, S3.3b; `Project::info()` re-reading every file per refresh, S4.1), so worth the same
+  "memoize if it ever measures otherwise" note rather than assuming it is fine forever. Not
+  required; no sprint-4 card owns performance work.
+
 - **`detect_root`'s "no other file includes it" exclusion has no fallback and ignores depth.**
   (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:220-233` removes every candidate that
   the preliminary include scan says another file includes, then picks the first survivor —

@@ -1017,6 +1017,31 @@ and a definitely-clean compile was preferred over matching that convention exact
 architect nod on whether to add it back once the anchor interaction is well enough understood
 to keep.
 
+**S4.5 (14 September 2026, outcome backfilled 16 September 2026).** `[~]`: this row's own
+outcome paragraph was never written at the time — a scribing gap in the loop that built it; the
+commit message (`85fdfca`) carries what should have landed here. `pnpm verify:web` was green at
+the time: 0 errors, 263 vitest (13 new); no Rust touched. `src/lib/editor/focus.ts` dims every
+paragraph but the one under the cursor (`currentParagraphRange` is the pure, testable core —
+walks `docText` with `indexOf`/`lastIndexOf` rather than materialising a line array, so the cost
+tracks the size of the current paragraph, not the document); `src/lib/editor/typewriter.ts` keeps
+the cursor's line vertically centred (`centeredScrollTarget` is the same kind of pure core, the
+DOM-touching `centerCursor` wrapped thinly around it). Both extensions sit behind their own
+`Compartment` in `setup.ts`; `Editor.svelte` — one file, since only one `EditorView` is ever live
+at a time, rebuilt on every tab switch (confirmed while reviewing this loop, since a
+`Compartment` shared across simultaneously-live views would have been a real bug) — applies a
+toggle to the live view with two small `$effect`s.
+
+**Deferred reviewer pass (16 September 2026): APPROVE, no required findings.** Checked
+specifically because a shared module-level `Compartment` is a plausible way for S2.3's multi-tab
+architecture to leak state between tabs: confirmed `Editor.svelte` destroys and recreates the one
+`EditorView` on every tab switch (the comment at its `$effect` says as much), so the compartment
+is never live in two configurations at once. One advisory, not required: `buildDecorations` in
+`focus.ts` walks every line of the document on every keystroke and every cursor move to rebuild
+the dimming set, the same shape as the gutter's `mergeMarkers` (S3.3b) and `Project::info()`
+(S4.1) — almost certainly under the <16 ms budget at thesis-length documents, since the per-line
+work is a single `RangeSetBuilder.add`, but the same "worth memoizing if it ever measures
+otherwise" note applies. Logged in `bugs-issues-fixes.md`.
+
 **S4.6 (16 September 2026).** `[~]`: rungs 1–2 are green — `pnpm verify:web` (svelte-check 431
 files / 0 errors, Vitest 21 files / 283 tests, 20 new), no Rust changed so the standing
 WebKitGTK link gap does not apply; the library-crate half of `pnpm verify`'s rung 1 stayed
