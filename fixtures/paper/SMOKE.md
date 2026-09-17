@@ -57,23 +57,47 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
    letters bold. `↓` `↑` move the selection, `Enter` opens the file in a tab and closes the list,
    `Esc` or `Ctrl P` again closes it without opening anything. Clicking outside also closes it.
 
-## §5 Diagnostics drawer (S2.7)
+## §5 Diagnostics drawer (S2.7, S6.2, S6.3)
 
 Open `fixtures/broken` instead.
 
-1. The build fails and the drawer opens with **`_ used outside maths`** and two sentences about
-   subscripts and maths mode — not `Missing $ inserted`. The status bar says `1 error`. TeX's
-   own words appear only after clicking *Raw log*.
+1. The build fails and the drawer opens with **`_ used outside maths`** under a `main.tex`
+   heading, marked ERROR, with two sentences about subscripts and maths mode — not `Missing $
+   inserted`. The status bar says `1 error`. TeX's own words appear only after clicking *Raw log*.
 2. A red dot sits in the gutter beside line 5; hovering it shows the title. Type a blank line
    above it: the dot moves down with its line.
 3. Click the card: the cursor lands on line 5. Open a second tab, click the card again: the root
    file's tab comes to the front first, then the cursor moves.
-4. Back in `fixtures/paper`, add `\cite{nosuch}` and build: the PDF still appears, the drawer
+4. Click the card's own *Raw log*: the drawer switches to the transcript, scrolled to
+   `! Missing $ inserted.` with those words highlighted, not to the top of the file. *Back to
+   explanations* returns to the card. Fix nothing, press `Ctrl B`, and while the raw view is still
+   open watch it change to the new build's log (the date line at the top is the easiest tell).
+5. Click **Escape as `\_`** (S6.2): line 5 changes to `\_`, the build reruns and succeeds, and
+   `Ctrl Z` puts the `_` back as a single undo step.
+6. Back in `fixtures/paper`, add `\cite{nosuch}` and build: the PDF still appears, the drawer
    stays closed (the build succeeded), and the status bar shows `Built in N.Ns · 1 warning`.
-   Clicking it opens the drawer with an amber card: **`nosuch` is cited but not in the
-   bibliography**.
-5. Trigger an error the catalog does not know (e.g. `\hspace{99999pt}`): the card has a dashed
+   Clicking it opens the drawer with an amber card marked WARNING: **`nosuch` is cited but not in
+   the bibliography**.
+7. Trigger an error the catalog does not know (e.g. `\hspace{99999pt}`): the card has a dashed
    border and says Preamble has no explanation yet, quoting TeX — still never the raw log.
+8. Grouping and filtering (S6.3) need more than one file: open a fresh copy of `fixtures/thesis`
+   (no `.preamble/build` yet), add a line with a bare `_` to the end of
+   `sections/background.tex`, and build. The error halts the run before the pass that resolves
+   cross-references, so on a first build every `\ref` is also an undefined-reference warning —
+   six of them, four in `background` and two in `introduction`; a build directory that already
+   holds `.aux` files from a clean build shows fewer or none, which is TeX, not the drawer. The
+   drawer shows a `sections/background.tex` heading first (its ERROR card, then that chapter's
+   WARNING cards by line), then a `sections/introduction.tex` heading. The header chips read
+   `All 7 · 1 error · 6 warnings · This file`. Click `1 error`: only the one card remains, the
+   headings keep their order. Click `6 warnings`: the error card goes, and `background` is still
+   above `introduction`. With `sections/introduction.tex` as the active tab click *This file*:
+   only its heading remains; switch to `preamble.tex` and the body says `Nothing reported in
+   preamble.tex. 7 problems are in other files.` with a *Show all* button.
+9. Gutter routing (S6.3): with the thesis build above, `sections/introduction.tex`'s tab shows
+   amber dots on its own two lines and no red one; `sections/background.tex`'s shows the red dot
+   on its last line; `main.tex` shows none.
+10. With the drawer closed, `Ctrl K` → `Show raw log` opens it straight onto the transcript;
+    `Toggle diagnostics` opens and closes the drawer from the keyboard.
 
 ## §6 Multi-document tabs (S2.3)
 

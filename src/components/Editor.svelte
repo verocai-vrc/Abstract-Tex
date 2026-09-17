@@ -11,6 +11,7 @@
   } from '../lib/controller.svelte';
   import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
+  import { diagnosticsForFile } from '../lib/drawer';
   import { lspCompletionSource } from '../lib/editor/completion';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
@@ -77,12 +78,13 @@
     if (view) setTypewriterMode(view, app.typewriterModeEnabled);
   });
 
-  // Gutter dots for the last build (S2.7). A diagnostic carries a line but no file until S5.2,
-  // so the dots are drawn only on the root file's tab — any other tab would be a guess.
+  // Gutter dots for the last build (S2.7), on the tab each diagnostic belongs to (S6.3): a
+  // chapter's own dots on the chapter's tab, and the ones that named no file on the root's —
+  // `diagnosticsForFile` applies the same rule the drawer's click and one-click fix use. Until
+  // S6.3 every dot was drawn on the root file's tab, the only honest place before `Diagnostic.file`
+  // existed (S5.6).
   $effect(() => {
-    const diagnostics = app.compile.diagnostics;
-    const isRoot = app.activePath !== null && app.activePath === app.project?.rootFile;
-    if (view) applyDiagnostics(view, isRoot ? diagnostics : []);
+    if (view) applyDiagnostics(view, diagnosticsForFile(app.compile.diagnostics, app.activePath, app.project?.rootFile ?? null));
   });
 
   // Gutter dots from the language server (S3.3b), in a second effect so a publish and a build

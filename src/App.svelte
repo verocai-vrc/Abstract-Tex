@@ -6,6 +6,7 @@
     saveNow,
     start,
     toggleCommandPalette,
+    toggleDrawer,
     toggleQuickOpen,
     triggerCompile,
   } from './lib/controller.svelte';
@@ -63,7 +64,7 @@
     >
       Build
     </button>
-    <button class="ghost" disabled={!app.project} onclick={() => (app.drawerOpen = !app.drawerOpen)}>
+    <button class="ghost" disabled={!app.project} onclick={() => toggleDrawer()}>
       Diagnostics
     </button>
   </header>

@@ -6,6 +6,7 @@ import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
+import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
 import { firstLocation } from './editor/definition';
 import { flattenSymbols, type FlatSymbol } from './editor/symbols';
 import { LspClient, uriToPath } from './lsp';
@@ -346,6 +347,10 @@ export async function openFolder(path?: string): Promise<void> {
     app.project = info;
     app.pdfUrl = null;
     app.compile = { ...app.compile, phase: 'idle', diagnostics: [], message: null };
+    // The previous project's log must not be what the raw view shows for this one.
+    app.showRawLog = false;
+    app.rawLog = '';
+    app.rawLogFocus = null;
     app.notice = null;
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
@@ -529,6 +534,23 @@ registerCommand({
   category: 'action',
   run: () => toggleTypewriterMode(),
 });
+// The drawer and the raw log from the keyboard (S6.3). "Raw log one click away" has to hold with
+// the drawer closed too — a clean build closes it — and the palette is that one action.
+registerCommand({
+  id: 'toggle-drawer',
+  title: 'Toggle diagnostics',
+  category: 'action',
+  run: () => toggleDrawer(),
+});
+registerCommand({
+  id: 'show-raw-log',
+  title: 'Show raw log',
+  category: 'action',
+  run: () => {
+    app.drawerOpen = true;
+    if (!app.showRawLog) void toggleRawLog();
+  },
+});
 
 /** Flip focus mode (S4.5): dim every paragraph but the one under the cursor. No chord in
  * `shortcuts.ts` reaches this yet — command palette only, following S4.3's own "Open folder…"
@@ -583,14 +605,10 @@ export async function syncTexInverse(page: number, x: number, y: number): Promis
   }
 }
 
-/**
- * Which tab a diagnostic belongs to: its own resolved file when the log parser named one (S5.6's
- * `Diagnostic.file`), falling back to the root file for the diagnostics that still have none — a
- * log with nothing open on the resolver's stack at all (`emergency-stop`'s own fixture), or no
- * project open yet.
- */
+/** Which tab a diagnostic belongs to. The rule itself lives in `drawer.ts` (S6.3) so the gutter
+ * and the drawer's grouping apply the same one; this only supplies the current project's root. */
 function diagnosticTarget(diagnostic: Diagnostic): string | null {
-  return diagnostic.file ?? app.project?.rootFile ?? null;
+  return targetOf(diagnostic, app.project?.rootFile ?? null);
 }
 
 /**
@@ -632,15 +650,45 @@ export async function applyDiagnosticFix(diagnostic: Diagnostic): Promise<boolea
   return applied;
 }
 
+/** Read `main.log` into `app.rawLog`. A read failure becomes the view's own text rather than a
+ * notice: the author asked to see the log, so the place they are looking is where the answer
+ * goes, even when the answer is "there is no log yet". */
+async function refreshRawLog(): Promise<void> {
+  try {
+    app.rawLog = await ipc.readLog();
+  } catch (error) {
+    app.rawLog = String(error);
+  }
+}
+
 export async function toggleRawLog(): Promise<void> {
   app.showRawLog = !app.showRawLog;
-  if (app.showRawLog) {
-    try {
-      app.rawLog = await ipc.readLog();
-    } catch (error) {
-      app.rawLog = String(error);
-    }
-  }
+  if (app.showRawLog) await refreshRawLog();
+}
+
+/**
+ * The per-card "Raw log" (S6.3): open the drawer on the raw view, scrolled to TeX's own words for
+ * this one diagnostic. Where those words are is `drawer.ts`'s `locateInLog`, run by the view over
+ * the log text once it has it; this only says which words to look for. The one place a raw TeX
+ * line is shown, and only ever on request (DESIGN.md §2, commitment 3).
+ */
+export async function showRawLogFor(diagnostic: Diagnostic): Promise<void> {
+  app.drawerOpen = true;
+  app.showRawLog = true;
+  app.rawLogFocus = { rawMessage: diagnostic.rawMessage, nonce: (app.rawLogFocus?.nonce ?? 0) + 1 };
+  await refreshRawLog();
+}
+
+/** Show or hide the drawer. The toolbar button and the palette command both come here rather than
+ * flipping `app.drawerOpen` themselves, so a later rule about opening it (say, never over a
+ * conflict bar) has one place to live. */
+export function toggleDrawer(): void {
+  app.drawerOpen = !app.drawerOpen;
+}
+
+/** Change part of the drawer's filter (S6.3), leaving the rest as it was. */
+export function setDrawerFilter(change: Partial<DrawerFilter>): void {
+  app.drawerFilter = { ...app.drawerFilter, ...change };
 }
 
 /** Keep the author's buffer and overwrite the disk, or take the disk version into the buffer. */
@@ -702,6 +750,11 @@ function handleCompileEvent(event: CompileEvent): void {
       // is wrong, DESIGN.md §6). The raw log view is never the default.
       app.drawerOpen = !event.success;
       if (event.success) app.showRawLog = false;
+      // The excerpt a card asked the raw view to highlight belonged to the log this build just
+      // overwrote; and if the raw view is still showing, what it shows must be the new log, not
+      // the one read when it was opened (`bugs-issues-fixes.md`, S6.3).
+      app.rawLogFocus = null;
+      if (app.showRawLog) void refreshRawLog();
       break;
     }
     case 'failed':

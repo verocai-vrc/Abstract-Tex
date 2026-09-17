@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { toggleDrawer } from '../lib/controller.svelte';
 
   // A ticking clock while a build runs, so a long first compile (package downloads) never
   // looks like a hang (DESIGN.md §6, first run).
@@ -24,7 +25,7 @@
   {:else if app.compile.phase === 'ok'}
     <span class="ok"><span class="dot"></span>Built in {((app.compile.durationMs ?? 0) / 1000).toFixed(1)}s</span>
     {#if app.warningCount > 0}
-      <button class="ghost warn" onclick={() => (app.drawerOpen = !app.drawerOpen)}>
+      <button class="ghost warn" onclick={() => toggleDrawer()}>
         {app.warningCount === 1 ? '1 warning' : `${app.warningCount} warnings`}
       </button>
     {/if}

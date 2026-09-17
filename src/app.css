@@ -377,9 +377,63 @@ kbd {
 .drawer header .spacer {
   flex: 1;
 }
+/* Severity and "this file" filter (S6.3): a row of toggles that read as one control, with the
+   pressed one filled. Counts live in the labels, so the header never needs a second summary. */
+.drawer header .filters {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+.drawer .chip {
+  padding: 1px 8px;
+  font-size: 11.5px;
+  border-radius: 999px;
+  border-color: var(--border);
+  color: var(--fg-muted);
+}
+.drawer .chip.active {
+  background: var(--bg-selected);
+  color: var(--fg);
+  border-color: transparent;
+}
 .drawer .body {
   overflow: auto;
   padding: 6px 10px;
+}
+/* One heading per file (S6.3). The filename is monospace like the `line NN` cell below it; the
+   counts beside it are coloured by severity, the only place colour carries meaning here alone,
+   since the card itself also says its severity in words. */
+.drawer .group {
+  margin-bottom: 8px;
+}
+.drawer .group h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.drawer .group h3 .file {
+  font-family: var(--font-mono);
+}
+/* A diagnostic TeX raised with no file open: the heading says so, quietly, rather than guess. */
+.drawer .group h3 .file.unknown {
+  font-family: var(--font-ui);
+  font-style: italic;
+  color: var(--fg-muted);
+}
+.drawer .group h3 .counts {
+  display: inline-flex;
+  gap: 8px;
+  font-weight: 400;
+  font-size: 11.5px;
+}
+.drawer .group h3 .count.error {
+  color: var(--error);
+}
+.drawer .group h3 .count.warning {
+  color: var(--warn);
 }
 .drawer .diag {
   display: grid;
@@ -409,18 +463,43 @@ kbd {
 .drawer .diag .title {
   font-weight: 600;
 }
+/* The severity in a word, before the title, so it never rests on the border colour alone. */
+.drawer .diag .severity {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--error);
+}
+.drawer .diag.warning .severity {
+  color: var(--warn);
+}
 .drawer .diag .explanation {
   grid-column: 2;
   font-size: 12.5px;
   line-height: 1.45;
   white-space: pre-wrap;
 }
-.drawer .diag .fix {
+/* The card's own buttons: a fix, when the rule has one (S6.2), then its "Raw log" (S6.3). */
+.drawer .diag .actions {
   grid-column: 2;
-  justify-self: start;
+  display: flex;
+  gap: 6px;
+}
+.drawer .diag .fix {
   font-size: 12px;
   padding: 2px 8px;
   border-color: var(--border);
+}
+.drawer .diag .raw {
+  font-size: 12px;
+  padding: 2px 8px;
+  color: var(--fg-muted);
+}
+.drawer .filtered-out {
+  color: var(--fg-muted);
 }
 .drawer pre {
   margin: 0;
@@ -428,6 +507,13 @@ kbd {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-all;
+}
+/* The words a card's "Raw log" pointed at (S6.3). `mark`'s default is browser yellow on black
+   text, which ignores the theme; this uses the selection colour the editor already uses. */
+.drawer pre mark {
+  background: var(--selection);
+  color: inherit;
+  border-radius: 2px;
 }
 
 /* Conflict and notice bars */

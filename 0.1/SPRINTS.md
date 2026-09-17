@@ -1420,7 +1420,7 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 |---|---|---|---|
 | [x] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
 | [~] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
-| [ ] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
+| [~] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
 | [ ] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
 | [ ] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
 
@@ -1640,6 +1640,99 @@ silently do nothing rather than nothing wrong — declined, and the reason is in
 corrected line for this shape. The drawer's own "Apply fix" button (`Drawer.svelte`) is new but
 untested against a live buffer — S6.3 (drawer v1: grouping, severity, filter) is the next loop to
 touch this file and should exercise it with a webview once one exists here.
+
+**S6.3 (17 September 2026).** `[~]`: rungs 1–2 green — `pnpm check` 435 files / 0 errors,
+`pnpm vitest run` 333/333 across 23 files (35 new: `drawer.test.ts` is new with 24,
+`controller.test.ts` grew by 11); no Rust touched, so `cargo test -p texlog` stands at 141 from
+S6.2 and the rest of the workspace is unaffected. Rung 4 (smoke §5, rewritten for v1 — see
+`fixtures/paper/SMOKE.md`) waits on a webview: this Linux machine has a display but no WebKitGTK
+development packages, so `pnpm tauri dev` cannot link here any more than it could on the Windows
+machine of the previous frontend loops — the same standing gate since S3.1, and it now holds S6.2's
+"Apply fix" click as well as everything below. Sprint 6's cards were never expanded from their
+one-line titles (§1.1 says to do that at the start of the sprint; S6.1 and S6.2 did not), so the
+card this loop was built to is written here instead:
+
+```
+Loop      S6.3 · Drawer v1: grouping, severity, filter, raw log one click away · M
+Reads     DESIGN.md §5.2 (what the author sees), §6 (the drawer is the conscience), §2 rule 3
+Depends   S2.7 (drawer v0), S5.6 (Diagnostic.file), S6.2 (the fix button lives in the same card)
+Files     src/lib/drawer.ts (new, pure), src/lib/drawer.test.ts (new), src/components/Drawer.svelte,
+          src/lib/state.svelte.ts, src/lib/controller.svelte.ts, src/components/Editor.svelte,
+          src/app.css, fixtures/paper/SMOKE.md
+Build     Cards under one heading per file, in the order TeX first reported each file; errors
+          before warnings within a heading, then by line. A severity filter (all / errors /
+          warnings) and a "this file" scope in the header, each labelled with its live count.
+          Every card carries its own "Raw log" that opens the transcript scrolled to, and
+          highlighting, TeX's own words for that diagnostic. The drawer and the raw log are
+          command-palette actions, so "one click away" holds with the drawer closed. The gutter
+          draws a file's own dots on that file's tab.
+Verify    pnpm check && pnpm test
+Done when the real thesis capture (one error and six warnings across two chapter files) groups
+          into two headings in log order with the error first in its heading; filtering to
+          warnings hides the error without reordering the headings; locateInLog finds a message
+          TeX wrapped at 79 columns.
+```
+
+**The split is the one S6.2 set: a pure module decides, the component lays out.** `drawer.ts`
+owns `diagnosticTarget` (moved out of the controller, which now only supplies the root file, so the
+click, the one-click fix, the gutter and the grouping all apply one rule), `diagnosticsForFile`
+(the gutter's question), `groupDiagnostics` (the drawer's), and `locateInLog` (the raw view's).
+`Drawer.svelte` renders what they return; nothing in it decides anything about a diagnostic. The
+new state is two fields: `drawerFilter`, kept for the session rather than reset per build (an
+author chasing one error under "errors only" is still chasing it after rebuilding — a test pins
+this), and `rawLogFocus`, a `{ rawMessage, nonce }` request the same shape as `jumpRequest`.
+
+**The tests are built on a real multi-file capture, not invented rows, and the capture had to be
+made first.** No fixture in `crates/texlog/fixtures/` has diagnostics in more than one *project*
+file (`include-nested` has three files but one diagnostic), so `fixtures/thesis` was built by the
+bundled Tectonic with a stray `_` and an undefined macro appended to `sections/background.tex`,
+and its log run through the real `texlog::diagnostics` (a throwaway probe crate path-depending on
+`texlog`, the same technique S2.2/S2.7/S4.1/S6.1 used). The answer — one `missing-dollar` error
+and six `undefined-reference` warnings across `sections/introduction.tex` and
+`sections/background.tex` — is `drawer.test.ts`'s `thesisBuild`, and the log's own wrapped lines
+(`... on input line 2` / `6.`, a wrap mid-number) are `locateInLog`'s test input. Two things this
+settled that reading alone could not: this engine prints `\include{sections/background}` as
+`(sections/background.tex` — project-relative, no `./` — so `Diagnostic.file` equals a tab path
+with no normalisation (the doc comment on `diagnosticTarget` says so and names the capture); and
+the six warnings only exist on a *first* build, because the error halts the run before the pass
+that resolves `\ref`s — a build directory with `.aux` files from a clean build shows fewer, which
+smoke §5 step 8 now says rather than promising a count TeX will not always deliver.
+
+1. **The tests caught the first grouping design before it shipped.** `groupDiagnostics` v1
+   filtered first and then took group order from what survived — so switching from "all" to
+   "warnings" moved `sections/background.tex` *below* `sections/introduction.tex`, because
+   background had only led on account of its error. A filter should hide cards, not rearrange the
+   sections under the reader. Order now comes from the unfiltered build and empty groups are
+   dropped afterwards; the test that failed is kept with the reason inline, and the function's
+   own comment names the mistake so nobody reintroduces it as a simplification.
+2. **"Raw log one click away" is read as three obligations, not one button.** Per card: DESIGN.md
+   §5.2's own mock-up ends every card with `[Raw log]`, so each card has one, and it opens the
+   transcript *at that diagnostic* — `locateInLog` searches for the unwrapped `rawMessage`, then
+   for progressively shorter word-boundary prefixes down to a 20-character floor, since the log on
+   disk still carries the 79-column wrap `tokenizer.rs` undid. Two `ch:results` warnings in the
+   same log are told apart by the rest of their message. With the drawer closed: a clean build
+   closes it, so `Toggle diagnostics` and `Show raw log` are palette commands and one action each.
+   And never by default: a test pins that a failed build with the raw view closed makes no
+   `readLog` call at all.
+3. **The gutter routing S5.6 left open is closed, as five lines.** `Editor.svelte` drew every dot
+   on the root file's tab because that was the only honest place before `Diagnostic.file`
+   existed; S5.6's outcome named routing to the right tab as "a frontend loop nobody has written
+   yet". It is `diagnosticsForFile` now — a chapter's dots on the chapter's tab, no-file
+   diagnostics on the root's — tested against the same capture, and it exists because S6.4's exit
+   criterion ("every error → correct file, line") is as much about the dot as about the card.
+4. **One bug found and fixed, one found and logged.** Fixed: the raw view went stale — read once
+   when opened, never re-read when a later build finished while it was showing (`bugs-issues-
+   fixes.md`, now under Fixed, with the regression test). Logged, not fixed: a diagnostic
+   resolved inside a package file (`babel-unknown-language`'s real `babel.sty:4260`) now gets a
+   `babel.sty` heading and a card whose click can only say `Could not open babel.sty` — honest,
+   unhelpful, and a `texlog` change (the innermost *project* file on the resolver's stack), not a
+   drawer one.
+
+Not done here, on purpose: the package-file case above; collapsing runs of one rule (fifteen
+undefined references as one expandable card) — plausible, but no real capture has needed it yet
+and DESIGN.md does not ask for it; a text filter; and any keyboard chord for the drawer beyond the
+palette, following S4.3's own precedent for focus/typewriter mode. S6.4's torture document is the
+next loop and the first real reader of all of this.
 
 ### Sprint 7–8 — v0.4 bibliography
 

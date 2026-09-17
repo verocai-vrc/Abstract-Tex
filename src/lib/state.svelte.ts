@@ -4,6 +4,7 @@
 
 import type { Diagnostic, EngineInfo, ProjectInfo } from './ipc';
 import type { OpenDocument } from './document';
+import { DEFAULT_FILTER, type DrawerFilter } from './drawer';
 import type { OutlineItem } from './outline';
 
 export type CompilePhase = 'idle' | 'running' | 'ok' | 'error' | 'failed';
@@ -91,8 +92,18 @@ class AppState {
   pdfUrl = $state<string | null>(null);
 
   drawerOpen = $state(false);
+  /** The drawer's severity and "this file" filter (S6.3). Kept for the session, not reset per
+   * build: an author chasing one error under "errors only" is still chasing it after rebuilding. */
+  drawerFilter = $state<DrawerFilter>({ ...DEFAULT_FILTER });
+
   showRawLog = $state(false);
+  /** `main.log` as read for the raw view; `''` until the view has been opened. Re-read every time
+   * a build finishes while the view is showing, so it always describes the cards beside it. */
   rawLog = $state('');
+  /** Which diagnostic's own words the raw view should scroll to and highlight (S6.3's per-card
+   * "Raw log"). `nonce` makes a repeat request for the same card distinct, as `jumpRequest` does.
+   * Cleared when a build finishes: the excerpt it named belongs to the log that build replaced. */
+  rawLogFocus = $state<{ rawMessage: string; nonce: number } | null>(null);
 
   conflict = $state<Conflict | null>(null);
   notice = $state<string | null>(null);

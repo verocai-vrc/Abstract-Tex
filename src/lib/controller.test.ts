@@ -14,6 +14,8 @@ const calls = {
   /** Every `textDocument/*` message the controller sent the language server. */
   lsp: [] as Array<{ method: string; params: any }>,
   lspStarts: 0,
+  /** How often the raw view asked for `main.log` (S6.3). */
+  logReads: 0,
 };
 /** Set to a message to make `lsp_start` fail, as a machine with no TexLab would. */
 let lspStartError: string | null = null;
@@ -24,6 +26,8 @@ let synctexInverseAnswer: { file: string | null; line: number } | Error = { file
  * `unknown` because that is genuinely what crosses the Tauri event boundary; each test narrows
  * it to whatever shape it is pretending TexLab sent. */
 let lspRequestAnswer: unknown = null;
+/** What `readLog` returns — the `main.log` on the fake disk, for the raw-view tests (S6.3). */
+let logOnDisk = '';
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
 let lspHandler: (event: LspEvent) => void = () => {};
@@ -75,7 +79,10 @@ vi.mock('./ipc', () => ({
         { index: prefix, delete: oldText.length - prefix - suffix, insert: newText.slice(prefix, newText.length - suffix) },
       ];
     },
-    readLog: async () => '',
+    readLog: async () => {
+      calls.logReads++;
+      return logOnDisk;
+    },
     assetUrl: (p: string) => `asset://${p}`,
     synctexForward: async () => {
       if (synctexForwardAnswer instanceof Error) throw synctexForwardAnswer;
@@ -124,13 +131,18 @@ const {
   quickOpenPick,
   refreshOutline,
   resolveConflict,
+  setDrawerFilter,
+  showRawLogFor,
   start,
   syncTexForward,
   syncTexInverse,
+  toggleDrawer,
   toggleQuickOpen,
+  toggleRawLog,
   triggerCompile,
 } = await import('./controller.svelte');
 const { app } = await import('./state.svelte');
+const { allCommands } = await import('./commands');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
 async function fileChanged(relative: string): Promise<void> {
@@ -159,8 +171,10 @@ beforeEach(async () => {
   calls.reads = [];
   calls.lsp = [];
   calls.lspStarts = 0;
+  calls.logReads = 0;
   lspStartError = null;
   lspRequestAnswer = null;
+  logOnDisk = '';
   synctexForwardAnswer = { page: 1, x: 10, y: 20 };
   synctexInverseAnswer = { file: 'main.tex', line: 3 };
   app.conflict = null;
@@ -529,6 +543,142 @@ describe('applying a diagnostic fix (S6.2)', () => {
     app.project = null;
     const applied = await applyDiagnosticFix({ ...withAmpersand, file: null });
     expect(applied).toBe(false);
+  });
+});
+
+describe('the drawer v1 (S6.3)', () => {
+  const underscore = {
+    title: '_ used outside maths',
+    explanation: '`_` means "subscript" and only works inside maths mode.',
+    line: 59,
+    file: 'sections/background.tex',
+    severity: 'error' as const,
+    rule: 'missing-dollar',
+    rawMessage: 'Missing $ inserted.',
+    fix: { description: 'Escape as \\_', find: '_', replace: '\\_' },
+  };
+
+  function finished(generation: number, success: boolean, diagnostics: Array<typeof underscore>) {
+    compileHandler({ status: 'started', generation, rootFile: 'main.tex' });
+    compileHandler({
+      status: 'finished',
+      generation,
+      success,
+      pdfPath: success ? '/proj/.preamble/build/main.pdf' : null,
+      logPath: '/proj/.preamble/build/main.log',
+      diagnostics,
+      durationMs: 10,
+      stderr: '',
+    });
+  }
+
+  beforeEach(() => {
+    app.drawerOpen = false;
+    app.showRawLog = false;
+    app.rawLogFocus = null;
+    setDrawerFilter({ severity: 'all', activeFileOnly: false });
+  });
+
+  it("a card's \"Raw log\" opens the drawer on the raw view, pointed at that diagnostic's own words", async () => {
+    logOnDisk = 'This is XeTeX\n! Missing $ inserted.\nl.59 A stray underscore_\n';
+    finished(1, false, [underscore]);
+    app.drawerOpen = false; // the author closed it; the button must reopen it
+
+    await showRawLogFor(underscore);
+    expect(app.drawerOpen).toBe(true);
+    expect(app.showRawLog).toBe(true);
+    expect(app.rawLog).toBe(logOnDisk);
+    expect(app.rawLogFocus?.rawMessage).toBe('Missing $ inserted.');
+  });
+
+  it('asking for the same card twice is two distinct requests, so the view scrolls back to it', async () => {
+    await showRawLogFor(underscore);
+    const first = app.rawLogFocus!.nonce;
+    await showRawLogFor(underscore);
+    expect(app.rawLogFocus!.nonce).toBeGreaterThan(first);
+  });
+
+  it('re-reads the log when a build finishes while the raw view is open (regression: it showed the old log)', async () => {
+    logOnDisk = 'first build';
+    finished(1, false, [underscore]);
+    await toggleRawLog();
+    expect(app.rawLog).toBe('first build');
+
+    logOnDisk = 'second build';
+    finished(2, false, [underscore]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.showRawLog).toBe(true);
+    expect(app.rawLog).toBe('second build');
+  });
+
+  it('a finished build drops the highlight request, whose words belonged to the log it replaced', async () => {
+    await showRawLogFor(underscore);
+    expect(app.rawLogFocus).not.toBeNull();
+    finished(2, false, [underscore]);
+    expect(app.rawLogFocus).toBeNull();
+  });
+
+  it('a clean build leaves the raw view and does not re-read a log nobody is looking at', async () => {
+    finished(1, false, [underscore]);
+    await toggleRawLog();
+    expect(calls.logReads).toBe(1);
+    finished(2, true, []);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.showRawLog).toBe(false);
+    expect(app.drawerOpen).toBe(false);
+    expect(calls.logReads).toBe(1);
+  });
+
+  it('a failed build with the raw view closed does not read the log either — it is never the default', async () => {
+    finished(1, false, [underscore]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.drawerOpen).toBe(true);
+    expect(app.showRawLog).toBe(false);
+    expect(calls.logReads).toBe(0);
+  });
+
+  it('opening another project forgets the previous one\'s raw log', async () => {
+    logOnDisk = 'old project';
+    await toggleRawLog();
+    expect(app.rawLog).toBe('old project');
+    await openFolder('/other');
+    expect(app.showRawLog).toBe(false);
+    expect(app.rawLog).toBe('');
+    expect(app.rawLogFocus).toBeNull();
+  });
+
+  it('setDrawerFilter changes one part and keeps the rest', () => {
+    setDrawerFilter({ severity: 'errors' });
+    expect(app.drawerFilter).toEqual({ severity: 'errors', activeFileOnly: false });
+    setDrawerFilter({ activeFileOnly: true });
+    expect(app.drawerFilter).toEqual({ severity: 'errors', activeFileOnly: true });
+  });
+
+  it('the filter survives a new build — an author chasing errors is still chasing them', () => {
+    setDrawerFilter({ severity: 'errors' });
+    finished(1, false, [underscore]);
+    expect(app.drawerFilter.severity).toBe('errors');
+  });
+
+  it('toggleDrawer flips the drawer, and both it and the raw log are palette commands', () => {
+    expect(app.drawerOpen).toBe(false);
+    toggleDrawer();
+    expect(app.drawerOpen).toBe(true);
+    toggleDrawer();
+    expect(app.drawerOpen).toBe(false);
+
+    const ids = allCommands().map((c) => c.id);
+    expect(ids).toContain('toggle-drawer');
+    expect(ids).toContain('show-raw-log');
+  });
+
+  it('the "Show raw log" command reaches the log with the drawer closed, in one action', async () => {
+    logOnDisk = 'the log';
+    allCommands().find((c) => c.id === 'show-raw-log')!.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.drawerOpen).toBe(true);
+    expect(app.showRawLog).toBe(true);
+    expect(app.rawLog).toBe('the log');
   });
 });
 

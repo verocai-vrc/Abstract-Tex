@@ -15,6 +15,22 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **A diagnostic resolved inside a package file gets a file heading and a jump that cannot
+  succeed.** (S6.3, builder, 17 Sep 2026) `babel-unknown-language`'s real fixture resolves to
+  `file: "babel.sty", line: 4260` — correct as a statement about where TeX was when it raised the
+  error, but `babel.sty` is not a file in the project, so the drawer (S6.3) heads the group
+  `babel.sty`, the card says `line 4260`, clicking it produces `Could not open babel.sty`, and no
+  tab ever shows a gutter dot for it. The mistake the author can act on is the
+  `\usepackage[nosuchlanguage]{babel}` line in their own preamble — the *project* file nearest the
+  top of the resolver's stack at that moment, which `texlog` knows (`resolver::open_files` has the
+  whole stack) but `Diagnostic` does not carry: `file` is only the innermost entry. A fix wants
+  either a second field (the innermost *project* file — but `texlog` never reads the file tree, so
+  it cannot tell `babel.sty` from `chapter.tex` except by extension, a heuristic) or the frontend
+  walking a stack the IPC does not currently ship. Not decided here; the drawer is at least honest
+  about what it has. The same shape will hit `font-not-found` (`fontspec.sty`) and any other
+  `\PackageError`. Found during S6.3's own review, not fixed there — it changes `texlog`'s public
+  `Diagnostic`, a Rust change with fixture regeneration, past an M frontend loop's scope.
+
 - **BibTeX's own error output never reaches `main.log`, so `texlog` cannot see it at all —
   corrects the "biblatex needs biber, not yet bundled" framing from the previous S6.1 commit.**
   (S6.1, builder, 17 Sep 2026) Tested directly: this project's bundled Tectonic *does* invoke
@@ -247,6 +263,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cosmetic.
 
 ## Fixed
+
+- **The raw log view showed the previous build's log after a new build finished while it was
+  open.** (S6.3, builder, 17 Sep 2026) `toggleRawLog` read `main.log` once, at the moment the view
+  was switched on; `handleCompileEvent`'s `finished` branch left `showRawLog` alone on a failed
+  build and never re-read the file, so an author who kept the raw view open while fixing an error
+  and rebuilding saw the cards update to the new diagnostics and, one click away, a log that still
+  described the old ones. Found while reading `controller.svelte.ts` for S6.3. Fixed in the same
+  loop: the read moved into `refreshRawLog`, which `finished` calls whenever the view is showing
+  (and only then — a failed build with the view closed still reads nothing, per DESIGN.md §2's
+  "never a raw log by default", which a second test now pins). Regression test:
+  `controller.test.ts`'s "re-reads the log when a build finishes while the raw view is open".
 
 - **`jumpToDiagnostic` still assumed every diagnostic was about the root file, though `Diagnostic.
   file` has named the real one since S5.6.** (S6.2, builder, 17 Sep 2026) The function's own doc
