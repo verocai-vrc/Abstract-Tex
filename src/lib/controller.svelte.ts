@@ -606,9 +606,10 @@ export async function syncTexInverse(page: number, x: number, y: number): Promis
 }
 
 /** Which tab a diagnostic belongs to. The rule itself lives in `drawer.ts` (S6.3) so the gutter
- * and the drawer's grouping apply the same one; this only supplies the current project's root. */
+ * and the drawer's grouping apply the same one; this only supplies the current project's root and
+ * its include graph (which `drawer.ts` uses to complete an extensionless `\input`, S6.4). */
 function diagnosticTarget(diagnostic: Diagnostic): string | null {
-  return targetOf(diagnostic, app.project?.rootFile ?? null);
+  return targetOf(diagnostic, app.project?.rootFile ?? null, app.project?.documentFiles ?? []);
 }
 
 /**

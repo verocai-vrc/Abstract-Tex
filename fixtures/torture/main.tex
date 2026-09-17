@@ -1,0 +1,48 @@
+\documentclass[11pt,a4paper]{article}
+
+% The twenty-error torture document: the v0.3 exit criterion (DESIGN.md §7). Twenty
+% chapter files under sections/, each carrying exactly one deliberate mistake on a known
+% line, in the order a reader meets them below. Every error must resolve to the right
+% file and line and carry a plain-language explanation — that is the whole test.
+%
+% This engine halts at the first `!` error (crates/texlog/fixtures/README.md), so the
+% document is not twenty errors in one log: it is twenty errors met one at a time. Fix
+% the first (seven of them have a one-click fix in the drawer), rebuild, and the next
+% appears; the PDF exists once all twenty are gone. The two warnings (04, 05) never halt
+% the run, so they stay in the drawer until they too are fixed.
+%
+% crates/preamble-engine/tests/torture.rs walks the same sequence with the real engine,
+% and SMOKE.md is the same walk by hand in the app.
+
+\input{preamble}
+
+\title{Twenty Mistakes: A Torture Document for the Diagnostics Drawer}
+\author{The Preamble maintainers}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+
+\input{sections/01-undefined-control-sequence}
+\input{sections/02-missing-dollar}
+\input{sections/03-unbalanced-braces}
+\input{sections/04-undefined-reference}
+\input{sections/05-undefined-citation}
+\input{sections/06-misplaced-alignment-tab}
+\input{sections/07-extra-alignment-tab}
+\input{sections/08-undefined-environment}
+\input{sections/09-mismatched-environment}
+\input{sections/10-missing-item}
+\input{sections/11-illegal-unit-of-measure}
+\input{sections/12-fragile-command-in-moving-argument}
+\input{sections/13-caption-outside-float}
+\input{sections/14-display-math-wrong-delimiter}
+\input{sections/15-verb-unterminated}
+\input{sections/16-undefined-color}
+\input{sections/17-image-not-found}
+\input{sections/18-file-not-found}
+\input{sections/19-preamble-only-command}
+% \include, not \input: chapter 20's mistake is an \include inside an \include'd file.
+\include{sections/20-include-cannot-be-nested}
+
+\end{document}

@@ -68,6 +68,30 @@ describe('diagnosticTarget', () => {
   it('is null when there is neither', () => {
     expect(diagnosticTarget(emergencyStop, null)).toBeNull();
   });
+
+  // The torture walk's first step (S6.4, `crates/preamble-engine/tests/torture.rs`): this engine
+  // echoes `\input{sections/01-undefined-control-sequence}` with no `.tex`, exactly as written,
+  // so `Diagnostic.file` never equalled the tab path and nothing matched. `resolver.rs` names
+  // this as the case only a caller with the file tree can settle; the include graph is that tree.
+  it('completes an extensionless `\\input` to the `.tex` file the graph knows', () => {
+    const graph = ['main.tex', 'preamble.tex', 'sections/01-undefined-control-sequence.tex'];
+    const bare: Diagnostic = { ...missingDollar, file: 'sections/01-undefined-control-sequence' };
+    expect(diagnosticTarget(bare, 'main.tex', graph)).toBe('sections/01-undefined-control-sequence.tex');
+    // The same rule must route the gutter and the group heading, or the card and the dot disagree.
+    expect(diagnosticsForFile([bare], 'sections/01-undefined-control-sequence.tex', 'main.tex', graph)).toEqual([bare]);
+    expect(groupDiagnostics([bare], DEFAULT_FILTER, null, 'main.tex', graph).map((g) => g.file)).toEqual([
+      'sections/01-undefined-control-sequence.tex',
+    ]);
+  });
+
+  it('never completes a name to one the graph does not hold — a package file stays as spelled', () => {
+    const graph = ['main.tex', 'sections/background.tex'];
+    const packageFile: Diagnostic = { ...missingDollar, file: 'babel.sty' };
+    expect(diagnosticTarget(packageFile, 'main.tex', graph)).toBe('babel.sty');
+    // And a spelling the graph holds as-is is left alone, even when a `.tex` sibling also exists.
+    const exact: Diagnostic = { ...missingDollar, file: 'sections/background.tex' };
+    expect(diagnosticTarget(exact, 'main.tex', [...graph, 'sections/background.tex.tex'])).toBe('sections/background.tex');
+  });
 });
 
 describe('diagnosticsForFile (gutter routing)', () => {

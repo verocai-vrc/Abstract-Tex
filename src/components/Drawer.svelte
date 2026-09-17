@@ -36,13 +36,14 @@
   });
 
   const rootFile = $derived(app.project?.rootFile ?? null);
-  const groups = $derived(groupDiagnostics(app.compile.diagnostics, app.drawerFilter, app.activePath, rootFile));
+  const documentFiles = $derived(app.project?.documentFiles ?? []);
+  const groups = $derived(groupDiagnostics(app.compile.diagnostics, app.drawerFilter, app.activePath, rootFile, documentFiles));
   const shownCount = $derived(groups.reduce((n, g) => n + g.diagnostics.length, 0));
   const total = $derived(app.compile.diagnostics.length);
   /** How many of the build's diagnostics are about the active tab at all, before the severity
    * filter — so "nothing in this file" is only said when it is true, not when the file has
    * warnings and the author asked for errors. */
-  const inActiveFile = $derived(diagnosticsForFile(app.compile.diagnostics, app.activePath, rootFile).length);
+  const inActiveFile = $derived(diagnosticsForFile(app.compile.diagnostics, app.activePath, rootFile, documentFiles).length);
 
   // The raw view, split around the words the last "Raw log" click asked for (S6.3), so a `<mark>`
   // can wrap them. Three plain strings rather than markup built by hand: the log is untrusted

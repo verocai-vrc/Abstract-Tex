@@ -1421,7 +1421,7 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 | [x] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
 | [~] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
 | [~] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
-| [ ] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
+| [~] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
 | [ ] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
 
 **S6.1 (17 September 2026).** `[~]`: 16 new rules landed (the catalog: 6 → 22, roughly half of
@@ -1733,6 +1733,84 @@ undefined references as one expandable card) — plausible, but no real capture 
 and DESIGN.md does not ask for it; a text filter; and any keyboard chord for the drawer beyond the
 palette, following S4.3's own precedent for focus/typewriter mode. S6.4's torture document is the
 next loop and the first real reader of all of this.
+
+**S6.4 (17 September 2026).** `[~]`: rungs 1–2 green — `cargo test -p texlog` 143 passed (101 lib,
+42 fixture; two new, both for the finding below), `cargo test -p preamble-engine` 7 passed plus the
+two ignored real-engine tests (the new walk: 21 builds, 7.6 s), `cargo clippy` clean on both,
+`pnpm check` 435 files / 0 errors, `pnpm vitest run` 335/335 (two new in `drawer.test.ts`).
+`cargo test --workspace` still cannot build `src-tauri` on this machine (no WebKitGTK development
+packages — the standing gate since S3.1), so rung 4, the walk by hand in the app
+(`fixtures/torture/SMOKE.md`), waits on a webview. `[~]` for that reason only: the exit criterion
+itself — every error to the correct file and line, every one with a plain-language explanation —
+is checked end to end by the real engine and recorded, which is what the card asked for. The card,
+expanded here as S6.3's was:
+
+```
+Loop      S6.4 · Torture document with twenty errors; exit demo recorded · S
+Reads     DESIGN.md §7 (v0.3 exit), §5.2; crates/texlog/fixtures/README.md (the halting note)
+Depends   S6.1 (the catalog), S6.2 (fixes), S6.3 (the drawer that shows it)
+Files     fixtures/torture/ (main.tex, preamble.tex, sections/, captures/, SMOKE.md),
+          crates/preamble-engine/tests/torture.rs, crates/preamble-engine/Cargo.toml,
+          src/lib/drawer.ts, src/lib/drawer.test.ts, crates/texlog/src/rules.rs
+Build     One real document, twenty chapter files, one deliberate mistake each on a known line.
+          A runner that walks it the way an author would — build, meet the first error, fix it,
+          build again, twenty-one times — with the real engine, and checks each step's file,
+          line, rule, severity and offered fix against a table. The twenty-one logs are
+          recorded so the same check runs on every `pnpm verify` without an engine.
+Verify    cargo test -p preamble-engine --test torture -- --ignored   (PREAMBLE_RECORD_TORTURE=1 to re-record)
+          cargo test -p preamble-engine   (the recorded walk)
+Done when every step resolves to its own chapter and line with a catalog rule and a sentence,
+          nothing already fixed is still reported, and the twenty-first build is clean.
+```
+
+**"Twenty errors" is twenty-one builds, and the design follows from S5.4's finding rather than
+fighting it.** The engine halts at the first `!`, so the document cannot hold twenty errors in one
+log; it holds twenty in sequence, which is also how an author meets them. The runner "fixes" a
+chapter by replacing it with a one-line comment — not the real correction, but enough that the next
+mistake is the first live one while every earlier chapter still takes part in the build. Two of the
+twenty are warnings (`undefined-reference`, `undefined-citation`), which never halt, so they sit in
+the drawer across every later step until their own turn; the runner checks that too. `fixtures/
+torture/SMOKE.md` is the same walk by hand: the twenty-row table names the file, the line, what the
+card should say and which of the six button fixes it offers.
+
+1. **The first step found a bug that S6.3's own capture had hidden.** `fixtures/thesis` uses
+   `\include`, which always opens `sections/foo.tex` and prints it so — the capture S6.3 checked
+   `diagnosticTarget` against. `\input{sections/foo}`, the more common spelling, is echoed by this
+   engine with no `.tex` at all, so `Diagnostic.file` never equalled a tab path and the click, the
+   one-click fix and the gutter all missed. `resolver.rs`'s own module doc had already handed this
+   case to "a caller with access to the real file tree"; that caller is `drawer.ts`, which now
+   takes S4.1's include graph and completes a bare name only to a `.tex` sibling the graph actually
+   holds — never a guess. The group heading follows the same rule, so a card and its tab agree.
+   `is_chapter` in the runner accepts both spellings and says why, since `texlog` itself still
+   reports the name as printed. Ledger: Fixed.
+2. **TeX prints only the last fifty characters of a context line, and two fixes and one rule
+   were built on captures short enough never to show it.** `half_error_line` is 50; anything
+   before it becomes `...`. `fix_verb_unterminated` anchored its `find` on the whole context,
+   dots included — on the torture's realistic `invoked as \verb|tectonic --keep-logs main.tex`
+   it found nothing to close. Fixed with `intact_tail`, shared with
+   `fix_display_math_wrong_delimiter` (same anchor, same latent bug, fixed before a capture showed
+   it), and a hand-written truncated log for each. `fragile-command-in-moving-argument` is the one
+   that cannot be fixed inside `texlog`: its `\footnote` is gone from the log along with the rest
+   of the title, so the walk records `fix: None` for chapter 12 and the ledger has it under Open
+   with the frontend-side answer named — the button is missing for most real section titles.
+3. **The recorded walk is a test, not a document.** Twenty-one real logs (340 KB) under
+   `captures/` and a `#[test]` that runs them through `texlog::diagnostics` on every `cargo test`,
+   so a future rule edit that breaks any of the twenty fails here, not in the app. The ignored
+   real-engine test re-records them under `PREAMBLE_RECORD_TORTURE=1`, so the recording and the
+   live walk cannot drift apart unnoticed. It lives in `preamble-engine` (with `texlog` as a
+   dev-dependency only — the engine never reads a log) because that crate already owns the one
+   other real-Tectonic test and `src-tauri` cannot build on this machine.
+4. **Two lines are TeX's, not the mistake's, and the table says so rather than hiding it.**
+   `missing-item` names the `\end{itemize}` (TeX only notices at the end that no `\item` came)
+   and `fragile-command` names the title line. Both are what the drawer should show — the
+   explanation covers the offset — and the chosen chapters avoid `line-end-with-nothing-before-it`,
+   whose marker is a full line off (S6.2's own note).
+
+Not done here, on purpose: the frontend-side fix for finding 2's `\footnote` case (its own loop;
+needs the source line, which only the editor has); a chapter for every one of the 36 rules — twenty
+is the exit criterion's own number and the rest have their own fixtures; and any mistake in
+`preamble.tex` itself, which would halt before every chapter and turn the walk into twenty-one
+different documents. S6.5 (`texlog` as its own crate) is next and the last of sprint 6.
 
 ### Sprint 7–8 — v0.4 bibliography
 

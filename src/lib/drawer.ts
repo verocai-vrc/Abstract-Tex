@@ -31,28 +31,48 @@ export const DEFAULT_FILTER: DrawerFilter = { severity: 'all', activeFileOnly: f
  * project open yet. Shared by the drawer's click, the one-click fix (S6.2) and the gutter, so all
  * three agree on where a diagnostic lives.
  *
- * `Diagnostic.file` is spelled the way TeX printed it in the log. For this project's bundled
- * Tectonic that is project-relative with no `./` prefix — `sections/background.tex` for
- * `\include{sections/background}`, checked against a real capture in S6.3 — so it compares
- * equal to a tab path with no normalisation. A package file (`babel.sty`) also arrives here as
- * spelled; it is not a tab and opening it fails with a notice, which is honest, if unhelpful.
+ * `Diagnostic.file` is spelled the way TeX printed it in the log, project-relative with no `./`
+ * prefix for this project's bundled Tectonic — but only *with* an extension when the author wrote
+ * one. `\include{sections/background}` opens `sections/background.tex` and the log says so
+ * (S6.3's thesis capture); `\input{sections/background}`, the more common spelling, is echoed as
+ * `sections/background`, and `texlog` cannot complete it because it never reads the file tree
+ * (`resolver.rs`'s own module doc hands exactly this case to "a caller with access to the real
+ * file tree"). That caller is here: `documentFiles` is S4.1's include graph, and a bare spelling
+ * that is not in it but whose `.tex` sibling is becomes that sibling. Never a guess — a name is
+ * only completed to one the graph actually holds. Found by the torture walk's first step (S6.4).
+ * A package file (`babel.sty`) arrives as spelled, matches nothing, and stays as spelled; it is
+ * not a tab and opening it fails with a notice, which is honest, if unhelpful.
  */
-export function diagnosticTarget(diagnostic: Diagnostic, rootFile: string | null): string | null {
-  return diagnostic.file ?? rootFile;
+export function diagnosticTarget(
+  diagnostic: Diagnostic,
+  rootFile: string | null,
+  documentFiles: readonly string[] = [],
+): string | null {
+  if (diagnostic.file === null) return rootFile;
+  if (documentFiles.includes(diagnostic.file)) return diagnostic.file;
+  const withExtension = `${diagnostic.file}.tex`;
+  return documentFiles.includes(withExtension) ? withExtension : diagnostic.file;
 }
 
 /** The diagnostics whose target is `path`: what the gutter draws on that tab (S2.7's dots,
  * routed to their own file at last — until S6.3 every dot landed on the root file's tab). */
-export function diagnosticsForFile(diagnostics: readonly Diagnostic[], path: string | null, rootFile: string | null): Diagnostic[] {
+export function diagnosticsForFile(
+  diagnostics: readonly Diagnostic[],
+  path: string | null,
+  rootFile: string | null,
+  documentFiles: readonly string[] = [],
+): Diagnostic[] {
   if (path === null) return [];
-  return diagnostics.filter((diagnostic) => diagnosticTarget(diagnostic, rootFile) === path);
+  return diagnostics.filter((diagnostic) => diagnosticTarget(diagnostic, rootFile, documentFiles) === path);
 }
 
 /** One file's worth of cards. */
 export interface DiagnosticGroup {
-  /** The file as the log spelled it, or `null` for diagnostics TeX raised with no file open.
-   * Not the target: a `null` here is shown as "not inside any file" rather than silently filed
-   * under the root, because that is a guess the header should not present as a fact. */
+  /** The file the diagnostics are in, spelled as `diagnosticTarget` resolves it (so an
+   * extensionless `\input` reads `sections/foo.tex`, the same as its tab), or `null` for
+   * diagnostics TeX raised with no file open. Not quite the target: a `null` here is shown as
+   * "not inside any file" rather than silently filed under the root, because that is a guess
+   * the header should not present as a fact. */
   file: string | null;
   /** Errors first, then warnings; within a severity by line, a diagnostic with no line last. */
   diagnostics: Diagnostic[];
@@ -81,6 +101,7 @@ export function groupDiagnostics(
   filter: DrawerFilter,
   activePath: string | null,
   rootFile: string | null,
+  documentFiles: readonly string[] = [],
 ): DiagnosticGroup[] {
   // A `Map` keeps insertion order, which is exactly the "first appearance" order wanted. `null`
   // is a legal key, so the no-file diagnostics need no sentinel string that could collide with a
@@ -93,9 +114,10 @@ export function groupDiagnostics(
   // caught the sections trading places.) A group left empty by the filter is dropped at the end.
   const byFile = new Map<string | null, Diagnostic[]>();
   for (const diagnostic of diagnostics) {
-    const list = byFile.get(diagnostic.file) ?? [];
-    if (passesFilter(diagnostic, filter, activePath, rootFile)) list.push(diagnostic);
-    byFile.set(diagnostic.file, list);
+    const heading = diagnostic.file === null ? null : diagnosticTarget(diagnostic, rootFile, documentFiles);
+    const list = byFile.get(heading) ?? [];
+    if (passesFilter(diagnostic, filter, activePath, rootFile, documentFiles)) list.push(diagnostic);
+    byFile.set(heading, list);
   }
 
   return [...byFile]
@@ -111,10 +133,16 @@ export function groupDiagnostics(
     });
 }
 
-function passesFilter(diagnostic: Diagnostic, filter: DrawerFilter, activePath: string | null, rootFile: string | null): boolean {
+function passesFilter(
+  diagnostic: Diagnostic,
+  filter: DrawerFilter,
+  activePath: string | null,
+  rootFile: string | null,
+  documentFiles: readonly string[],
+): boolean {
   if (filter.severity === 'errors' && diagnostic.severity !== 'error') return false;
   if (filter.severity === 'warnings' && diagnostic.severity !== 'warning') return false;
-  if (filter.activeFileOnly && diagnosticTarget(diagnostic, rootFile) !== activePath) return false;
+  if (filter.activeFileOnly && diagnosticTarget(diagnostic, rootFile, documentFiles) !== activePath) return false;
   return true;
 }
 

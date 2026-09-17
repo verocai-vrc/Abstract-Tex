@@ -18,3 +18,7 @@ serde = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# tests/torture.rs (S6.4) runs the twenty-error torture document through the real engine and
+# then through the rule catalog, so it needs texlog — as a test-only dependency: the engine
+# itself never reads a log (lib.rs), and must not start to.
+texlog = { path = "../texlog" }

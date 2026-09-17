@@ -25,7 +25,10 @@ stops the run the moment one `!` error occurs — confirmed across every fixture
 contains one: not a single one has a second. A log can still hold several *warnings* before that
 point (`torture` has two), and warnings alone never halt a run at all (`undefined-reference`,
 `duplicate-label`), but "many `!` errors in one real log" is not a shape this engine ever
-produces. S6.4's twenty-error torture document will need twenty separate compiles, not one.
+produces. S6.4's twenty-error torture document (`fixtures/torture/`, at the repository root) is
+therefore twenty-one compiles, not one: `crates/preamble-engine/tests/torture.rs` "fixes" one
+chapter per step and checks the next mistake, and `fixtures/torture/captures/` holds each step's
+real log.
 
 | Fixture | Engine | What it exercises |
 |---|---|---|

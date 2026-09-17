@@ -15,6 +15,24 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`fragile-command-in-moving-argument`'s one-click fix is only offered when the offending line
+  is short: TeX truncates the `l.NN` context from the left, and the command name goes with it.**
+  (S6.4, builder, 17 Sep 2026) The rule (S6.1) and its fix (S6.2) recover the command from the end
+  of the context line with `trailing_command`, and the fixture that proved them —
+  `footnote-in-moving-arg`, `\section{A title\footnote{a note}}` — is short enough that TeX prints
+  the whole line. TeX's `half_error_line` is 50: when more than that precedes the error point, the
+  context is printed as `...` plus its tail, and the torture document's realistic
+  `\section{Footnotes in titles\footnote{Which never works without protection.}}` arrives as
+  `l.1 ...ote{Which never works without protection.}}` — no `\footnote` left to find. The
+  explanation falls back honestly ("Try `\protect` right before whichever command is causing
+  this") and no fix is offered, which is correct behaviour for what the log says, but it means the
+  fix is absent for most real section titles, which are longer than fifty characters. Found by
+  step 12 of the torture walk (`crates/preamble-engine/tests/torture.rs`), whose table records
+  `fix: None` for this chapter with the reason. Not fixable inside `texlog` (the source line is
+  the only place the command survives, and the crate never reads one); a frontend-side
+  completion — search the diagnosed source line for a fragile command when the rule matched but
+  named none — would be the honest place, and needs its own loop.
+
 - **A diagnostic resolved inside a package file gets a file heading and a jump that cannot
   succeed.** (S6.3, builder, 17 Sep 2026) `babel-unknown-language`'s real fixture resolves to
   `file: "babel.sty", line: 4260` — correct as a statement about where TeX was when it raised the
@@ -263,6 +281,22 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cosmetic.
 
 ## Fixed
+
+- **A diagnostic inside an extensionless `\input{sections/foo}` matched no tab: the click, the
+  one-click fix and the gutter all missed it.** (S6.4, builder, 17 Sep 2026) `\include` always
+  opens `sections/foo.tex`, which S6.3's thesis capture checked, but `\input{sections/foo}` — the
+  far more common spelling — is echoed by this engine as `(sections/foo`, extension and all
+  missing, and that is what `Diagnostic.file` carries (`resolver.rs`'s module doc names this as
+  the limit of text-only resolution and hands it to "a caller with access to the real file
+  tree"). `diagnosticTarget` compared that spelling to the tab path `sections/foo.tex` with no
+  normalisation, so nothing matched: clicking the card opened nothing, "Apply fix" refused with no
+  target, and the gutter drew the dot on no tab at all. Found by the very first step of the
+  torture walk (`crates/preamble-engine/tests/torture.rs`), which is what that document is for.
+  Fixed in `drawer.ts`: `diagnosticTarget` now takes the project's `documentFiles` (S4.1's include
+  graph) and completes `file` to `file + ".tex"` when that, and not the bare spelling, is a file
+  the graph knows — never a guess, only a name that exists. The group heading uses the same
+  completed name. Regression tests: `drawer.test.ts`'s "completes an extensionless `\input` to the
+  `.tex` file the graph knows" and the torture walk itself.
 
 - **The raw log view showed the previous build's log after a new build finished while it was
   open.** (S6.3, builder, 17 Sep 2026) `toggleRawLog` read `main.log` once, at the moment the view

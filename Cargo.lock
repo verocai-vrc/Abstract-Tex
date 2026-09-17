@@ -2498,6 +2498,7 @@ dependencies = [
  "preamble-sidecar",
  "serde",
  "tempfile",
+ "texlog",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",

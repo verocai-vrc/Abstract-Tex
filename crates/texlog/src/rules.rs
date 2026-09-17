@@ -645,6 +645,16 @@ fn double_quoted_name(text: &str) -> Option<&str> {
     Some(&text[start..end])
 }
 
+/// The part of an `l.NN` context line that is a literal substring of the source line. TeX prints
+/// the source up to the error point, but only the last `half_error_line` (50) characters of it:
+/// anything before that is replaced by `...`, so a fix that used the whole context as its `find`
+/// would search the source for a string containing three dots that were never there. Everything
+/// *after* the `...` is intact, and it is the only anchor a fix may use. `broken-underscore`'s
+/// fixture had shown the `...` since S2.6; the torture walk (S6.4) showed a fix breaking on it.
+fn intact_tail(context: &str) -> &str {
+    context.strip_prefix("...").unwrap_or(context)
+}
+
 /// The command TeX choked on. It prints the source up to the offending token on the `l.NN`
 /// line, so the *last* control sequence on that line is the one it could not digest.
 fn trailing_command(context: Option<&String>) -> Option<String> {
@@ -1220,18 +1230,19 @@ fn explain_display_math_wrong_delimiter(_error: &QuickError) -> (String, String)
 
 /// Only offered when `context` makes the opener certain: TeX's message never says which
 /// delimiter opened the formula, so a fix that assumed `\[` on a `$$`-opened display would be a
-/// guess, not an edit that cannot be wrong. `context` is the whole line up to the error (S5.1),
-/// so `\[` visible on it, and a single trailing `$` rather than a `$$`, is real evidence rather
-/// than an assumption.
+/// guess, not an edit that cannot be wrong. `context` is the line up to the error (S5.1), so
+/// `\[` visible on its intact part, and a single trailing `$` rather than a `$$`, is real
+/// evidence rather than an assumption — and when the line was long enough for TeX to truncate
+/// `\[` away behind `...`, the evidence is gone and so is the fix.
 fn fix_display_math_wrong_delimiter(error: &QuickError) -> Option<Fix> {
-    let context = error.context.as_deref()?;
-    if !context.contains("\\[") || !context.ends_with('$') || context.ends_with("$$") {
+    let line = intact_tail(error.context.as_deref()?);
+    if !line.contains("\\[") || !line.ends_with('$') || line.ends_with("$$") {
         return None;
     }
     Some(Fix {
         description: "Close with \\]".to_string(),
-        find: context.to_string(),
-        replace: format!("{}\\]", &context[..context.len() - 1]),
+        find: line.to_string(),
+        replace: format!("{}\\]", &line[..line.len() - 1]),
     })
 }
 
@@ -1291,18 +1302,21 @@ fn explain_verb_unterminated(_error: &QuickError) -> (String, String) {
 
 /// The closing delimiter is whatever character followed `\verb` (or `\verb*`) — TeX's own
 /// syntax, not a guess — so doubling it onto the end of the line is the one edit that can only
-/// close the argument, never change what it contains. `find` is the whole line rather than a
-/// short token: there is no fixed substring to anchor on here, only "append at the end", and
-/// [`fix_display_math_wrong_delimiter`] above uses the same whole-context anchor for the same
-/// reason.
+/// close the argument, never change what it contains. `find` is the line from `\verb` to its end
+/// rather than a short token: there is no fixed substring to anchor on here, only "append at the
+/// end", and [`fix_display_math_wrong_delimiter`] above uses the same end-of-line anchor for the
+/// same reason. From `\verb`, not from the start of the context: `\verb` usually sits mid-sentence
+/// (`invoked as \verb|tectonic ...`), and on a long line the start of the context is TeX's `...`
+/// — the torture walk's chapter 15 found the first version of this fix anchored on that.
 fn fix_verb_unterminated(error: &QuickError) -> Option<Fix> {
-    let context = error.context.as_deref()?;
-    let after_verb = context.strip_prefix("\\verb*").or_else(|| context.strip_prefix("\\verb"))?;
+    let line = intact_tail(error.context.as_deref()?);
+    let from_verb = &line[line.rfind("\\verb")?..];
+    let after_verb = from_verb.strip_prefix("\\verb*").or_else(|| from_verb.strip_prefix("\\verb"))?;
     let delimiter = after_verb.chars().next()?;
     Some(Fix {
         description: format!("Close with {delimiter}"),
-        find: context.to_string(),
-        replace: format!("{context}{delimiter}"),
+        find: from_verb.to_string(),
+        replace: format!("{from_verb}{delimiter}"),
     })
 }
 
@@ -1830,6 +1844,23 @@ mod tests {
             assert_reads_like_a_sentence(&d);
         }
 
+        /// Same shape as `verb_unterminated_anchors_on_the_intact_tail_of_a_truncated_context`:
+        /// the `...` TeX prints for a long line is not part of the source and must not be in
+        /// `find`. When `\[` itself is behind the dots the opener is no longer certain, so no fix.
+        #[test]
+        fn display_math_wrong_delimiter_anchors_on_the_intact_tail_of_a_truncated_context() {
+            let with_opener = "! Display math should end with $$.\n\
+                               <to be read again> \n   \\par \n\
+                               l.4 ...ntences before the formula \\[ t_{95} < 2 $\n\
+                                                                             \n";
+            let d = diagnostic_from(with_opener, "display-math-wrong-delimiter");
+            assert_eq!(d.fix.map(|f| f.find), Some("ntences before the formula \\[ t_{95} < 2 $".to_string()));
+
+            let opener_cut_off = with_opener.replace("...ntences before the formula \\[", "...before the formula, no opener visible,");
+            let d = diagnostic_from(&opener_cut_off, "display-math-wrong-delimiter");
+            assert_eq!(d.fix, None);
+        }
+
         #[test]
         fn display_math_wrong_delimiter_declines_when_the_opener_is_not_certain() {
             // The message never says which delimiter opened the formula; without a visible `\[`
@@ -1876,6 +1907,27 @@ mod tests {
                 })
             );
             assert_reads_like_a_sentence(&d);
+        }
+
+        /// The torture walk's chapter 15 (S6.4): `\verb` mid-sentence on a line long enough for
+        /// TeX to print only its tail, behind `...`. The first version of this fix anchored on
+        /// the whole context, dots included, and so found nothing to close.
+        #[test]
+        fn verb_unterminated_anchors_on_the_intact_tail_of_a_truncated_context() {
+            let log = "! LaTeX Error: \\verb ended by end of line.\n\n\
+                       See the LaTeX manual or LaTeX Companion for explanation.\n\
+                       Type  H <return>  for immediate help.\n ...                                              \n\
+                       \nl.3 ...oked as \\verb|tectonic --keep-logs main.tex\n\
+                                                                       \n";
+            let d = diagnostic_from(log, "verb-unterminated");
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Close with |".to_string(),
+                    find: "\\verb|tectonic --keep-logs main.tex".to_string(),
+                    replace: "\\verb|tectonic --keep-logs main.tex|".to_string(),
+                })
+            );
         }
 
         #[test]
