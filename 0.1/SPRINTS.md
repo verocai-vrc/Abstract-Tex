@@ -1891,7 +1891,7 @@ this project publishes.
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S7.1 `texbib` parser crate: BibTeX and BibLaTeX syntax, comments and `@string` preserved, byte spans on everything, never fails on a bad entry | L | — |
+| [x] | S7.1 `texbib` parser crate: BibTeX and BibLaTeX syntax, comments and `@string` preserved, byte spans on everything, never fails on a bad entry | L | — |
 | [ ] | S7.2 `.bib` watcher and project-wide index: which files, which keys, who cites what | M | S7.1, S4.1 |
 | [ ] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
 | [ ] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
@@ -2003,6 +2003,45 @@ Verify    cargo test -p texbib -- render keys; pnpm vitest run
 Done when pasting the same DOI twice yields one entry and two identical `\cite`s, and a diff of
           the .bib before and after shows only the appended entry.
 ```
+
+**S7.1 (17 September 2026).** `[x]`: `cargo test -p texbib` 33 passed (26 lib, 7 generated
+fixture tests), `cargo clippy -p texbib --all-targets -- -D warnings` clean, `RUSTDOCFLAGS="-D
+warnings" cargo doc -p texbib` clean, rest of the workspace untouched (one new member in the root
+`Cargo.toml`, no other crate depends on it yet). No rung-4 gate: a library crate with no caller.
+Two commits, as with S6.1: the parser and its unit tests (`6b355fa`), then the harness and
+fixtures, because together they run past the ~400-line guideline and the split is a real seam.
+
+1. **The grammar is BibTeX's own, with one deliberate narrowing.** Names (types, keys, fields,
+   macros) are any run of characters that is not whitespace and not `" # % ' ( ) , = { }` —
+   BibTeX's definition, which is why `van-der-berg:2020.v2` is a key. This parser also excludes
+   `@`, which BibTeX permits: no real file uses one in a name, and treating it as "the next item
+   starts here" is what makes a missing value at the end of an entry a one-line error instead
+   of swallowing the following entry as a macro name. Found by the first recovery test, not
+   guessed; the module doc says so.
+2. **Recovery prefers an `@` that starts a line.** The obvious "next `@`" would resume inside
+   the broken entry's own `email = {a@b.org}`. `broken-middle` proves both the rule and its
+   reason: entry two runs into entry three's `@`, the error span is exactly entry two, and
+   entries one, three and five are untouched.
+3. **The fixtures caught a serialisation bug the unit tests could not see.** `Item` was tagged
+   `#[serde(tag = "kind")]` and `Entry` had a field named `kind`; serde's internal tagging
+   flattens the struct into the same object, so every entry serialised as `"kind": "article"`
+   with its item tag silently overwritten — an `expected.json` reader could not have told an
+   entry from anything else. Now `tag = "item"` and `Entry::entry_type`. Only visible because
+   the harness compares JSON, which is exactly why it compares JSON.
+4. **Fixtures are hand-written in known shapes, and the README says so plainly.** `texlog`'s
+   are real captures because TeX's log format is undocumented and overturned three of the first
+   five rules; `.bib` syntax is small and stable, and the seven shapes here (Better BibTeX,
+   JabRef, doi.org's one-line reply, a hand-typed file, a broken one, BibLaTeX's `@set`/`@xdata`
+   /`crossref`, a journal's `@preamble` and three spellings of `@string`) are the ones the tools
+   are known to write. The moment a real export parses differently, it replaces the hand-written
+   file. Every fixture is also checked for the byte-for-byte round trip, which is the property
+   S7.6's "append one entry and touch nothing else" rests on.
+
+Not done here, on purpose: name splitting (S7.3, where the completion label needs it); rendering
+an entry back to text and key generation (S7.6); `crossref`/`xdata`/`ids` inheritance (S7.2's
+index, which is the first thing that needs to know two entries are one). `bib` → `texbib` is
+recorded at the top of this sprint's table. The crate carries its `LICENSE` and `README.md` from
+day one so S8.5 is a `cargo publish`, not another S6.5.
 
 ### Sprint 9 — v0.5 speed
 

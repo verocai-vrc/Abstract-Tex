@@ -1,0 +1,402 @@
+[
+  {
+    "item": "entry",
+    "span": {
+      "start": 0,
+      "end": 61
+    },
+    "entryType": "set",
+    "key": "smithcollected",
+    "keySpan": {
+      "start": 5,
+      "end": 19
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 23,
+          "end": 58
+        },
+        "name": "entryset",
+        "valueSpan": {
+          "start": 34,
+          "end": 58
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "smith2019a, smith2019b"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 61,
+      "end": 63
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 63,
+      "end": 166
+    },
+    "entryType": "xdata",
+    "key": "ieeetcbb",
+    "keySpan": {
+      "start": 70,
+      "end": 78
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 82,
+          "end": 141
+        },
+        "name": "journaltitle",
+        "valueSpan": {
+          "start": 97,
+          "end": 141
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "IEEE Transactions on Computational Biology"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 145,
+          "end": 163
+        },
+        "name": "publisher",
+        "valueSpan": {
+          "start": 157,
+          "end": 163
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "IEEE"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 166,
+      "end": 168
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 168,
+      "end": 310
+    },
+    "entryType": "article",
+    "key": "smith2019a",
+    "keySpan": {
+      "start": 177,
+      "end": 187
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 191,
+          "end": 213
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 200,
+          "end": 213
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Smith, Jane"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 217,
+          "end": 235
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 225,
+          "end": 235
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Part One"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 239,
+          "end": 257
+        },
+        "name": "xdata",
+        "valueSpan": {
+          "start": 247,
+          "end": 257
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "ieeetcbb"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 261,
+          "end": 274
+        },
+        "name": "date",
+        "valueSpan": {
+          "start": 268,
+          "end": 274
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2019"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 278,
+          "end": 307
+        },
+        "name": "ids",
+        "valueSpan": {
+          "start": 284,
+          "end": 307
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "smith2019, smith:2019"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 310,
+      "end": 312
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 312,
+      "end": 433
+    },
+    "entryType": "inbook",
+    "key": "smith2019b",
+    "keySpan": {
+      "start": 320,
+      "end": 330
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 334,
+          "end": 356
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 343,
+          "end": 356
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Smith, Jane"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 360,
+          "end": 378
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 368,
+          "end": 378
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Part Two"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 382,
+          "end": 410
+        },
+        "name": "crossref",
+        "valueSpan": {
+          "start": 393,
+          "end": 410
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "proceedings2019"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 414,
+          "end": 430
+        },
+        "name": "pages",
+        "valueSpan": {
+          "start": 422,
+          "end": 430
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "10--20"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 433,
+      "end": 435
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 435,
+      "end": 559
+    },
+    "entryType": "proceedings",
+    "key": "proceedings2019",
+    "keySpan": {
+      "start": 448,
+      "end": 463
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 467,
+          "end": 498
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 475,
+          "end": 498
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Collected Proceedings"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 502,
+          "end": 522
+        },
+        "name": "editor",
+        "valueSpan": {
+          "start": 511,
+          "end": 522
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Doe, John"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 526,
+          "end": 556
+        },
+        "name": "date",
+        "valueSpan": {
+          "start": 533,
+          "end": 556
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2019-09-01/2019-09-03"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 559,
+      "end": 560
+    },
+    "text": "\n"
+  }
+]

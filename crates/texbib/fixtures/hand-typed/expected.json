@@ -1,0 +1,377 @@
+[
+  {
+    "item": "comment",
+    "span": {
+      "start": 0,
+      "end": 50
+    },
+    "text": "% References for the thesis. Keep sorted by key.\n\n"
+  },
+  {
+    "item": "string",
+    "span": {
+      "start": 50,
+      "end": 72
+    },
+    "name": "ieee",
+    "valueSpan": {
+      "start": 65,
+      "end": 71
+    },
+    "value": {
+      "parts": [
+        {
+          "kind": "quoted",
+          "text": "IEEE"
+        }
+      ]
+    }
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 72,
+      "end": 74
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 74,
+      "end": 325
+    },
+    "entryType": "article",
+    "key": "smith2019",
+    "keySpan": {
+      "start": 83,
+      "end": 92
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 96,
+          "end": 133
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 106,
+          "end": 133
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Smith, Jane and Doe, John"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 137,
+          "end": 187
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 147,
+          "end": 187
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "quoted",
+              "text": "A Probabilistic Model of {DNA} Folding"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 191,
+          "end": 248
+        },
+        "name": "journal",
+        "valueSpan": {
+          "start": 201,
+          "end": 248
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "macro",
+              "text": "ieee"
+            },
+            {
+              "kind": "quoted",
+              "text": " Transactions on Computational Biology"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 252,
+          "end": 266
+        },
+        "name": "year",
+        "valueSpan": {
+          "start": 262,
+          "end": 266
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "number",
+              "text": "2019"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 270,
+          "end": 283
+        },
+        "name": "month",
+        "valueSpan": {
+          "start": 280,
+          "end": 283
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "macro",
+              "text": "sep"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 287,
+          "end": 301
+        },
+        "name": "volume",
+        "valueSpan": {
+          "start": 297,
+          "end": 301
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "12"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 305,
+          "end": 322
+        },
+        "name": "pages",
+        "valueSpan": {
+          "start": 315,
+          "end": 322
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1--10"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 325,
+      "end": 327
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 327,
+      "end": 447
+    },
+    "entryType": "book",
+    "key": "knuth84",
+    "keySpan": {
+      "start": 333,
+      "end": 340
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 344,
+          "end": 371
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 353,
+          "end": 371
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Knuth, Donald E."
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 375,
+          "end": 399
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 383,
+          "end": 399
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "The {\\TeX}book"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 403,
+          "end": 431
+        },
+        "name": "publisher",
+        "valueSpan": {
+          "start": 415,
+          "end": 431
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Addison-Wesley"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 435,
+          "end": 446
+        },
+        "name": "year",
+        "valueSpan": {
+          "start": 442,
+          "end": 446
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "number",
+              "text": "1984"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 447,
+      "end": 449
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 449,
+      "end": 589
+    },
+    "entryType": "misc",
+    "key": "web:tectonic",
+    "keySpan": {
+      "start": 456,
+      "end": 468
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 472,
+          "end": 490
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 480,
+          "end": 490
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Tectonic"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 494,
+          "end": 555
+        },
+        "name": "howpublished",
+        "valueSpan": {
+          "start": 509,
+          "end": 555
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "\\url{https://tectonic-typesetting.github.io}"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 559,
+          "end": 587
+        },
+        "name": "note",
+        "valueSpan": {
+          "start": 566,
+          "end": 587
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Accessed 2026-09-17"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 589,
+      "end": 590
+    },
+    "text": "\n"
+  }
+]

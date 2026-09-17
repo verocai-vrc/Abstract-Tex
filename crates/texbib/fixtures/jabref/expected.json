@@ -1,0 +1,392 @@
+[
+  {
+    "item": "comment",
+    "span": {
+      "start": 0,
+      "end": 19
+    },
+    "text": "% Encoding: UTF-8\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 19,
+      "end": 431
+    },
+    "entryType": "Article",
+    "key": "Smith2019",
+    "keySpan": {
+      "start": 28,
+      "end": 37
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 41,
+          "end": 78
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 53,
+          "end": 78
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Jane Smith and John Doe"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 82,
+          "end": 132
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 94,
+          "end": 132
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "A Probabilistic Model of DNA Folding"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 136,
+          "end": 192
+        },
+        "name": "journal",
+        "valueSpan": {
+          "start": 148,
+          "end": 192
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "IEEE Transactions on Computational Biology"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 196,
+          "end": 214
+        },
+        "name": "year",
+        "valueSpan": {
+          "start": 208,
+          "end": 214
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2019"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 218,
+          "end": 234
+        },
+        "name": "volume",
+        "valueSpan": {
+          "start": 230,
+          "end": 234
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "12"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 238,
+          "end": 253
+        },
+        "name": "number",
+        "valueSpan": {
+          "start": 250,
+          "end": 253
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "3"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 257,
+          "end": 276
+        },
+        "name": "pages",
+        "valueSpan": {
+          "start": 269,
+          "end": 276
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1--10"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 280,
+          "end": 318
+        },
+        "name": "doi",
+        "valueSpan": {
+          "start": 292,
+          "end": 318
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "10.1109/TCBB.2019.000001"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 322,
+          "end": 354
+        },
+        "name": "file",
+        "valueSpan": {
+          "start": 334,
+          "end": 354
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": ":Smith2019.pdf:PDF"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 358,
+          "end": 378
+        },
+        "name": "groups",
+        "valueSpan": {
+          "start": 370,
+          "end": 378
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "thesis"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 382,
+          "end": 400
+        },
+        "name": "owner",
+        "valueSpan": {
+          "start": 394,
+          "end": 400
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "jane"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 404,
+          "end": 428
+        },
+        "name": "timestamp",
+        "valueSpan": {
+          "start": 416,
+          "end": 428
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2026-09-17"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 431,
+      "end": 433
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 433,
+      "end": 567
+    },
+    "entryType": "Book",
+    "key": "Knuth1984",
+    "keySpan": {
+      "start": 439,
+      "end": 448
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 452,
+          "end": 481
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 464,
+          "end": 481
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Donald E. Knuth"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 485,
+          "end": 510
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 497,
+          "end": 510
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "The TeXbook"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 514,
+          "end": 532
+        },
+        "name": "year",
+        "valueSpan": {
+          "start": 526,
+          "end": 532
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1984"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 536,
+          "end": 564
+        },
+        "name": "publisher",
+        "valueSpan": {
+          "start": 548,
+          "end": 564
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Addison-Wesley"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 567,
+      "end": 569
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 569,
+      "end": 612
+    },
+    "text": "jabref-meta: databaseType:bibtex;"
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 612,
+      "end": 614
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 614,
+      "end": 713
+    },
+    "text": "jabref-meta: grouping:\n0 AllEntriesGroup:;\n1 StaticGroup:thesis\\;0\\;1\\;0x8a8a8aff\\;\\;\\;;\n"
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 713,
+      "end": 714
+    },
+    "text": "\n"
+  }
+]

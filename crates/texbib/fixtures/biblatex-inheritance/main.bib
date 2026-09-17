@@ -1,0 +1,29 @@
+@set{smithcollected,
+  entryset = {smith2019a, smith2019b},
+}
+
+@xdata{ieeetcbb,
+  journaltitle = {IEEE Transactions on Computational Biology},
+  publisher = {IEEE},
+}
+
+@article{smith2019a,
+  author = {Smith, Jane},
+  title = {Part One},
+  xdata = {ieeetcbb},
+  date = {2019},
+  ids = {smith2019, smith:2019},
+}
+
+@inbook{smith2019b,
+  author = {Smith, Jane},
+  title = {Part Two},
+  crossref = {proceedings2019},
+  pages = {10--20},
+}
+
+@proceedings{proceedings2019,
+  title = {Collected Proceedings},
+  editor = {Doe, John},
+  date = {2019-09-01/2019-09-03},
+}

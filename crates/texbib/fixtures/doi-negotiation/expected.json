@@ -1,0 +1,245 @@
+[
+  {
+    "item": "entry",
+    "span": {
+      "start": 0,
+      "end": 392
+    },
+    "entryType": "article",
+    "key": "Smith_2019",
+    "keySpan": {
+      "start": 9,
+      "end": 19
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 21,
+          "end": 65
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 27,
+          "end": 65
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "A Probabilistic Model of DNA Folding"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 67,
+          "end": 78
+        },
+        "name": "volume",
+        "valueSpan": {
+          "start": 74,
+          "end": 78
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "12"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 80,
+          "end": 96
+        },
+        "name": "ISSN",
+        "valueSpan": {
+          "start": 85,
+          "end": 96
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1545-5963"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 98,
+          "end": 146
+        },
+        "name": "url",
+        "valueSpan": {
+          "start": 102,
+          "end": 146
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "http://dx.doi.org/10.1109/TCBB.2019.000001"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 148,
+          "end": 178
+        },
+        "name": "DOI",
+        "valueSpan": {
+          "start": 152,
+          "end": 178
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "10.1109/tcbb.2019.000001"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 180,
+          "end": 190
+        },
+        "name": "number",
+        "valueSpan": {
+          "start": 187,
+          "end": 190
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "3"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 192,
+          "end": 244
+        },
+        "name": "journal",
+        "valueSpan": {
+          "start": 200,
+          "end": 244
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "IEEE Transactions on Computational Biology"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 246,
+          "end": 314
+        },
+        "name": "publisher",
+        "valueSpan": {
+          "start": 256,
+          "end": 314
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Institute of Electrical and Electronics Engineers (IEEE)"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 316,
+          "end": 350
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 323,
+          "end": 350
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Smith, Jane and Doe, John"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 352,
+          "end": 363
+        },
+        "name": "year",
+        "valueSpan": {
+          "start": 357,
+          "end": 363
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2019"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 365,
+          "end": 374
+        },
+        "name": "month",
+        "valueSpan": {
+          "start": 371,
+          "end": 374
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "macro",
+              "text": "sep"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 376,
+          "end": 390
+        },
+        "name": "pages",
+        "valueSpan": {
+          "start": 382,
+          "end": 390
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1–10"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

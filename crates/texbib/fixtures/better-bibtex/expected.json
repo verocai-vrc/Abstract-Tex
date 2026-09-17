@@ -1,0 +1,592 @@
+[
+  {
+    "item": "comment",
+    "span": {
+      "start": 0,
+      "end": 1
+    },
+    "text": "\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 1,
+      "end": 820
+    },
+    "entryType": "article",
+    "key": "smithProbabilisticModel2019",
+    "keySpan": {
+      "start": 10,
+      "end": 37
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 41,
+          "end": 91
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 49,
+          "end": 91
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "A Probabilistic Model of {{DNA}} Folding"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 95,
+          "end": 131
+        },
+        "name": "shorttitle",
+        "valueSpan": {
+          "start": 108,
+          "end": 131
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Probabilistic {{DNA}}"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 135,
+          "end": 171
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 144,
+          "end": 171
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Smith, Jane and Doe, John"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 175,
+          "end": 191
+        },
+        "name": "date",
+        "valueSpan": {
+          "start": 182,
+          "end": 191
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2019-09"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 195,
+          "end": 254
+        },
+        "name": "journaltitle",
+        "valueSpan": {
+          "start": 210,
+          "end": 254
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "IEEE Transactions on Computational Biology"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 258,
+          "end": 300
+        },
+        "name": "shortjournal",
+        "valueSpan": {
+          "start": 273,
+          "end": 300
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "IEEE Trans. Comput. Biol."
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 304,
+          "end": 317
+        },
+        "name": "volume",
+        "valueSpan": {
+          "start": 313,
+          "end": 317
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "12"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 321,
+          "end": 333
+        },
+        "name": "number",
+        "valueSpan": {
+          "start": 330,
+          "end": 333
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "3"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 337,
+          "end": 352
+        },
+        "name": "pages",
+        "valueSpan": {
+          "start": 345,
+          "end": 352
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1--10"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 356,
+          "end": 374
+        },
+        "name": "issn",
+        "valueSpan": {
+          "start": 363,
+          "end": 374
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "1545-5963"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 378,
+          "end": 410
+        },
+        "name": "doi",
+        "valueSpan": {
+          "start": 384,
+          "end": 410
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "10.1109/TCBB.2019.000001"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 414,
+          "end": 462
+        },
+        "name": "url",
+        "valueSpan": {
+          "start": 420,
+          "end": 462
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "https://doi.org/10.1109/TCBB.2019.000001"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 466,
+          "end": 488
+        },
+        "name": "urldate",
+        "valueSpan": {
+          "start": 476,
+          "end": 488
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2026-09-17"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 492,
+          "end": 644
+        },
+        "name": "abstract",
+        "valueSpan": {
+          "start": 503,
+          "end": 644
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "We present a model. It has several parts, described over\nseveral lines because the export tool wraps long abstracts at the\ncolumn it likes."
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 648,
+          "end": 666
+        },
+        "name": "langid",
+        "valueSpan": {
+          "start": 657,
+          "end": 666
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "english"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 670,
+          "end": 708
+        },
+        "name": "keywords",
+        "valueSpan": {
+          "start": 681,
+          "end": 708
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "dna,folding,probabilistic"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 712,
+          "end": 818
+        },
+        "name": "file",
+        "valueSpan": {
+          "start": 719,
+          "end": 818
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "/home/jane/Zotero/storage/ABCD1234/Smith et al. - 2019 - A Probabilistic Model of DNA Folding.pdf"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 820,
+      "end": 822
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 822,
+      "end": 998
+    },
+    "entryType": "online",
+    "key": "tectonicDocs",
+    "keySpan": {
+      "start": 830,
+      "end": 842
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 846,
+          "end": 878
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 854,
+          "end": 878
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Tectonic Documentation"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 882,
+          "end": 929
+        },
+        "name": "url",
+        "valueSpan": {
+          "start": 888,
+          "end": 929
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "https://tectonic-typesetting.github.io/"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 933,
+          "end": 955
+        },
+        "name": "urldate",
+        "valueSpan": {
+          "start": 943,
+          "end": 955
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2026-09-17"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 959,
+          "end": 996
+        },
+        "name": "organization",
+        "valueSpan": {
+          "start": 974,
+          "end": 996
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "The Tectonic Project"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 998,
+      "end": 1000
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 1000,
+      "end": 1241
+    },
+    "entryType": "inproceedings",
+    "key": "doeFastCompilation2021",
+    "keySpan": {
+      "start": 1015,
+      "end": 1037
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 1041,
+          "end": 1086
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 1049,
+          "end": 1086
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Fast Compilation of Large Documents"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 1090,
+          "end": 1155
+        },
+        "name": "booktitle",
+        "valueSpan": {
+          "start": 1102,
+          "end": 1155
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Proceedings of the 2021 {{TeX}} Users Group Meeting"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 1159,
+          "end": 1179
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 1168,
+          "end": 1179
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Doe, John"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 1183,
+          "end": 1196
+        },
+        "name": "date",
+        "valueSpan": {
+          "start": 1190,
+          "end": 1196
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "2021"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 1200,
+          "end": 1216
+        },
+        "name": "pages",
+        "valueSpan": {
+          "start": 1208,
+          "end": 1216
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "45--52"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 1220,
+          "end": 1239
+        },
+        "name": "publisher",
+        "valueSpan": {
+          "start": 1232,
+          "end": 1239
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "{TUG}"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 1241,
+      "end": 1242
+    },
+    "text": "\n"
+  }
+]

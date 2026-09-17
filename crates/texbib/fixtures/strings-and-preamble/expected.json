@@ -1,0 +1,239 @@
+[
+  {
+    "item": "preamble",
+    "span": {
+      "start": 0,
+      "end": 80
+    },
+    "value": {
+      "parts": [
+        {
+          "kind": "quoted",
+          "text": "\\newcommand{\\noop}[1]{}"
+        },
+        {
+          "kind": "quoted",
+          "text": "\\providecommand{\\url}[1]{\\texttt{#1}}"
+        }
+      ]
+    }
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 80,
+      "end": 82
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "string",
+    "span": {
+      "start": 82,
+      "end": 102
+    },
+    "name": "acm",
+    "valueSpan": {
+      "start": 96,
+      "end": 101
+    },
+    "value": {
+      "parts": [
+        {
+          "kind": "quoted",
+          "text": "ACM"
+        }
+      ]
+    }
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 102,
+      "end": 103
+    },
+    "text": "\n"
+  },
+  {
+    "item": "string",
+    "span": {
+      "start": 103,
+      "end": 138
+    },
+    "name": "sigplan",
+    "valueSpan": {
+      "start": 121,
+      "end": 137
+    },
+    "value": {
+      "parts": [
+        {
+          "kind": "macro",
+          "text": "acm"
+        },
+        {
+          "kind": "quoted",
+          "text": " SIGPLAN"
+        }
+      ]
+    }
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 138,
+      "end": 139
+    },
+    "text": "\n"
+  },
+  {
+    "item": "string",
+    "span": {
+      "start": 139,
+      "end": 162
+    },
+    "name": "jan",
+    "valueSpan": {
+      "start": 154,
+      "end": 160
+    },
+    "value": {
+      "parts": [
+        {
+          "kind": "quoted",
+          "text": "Jan."
+        }
+      ]
+    }
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 162,
+      "end": 164
+    },
+    "text": "\n\n"
+  },
+  {
+    "item": "entry",
+    "span": {
+      "start": 164,
+      "end": 295
+    },
+    "entryType": "article",
+    "key": "doe2020",
+    "keySpan": {
+      "start": 173,
+      "end": 180
+    },
+    "fields": [
+      {
+        "span": {
+          "start": 184,
+          "end": 204
+        },
+        "name": "author",
+        "valueSpan": {
+          "start": 193,
+          "end": 204
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "Doe, John"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 208,
+          "end": 228
+        },
+        "name": "title",
+        "valueSpan": {
+          "start": 216,
+          "end": 228
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "braced",
+              "text": "On Strings"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 232,
+          "end": 262
+        },
+        "name": "journal",
+        "valueSpan": {
+          "start": 242,
+          "end": 262
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "macro",
+              "text": "sigplan"
+            },
+            {
+              "kind": "quoted",
+              "text": " Notices"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 266,
+          "end": 277
+        },
+        "name": "month",
+        "valueSpan": {
+          "start": 274,
+          "end": 277
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "macro",
+              "text": "jan"
+            }
+          ]
+        }
+      },
+      {
+        "span": {
+          "start": 281,
+          "end": 292
+        },
+        "name": "year",
+        "valueSpan": {
+          "start": 288,
+          "end": 292
+        },
+        "value": {
+          "parts": [
+            {
+              "kind": "number",
+              "text": "2020"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "item": "comment",
+    "span": {
+      "start": 295,
+      "end": 296
+    },
+    "text": "\n"
+  }
+]
