@@ -1422,7 +1422,7 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 | [~] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
 | [~] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
 | [~] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
-| [ ] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
+| [~] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
 
 **S6.1 (17 September 2026).** `[~]`: 16 new rules landed (the catalog: 6 → 22, roughly half of
 DESIGN.md §5.2's "about forty"), each with its own real Tectonic 0.17.0 capture — `cargo test -p
@@ -1811,6 +1811,73 @@ needs the source line, which only the editor has); a chapter for every one of th
 is the exit criterion's own number and the rest have their own fixtures; and any mistake in
 `preamble.tex` itself, which would halt before every chapter and turn the walk into twenty-one
 different documents. S6.5 (`texlog` as its own crate) is next and the last of sprint 6.
+
+**S6.5 (17 September 2026).** `[~]`: everything short of the upload is done and proven —
+`cargo package -p texlog` builds the crate from its own tarball outside the workspace (154 files,
+313 KiB, 71 KiB compressed), all 143 tests pass when run *from that tarball*, `cargo publish
+--dry-run` reaches the upload step and stops only because it is a dry run, `RUSTDOCFLAGS="-D
+warnings" cargo doc -p texlog` is clean, and the crate name `texlog` is free on crates.io
+(checked against the registry API). `[~]` because the one remaining step — `cargo publish -p
+texlog` — needs the maintainer's crates.io token and is a public, irreversible act, so it is the
+maintainer's to run, not an agent's. Rungs 1–2 otherwise green: `cargo test -p texlog` 143 passed,
+`cargo clippy -p texlog --all-targets -- -D warnings` clean, `cargo test --workspace --exclude
+preamble` green apart from the two failures already in the ledger and untouched here (the synctex
+fixture bound to the original Windows path; the LSP frame test that deadlocks on Linux's pipe
+buffer), and the app crate still cannot build here, the standing gate since S3.1. The card,
+expanded:
+
+```
+Loop      S6.5 · texlog published as its own MIT crate · S
+Reads     DESIGN.md §10 (licence row), §5.2; crates/texlog/src/lib.rs (the "never read a file" rule)
+Depends   S6.1
+Files     crates/texlog/Cargo.toml, crates/texlog/LICENSE, crates/texlog/README.md,
+          crates/texlog/src/{lib,rules,tokenizer,resolver}.rs (docs only), README.md, 0.1/DESIGN.md
+Build     Give the crate its own licence, version, readme and package metadata; make its public
+          docs readable by someone who has never seen this repository; prove it builds and
+          tests from the packaged tarball alone.
+Verify    cargo package -p texlog && (cd target/package/texlog-0.1.0 && cargo test)
+          cargo publish -p texlog --dry-run
+          RUSTDOCFLAGS="-D warnings" cargo doc -p texlog --no-deps
+Done when the tarball builds and tests standalone, the dry run reaches upload, and
+          `cargo publish -p texlog` is the only command left.
+```
+
+1. **The crate was already extractable; what it lacked was everything a stranger sees first.**
+   S5.1's "text in, data out" rule held all the way through S6.4 — `cargo package` needed no code
+   change to build outside the workspace, and `build.rs`'s fixture-directory scan works from the
+   tarball because the fixtures are shipped with it (on purpose: without them the crate would
+   build but be untestable by anyone who pulled it, and the whole claim of the crate is that its
+   tests are real captures). What was missing: the licence was the workspace's AGPL, there was no
+   `LICENSE` or `README.md` in the crate, and `lib.rs`'s own doc opened with a sprint-loop history
+   (`S5.6 wired the resolver in…`) that means nothing on docs.rs. The new crate-level doc says
+   what the crate is and where to start; the internal sprint references stay in the module docs
+   below it, where a reader who has come that far has the context.
+2. **`-D warnings` on rustdoc found six links to private items, and `missing_docs` found nine
+   undocumented public fields.** Both were invisible to `pnpm verify`, which never runs rustdoc.
+   The links (`[`Rule`]`, `[`CATALOG`]`, `[`WRAP_COLUMN`]`…) are plain code spans now; the fields
+   have one-line docs; and `#![warn(missing_docs)]` sits at the top of `lib.rs` so that clippy's
+   `-D warnings` — which *is* in the gate — fails on the next undocumented public item before it
+   can reach crates.io.
+3. **Version and licence are unpinned from the workspace; nothing else is.** A library's version
+   moves when its API moves, not when the app ships, so `texlog` is `0.1.0` on its own line while
+   `edition`, `repository` and `rust-version` still inherit. `repository` therefore points at the
+   monorepo, which is honest: that is where the crate lives and where issues go.
+4. **The README example is compiled and run, not just written.** Pasted into a scratch binary
+   against the packaged crate and run on `fixtures/broken-underscore/main.log`, it prints
+   `main.tex:5 [Error] _ used outside maths — …` with the `Escape as \_` fix. Not a doctest,
+   because the crate has no `main.log` to read at doc-test time and `lib.rs` should keep its
+   own, shorter orientation rather than duplicate the README.
+
+**Sprint 6 outcome.** Five loops; four `[x]`-equivalent in substance, every one `[~]` for the
+same single reason — no WebKitGTK on this machine, so rung 4 (the app itself) has not been walked
+since S3.1 — plus S6.5's upload. The v0.3 exit criterion (DESIGN.md §7: a purpose-built
+twenty-error document, every error to the correct file and line with a plain-language
+explanation, no raw log by default) is met by the real engine in `crates/preamble-engine/tests/
+torture.rs` and recorded in `fixtures/torture/captures/`; `fixtures/torture/SMOKE.md` is the same
+walk by hand, waiting on a webview. Left for the maintainer, in order: `cargo publish -p texlog`;
+a machine with WebKitGTK to walk `SMOKE.md` and flip S6.2–S6.4 to `[x]`. Sprint 7 (bibliography)
+is next, and it starts by bundling `biber`, which is also the one thing that would let `texlog`
+grow a `biblatex` rule.
 
 ### Sprint 7–8 — v0.4 bibliography
 

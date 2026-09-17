@@ -188,9 +188,10 @@ conventions an agent (or a person) follows when working here.
 
 ## Licence
 
-Proposed: **AGPL-3.0** for the application — it prevents a proprietary hosted fork, which is the
-specific threat here. The reusable log parser and bibliography libraries will be published
-separately under **MIT** so the wider TeX ecosystem can use them. To be confirmed in sprint 1.
+**AGPL-3.0** for the application — it prevents a proprietary hosted fork, which is the specific
+threat here. The reusable libraries are published separately under **MIT** so the wider TeX
+ecosystem can use them: `crates/texlog` (the log parser) carries its own `LICENSE` and is the
+`texlog` crate on crates.io; the bibliography library will follow the same route at v0.4.
 
 ## Platforms
 

@@ -19,7 +19,7 @@
 //!   no text-only rule that tells these two apart; the only way to be sure would be to check
 //!   whether `plainchapter` is a real path in the project, which this crate is chartered
 //!   (`lib.rs`) to never do — it never reads a file. This is accepted as a real, irreducible
-//!   limitation rather than hidden: [`looks_like_a_file`] returns `false` for both, so a
+//!   limitation rather than hidden: `looks_like_a_file` returns `false` for both, so a
 //!   diagnostic inside a bare extensionless `\input` resolves to its *parent* file instead of
 //!   itself until a caller with access to the real file tree can improve on this.
 //! - **What does work: a directory separator, or an extension, anywhere in the candidate.** A

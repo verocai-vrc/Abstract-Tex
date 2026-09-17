@@ -1,17 +1,26 @@
-//! TeX log parsing — the differentiating subsystem (DESIGN.md §5.2).
+//! Parses a TeX `.log` file into diagnostics a person can act on: which file, which line, a
+//! plain-language explanation, and — when the correction cannot be wrong — a [`Fix`].
 //!
-//! **S5.6 wired the resolver in.** [`rules::diagnostics`] now scans [`tokenizer::tokenize`]'s
-//! unwrapped, classified lines and resolves each one's file with [`resolver::open_files`], so a
-//! [`rules::Diagnostic`] carries a real `file` alongside its `line`. [`quick_errors`] below is
-//! kept as the original raw, un-unwrapped scan — simpler, and still what a handful of this
-//! crate's own tests reach for directly — but `diagnostics` no longer calls it; see
-//! `rules.rs`'s own module doc for the scan it uses instead.
+//! Start at [`diagnostics`]: it runs the whole pipeline — [`tokenizer::tokenize`] undoes the
+//! transcript writer's 79-column wrap and classifies each line, [`resolver::open_files`] walks
+//! the `(`/`)` trail to decide which file was open at each one, and [`rules`]'s catalog turns
+//! TeX's own wording into a sentence. Each layer is public on its own for callers that need
+//! less than all three.
 //!
-//! This crate must never read a file, spawn anything, or know about the editor. Text in, data
-//! out, so it can be extracted as a standalone MIT crate at S6.5.
+//! **This crate must never read a file, spawn anything, or know about the editor.** Text in,
+//! data out. That rule is what lets it be published on its own (MIT) and used from a GUI, an
+//! LSP, a CI check or a shell script alike; every module doc restates it where it bites.
 //!
-//! [`quick_errors`] is the raw scan. [`rules::diagnostics`] is what the app should call: it runs
-//! the scan through the rule catalog and returns sentences instead of TeX's own wording.
+//! [`quick_errors`] is the original raw scan — no unwrapping, no file resolution — kept because
+//! it is simpler and a handful of this crate's own tests reach for it directly. `diagnostics`
+//! no longer calls it; `rules.rs`'s own module doc describes the scan it uses instead.
+//!
+//! Every rule ships with a real log captured from a real engine run, under `fixtures/`, and
+//! `build.rs` turns each into a test. `fixtures/README.md` records what each capture taught.
+
+// Every public item must carry a doc comment. `-D warnings` in the verify gate turns this into
+// an error, so an undocumented field cannot reach crates.io.
+#![warn(missing_docs)]
 
 pub mod resolver;
 pub mod rules;

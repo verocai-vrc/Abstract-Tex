@@ -2,15 +2,15 @@
 //!
 //! Owns: recognising a small set of known failures and explaining them in complete sentences.
 //! It must never read a file, spawn anything, or know about the editor — text in, data out —
-//! so this crate can be extracted as a standalone MIT crate at S6.5.
+//! so this crate can be published on its own under MIT (S6.5).
 //!
 //! **Six rule ids of about forty (S2.6's five errors, one split into two ids), landed early in
 //! sprint 2 so the v0.1 demo could show an explanation instead of a raw log (SPRINTS.md §2)
-//! rather than waiting for the sprint the rule catalog otherwise belongs to.** [`Rule`] is the
-//! matcher-plus-explanation-plus-optional-fix shape every entry in [`CATALOG`] implements
-//! (S5.5); [`FnRule`] is the one implementation this crate needs today, wrapping the plain
+//! rather than waiting for the sprint the rule catalog otherwise belongs to.** `Rule` is the
+//! matcher-plus-explanation-plus-optional-fix shape every entry in `CATALOG` implements
+//! (S5.5); `FnRule` is the one implementation this crate needs today, wrapping the plain
 //! functions each of these six rules already had. A future rule with no logic at all — a fixed
-//! prefix and a fixed sentence, no dynamic content — would implement [`Rule`] directly instead,
+//! prefix and a fixed sentence, no dynamic content — would implement `Rule` directly instead,
 //! as pure data with no `fn`. *Applying* a fix is still not here — this crate only ever
 //! describes one, per its own "never read a file" rule above — S6.2 is the frontend's
 //! `OpenDocument.applyFix` (`src/lib/document.ts`), which does the actual find/replace through
@@ -60,6 +60,7 @@ pub struct Diagnostic {
     /// *parent* file rather than itself; `resolver.rs`'s own module doc names this as a real,
     /// irreducible limit of text-only resolution, not a bug in this field.
     pub file: Option<String>,
+    /// Whether the build stopped here or merely noticed something.
     pub severity: Severity,
     /// The rule that recognised this, or `None` when nothing in the catalog matched and
     /// `explanation` is a fallback built from TeX's own message.
@@ -82,20 +83,23 @@ pub struct Diagnostic {
 pub struct Fix {
     /// Shown on the button, e.g. "Escape as \_".
     pub description: String,
+    /// The literal text to look for on the diagnostic's own line. Chosen by each rule so that it
+    /// cannot match anything but the mistake — if it could, the rule offers no fix at all.
     pub find: String,
+    /// What to put in its place.
     pub replace: String,
 }
 
-/// What every entry in [`CATALOG`] must be able to do: recognise a message, explain it, and
+/// What every entry in `CATALOG` must be able to do: recognise a message, explain it, and
 /// optionally offer a [`Fix`]. `fix` defaults to `None` because that is the common case —
 /// DESIGN.md §5.2 is explicit that most rules have nothing safe to offer.
 ///
-/// [`CATALOG`] holds these as *trait objects* (`&dyn Rule`, a fat pointer of data plus a vtable
+/// `CATALOG` holds these as *trait objects* (`&dyn Rule`, a fat pointer of data plus a vtable
 /// of these three methods) rather than one concrete type, because not every rule S6.1 adds will
 /// need the same shape: some will be pure data (a fixed prefix, a fixed sentence, no logic at
-/// all), others will need real code the way [`explain_missing_dollar`] does (picking between
+/// all), others will need real code the way `explain_missing_dollar` does (picking between
 /// "subscript" and "superscript"). A trait lets both kinds sit in the same slice; today
-/// [`FnRule`] is the only implementation this crate needs, since none of its six rules are simple
+/// `FnRule` is the only implementation this crate needs, since none of its six rules are simple
 /// enough yet to be pure data.
 trait Rule {
     /// Stable identifier, used by tests and shown to nobody.
@@ -111,10 +115,10 @@ trait Rule {
     }
 }
 
-/// A [`Rule`] built from plain functions — what every rule in this catalog is today.
+/// A `Rule` built from plain functions — what every rule in this catalog is today.
 /// `fn(&QuickError) -> bool` is a *function pointer*, not a closure: every one of these is
 /// written with no captured state, so a `FnRule` value needs no allocation and can be built
-/// straight inside the `const` [`CATALOG`] slice below.
+/// straight inside the `const` `CATALOG` slice below.
 struct FnRule {
     id: &'static str,
     severity: Severity,
@@ -690,7 +694,7 @@ fn explain_undefined_control_sequence(error: &QuickError) -> (String, String) {
 }
 
 /// The character that broke maths mode, and its name — the two shapes this crate recognises.
-/// Shared between the explanation ([`explain_missing_dollar`]) and the fix
+/// Shared between the explanation (`explain_missing_dollar`) and the fix
 /// ([`fix_missing_dollar`]) so the two can never end up naming different symbols for the same
 /// error.
 fn detect_math_symbol(context: &str) -> Option<(&'static str, &'static str)> {

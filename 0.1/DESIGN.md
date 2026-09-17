@@ -12,7 +12,7 @@ v1.0 release. Everything here is revisable — but revise it here first, then in
 |---|---|
 | **Status** | Pre-sprint 1 |
 | **Roadmap** | 16 sprints (~7.5 months full-time; double it solo and part-time) |
-| **Licence (proposed)** | AGPL-3.0 for the app; MIT for the extracted libraries |
+| **Licence** | AGPL-3.0 for the app; MIT for the extracted libraries (`texlog` from S6.5) |
 | **Platforms** | Windows · macOS · Linux |
 
 ---

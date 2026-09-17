@@ -12,7 +12,7 @@
 //! disambiguation problem right in the same pass.
 //!
 //! Text in, data out, same as the rest of this crate (`lib.rs`'s module doc explains why: this
-//! crate is extracted as a standalone MIT crate at S6.5, so it must never read a file or know
+//! crate is published on its own under MIT (S6.5), so it must never read a file or know
 //! about the editor).
 
 /// How a logical line of the log begins. Every one of TeX's own structural markers — an error,
@@ -26,12 +26,20 @@ pub enum LineKind {
     Error(String),
     /// `l.NN <context>` — TeX's own line-number claim, frequently approximate, and the source
     /// excerpt printed after it.
-    LineMarker { line: u32, context: String },
+    LineMarker {
+        /// The `NN` in `l.NN`.
+        line: u32,
+        /// The source excerpt TeX printed after the number, up to the point it broke the line.
+        context: String,
+    },
     /// A warning banner: `LaTeX Warning:`, `LaTeX Font Warning:`, `Package <name> Warning:`,
     /// `Class <name> Warning:`, and any workalike where `Warning: ` appears close enough to the
     /// start of the line to be the "who is warning" prefix rather than a coincidence deep inside
     /// unrelated prose. `message` is the text after `Warning: `.
-    Warning { message: String },
+    Warning {
+        /// The text after `Warning: `.
+        message: String,
+    },
     /// Neither of the above — the bulk of a log: package banners, font tables, page numbers,
     /// prose warnings' second line, and everything else. Its own `(`/`)` occurrences (if any)
     /// are still reported in `LogLine::parens`, since a file can open on a line that is *also* a
@@ -47,6 +55,7 @@ pub enum LineKind {
 /// for the pathological cases this loop's card asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParenEvent {
+    /// A `(`, with the token that follows it.
     Open {
         /// Byte offset of the `(` within the logical line's own text.
         at: usize,
@@ -54,6 +63,7 @@ pub enum ParenEvent {
         /// starts) immediately after it.
         candidate: String,
     },
+    /// A `)`.
     Close {
         /// Byte offset of the `)` within the logical line's own text.
         at: usize,
@@ -63,6 +73,7 @@ pub enum ParenEvent {
 /// One logical line: already unwrapped, classified, and with its own paren events extracted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogLine {
+    /// What kind of line this is, judged by how it begins.
     pub kind: LineKind,
     /// The full unwrapped text, kept for the "raw log" affordance and so a caller with its own
     /// classification needs can still get at it.
@@ -79,7 +90,7 @@ pub struct LogLine {
 /// confirms in this project's own bundled engine.
 const WRAP_COLUMN: usize = 79;
 
-/// Undo the 79-column wrap: a *physical* line whose own length is exactly [`WRAP_COLUMN`]
+/// Undo the 79-column wrap: a *physical* line whose own length is exactly `WRAP_COLUMN`
 /// characters continues, with no separator, on the next physical line — and if that next
 /// physical line is *itself* also exactly `WRAP_COLUMN` characters long, the chain continues
 /// again, and so on. This is checked against each raw physical line's own length, not the

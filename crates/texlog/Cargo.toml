@@ -1,12 +1,23 @@
 [package]
 name = "texlog"
-description = "Parses TeX .log files into diagnostics a person can act on. Future MIT crate (DESIGN.md §10)."
-version.workspace = true
+description = "Parses TeX .log files into diagnostics a person can act on: file, line, a plain-language explanation, and sometimes a fix"
+# Its own version and licence, not the workspace's (S6.5): this crate is published on its own
+# under MIT (DESIGN.md §10) while the application around it stays AGPL, and a library's version
+# must move when *its* API moves, not when the app ships. The rest of the metadata still comes
+# from the workspace, since the crate lives in the same repository.
+version = "0.1.0"
+license = "MIT"
+readme = "README.md"
+keywords = ["latex", "tex", "log", "parser", "diagnostics"]
+categories = ["parser-implementations", "text-processing"]
 edition.workspace = true
-# Slated for MIT on extraction at S6.5; AGPL like the rest of the workspace until then.
-license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+# Everything a `cargo publish` needs and nothing else. The fixtures are shipped on purpose: every
+# rule's test is a real log under `fixtures/`, and `build.rs` generates the tests from the
+# directory listing, so a crate without them would build but be untestable by anyone who pulled
+# it from crates.io. About 300 KB, 70 KB compressed — well under the registry's limit.
+include = ["/src", "/tests", "/fixtures", "/build.rs", "/README.md", "/LICENSE"]
 
 [dependencies]
 serde = { workspace = true }
