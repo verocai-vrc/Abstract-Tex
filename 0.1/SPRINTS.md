@@ -1418,11 +1418,67 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
+| [~] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
 | [ ] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
 | [ ] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
 | [ ] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
 | [ ] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
+
+**S6.1 (17 September 2026).** `[~]`: 16 new rules landed (the catalog: 6 → 22, roughly half of
+DESIGN.md §5.2's "about forty"), each with its own real Tectonic 0.17.0 capture — `cargo test -p
+texlog` 111 passed (83 lib, 28 fixture, up from 84), `cargo clippy -p texlog --all-targets -- -D
+warnings` clean, rest of the workspace unaffected (no Rust or frontend file outside `crates/texlog`
+touched). `[~]`, not `[x]`, for an honest reason: eighteen rules short of "about forty", and
+`biblatex` — one of the four packages DESIGN.md names — has no rule at all, because its own errors
+need `biber`, a second binary this project does not yet bundle or invoke. No rung-4 gate: a pure
+library-crate loop, same as every loop in sprint 5.
+
+**Split into three commits, not one, because the whole batch would have run past CLAUDE.md's own
+~400-line-of-Rust guideline for a single loop.** Each is its own coherent group rather than an
+arbitrary cut: rules 7–15 (structural mistakes with no package involved), rules 16–20
+(package-specific: babel, `kvsetkeys`/hyperref, tikz, xcolor, fontspec), rules 21–22 (overfull and
+underfull boxes, which needed a third scan function, `box_warnings`, since neither message is an
+`!` error or a `Warning:` banner). Built once as a whole session, then reconstructed commit-by-commit
+onto the S5.6 baseline and diffed against the original afterward to confirm the split changed no
+code, only the grouping comments — worth naming since a mechanical split like this is exactly the
+kind of step that could quietly drop or duplicate a rule without anyone noticing until a fixture
+failed weeks later.
+
+1. **Every new rule's fixture is a real capture, and the discipline kept paying for itself.** Three
+   of the sixteen (`misplaced-alignment-tab`, `undefined-environment`, `tikz-unknown-key`) already
+   existed from S5.4, pinned then as honest long-tail fallbacks (`rule: null`) for exactly this loop
+   to close. `tikz-unknown-key` is also the fixture that confirms S5.6's own wiring paid off for a
+   *new* rule, not just the six existing ones: before S5.6, `raw_message` was truncated mid-word at
+   the 79-column wrap; the rule matches and explains the full sentence now.
+2. **A `\PackageError` message's own multi-line continuation is not the same thing as a 79-column
+   hard wrap, and two real captures caught the difference before it became a bug report.**
+   `font-not-found` and `babel-unknown-language` both have `raw_message` truncated mid-sentence —
+   not from the wrap `tokenizer.rs` already handles, but from `\PackageError`'s own
+   `(packagename)`-prefixed continuation lines, a different mechanism the transcript writer's
+   79-column rule was never designed to undo. Neither rule's matcher or explanation depends on the
+   missing text, so nothing here is broken, but it is a real, general gap — logged in
+   `bugs-issues-fixes.md` with both fixtures' exact byte counts, for whichever rule needs the full
+   message next.
+3. **`unknown-key-value-option` is honest about what the message actually says.** `\hypersetup`'s
+   own unrecognised-option error comes from `kvsetkeys`, the shared key-value parser several
+   packages use, not from a hyperref-specific error path — the real captured message never says
+   "hyperref" anywhere. The rule's explanation says "passed to `\hypersetup`, or another package's
+   own configuration" rather than naming hyperref alone, and a test
+   (`unknown_key_value_option_does_not_claim_it_is_hyperrefs_fault_specifically`) pins that choice.
+4. **`box_warnings` exists because DESIGN.md's own text undersold how different this category is.**
+   "Overfull boxes" reads like it might extend `located_warnings`'s existing `Warning:`-banner scan
+   — but `Overfull \hbox (...)`/`Underfull \hbox (...)` carry neither a leading `!` nor a `Warning: `
+   prefix; they are TeX's own older diagnostic convention, sitting on a plain `LineKind::Text` line.
+   `underfull-hbox`'s fixture is one real log producing both an underfull and an overfull diagnostic
+   from the same fixed-width `\hbox` — the first fixture in this catalog where two diagnostics are
+   both warnings, not one error and one warning.
+
+Not done here, on purpose: rules 23–40 (whatever the next batch of real, common mistakes turns out
+to be — no card enumerates them, since DESIGN.md §5.2 names categories, not an exact forty-item
+list); `biblatex`'s own rules, blocked on bundling `biber`; `\vbox`/`\hbox` symmetry (`box_warnings`
+covers `\hbox` only, `\vbox` is real but rarer, named as a gap in both the code and the fixtures
+README rather than guessed at ahead of a real log); and, as always, one-click fixes (S6.2) and
+wiring any of this into the drawer's own grouping (S6.3).
 
 ### Sprint 7–8 — v0.4 bibliography
 
