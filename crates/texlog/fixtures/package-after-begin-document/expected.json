@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "\\usepackage only works in the preamble — the part of the file before `\\begin{document}` — and TeX reached it after the document had already begun. Move this line above `\\begin{document}`.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "LaTeX Error: Can be used only in preamble.",
+    "rule": "preamble-only-command",
+    "severity": "error",
+    "title": "\\usepackage can only be used before `\\begin{document}`"
+  }
+]

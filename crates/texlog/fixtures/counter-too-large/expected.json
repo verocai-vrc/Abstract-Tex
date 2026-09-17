@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`\\alph`/`\\Alph` can only represent 1 through 26 (there are only 26 letters), and `\\roman`/`\\Roman` have a similar practical limit — the counter being printed here has climbed past what the chosen format can show. Use `\\arabic` for this counter instead, or check why it has reached such a large value.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 4,
+    "rawMessage": "LaTeX Error: Counter too large.",
+    "rule": "counter-too-large",
+    "severity": "error",
+    "title": "A counter's value is too large for this format"
+  }
+]

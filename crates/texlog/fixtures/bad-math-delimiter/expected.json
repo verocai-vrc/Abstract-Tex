@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "This line opened display maths with `\\[` (or `$$`) and closed it with a single `$` instead — TeX pairs `\\[` with `\\]`, and `$$` with `$$`; the two styles cannot mix. Close with whichever delimiter opened it.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Display math should end with $$.",
+    "rule": "display-math-wrong-delimiter",
+    "severity": "error",
+    "title": "Display maths opened and closed with different delimiters"
+  }
+]

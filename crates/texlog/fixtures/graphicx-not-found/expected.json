@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`\\includegraphics` asked for `nosuchimage.png`, and `graphicx` could not find or read it. Check the spelling and the path — it is resolved relative to the folder holding the main file — and that the file is a format this engine can read (PDF, PNG or JPEG).",
+    "file": "main.tex",
+    "fix": null,
+    "line": 4,
+    "rawMessage": "Unable to load picture or PDF file 'nosuchimage.png'.",
+    "rule": "image-not-found",
+    "severity": "error",
+    "title": "`nosuchimage.png` could not be loaded as an image"
+  }
+]

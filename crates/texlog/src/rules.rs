@@ -375,6 +375,76 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_fragile_command_in_moving_argument,
         fix: None,
     },
+    // S6.1: rules 28–36, a third pass over common real mistakes — structural (a stray `\\`, a
+    // duplicate `\documentclass`, `\include` nested inside `\include`), amsmath- and
+    // graphicx-specific, and one more preamble-ordering mistake alongside `missing-begin-document`.
+    &FnRule {
+        id: "line-end-with-nothing-before-it",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: There's no line here to end"),
+        explain: explain_line_end_with_nothing_before_it,
+        fix: None,
+    },
+    &FnRule {
+        id: "include-cannot-be-nested",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: \\include cannot be nested"),
+        explain: explain_include_cannot_be_nested,
+        fix: None,
+    },
+    &FnRule {
+        id: "amsmath-erroneous-nesting",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Package amsmath Error: Erroneous nesting of equation structures"),
+        explain: explain_amsmath_erroneous_nesting,
+        fix: None,
+    },
+    &FnRule {
+        id: "counter-too-large",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Counter too large"),
+        explain: explain_counter_too_large,
+        fix: None,
+    },
+    &FnRule {
+        id: "display-math-wrong-delimiter",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Display math should end with $$"),
+        explain: explain_display_math_wrong_delimiter,
+        fix: None,
+    },
+    &FnRule {
+        id: "duplicate-documentclass",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Two \\documentclass"),
+        explain: explain_duplicate_documentclass,
+        fix: None,
+    },
+    &FnRule {
+        id: "image-not-found",
+        severity: Severity::Error,
+        // graphicx's own wording never says "File ... not found", so this does not overlap with
+        // `file-not-found`'s matcher above.
+        matches: |e| e.message.starts_with("Unable to load picture or PDF file"),
+        explain: explain_image_not_found,
+        fix: None,
+    },
+    &FnRule {
+        id: "verb-unterminated",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: \\verb ended by end of line"),
+        explain: explain_verb_unterminated,
+        fix: None,
+    },
+    &FnRule {
+        id: "preamble-only-command",
+        severity: Severity::Error,
+        // The message never names the command; `trailing_command` on the `l.NN` context line does,
+        // the same technique `explain_fragile_command_in_moving_argument` above already uses.
+        matches: |e| e.message.starts_with("LaTeX Error: Can be used only in preamble"),
+        explain: explain_preamble_only_command,
+        fix: None,
+    },
 ];
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
@@ -1022,6 +1092,111 @@ fn explain_fragile_command_in_moving_argument(error: &QuickError) -> (String, St
     }
 }
 
+fn explain_line_end_with_nothing_before_it(_error: &QuickError) -> (String, String) {
+    (
+        "A line break with nothing on the line yet".to_string(),
+        "`\\\\` starts a new line, and TeX found one right at the start of a paragraph — there \
+         was nothing on the current line for it to end. This usually means an extra `\\\\` was \
+         left behind after moving or deleting text; delete it, or use `\\vspace{...}` instead if \
+         the point was only to add space."
+            .to_string(),
+    )
+}
+
+fn explain_include_cannot_be_nested(_error: &QuickError) -> (String, String) {
+    (
+        "`\\include` used inside another `\\include`".to_string(),
+        "`\\include` may only be called from the main document, never from a file that was \
+         itself brought in with `\\include`. Change the inner one to `\\input` instead — \
+         `\\input` has no such restriction and works from any file."
+            .to_string(),
+    )
+}
+
+fn explain_amsmath_erroneous_nesting(_error: &QuickError) -> (String, String) {
+    (
+        "One display-maths environment opened inside another".to_string(),
+        "amsmath environments such as `align`, `gather` and `equation` cannot be nested inside \
+         each other, or inside `$$...$$`/`\\[...\\]`. Close the outer one before opening a new \
+         one, or use one of amsmath's own multi-line tools — `aligned`, `cases`, `split` — inside \
+         a single environment instead of nesting two separate ones."
+            .to_string(),
+    )
+}
+
+fn explain_counter_too_large(_error: &QuickError) -> (String, String) {
+    (
+        "A counter's value is too large for this format".to_string(),
+        "`\\alph`/`\\Alph` can only represent 1 through 26 (there are only 26 letters), and \
+         `\\roman`/`\\Roman` have a similar practical limit — the counter being printed here has \
+         climbed past what the chosen format can show. Use `\\arabic` for this counter instead, \
+         or check why it has reached such a large value."
+            .to_string(),
+    )
+}
+
+fn explain_display_math_wrong_delimiter(_error: &QuickError) -> (String, String) {
+    (
+        "Display maths opened and closed with different delimiters".to_string(),
+        "This line opened display maths with `\\[` (or `$$`) and closed it with a single `$` \
+         instead — TeX pairs `\\[` with `\\]`, and `$$` with `$$`; the two styles cannot mix. \
+         Close with whichever delimiter opened it."
+            .to_string(),
+    )
+}
+
+fn explain_duplicate_documentclass(_error: &QuickError) -> (String, String) {
+    (
+        "`\\documentclass` appears twice".to_string(),
+        "A document may only declare its class once, and TeX found a second `\\documentclass` \
+         (or `\\documentstyle`). Delete the extra one — a common cause is pasting a second \
+         preamble in by accident."
+            .to_string(),
+    )
+}
+
+fn explain_image_not_found(error: &QuickError) -> (String, String) {
+    let name = single_quoted_name(&error.message).unwrap_or("that file");
+    (
+        format!("`{name}` could not be loaded as an image"),
+        format!(
+            "`\\includegraphics` asked for `{name}`, and `graphicx` could not find or read it. \
+             Check the spelling and the path — it is resolved relative to the folder holding the \
+             main file — and that the file is a format this engine can read (PDF, PNG or JPEG)."
+        ),
+    )
+}
+
+fn explain_verb_unterminated(_error: &QuickError) -> (String, String) {
+    (
+        "`\\verb` has no closing delimiter".to_string(),
+        "`\\verb|...|` needs the same character on both sides, on the same line — TeX reached the \
+         end of the line before finding the matching one. Add the closing delimiter, or use the \
+         `verbatim` environment instead if the text needs to span multiple lines."
+            .to_string(),
+    )
+}
+
+fn explain_preamble_only_command(error: &QuickError) -> (String, String) {
+    match trailing_command(error.context.as_ref()) {
+        Some(command) => (
+            format!("{command} can only be used before `\\begin{{document}}`"),
+            format!(
+                "{command} only works in the preamble — the part of the file before \
+                 `\\begin{{document}}` — and TeX reached it after the document had already \
+                 begun. Move this line above `\\begin{{document}}`."
+            ),
+        ),
+        None => (
+            "This command can only be used in the preamble".to_string(),
+            "TeX reached a command that only works before `\\begin{document}` — the part of the \
+             file before it — after the document had already begun. Move it above \
+             `\\begin{document}`."
+                .to_string(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1412,6 +1587,75 @@ mod tests {
             assert_eq!(d.title, "\\footnote cannot be used here directly");
             assert!(!d.explanation.contains("@sect"), "{}", d.explanation);
             assert!(d.explanation.contains("\\protect\\footnote"), "{}", d.explanation);
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn line_end_with_nothing_before_it() {
+            let log = include_str!("../fixtures/no-line-to-end/main.log");
+            let d = diagnostic_from(log, "line-end-with-nothing-before-it");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn include_cannot_be_nested_resolves_to_the_file_it_actually_happened_in() {
+            // main.tex includes outer.tex, which tries to \include inner.tex — the error fires
+            // while outer.tex is open, before inner.tex ever opens, so `file` should name the
+            // middle file, not main.tex or inner.tex.
+            let log = include_str!("../fixtures/include-nested/main.log");
+            let d = diagnostic_from(log, "include-cannot-be-nested");
+            assert_eq!(d.file.as_deref(), Some("outer.tex"));
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn amsmath_erroneous_nesting() {
+            let log = include_str!("../fixtures/amsmath-erroneous-nesting/main.log");
+            let d = diagnostic_from(log, "amsmath-erroneous-nesting");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn counter_too_large() {
+            let log = include_str!("../fixtures/counter-too-large/main.log");
+            let d = diagnostic_from(log, "counter-too-large");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn display_math_wrong_delimiter() {
+            let log = include_str!("../fixtures/bad-math-delimiter/main.log");
+            let d = diagnostic_from(log, "display-math-wrong-delimiter");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn duplicate_documentclass() {
+            let log = include_str!("../fixtures/two-documentclass/main.log");
+            let d = diagnostic_from(log, "duplicate-documentclass");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn image_not_found_names_the_file() {
+            let log = include_str!("../fixtures/graphicx-not-found/main.log");
+            let d = diagnostic_from(log, "image-not-found");
+            assert_eq!(d.title, "`nosuchimage.png` could not be loaded as an image");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn verb_unterminated() {
+            let log = include_str!("../fixtures/verb-end-of-line/main.log");
+            let d = diagnostic_from(log, "verb-unterminated");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn preamble_only_command_names_usepackage_not_a_generic_placeholder() {
+            let log = include_str!("../fixtures/package-after-begin-document/main.log");
+            let d = diagnostic_from(log, "preamble-only-command");
+            assert!(d.title.contains("\\usepackage"), "{}", d.title);
             assert_reads_like_a_sentence(&d);
         }
     }

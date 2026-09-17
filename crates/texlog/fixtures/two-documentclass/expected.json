@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "A document may only declare its class once, and TeX found a second `\\documentclass` (or `\\documentstyle`). Delete the extra one — a common cause is pasting a second preamble in by accident.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 2,
+    "rawMessage": "LaTeX Error: Two \\documentclass or \\documentstyle commands.",
+    "rule": "duplicate-documentclass",
+    "severity": "error",
+    "title": "`\\documentclass` appears twice"
+  }
+]

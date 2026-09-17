@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "amsmath environments such as `align`, `gather` and `equation` cannot be nested inside each other, or inside `$$...$$`/`\\[...\\]`. Close the outer one before opening a new one, or use one of amsmath's own multi-line tools — `aligned`, `cases`, `split` — inside a single environment instead of nesting two separate ones.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 6,
+    "rawMessage": "Package amsmath Error: Erroneous nesting of equation structures;",
+    "rule": "amsmath-erroneous-nesting",
+    "severity": "error",
+    "title": "One display-maths environment opened inside another"
+  }
+]

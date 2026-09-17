@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`\\\\` starts a new line, and TeX found one right at the start of a paragraph — there was nothing on the current line for it to end. This usually means an extra `\\\\` was left behind after moving or deleting text; delete it, or use `\\vspace{...}` instead if the point was only to add space.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 4,
+    "rawMessage": "LaTeX Error: There's no line here to end.",
+    "rule": "line-end-with-nothing-before-it",
+    "severity": "error",
+    "title": "A line break with nothing on the line yet"
+  }
+]

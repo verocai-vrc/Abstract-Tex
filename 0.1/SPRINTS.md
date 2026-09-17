@@ -1512,6 +1512,37 @@ and a `\footnote` inside a `\section` title.
    assumed to exist, the same "test it, don't guess it" discipline S2.6 and S5.4 already established
    for the wording of rules that *did* pan out.
 
+**S6.1 continued again (17 September 2026).** Still `[~]`, but close: nine more rules (28–36), the
+catalog now 27 → 36 — four short of DESIGN.md §5.2's own "about forty". `cargo test -p texlog` 139
+passed (97 lib, 42 fixture, up from 121), `cargo clippy -p texlog --all-targets -- -D warnings`
+clean, rest of the workspace unaffected. One commit — 244 lines of Rust, under the ~400-line
+guideline. Nine real Tectonic 0.17.0 captures, none package-specific except `amsmath`: a stray
+`\\` at the start of a paragraph, `\include` nested inside `\include`, an `align` opened inside
+another `align`, `\alph` past 26, mismatched `\[`/`$` display-maths delimiters, a duplicate
+`\documentclass`, `\includegraphics` on a missing file, an unterminated `\verb`, and a package
+loaded after `\begin{document}`.
+
+1. **`include-nested` is the first fixture with three real files where the resolver's answer is
+   neither the outermost nor the innermost.** `main.tex` → `\include{outer}` → `outer.tex` itself
+   tries `\include{inner}` and fails before `inner.tex` is ever opened — `file` correctly names
+   `outer.tex`, the file actually open when TeX raised the error, not `main.tex` (where the mistake
+   reads from, at a glance) or `inner.tex` (which never got created). A test pins this explicitly
+   rather than trusting the fixture harness's JSON diff alone to notice if it ever regressed.
+2. **`image-not-found` needed its own matcher, not a generalisation of `file-not-found`'s.**
+   `graphicx`'s real wording — `Unable to load picture or PDF file 'nosuchimage.png'.` — never says
+   "not found" or "File ", so `file-not-found`'s existing matcher (`contains("not found") &&
+   contains("File ")`) was never going to catch it; checked, not assumed. It also quotes with
+   straight single quotes rather than backtick-then-apostrophe, reusing `single_quoted_name` from
+   the package-specific rules two batches ago instead of `quoted_name`.
+3. **One more candidate tested and discarded:** `\begingroup` with no matching `\endgroup` before
+   `\end{document}` was expected to produce `Extra }, or forgotten \endgroup.` or similar, but
+   compiled cleanly with no warning at all in this kernel. Not a fixture, not a rule — the same
+   "test it, don't guess it" discipline as the `fontenc` option-clash candidate two batches ago.
+
+Four rules short of "about forty" is close enough that the next batch should very plausibly be the
+last one for S6.1 itself — worth trying for `[x]` rather than another `[~]` outcome next time,
+though DESIGN.md's own number was always approximate, not a contract.
+
 ### Sprint 7–8 — v0.4 bibliography
 
 S7.1 `bib` parser crate (BibTeX and BibLaTeX, comments and `@string` preserved) · S7.2 `.bib`
