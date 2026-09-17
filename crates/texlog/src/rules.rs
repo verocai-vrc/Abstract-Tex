@@ -268,6 +268,53 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_double_script,
         fix: None,
     },
+    // S6.1: rules 16–20, the package-specific failures DESIGN.md §5.2 names — "the ten most
+    // common package-specific failures from babel, biblatex, hyperref and tikz". `biblatex`
+    // itself needs `biber`, a second binary this project does not yet bundle or invoke
+    // (DESIGN.md §4.1 only names Tectonic's own bundled engine); its rules are left for whichever
+    // loop wires biber in, rather than guessed at without a real capture to check against.
+    &FnRule {
+        id: "pgfkeys-unknown-key",
+        severity: Severity::Error,
+        // tikz's own option parser. DESIGN.md §5.2 names tikz explicitly as one of the four
+        // packages this catalog's package-specific rules should cover.
+        matches: |e| e.message.starts_with("Package pgfkeys Error: I do not know the key"),
+        explain: explain_pgfkeys_unknown_key,
+        fix: None,
+    },
+    &FnRule {
+        id: "unknown-key-value-option",
+        severity: Severity::Error,
+        // `kvsetkeys` is the key-value parser `\hypersetup` (hyperref) and several other packages
+        // share, so the message itself never names hyperref — the explanation says so rather than
+        // guessing which package's options the author meant.
+        matches: |e| e.message.starts_with("Package kvsetkeys Error: Undefined key"),
+        explain: explain_unknown_key_value_option,
+        fix: None,
+    },
+    &FnRule {
+        id: "babel-unknown-language",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Package babel Error: Unknown option"),
+        explain: explain_babel_unknown_language,
+        fix: None,
+    },
+    &FnRule {
+        id: "undefined-color",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Package xcolor Error: Undefined color"),
+        explain: explain_undefined_color,
+        fix: None,
+    },
+    &FnRule {
+        id: "font-not-found",
+        severity: Severity::Error,
+        // fontspec is XeTeX/LuaTeX-only, but this project's bundled engine (`preamble-engine`,
+        // DESIGN.md §4.1) is XeTeX, so this is a real, reachable failure here, not a hypothetical.
+        matches: |e| e.message.starts_with("Package fontspec Error: The font "),
+        explain: explain_font_not_found,
+        fix: None,
+    },
 ];
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
@@ -405,6 +452,25 @@ fn input_line_number(text: &str) -> Option<u32> {
 fn quoted_name(text: &str) -> Option<&str> {
     let start = text.find('`')? + 1;
     let end = text[start..].find('\'')? + start;
+    Some(&text[start..end])
+}
+
+/// The quoted name in a message like `Unknown option 'nosuchlanguage'` — a *matching* pair of
+/// straight apostrophes, the shape LaTeX3-based error macros (`babel`, `pgfkeys`) use, distinct
+/// from `quoted_name`'s backtick-then-apostrophe TeX convention above. Kept as its own function
+/// rather than a shared one parameterised over the two quote characters: with only three real
+/// captured callers between them, the two are one obvious line apart, not worth a shared helper.
+fn single_quoted_name(text: &str) -> Option<&str> {
+    let start = text.find('\'')? + 1;
+    let end = text[start..].find('\'')? + start;
+    Some(&text[start..end])
+}
+
+/// The quoted name in a message like `The font "NoSuchFont" cannot be found` — `fontspec`'s own
+/// quoting, a matching pair of double quotes.
+fn double_quoted_name(text: &str) -> Option<&str> {
+    let start = text.find('"')? + 1;
+    let end = text[start..].find('"')? + start;
     Some(&text[start..end])
 }
 
@@ -696,6 +762,68 @@ fn explain_double_script(error: &QuickError) -> (String, String) {
     )
 }
 
+fn explain_pgfkeys_unknown_key(error: &QuickError) -> (String, String) {
+    let key = single_quoted_name(&error.message).unwrap_or("that key");
+    (
+        format!("`{key}` is not a tikz/pgf option TeX knows"),
+        format!(
+            "tikz did not recognise the option `{key}`. Check the spelling against tikz's own \
+             documentation, and check whether it comes from a tikz library — \
+             `\\usetikzlibrary{{...}}` — this document does not load yet."
+        ),
+    )
+}
+
+fn explain_unknown_key_value_option(error: &QuickError) -> (String, String) {
+    let key = quoted_name(&error.message).unwrap_or("that key");
+    (
+        format!("`{key}` is not an option TeX knows"),
+        format!(
+            "An option named `{key}` was passed to `\\hypersetup`, or to another package's own \
+             key-value configuration, that the package does not recognise — `kvsetkeys` is the \
+             shared parser several packages use for their own options, so this message does not \
+             say which one. Check the spelling against that package's documentation."
+        ),
+    )
+}
+
+fn explain_babel_unknown_language(error: &QuickError) -> (String, String) {
+    let language = single_quoted_name(&error.message).unwrap_or("that language");
+    (
+        format!("`{language}` is not a language babel knows"),
+        format!(
+            "babel was asked to load the language `{language}`, and either the name is \
+             misspelled or this installation has no language file for it. Check the spelling \
+             against babel's own list of supported language names."
+        ),
+    )
+}
+
+fn explain_undefined_color(error: &QuickError) -> (String, String) {
+    let name = quoted_name(&error.message).unwrap_or("that colour");
+    (
+        format!("`{name}` is not a colour xcolor knows"),
+        format!(
+            "No colour named `{name}` has been defined, so xcolor could not use it. Check the \
+             spelling, define it first with `\\definecolor{{{name}}}{{...}}{{...}}`, or load a \
+             colour set that already defines it, such as `\\usepackage[dvipsnames]{{xcolor}}`."
+        ),
+    )
+}
+
+fn explain_font_not_found(error: &QuickError) -> (String, String) {
+    let name = double_quoted_name(&error.message).unwrap_or("that font");
+    (
+        format!("`{name}` is not a font this engine can find"),
+        format!(
+            "fontspec asked for a font named `{name}`, and the engine could not find it under \
+             that name. Check the spelling against the font's exact name (not its filename), and \
+             make sure it is actually installed for this engine to see rather than only present \
+             in another application."
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -983,6 +1111,50 @@ mod tests {
             );
             assert!(superscript.explanation.contains('^'), "{}", superscript.explanation);
             assert_ne!(subscript.explanation, superscript.explanation);
+        }
+
+        #[test]
+        fn pgfkeys_unknown_key_names_the_tikz_option() {
+            let log = include_str!("../fixtures/tikz-unknown-key/main.log");
+            let d = diagnostic_from(log, "pgfkeys-unknown-key");
+            assert_eq!(d.title, "`/tikz/nosuchoption` is not a tikz/pgf option TeX knows");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn unknown_key_value_option_does_not_claim_it_is_hyperrefs_fault_specifically() {
+            // The real message comes from `kvsetkeys`, the shared parser `\hypersetup` and other
+            // packages' own option handling both use — it never names hyperref itself, so neither
+            // should the explanation.
+            let log = include_str!("../fixtures/hyperref-unknown-key/main.log");
+            let d = diagnostic_from(log, "unknown-key-value-option");
+            assert_eq!(d.title, "`nosuchoption` is not an option TeX knows");
+            assert!(d.explanation.contains("hypersetup"), "{}", d.explanation);
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn babel_unknown_language() {
+            let log = include_str!("../fixtures/babel-unknown-language/main.log");
+            let d = diagnostic_from(log, "babel-unknown-language");
+            assert_eq!(d.title, "`nosuchlanguage` is not a language babel knows");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn undefined_color() {
+            let log = include_str!("../fixtures/undefined-color/main.log");
+            let d = diagnostic_from(log, "undefined-color");
+            assert_eq!(d.title, "`nosuchcolor` is not a colour xcolor knows");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn font_not_found() {
+            let log = include_str!("../fixtures/font-not-found/main.log");
+            let d = diagnostic_from(log, "font-not-found");
+            assert_eq!(d.title, "`ThisFontDoesNotExistAnywhere` is not a font this engine can find");
+            assert_reads_like_a_sentence(&d);
         }
     }
 

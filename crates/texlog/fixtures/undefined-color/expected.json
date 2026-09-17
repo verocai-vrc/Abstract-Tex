@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "No colour named `nosuchcolor` has been defined, so xcolor could not use it. Check the spelling, define it first with `\\definecolor{nosuchcolor}{...}{...}`, or load a colour set that already defines it, such as `\\usepackage[dvipsnames]{xcolor}`.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 4,
+    "rawMessage": "Package xcolor Error: Undefined color `nosuchcolor'.",
+    "rule": "undefined-color",
+    "severity": "error",
+    "title": "`nosuchcolor` is not a colour xcolor knows"
+  }
+]

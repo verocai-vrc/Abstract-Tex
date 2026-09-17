@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "babel was asked to load the language `nosuchlanguage`, and either the name is misspelled or this installation has no language file for it. Check the spelling against babel's own list of supported language names.",
+    "file": "babel.sty",
+    "fix": null,
+    "line": 4260,
+    "rawMessage": "Package babel Error: Unknown option 'nosuchlanguage'. Either you misspelled it",
+    "rule": "babel-unknown-language",
+    "severity": "error",
+    "title": "`nosuchlanguage` is not a language babel knows"
+  }
+]

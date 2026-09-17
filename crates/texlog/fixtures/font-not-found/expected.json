@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "fontspec asked for a font named `ThisFontDoesNotExistAnywhere`, and the engine could not find it under that name. Check the spelling against the font's exact name (not its filename), and make sure it is actually installed for this engine to see rather than only present in another application.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 4,
+    "rawMessage": "Package fontspec Error: The font \"ThisFontDoesNotExistAnywhere\" cannot be",
+    "rule": "font-not-found",
+    "severity": "error",
+    "title": "`ThisFontDoesNotExistAnywhere` is not a font this engine can find"
+  }
+]

@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "An option named `nosuchoption` was passed to `\\hypersetup`, or to another package's own key-value configuration, that the package does not recognise — `kvsetkeys` is the shared parser several packages use for their own options, so this message does not say which one. Check the spelling against that package's documentation.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Package kvsetkeys Error: Undefined key `nosuchoption'.",
+    "rule": "unknown-key-value-option",
+    "severity": "error",
+    "title": "`nosuchoption` is not an option TeX knows"
+  }
+]

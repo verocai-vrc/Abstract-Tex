@@ -15,6 +15,25 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`unwrap_lines` does not undo a `\PackageError` message's own multi-line continuation, only a
+  plain 79-column hard wrap.** (S6.1, builder, 17 Sep 2026) LaTeX's `\PackageError`/`\GenericError`
+  machinery prints a long message across several physical lines, each continuation prefixed
+  `(packagename)` and re-indented — a different mechanism from the transcript writer's own
+  column-79 hard wrap that `tokenizer.rs`'s `unwrap_lines` (S5.1) undoes. Two real captures show
+  two different failure shapes: `font-not-found/main.log`'s first physical line is 75 characters
+  (not 79), so it never joins with its `(fontspec)                found.` continuation at all —
+  `raw_message` ends at "...cannot be". `babel-unknown-language/main.log`'s first line genuinely
+  is 79 characters and joins correctly with a one-character continuation ("t", completing
+  "misspelled it") — but that one-character line breaks `unwrap_lines`'s own chain (its length is
+  not 79), so the *next* `\PackageError` continuation line, itself coincidentally 79 characters,
+  starts a brand new logical line instead of joining the error message; `raw_message` ends at
+  "...misspelled it" with the sentence's second half silently dropped. Neither is a blocking bug —
+  both rules' matchers use a short, stable prefix from the *first* logical line, and neither
+  explanation depends on the truncated tail — but any future rule whose matcher or explanation
+  needs a `\PackageError` message's full text will hit this. A fix would need to recognise the
+  `(packagename)` continuation-line shape specifically, which `unwrap_lines`'s own doc comment does
+  not attempt today. Not required; no card owns it.
+
 - **Focus mode rebuilds every line's decoration on every keystroke and cursor move.**
   (S4.5, deferred reviewer pass, 16 Sep 2026) `src/lib/editor/focus.ts`'s `buildDecorations`
   iterates every line in the document on every `ViewUpdate` where the doc changed or the

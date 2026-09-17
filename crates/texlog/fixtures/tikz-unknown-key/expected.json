@@ -1,12 +1,12 @@
 [
   {
-    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am going to ignore it. Perhaps you misspelled it\". The raw log has the surrounding output.",
+    "explanation": "tikz did not recognise the option `/tikz/nosuchoption`. Check the spelling against tikz's own documentation, and check whether it comes from a tikz library — `\\usetikzlibrary{...}` — this document does not load yet.",
     "file": "main.tex",
     "fix": null,
     "line": 5,
     "rawMessage": "Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am going to ignore it. Perhaps you misspelled it.",
-    "rule": null,
+    "rule": "pgfkeys-unknown-key",
     "severity": "error",
-    "title": "TeX reported an error"
+    "title": "`/tikz/nosuchoption` is not a tikz/pgf option TeX knows"
   }
 ]
