@@ -5,12 +5,13 @@
 //! must never hand the frontend a path outside the open project.
 
 use std::fmt::Display;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use preamble_engine::{BuildJob, EngineInfo};
 use preamble_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::bibliography::{self, BibliographyIndex};
 use crate::compile::CompileEvent;
 use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
@@ -85,7 +86,14 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
 
     let emitter = app.clone();
     let watcher = watcher::watch(&project.root_dir, state.written.clone(), move |event| {
+        // The watcher already dropped our own writes, so this is an external change. A `.bib`
+        // or `.tex` may have changed what the bibliography index says; rebuild it here, on the
+        // watcher's thread, so the frontend learns within one debounce window (S7.2).
+        let touches_bibliography = bibliography::affects_index(Path::new(&event.path));
         let _ = emitter.emit("fs:changed", event);
+        if touches_bibliography {
+            emit_bibliography(&emitter);
+        }
     })
     .map_err(to_message)?;
 
@@ -115,13 +123,21 @@ pub fn read_file(state: State<'_, AppState>, path: String) -> CommandResult<Stri
 
 /// Write a file the author edited. Atomic, and remembered so the watcher ignores the echo.
 #[tauri::command]
-pub fn write_file(state: State<'_, AppState>, path: String, contents: String) -> CommandResult<()> {
+pub fn write_file(app: AppHandle, state: State<'_, AppState>, path: String, contents: String) -> CommandResult<()> {
     with_project(&state, |project| {
         let absolute = project.resolve(&path)?;
         remember_write(&state.written, &absolute, contents.as_bytes());
         write_atomically(&absolute, &contents)?;
         Ok(())
-    })
+    })?;
+    // The watcher will ignore this write (that is what `remember_write` is for), so an edit to
+    // a `.bib` or a new `\cite` in a `.tex` made in our own editor would never reach the
+    // index unless it is rebuilt here. Outside `with_project`: the rebuild reads files and
+    // must not run under the project lock.
+    if bibliography::affects_index(Path::new(&path)) {
+        emit_bibliography(&app);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -196,6 +212,41 @@ pub fn read_log(state: State<'_, AppState>) -> CommandResult<String> {
 #[tauri::command]
 pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
     preamble_reconcile::diff_ops(&old, &new)
+}
+
+// ---------------------------------------------------------------------------
+// Bibliography (S7.2). `bibliography` builds the index from disk; this is the glue that decides
+// when, and hands it to the window as the `bibliography:changed` event.
+// ---------------------------------------------------------------------------
+
+/// The project's bibliography index, built fresh from disk. Empty — not an error — when there
+/// is no root file, because then there is no document to have a bibliography.
+#[tauri::command]
+pub fn bibliography_index(state: State<'_, AppState>) -> CommandResult<BibliographyIndex> {
+    let located = project_root(&state)?;
+    Ok(match located {
+        Some((root_dir, root_file)) => bibliography::build_index(&root_dir, &root_file),
+        None => BibliographyIndex::default(),
+    })
+}
+
+/// Rebuild the index and emit it as `bibliography:changed`. Called from the watcher thread and
+/// from `write_file`; both take the project lock only long enough to copy two paths out.
+fn emit_bibliography(app: &AppHandle) {
+    // `app.state()` is how a thread that was not handed `State<'_, AppState>` by Tauri — the
+    // watcher's — reaches the same shared state the commands borrow.
+    let state = app.state::<AppState>();
+    let index = match project_root(&state) {
+        Ok(Some((root_dir, root_file))) => bibliography::build_index(&root_dir, &root_file),
+        Ok(None) => BibliographyIndex::default(),
+        Err(_) => return, // the project was closed meanwhile; nobody is listening
+    };
+    let _ = app.emit("bibliography:changed", index);
+}
+
+/// The open project's folder and root file, or `None` when it has no root file yet.
+fn project_root(state: &AppState) -> CommandResult<Option<(PathBuf, PathBuf)>> {
+    with_project(state, |project| Ok(project.root_file().map(|root_file| (project.root_dir.clone(), root_file))))
 }
 
 // ---------------------------------------------------------------------------

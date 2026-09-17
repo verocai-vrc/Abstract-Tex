@@ -537,6 +537,34 @@ user already knows, and there is no value in being clever about it. The one addi
 conscience: never empty when something is wrong, never shouting when it isn't, and never showing
 a raw log.
 
+**An activity bar, borrowed from VS Code.** The left pane is hosted by a narrow vertical strip of
+icons, exactly as in VS Code, and each icon swaps what the pane shows: **Files** (file icon —
+the tree and outline that exist today), **Source Control** (the VS Code graph icon, with a badge
+counting changed files), **Assistant** (robot head — the v0.7 home; the author chooses an API
+key, a subscription sign-in or a local model, per §5.6), and **Settings** (gear). Copying the
+layout is deliberate: it is the chrome a large share of the audience already has muscle memory
+for, and there is nothing to gain from a novel one. Shortcuts follow VS Code too — `Ctrl Shift E`
+for Files, `Ctrl Shift G` for Source Control.
+
+**The Source Control view is a 1:1 copy of VS Code's**, because that view is the "authors who
+want Git get the whole thing" half of §5.7, and the one-verb *Sync* is the other half; both
+live in the same pane and never disagree. From the top: header actions (commit ✓ · refresh ·
+more ⋯); a commit-message box (`Ctrl Enter` commits); a **Commit** button with a dropdown
+(Commit & Push, Commit & Sync, Amend); a **Sync Changes ↑n ↓m** button whenever the branch is
+ahead or behind, which is the one-verb path; a **Changes** section (and **Staged Changes** when
+anything is staged) listing `name · directory · M/U/A/D/R` with hover actions to open, stage or
+discard, where a click opens a diff; and a **Graph** section listing commits with branch and
+remote tags, author, and an *Outgoing changes* header when there is anything to push. The
+status bar shows the branch name and sync arrows at the left, as VS Code does.
+
+Where we add to VS Code rather than copy it, it is because the user is a writer, not a
+programmer: the commit-message box is pre-filled with a summary built from the outline and the
+diff — *"Revised §3.2 Methods, +240 words"* — with no model involved (the assistant may rewrite
+it later, per rule 6); each graph row carries its word-count delta, so the graph doubles as a
+progress log; a diff on a `.tex` file opens a CodeMirror merge view, and any two graph rows can
+render a `latexdiff` PDF into the preview pane; and `.preamble/` and build junk are ignored on
+init so *Changes* never fills with `.aux` files.
+
 | Flow | Trigger | What should happen |
 |---|---|---|
 | **First run** | Open a folder | Root `.tex` detected automatically, engine present already, PDF within seconds. If Tectonic needs to fetch packages, that is stated plainly with progress — never a silent hang. |
@@ -545,6 +573,7 @@ a raw log.
 | **Add a citation** | Paste a DOI | Entry fetched, deduplicated, appended to `.bib`, `\cite` inserted at the cursor. No browser, no dialog. |
 | **Review changes** | Pick two revisions | A `latexdiff` PDF opens in the preview pane with additions and deletions marked. |
 | **Sync** | One action | Commit, pull, rebase, push — reported as a sentence about what moved, not a Git transcript. On another machine, clone and everything works, because the project is just files (§5.8). |
+| **Track progress** | Open Source Control | Changed files with status letters, a pre-filled commit message, and a graph of past commits each showing its word-count delta. Committing is a sentence and `Ctrl Enter`. |
 
 ---
 
@@ -623,7 +652,10 @@ preamble, measured in CI and failing the build if breached.
 ### v0.6 — It syncs, storage before convenience · Sprints 10–11
 
 - Snapshot on every successful compile, to a hidden ref — built first, in the first three days
-- libgit2 panel: stage, commit, branch, history, no terminal required
+- Activity bar (Files · Source Control · Assistant · Settings) hosting the left pane, VS Code layout
+- Source Control view, a 1:1 copy of VS Code's: commit box, Commit dropdown, Sync Changes,
+  Changes and Staged Changes, Graph with branch tags — on libgit2, no terminal required
+- Writer additions: pre-filled commit summary from outline and diff, word-count delta per commit
 - GitHub device-flow sign-in; credentials to the OS keychain
 - Repository creation from inside the app, private by default, with an explicit confirmation
   before any first push to a public remote

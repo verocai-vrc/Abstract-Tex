@@ -1892,9 +1892,9 @@ this project publishes.
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S7.1 `texbib` parser crate: BibTeX and BibLaTeX syntax, comments and `@string` preserved, byte spans on everything, never fails on a bad entry | L | — |
-| [ ] | S7.2 `.bib` watcher and project-wide index: which files, which keys, who cites what | M | S7.1, S4.1 |
+| [~] | S7.2 `.bib` watcher and project-wide index: which files, which keys, who cites what | M | S7.1, S4.1 |
 | [ ] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
-| [ ] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
+| [x] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
 | [ ] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
 | [ ] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
 
@@ -2043,6 +2043,98 @@ index, which is the first thing that needs to know two entries are one). `bib` �
 recorded at the top of this sprint's table. The crate carries its `LICENSE` and `README.md` from
 day one so S8.5 is a `cargo publish`, not another S6.5.
 
+**S7.2 (17 September 2026).** `[~]`: rungs 1–2 green everywhere they can run here — `pnpm
+vitest run` 340/340 across 24 files (7 new: `bibliography.test.ts` 3, `controller.test.ts` +2,
+and the S7.2 helper cases), `pnpm check` 437 files / 0 errors; `src-tauri/src/bibliography.rs`
+verified the S4.1 way, copied unmodified into a throwaway crate path-depending on the real `texbib`
+and `preamble-includes`: 16 passed, clippy `-D warnings` clean; `cargo test --workspace --exclude
+preamble` and clippy unchanged. `cargo test -p preamble -- bibliography` in place, and rung 4, are
+still owed to a machine that can link Tauri (no `gio-2.0`/WebKitGTK here — the standing gap since
+sprint 2), so the tick stays `[~]` although the card's done-when is met by the unit tests: the
+done-when's "two `.bib` files and one missing one, all three by path" is the first test in the
+module, and "within one debounce window" is the watcher's own 300 ms plus a rebuild that runs on
+the watcher thread the moment the event arrives.
+
+1. **Two triggers, not one, because the watcher drops our own writes.** The card says "re-index
+   when the watcher sees it change", and that is done — but the S2.1 watcher deliberately filters
+   out every write the app itself made (`remember_write`), so an edit to `refs.bib` *in this
+   editor* would never reach the index by that route. `write_file` therefore also rebuilds and
+   emits after any `.bib`/`.tex` save. Both paths call the same `emit_bibliography`, which takes
+   the project lock only to copy two paths out and builds outside it (the `commands` module rule).
+   The event carries the whole index, so the frontend never fetches after an event; it fetches
+   once, at open. `watcher.rs` itself did not need to change — the card listed it, but the right
+   seam turned out to be the callback in `open_project`, which already had the event in hand.
+2. **`\cite` is matched by substring, on purpose.** Any `\…cite…` control sequence counts,
+   with `*`, any number of `[…]`, and one or more adjacent `{…}` (BibLaTeX's `\cites{a}{b}`). A
+   fixed list would miss `\footcites`, `\smartcite`, `\Textcite`, and whatever the next package
+   adds, and a missed key becomes a false "undefined citation" in S8.3; an over-matched command is
+   harmless. The one rule that bit during the build: a second braced group after a *space* is
+   prose (`\cite{a} {\bf b}`), so only an adjacent group continues the command.
+3. **`crossref` inheritance lives here, as S7.1 said it would.** One level, same file, key
+   compared ignoring case (BibTeX's rule): a child takes the author/editor, year/date and title it
+   lacks from its parent, so an `@inproceedings` with only a title and a `crossref` still gets a
+   year in its completion label. `xdata` and `ids` are still nobody's: BibLaTeX-only, rarer, and
+   S8.3's health checks are the first thing that would actually read them.
+4. **Summaries carry resolved text and byte spans.** `author`/`year`/`title` are `@string`- and
+   month-resolved, whitespace-collapsed, braces kept — S7.3's name splitting is the next step and
+   belongs in `texbib`. The entry span is in *bytes* (texbib's own), and `ipc.ts` says so at the
+   field: whoever opens the `.bib` in CodeMirror converts, as `positions.ts` already does for LSP.
+5. **A missing file is listed, and so is one outside the project.** `exists: false` in both
+   cases; the second is never read (the same "nothing outside the folder" rule `Project::resolve`
+   enforces), and its path is the argument as written so the author can see what was meant. The
+   frontend store's `missingFiles` is the one derived value here, because it is the first thing
+   worth saying about a bibliography and S8.3 will say it.
+
+Cost note for sprint 9: every `.tex` save (700 ms debounce) and every external `.bib`/`.tex`
+change rebuilds the whole index — include graph, every `.tex` scanned, every `.bib` parsed. For
+the documents this loop is for it is microseconds; a thousand-entry Zotero export is still well
+under a frame. Incremental re-indexing is a measurement away, not a design change.
+
+Not done here, on purpose: any UI (nothing shows the index yet — S7.3's completion is its first
+consumer, and a "missing refs.bib" line in the drawer is S8.3's), `xdata`/`ids`, and name
+splitting.
+
+**S7.4 (17 September 2026).** `[x]`: `cargo test -p texbib --features acquire` 37 passed, 0
+failed, 1 ignored (12 new tests total: 11 run by default, 1 `#[ignore]`d for the live request),
+the ignored test green on its own (`-- --ignored`, a real request to `doi.org`), `cargo clippy -p
+texbib --features acquire --all-targets -- -D warnings` clean, and
+`RUSTDOCFLAGS="-D warnings" cargo doc -p texbib` clean both with and without the feature. No other
+crate touched — `crates/texbib/src/acquire/{mod.rs,doi.rs}` and the two `Cargo.toml`s are the
+whole diff, chosen deliberately because S7.2 has `src-tauri/`, `bibliography.rs` and three
+frontend files open in a concurrent session; this loop stays inside `texbib`, which nothing else
+in flight touches.
+
+1. **A transport trait, not a mock library.** `Transport::get_bibtex` is one method, implemented
+   twice: `HttpTransport` (real `reqwest`) and a test-only `FixedReply` that hands back a
+   recorded status and body. `fetch_doi_with` takes `&impl Transport` and does the actual work;
+   `fetch_doi` is a two-line wrapper over it with `HttpTransport`. This is what lets nine of this
+   loop's ten new tests run under plain `cargo test` — no `--ignored`, no network — while the
+   tenth proves the real thing still works.
+2. **The recorded reply is the existing `doi-negotiation` fixture, not a second copy of it.**
+   `fixtures/doi-negotiation/main.bib` was captured in S7.1 for exactly this shape — one line, no
+   trailing newline, upper-case field names — so `doi.rs`'s tests `include_str!` it rather than
+   inlining a near-duplicate. The three pasted forms (`https://doi.org/…`, `doi:…`, bare `10.…`)
+   each resolve through `fetch_doi_with` against that one fixture and are asserted equal to each
+   other, which is the card's done-when.
+3. **`acquire` is feature-gated at the module boundary in `lib.rs`, not inside `doi.rs`.** One
+   `#[cfg(feature = "acquire")] pub mod acquire;` keeps every item under it — including
+   `thiserror`, needed for `DoiError` — out of the default build, so `cargo test -p texbib` with
+   no flags still touches nothing this loop added. Checked directly: the default build and
+   `cargo doc` finish in well under a second, reusing the existing cache, because `reqwest` and
+   its dependency tree are never compiled for it.
+
+**Environment note, sandbox-specific.** This machine's `cc` is a `zig cc` shim (`.local/bin/cc`),
+and `zig cc --target=x86_64-unknown-linux-gnu` fails with `unable to parse target query
+'x86_64-unknown-linux-gnu': UnknownOperatingSystem` — zig wants its own triple spelling,
+`x86_64-linux-gnu`, and the `cc` crate (pulled in transitively by `ring`, which `reqwest`'s
+`rustls-tls` needs) always passes the Rust spelling. Nothing in the workspace needed to compile C
+before this loop, so the gap was invisible until now. Worked around for this session only, with
+`CC_x86_64_unknown_linux_gnu` pointed at a one-line wrapper script that rewrites that one flag
+before calling `zig cc`; nothing in the repository changed for it, and CI's real gcc/clang never
+sees this. Not filed in `bugs-issues-fixes.md`: it is this sandbox's toolchain, not a defect in
+the project, the same category as the WebKitGTK/`pkg-config` gap sprint 2 recorded here rather
+than there.
+
 ### Sprint 9 — v0.5 speed
 
 S9.1 benchmark corpus (eight documents, `DESIGN.md` §8) · S9.2 `.aux` hash convergence ·
@@ -2052,10 +2144,39 @@ per-project engine switching · S9.5 CI performance gate that fails the build.
 ### Sprint 10–11 — v0.6 sync
 
 S10.1 snapshot-on-compile to a hidden ref (**first three days, before anything else**) · S10.2
-libgit2 panel · S10.3 GitHub device flow to keychain · S10.4 repository creation, private by
-default, explicit public confirmation · S11.1 one-action Sync with a sentence · S11.2 conflicts
-as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review · S11.5
-two-machine exit demo; GitLab and bare-remote CI test.
+`preamble-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
+tested against a temp repo · S10.3 activity bar and Source Control view, 1:1 VS Code · S10.4
+GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
+confirmation · S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`) · S11.2 conflicts
+as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
+graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test.
+
+**Source Control design notes** (settled 2026-09-17, `DESIGN.md` §6; cards expanded at sprint
+start):
+
+- *Activity bar.* Vertical icon strip at the far left, VS Code layout and shortcuts: Files
+  (`Ctrl Shift E`), Source Control (`Ctrl Shift G`, badge = changed-file count), Assistant
+  (robot head, empty until v0.7), Settings (gear). `Sidebar.svelte` becomes the Files view; a new
+  `ActivityBar.svelte` chooses which view the left pane shows. Ships in S10.3 with Files and
+  Source Control only; the other two icons exist so the layout does not shift later.
+- *Source Control view, copied from VS Code top to bottom:* header actions (✓ · refresh · ⋯) ·
+  commit message box, `Ctrl Enter` commits · **Commit** button with dropdown (Commit & Push,
+  Commit & Sync, Amend) · **Sync Changes ↑n ↓m** when ahead/behind (this button *is* the §5.7
+  one-verb path) · **Changes** / **Staged Changes** sections with counts, rows
+  `name · dir · M/U/A/D/R`, hover actions open / stage / discard, click opens a diff ·
+  **Graph** section: commit rows with branch and remote tags, author, *Outgoing changes*
+  header. Status bar gets branch name and sync arrows at the left.
+- *Writer additions, not in VS Code:* commit box pre-filled from outline + diff
+  (*"Revised §3.2 Methods, +240 words"*), computed without a model — rule 6 · word-count delta
+  on every graph row · `.tex` diff opens a CodeMirror merge view · two graph rows → `latexdiff`
+  PDF in the preview pane (S11.4) · `.preamble/` and build junk in `.gitignore` on init.
+- *Plumbing.* Status refresh is event-driven: the existing watcher debounces into a
+  `git:status-changed` event; the frontend never polls. Graph v1 is a single-lane list of the
+  first 200 commits with lazy loading; lane drawing for branches is a later loop if wanted.
+  `src/lib/git.svelte.ts` holds the state; `ipc.ts` owns the commands, as always.
+- *Guardrails.* Discard always confirms. Amend is hidden once the commit is pushed. First push
+  to a public remote gets the §5.7 confirmation. Nothing here touches the CRDT: after a
+  checkout or discard, the watcher diffs the file in like any other external edit (§5.2).
 
 ### Sprint 12–13 — v0.7 assistant
 

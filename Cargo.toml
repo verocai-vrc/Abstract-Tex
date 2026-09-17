@@ -54,6 +54,11 @@ async-trait = "0.1"
 # Gzip decompression, for reading .synctex.gz (crates/preamble-synctex). Widely used, actively
 # maintained, part of the rust-lang-adjacent ecosystem — not a niche one-person crate.
 flate2 = "1"
+# HTTP client for the acquisition features (DESIGN.md §5.4: DOI, arXiv, ISBN, and later Zotero).
+# `rustls-tls` avoids linking system OpenSSL, matching the "bundled, zero setup" story. The
+# blocking client, not the async one: texbib is meant to be callable from a plain script with no
+# async runtime (S8.5), so anything awaiting it wraps the call in `spawn_blocking` instead.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [profile.release]
 # Smaller, faster binary; the bundle size argument in DESIGN.md §4 depends on it.

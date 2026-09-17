@@ -121,6 +121,57 @@ export interface SyncTexInverseResult {
   line: number;
 }
 
+/** The project-wide bibliography index (S7.2, `src-tauri/src/bibliography.rs`): which `.bib`
+ * files the document names, every entry in them, and every `\cite` key in the document's `.tex`
+ * files. Rebuilt from disk whenever a `.bib` or `.tex` changes and sent whole as the
+ * `bibliography:changed` event; the `.bib` files themselves stay the truth (DESIGN.md §2). */
+export interface BibliographyIndex {
+  /** In the order the document names them, each once. */
+  files: BibFile[];
+  /** File order. A key defined twice appears twice — that is a health-check finding (S8.3),
+   * not something to hide here. */
+  entries: BibEntrySummary[];
+  /** Include-graph order, then line order. */
+  citations: Citation[];
+}
+
+export interface BibFile {
+  /** Project-relative, forward slashes; or the argument as written when it points outside
+   * the project. */
+  path: string;
+  /** False when the document names a file that is not on disk (or is outside the project). */
+  exists: boolean;
+  entryCount: number;
+  /** One sentence per item `texbib` could not parse, with the byte offset it gave up at. */
+  problems: Array<{ message: string; at: number }>;
+}
+
+/** What `\cite` completion (S7.3) shows: resolved field text, names not yet split. */
+export interface BibEntrySummary {
+  key: string;
+  /** As written (`article`, `Article`); compare ignoring case. */
+  entryType: string;
+  /** `author`, else `editor`, else the same from a `crossref` parent; `null` when none. */
+  author: string | null;
+  /** `year`, else the year of a BibLaTeX `date`, else inherited; `null` when none. */
+  year: string | null;
+  title: string | null;
+  /** Project-relative path of the `.bib` the entry is in. */
+  file: string;
+  /** The whole entry's span in that file, in *bytes* — not UTF-16 units. Convert before
+   * handing it to CodeMirror. */
+  span: { start: number; end: number };
+}
+
+/** One key inside one `\cite{...}`. */
+export interface Citation {
+  key: string;
+  /** Project-relative path of the `.tex` file. */
+  file: string;
+  /** 1-based line of the `\cite` command. */
+  line: number;
+}
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -153,6 +204,9 @@ export const ipc = {
   /** Answer a request the server made of us, quoting the id from its `lsp` event. */
   lspRespond: (id: unknown, result: unknown) => invoke<void>('lsp_respond', { id, result }),
 
+  /** The bibliography index, built fresh from disk (S7.2). Empty when there is no root file. */
+  bibliographyIndex: () => invoke<BibliographyIndex>('bibliography_index'),
+
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {
     const chosen = await openDialog({ directory: true, multiple: false, title: 'Open a LaTeX project folder' });
@@ -168,6 +222,10 @@ export const ipc = {
     listen<FsEvent>('fs:changed', (e) => handler(e.payload)),
   onLsp: (handler: (event: LspEvent) => void): Promise<UnlistenFn> =>
     listen<LspEvent>('lsp', (e) => handler(e.payload)),
+  /** A `.bib` or `.tex` changed — on disk or through our own `writeFile` — and the index was
+   * rebuilt. The payload is the whole new index, so there is nothing to fetch afterwards. */
+  onBibliographyChanged: (handler: (index: BibliographyIndex) => void): Promise<UnlistenFn> =>
+    listen<BibliographyIndex>('bibliography:changed', (e) => handler(e.payload)),
 };
 
 export type Ipc = typeof ipc;

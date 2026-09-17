@@ -2,6 +2,7 @@
 // build finishing, react to a file changing on disk. Components call these; nothing else
 // mutates `app`.
 
+import { bibliography } from './bibliography.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -327,6 +328,11 @@ export async function start(): Promise<void> {
   await ipc.onCompile(handleCompileEvent);
   await ipc.onFsChanged((event) => void handleFsEvent(event));
   await ipc.onLsp(handleLspEvent);
+  // Rust rebuilds the index whenever a .bib or .tex changes and sends it whole (S7.2); the
+  // frontend only ever replaces its snapshot.
+  await ipc.onBibliographyChanged((index) => {
+    bibliography.index = index;
+  });
   try {
     app.engine = await ipc.engineInfo();
   } catch (error) {
@@ -352,6 +358,10 @@ export async function openFolder(path?: string): Promise<void> {
     app.rawLog = '';
     app.rawLogFocus = null;
     app.notice = null;
+    // The previous project's bibliography is not this one's. The first index arrives from the
+    // command below; later ones arrive as events.
+    bibliography.index = null;
+    void refreshBibliography();
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
     // compile loop and the PDF all work without it.
@@ -364,6 +374,17 @@ export async function openFolder(path?: string): Promise<void> {
     }
   } catch (error) {
     app.notice = String(error);
+  }
+}
+
+/** Ask Rust for the index as it stands on disk. Only needed once per project, at open; every
+ * change after that arrives as a `bibliography:changed` event. A failure is not a notice: the
+ * editor, the compile loop and the PDF all work without a bibliography index. */
+async function refreshBibliography(): Promise<void> {
+  try {
+    bibliography.index = await ipc.bibliographyIndex();
+  } catch {
+    /* no project open any more, or it has no root file yet */
   }
 }
 

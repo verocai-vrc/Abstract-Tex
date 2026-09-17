@@ -6,11 +6,13 @@
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
 //! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `preamble-synctex`.
+//! - [`bibliography`] — the `.bib` index: files, entries, citations, rebuilt from disk on change.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
 //!
 //! State that lives for the whole app is in [`AppState`], handed to Tauri with `.manage()` and
 //! borrowed by commands as `State<'_, AppState>`.
 
+pub mod bibliography;
 pub mod commands;
 pub mod compile;
 pub mod lsp;
@@ -97,6 +99,7 @@ pub fn run() {
             commands::lsp_request,
             commands::lsp_notify,
             commands::lsp_respond,
+            commands::bibliography_index,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Preamble window");

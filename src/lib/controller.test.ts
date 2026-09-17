@@ -3,7 +3,7 @@
 // every line of the reaction except the Rust on the far side of `invoke`.
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import type { CompileEvent, FsEvent, LspEvent, ProjectInfo, TextOp } from './ipc';
+import type { BibliographyIndex, CompileEvent, FsEvent, LspEvent, ProjectInfo, TextOp } from './ipc';
 
 /** The fake disk and the calls made against it. Declared before the mock factory uses it. */
 const disk = new Map<string, string>();
@@ -28,6 +28,10 @@ let synctexInverseAnswer: { file: string | null; line: number } | Error = { file
 let lspRequestAnswer: unknown = null;
 /** What `readLog` returns — the `main.log` on the fake disk, for the raw-view tests (S6.3). */
 let logOnDisk = '';
+/** What `bibliographyIndex` answers with — the index Rust would have built from the fake disk. */
+const emptyBibliography: BibliographyIndex = { files: [], entries: [], citations: [] };
+let bibliographyOnDisk: BibliographyIndex = emptyBibliography;
+let bibliographyHandler: (index: BibliographyIndex) => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
 let lspHandler: (event: LspEvent) => void = () => {};
@@ -114,6 +118,11 @@ vi.mock('./ipc', () => ({
       lspHandler = handler;
       return () => {};
     },
+    bibliographyIndex: async (): Promise<BibliographyIndex> => bibliographyOnDisk,
+    onBibliographyChanged: async (handler: (index: BibliographyIndex) => void) => {
+      bibliographyHandler = handler;
+      return () => {};
+    },
   },
 }));
 
@@ -142,6 +151,7 @@ const {
   triggerCompile,
 } = await import('./controller.svelte');
 const { app } = await import('./state.svelte');
+const { bibliography } = await import('./bibliography.svelte');
 const { allCommands } = await import('./commands');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
@@ -177,6 +187,7 @@ beforeEach(async () => {
   logOnDisk = '';
   synctexForwardAnswer = { page: 1, x: 10, y: 20 };
   synctexInverseAnswer = { file: 'main.tex', line: 3 };
+  bibliographyOnDisk = emptyBibliography;
   app.conflict = null;
   app.notice = null;
   await start();
@@ -1127,5 +1138,43 @@ describe('the Document map (S4.2)', () => {
 
     await vi.advanceTimersByTimeAsync(1);
     expect(app.outline).toEqual([{ kind: 'section', title: 'New', line: 1, level: 2 }]);
+  });
+});
+
+describe('the bibliography index (S7.2)', () => {
+  const smith = {
+    key: 'smith2019',
+    entryType: 'article',
+    author: 'Smith, Jane',
+    year: '2019',
+    title: 'A Title',
+    file: 'refs.bib',
+    span: { start: 0, end: 80 },
+  };
+
+  it('is fetched once when a folder opens, and cleared first', async () => {
+    bibliographyOnDisk = {
+      files: [{ path: 'refs.bib', exists: true, entryCount: 1, problems: [] }],
+      entries: [smith],
+      citations: [{ key: 'smith2019', file: 'main.tex', line: 3 }],
+    };
+    await openFolder('/proj');
+    expect(bibliography.entries.get('smith2019')).toEqual(smith);
+    expect(bibliography.citations.get('smith2019')).toEqual([{ key: 'smith2019', file: 'main.tex', line: 3 }]);
+    expect(bibliography.missingFiles).toEqual([]);
+  });
+
+  it('replaces its snapshot whole when Rust says the index changed', async () => {
+    expect(bibliography.entries.size).toBe(0);
+    bibliographyHandler({
+      files: [
+        { path: 'refs.bib', exists: true, entryCount: 1, problems: [] },
+        { path: 'missing.bib', exists: false, entryCount: 0, problems: [] },
+      ],
+      entries: [smith],
+      citations: [],
+    });
+    expect(bibliography.entries.get('smith2019')).toEqual(smith);
+    expect(bibliography.missingFiles).toEqual(['missing.bib']);
   });
 });

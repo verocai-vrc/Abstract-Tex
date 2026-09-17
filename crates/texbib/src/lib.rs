@@ -13,8 +13,9 @@
 //! **This crate must never read a file, make a network request, or know about the editor.**
 //! Text in, data out, the same rule `texlog` follows, and for the same reason: it is published
 //! on its own under MIT (S8.5), and it must be usable from a script or a CI check as easily as
-//! from the app. The one planned exception is the `acquire` feature (S7.4–S7.5, DOI/arXiv/ISBN
-//! lookups), which will sit behind a Cargo feature so the parser itself stays dependency-free.
+//! from the app. The one exception is the `acquire` module (S7.4–S7.5, DOI/arXiv/ISBN lookups),
+//! gated behind the `acquire` Cargo feature so `parse` and `value` stay dependency-free with the
+//! feature off — `cargo doc -p texbib` with no features builds this whole comment without it.
 //!
 //! BibLaTeX is the same syntax as BibTeX with more entry types (`@online`, `@set`, `@xdata`)
 //! and field names (`date`, `journaltitle`), so it costs nothing here. What BibLaTeX *means*
@@ -23,6 +24,8 @@
 
 #![warn(missing_docs)]
 
+#[cfg(feature = "acquire")]
+pub mod acquire;
 pub mod parse;
 pub mod value;
 

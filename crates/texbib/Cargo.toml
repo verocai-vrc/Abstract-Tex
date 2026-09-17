@@ -14,8 +14,15 @@ repository.workspace = true
 rust-version.workspace = true
 include = ["/src", "/tests", "/fixtures", "/build.rs", "/README.md", "/LICENSE"]
 
+[features]
+# Off by default: the parser itself has no dependencies beyond serde, and stays that way for
+# whoever pulls in just the crates.io crate (S8.5). Acquisition is opt-in.
+acquire = ["dep:reqwest", "dep:thiserror"]
+
 [dependencies]
 serde = { workspace = true }
+thiserror = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The fixture harness (tests/fixtures.rs) compares parsed output against expected.json as data.
