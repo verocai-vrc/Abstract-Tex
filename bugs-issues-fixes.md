@@ -248,6 +248,19 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **`jumpToDiagnostic` still assumed every diagnostic was about the root file, though `Diagnostic.
+  file` has named the real one since S5.6.** (S6.2, builder, 17 Sep 2026) The function's own doc
+  comment said as much — "Until the paren-stack resolver lands (S5.2)..." — but S5.2 and S5.6 had
+  both already landed by the time S6.2 started, and nothing had come back to update the code once
+  the field it was waiting on existed. Clicking a diagnostic that happened inside an `\input`ed
+  chapter would open `main.tex` and jump to whatever line number that diagnostic named there,
+  landing on unrelated text rather than a "file not found" error. Found while wiring S6.2's
+  one-click fix, which cannot risk editing the wrong file the same way a click could silently
+  mis-jump. Fixed by routing through `diagnosticTarget` (`diagnostic.file`, falling back to the
+  project's root file only when `file` is `null`); `jumpToDiagnostic` and `applyDiagnosticFix`
+  (S6.2) both use it now. Regression test: `controller.test.ts`'s "jumping to a diagnostic in a
+  different file opens that file, not the root (S5.6 wiring)".
+
 - **`fixtures/thesis/SMOKE.md` §3 step 3 described a command-palette search the app cannot do.**
   (S4.4, deferred reviewer pass, 16 Sep 2026) The step asked the reader to search `convergence`
   while `sections/conclusion.tex` was the active tab and expected a section from

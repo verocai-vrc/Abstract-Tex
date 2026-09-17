@@ -6,7 +6,8 @@
 // It also knows nothing about Tauri: it talks to a `DocumentBackend` so tests can use a fake.
 
 import * as Y from 'yjs';
-import type { TextOp } from './ipc';
+import { locateFix } from './fix';
+import type { Fix, TextOp } from './ipc';
 
 /** Transaction origins that are *not* the author typing. */
 export const ORIGIN_LOAD = 'preamble:load';
@@ -215,6 +216,27 @@ export class OpenDocument {
     }
     this.lastSavedText = diskText;
     this.setDirty(this.text() !== diskText);
+  }
+
+  /**
+   * Apply a rule catalog fix (S5.5's `Fix`, S6.2 makes it real): find `fix.find` on `line` and
+   * replace it, through an ordinary `ydoc.transact` with no explicit origin — the same origin
+   * every keystroke uses, so `Y.UndoManager`'s default `trackedOrigins` (which is exactly `{
+   * null }`) picks it up like any other edit. That is what makes this undoable with a plain
+   * Ctrl-Z, and what makes it dirty the buffer and schedule a save through the ordinary
+   * `onChange` path below, rather than needing a second, parallel "apply an edit" pipeline.
+   * Returns whether anything actually changed: `locateFix` returning `null` means the line the
+   * diagnostic named does not hold what the fix expects, and this declines rather than editing
+   * the wrong text (see `fix.ts`'s own module doc for why that can happen).
+   */
+  applyFix(line: number, fix: Fix): boolean {
+    const edit = locateFix(this.text(), line, fix);
+    if (!edit) return false;
+    this.ydoc.transact(() => {
+      this.ytext.delete(edit.from, edit.to - edit.from);
+      this.ytext.insert(edit.from, edit.insert);
+    });
+    return true;
   }
 
   dispose() {

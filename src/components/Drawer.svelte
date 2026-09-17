@@ -2,9 +2,10 @@
   // The diagnostics drawer: the application's conscience (DESIGN.md §6). One card per problem,
   // each a title and a couple of sentences from texlog's rule catalog (S2.6) — TeX's own words
   // are behind the "Raw log" button, never the default (DESIGN.md §2, rule 3). Clicking a card
-  // goes to its line; one-click fixes are S6.2 and grouping/filtering is S6.3.
+  // goes to its line; a card whose rule carries a `Fix` (S5.5) also gets an "Apply fix" button
+  // (S6.2); grouping/filtering is S6.3.
   import { app } from '../lib/state.svelte';
-  import { jumpToDiagnostic, toggleRawLog } from '../lib/controller.svelte';
+  import { applyDiagnosticFix, jumpToDiagnostic, toggleRawLog } from '../lib/controller.svelte';
   import type { Diagnostic } from '../lib/ipc';
 
   const summary = $derived.by(() => {
@@ -31,6 +32,14 @@
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
     void jumpToDiagnostic(diagnostic);
+  }
+
+  // The card itself is `role="button"` for "go to this line"; the fix button sits inside it and
+  // must stop the click from also bubbling up to that outer handler, or applying a fix would
+  // jump to the line twice — once from each handler reaching the same `jumpToLine` call.
+  function onApplyFix(event: MouseEvent, diagnostic: Diagnostic) {
+    event.stopPropagation();
+    void applyDiagnosticFix(diagnostic);
   }
 </script>
 
@@ -66,6 +75,11 @@
           <span class="loc">{diagnostic.line ? `line ${diagnostic.line}` : '—'}</span>
           <span class="title">{diagnostic.title}</span>
           <span class="explanation">{diagnostic.explanation}</span>
+          {#if diagnostic.fix}
+            <button class="ghost fix" onclick={(e) => onApplyFix(e, diagnostic)}>
+              {diagnostic.fix.description}
+            </button>
+          {/if}
         </div>
       {/each}
     {/if}

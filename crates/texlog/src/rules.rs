@@ -11,8 +11,10 @@
 //! (S5.5); [`FnRule`] is the one implementation this crate needs today, wrapping the plain
 //! functions each of these six rules already had. A future rule with no logic at all — a fixed
 //! prefix and a fixed sentence, no dynamic content — would implement [`Rule`] directly instead,
-//! as pure data with no `fn`. *Applying* a fix (S6.2), rather than only describing one, is still
-//! not here.
+//! as pure data with no `fn`. *Applying* a fix is still not here — this crate only ever
+//! describes one, per its own "never read a file" rule above — S6.2 is the frontend's
+//! `OpenDocument.applyFix` (`src/lib/document.ts`), which does the actual find/replace through
+//! the CRDT once it has real source text to search.
 //!
 //! **S5.6: [`diagnostics`] is rebuilt on [`crate::tokenizer`] and [`crate::resolver`], not
 //! [`crate::quick_errors`].** `located_errors`/`located_warnings` below walk
@@ -208,7 +210,7 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         matches: |e| e.message.starts_with("Misplaced alignment tab character"),
         explain: explain_misplaced_alignment_tab,
-        fix: None,
+        fix: Some(fix_misplaced_alignment_tab),
     },
     &FnRule {
         id: "extra-alignment-tab",
@@ -245,7 +247,7 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         matches: |e| e.message.starts_with("Illegal unit of measure"),
         explain: explain_illegal_unit_of_measure,
-        fix: None,
+        fix: Some(fix_illegal_unit_of_measure),
     },
     &FnRule {
         id: "missing-number",
@@ -373,7 +375,7 @@ const CATALOG: &[&dyn Rule] = &[
         // technique `explain_unbalanced_braces` already uses for a different message shape.
         matches: |e| e.message.starts_with("Argument of") && e.message.contains("has an extra }"),
         explain: explain_fragile_command_in_moving_argument,
-        fix: None,
+        fix: Some(fix_fragile_command_in_moving_argument),
     },
     // S6.1: rules 28–36, a third pass over common real mistakes — structural (a stray `\\`, a
     // duplicate `\documentclass`, `\include` nested inside `\include`), amsmath- and
@@ -390,7 +392,7 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         matches: |e| e.message.starts_with("LaTeX Error: \\include cannot be nested"),
         explain: explain_include_cannot_be_nested,
-        fix: None,
+        fix: Some(fix_include_cannot_be_nested),
     },
     &FnRule {
         id: "amsmath-erroneous-nesting",
@@ -411,14 +413,14 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         matches: |e| e.message.starts_with("Display math should end with $$"),
         explain: explain_display_math_wrong_delimiter,
-        fix: None,
+        fix: Some(fix_display_math_wrong_delimiter),
     },
     &FnRule {
         id: "duplicate-documentclass",
         severity: Severity::Error,
         matches: |e| e.message.starts_with("LaTeX Error: Two \\documentclass"),
         explain: explain_duplicate_documentclass,
-        fix: None,
+        fix: Some(fix_duplicate_documentclass),
     },
     &FnRule {
         id: "image-not-found",
@@ -434,7 +436,7 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         matches: |e| e.message.starts_with("LaTeX Error: \\verb ended by end of line"),
         explain: explain_verb_unterminated,
-        fix: None,
+        fix: Some(fix_verb_unterminated),
     },
     &FnRule {
         id: "preamble-only-command",
@@ -815,6 +817,14 @@ fn explain_misplaced_alignment_tab(_error: &QuickError) -> (String, String) {
     )
 }
 
+/// The second unambiguous fix in this catalog, and the same shape as [`fix_missing_dollar`]:
+/// escaping the one character TeX choked on. The explanation above already promises exactly
+/// this edit ("write `\&` instead"), so offering it as a button rather than only prose is no
+/// more of a guess than the sentence already was.
+fn fix_misplaced_alignment_tab(_error: &QuickError) -> Option<Fix> {
+    Some(Fix { description: "Escape as \\&".to_string(), find: "&".to_string(), replace: "\\&".to_string() })
+}
+
 fn explain_extra_alignment_tab(_error: &QuickError) -> (String, String) {
     (
         "More columns than this row declared".to_string(),
@@ -891,6 +901,31 @@ fn explain_missing_begin_document(_error: &QuickError) -> (String, String) {
          above it in the preamble."
             .to_string(),
     )
+}
+
+/// TeX's own message names the exact unit it substituted at runtime — "(pt inserted)" — so
+/// appending that same unit to the bare number this crate can already see in `context` is not a
+/// guess, only a text version of the recovery TeX already performed. Declines whenever the
+/// argument is not purely a number: a unit that is merely misspelled (`\vspace{1xy}`) is a
+/// different, ambiguous mistake — this crate cannot know whether `xy` should become `pt`, `cm`
+/// or something else — so it gets an explanation, not a button, matching DESIGN.md §5.2's own
+/// rule that a fix may only be offered when the correction cannot be wrong.
+fn fix_illegal_unit_of_measure(error: &QuickError) -> Option<Fix> {
+    if !error.message.contains("pt inserted") {
+        return None;
+    }
+    let context = error.context.as_deref()?;
+    let start = context.rfind('{')? + 1;
+    let end = start + context[start..].find('}')?;
+    let value = &context[start..end];
+    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
+        return None;
+    }
+    Some(Fix {
+        description: "Add pt".to_string(),
+        find: format!("{{{value}}}"),
+        replace: format!("{{{value}pt}}"),
+    })
 }
 
 fn explain_illegal_unit_of_measure(_error: &QuickError) -> (String, String) {
@@ -1092,6 +1127,27 @@ fn explain_fragile_command_in_moving_argument(error: &QuickError) -> (String, St
     }
 }
 
+/// `\protect` right before the recovered command is the explanation's own worked suggestion
+/// above, and [`trailing_command`] is the same helper the explanation already trusts to name
+/// that command correctly — so the fix can share its answer rather than re-deriving it. `None`
+/// when no command could be recovered at all (the explanation's own fallback branch): offering
+/// nothing is honest there, since there is no command name to insert `\protect` before.
+fn fix_fragile_command_in_moving_argument(error: &QuickError) -> Option<Fix> {
+    let command = trailing_command(error.context.as_ref())?;
+    Some(Fix {
+        description: format!("Add \\protect before {command}"),
+        find: command.clone(),
+        replace: format!("\\protect{command}"),
+    })
+}
+
+/// A fix was considered here and rejected, not merely skipped: TeX's own `l.NN` marker for this
+/// message points at the line *after* the stray `\\`, since TeX only notices the empty line once
+/// it starts reading the next one — `no-line-to-end`'s own fixture pins `\\` on line 3 but a
+/// diagnostic `line` of 4. A [`Fix`] can only edit the line the diagnostic names (`lib.rs`'s own
+/// rule: no byte offset, no source access), so a fix offered here would look for `\\` on the
+/// *wrong* line and silently do nothing — not wrong, but not honest either. Left `None` until a
+/// diagnostic can carry a corrected line for this specific shape.
 fn explain_line_end_with_nothing_before_it(_error: &QuickError) -> (String, String) {
     (
         "A line break with nothing on the line yet".to_string(),
@@ -1113,6 +1169,18 @@ fn explain_include_cannot_be_nested(_error: &QuickError) -> (String, String) {
     )
 }
 
+/// The one edit the explanation already names: swap `\include` for `\input` on the line that
+/// failed. Command-name-only, not context-dependent — the substitution is the same regardless of
+/// which file is being included, unlike [`fix_fragile_command_in_moving_argument`], which needs
+/// `context` to know *which* command to protect.
+fn fix_include_cannot_be_nested(_error: &QuickError) -> Option<Fix> {
+    Some(Fix {
+        description: "Change to \\input".to_string(),
+        find: "\\include".to_string(),
+        replace: "\\input".to_string(),
+    })
+}
+
 fn explain_amsmath_erroneous_nesting(_error: &QuickError) -> (String, String) {
     (
         "One display-maths environment opened inside another".to_string(),
@@ -1124,6 +1192,11 @@ fn explain_amsmath_erroneous_nesting(_error: &QuickError) -> (String, String) {
     )
 }
 
+/// No fix here, deliberately: "use `\arabic` instead" changes what the reader sees — a letter
+/// reference becomes a number — which is exactly DESIGN.md §5.2's own disqualifying example
+/// ("you probably meant a different command" does not qualify, only an edit that cannot be
+/// wrong). Swapping the counter format is a real suggestion, offered as prose above, not a
+/// button.
 fn explain_counter_too_large(_error: &QuickError) -> (String, String) {
     (
         "A counter's value is too large for this format".to_string(),
@@ -1145,6 +1218,23 @@ fn explain_display_math_wrong_delimiter(_error: &QuickError) -> (String, String)
     )
 }
 
+/// Only offered when `context` makes the opener certain: TeX's message never says which
+/// delimiter opened the formula, so a fix that assumed `\[` on a `$$`-opened display would be a
+/// guess, not an edit that cannot be wrong. `context` is the whole line up to the error (S5.1),
+/// so `\[` visible on it, and a single trailing `$` rather than a `$$`, is real evidence rather
+/// than an assumption.
+fn fix_display_math_wrong_delimiter(error: &QuickError) -> Option<Fix> {
+    let context = error.context.as_deref()?;
+    if !context.contains("\\[") || !context.ends_with('$') || context.ends_with("$$") {
+        return None;
+    }
+    Some(Fix {
+        description: "Close with \\]".to_string(),
+        find: context.to_string(),
+        replace: format!("{}\\]", &context[..context.len() - 1]),
+    })
+}
+
 fn explain_duplicate_documentclass(_error: &QuickError) -> (String, String) {
     (
         "`\\documentclass` appears twice".to_string(),
@@ -1153,6 +1243,28 @@ fn explain_duplicate_documentclass(_error: &QuickError) -> (String, String) {
          preamble in by accident."
             .to_string(),
     )
+}
+
+/// Comments the duplicate line out rather than deleting it outright: reversible with one
+/// keystroke, and it does not need the class name or options to be safe — unlike a literal
+/// whole-line delete, whose exact argument text this crate never fully sees (`context` is
+/// truncated at the `l.NN` split point, the same limitation [`fix_missing_dollar`]'s own doc
+/// comment names for a different message shape). Handles `\documentstyle` too, since the
+/// message names both as the same mistake.
+fn fix_duplicate_documentclass(error: &QuickError) -> Option<Fix> {
+    let context = error.context.as_deref()?;
+    let command = if context.contains("\\documentclass") {
+        "\\documentclass"
+    } else if context.contains("\\documentstyle") {
+        "\\documentstyle"
+    } else {
+        return None;
+    };
+    Some(Fix {
+        description: "Comment out this line".to_string(),
+        find: command.to_string(),
+        replace: format!("% {command}"),
+    })
 }
 
 fn explain_image_not_found(error: &QuickError) -> (String, String) {
@@ -1175,6 +1287,23 @@ fn explain_verb_unterminated(_error: &QuickError) -> (String, String) {
          `verbatim` environment instead if the text needs to span multiple lines."
             .to_string(),
     )
+}
+
+/// The closing delimiter is whatever character followed `\verb` (or `\verb*`) — TeX's own
+/// syntax, not a guess — so doubling it onto the end of the line is the one edit that can only
+/// close the argument, never change what it contains. `find` is the whole line rather than a
+/// short token: there is no fixed substring to anchor on here, only "append at the end", and
+/// [`fix_display_math_wrong_delimiter`] above uses the same whole-context anchor for the same
+/// reason.
+fn fix_verb_unterminated(error: &QuickError) -> Option<Fix> {
+    let context = error.context.as_deref()?;
+    let after_verb = context.strip_prefix("\\verb*").or_else(|| context.strip_prefix("\\verb"))?;
+    let delimiter = after_verb.chars().next()?;
+    Some(Fix {
+        description: format!("Close with {delimiter}"),
+        find: context.to_string(),
+        replace: format!("{context}{delimiter}"),
+    })
 }
 
 fn explain_preamble_only_command(error: &QuickError) -> (String, String) {
@@ -1295,20 +1424,43 @@ mod tests {
     }
 
     #[test]
-    fn only_missing_dollar_offers_a_fix_in_this_catalog() {
+    fn only_eight_rules_offer_a_fix_in_this_catalog() {
         // DESIGN.md §5.2's own rule: a fix may only be automatic when the correction cannot be
-        // wrong. None of this catalog's other five rules — an unknown command, a brace problem, a
-        // missing file, an undefined reference or citation — can be resolved by an edit this
-        // crate could describe from the log alone, so every one of them must offer `None`.
+        // wrong. S6.2 went looking for candidates among the other twenty-eight and tested each
+        // one rather than assuming — every entry below names the specific reason it disqualifies,
+        // the same "test it, don't guess it" discipline S6.1's own closing note already used for
+        // rejected rule candidates.
         for (log, rule_id) in [
+            // Two candidate fixes (a typo, or a missing \usepackage), not one — DESIGN.md's own
+            // disqualifying example.
             ("! Undefined control sequence.\nl.12 \\textbold\n", "undefined-control-sequence"),
+            // No known position for the missing brace.
             ("! Missing } inserted.\nl.5 x\n", "unbalanced-braces"),
+            // Needs a real file on disk this crate never reads or creates.
             ("! LaTeX Error: File `nosuch.sty' not found.\n", "file-not-found"),
+            // Needs a real label this crate cannot invent.
             ("LaTeX Warning: Reference `x' on page 1 undefined on input line 1.\n", "undefined-reference"),
+            // Needs a real key this crate cannot invent.
             ("LaTeX Warning: Citation `x' on page 1 undefined on input line 1.\n", "undefined-citation"),
+            // The explanation itself names two different valid fixes — "either the missing
+            // \end{itemize} is missing before this point, or this \end{enumerate} should read
+            // \end{itemize}" — genuinely ambiguous, not merely undecided.
+            (
+                "! LaTeX Error: \\begin{itemize} on input line 3 ended by \\end{enumerate}.\nl.5 \\end{enumerate}\n",
+                "mismatched-environment",
+            ),
+            // `x_1_2` does not say whether the grouping should be `x_{1_2}`, `x_{1,2}` or
+            // `x_{12}` — three different real edits, not one.
+            ("! Double subscript.\nl.3 x_1_2\n", "double-subscript"),
+            // Rename the command, or use \renewcommand — two different fixes for two different
+            // intentions this crate cannot tell apart.
+            ("! LaTeX Error: Command \\maketitle already defined.\n", "command-already-defined"),
+            // DESIGN.md's own disqualifying example, verbatim: "use \arabic instead" changes what
+            // the reader sees. See this rule's own explain_counter_too_large doc comment.
+            ("! LaTeX Error: Counter too large.\n", "counter-too-large"),
         ] {
             let d = diagnostic_from(log, rule_id);
-            assert_eq!(d.fix, None, "{rule_id} should not offer a fix yet");
+            assert_eq!(d.fix, None, "{rule_id} should not offer a fix");
         }
     }
 
@@ -1419,6 +1571,14 @@ mod tests {
             let log = include_str!("../fixtures/misplaced-alignment-tab/main.log");
             let d = diagnostic_from(log, "misplaced-alignment-tab");
             assert_eq!(d.line, Some(3));
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Escape as \\&".to_string(),
+                    find: "&".to_string(),
+                    replace: "\\&".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
         }
 
@@ -1461,7 +1621,24 @@ mod tests {
         fn illegal_unit_of_measure() {
             let log = include_str!("../fixtures/illegal-unit-of-measure/main.log");
             let d = diagnostic_from(log, "illegal-unit-of-measure");
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Add pt".to_string(),
+                    find: "{1}".to_string(),
+                    replace: "{1pt}".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn illegal_unit_of_measure_declines_when_the_argument_already_has_letters_in_it() {
+            // A misspelled unit (`\vspace{1xy}`) is a different, ambiguous mistake — this crate
+            // cannot know whether `xy` should become `pt`, `cm`, or something else.
+            let log = "! Illegal unit of measure (pt inserted).\nl.3 \\vspace{1xy}\n";
+            let d = diagnostic_from(log, "illegal-unit-of-measure");
+            assert_eq!(d.fix, None);
         }
 
         #[test]
@@ -1587,6 +1764,14 @@ mod tests {
             assert_eq!(d.title, "\\footnote cannot be used here directly");
             assert!(!d.explanation.contains("@sect"), "{}", d.explanation);
             assert!(d.explanation.contains("\\protect\\footnote"), "{}", d.explanation);
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Add \\protect before \\footnote".to_string(),
+                    find: "\\footnote".to_string(),
+                    replace: "\\protect\\footnote".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
         }
 
@@ -1605,6 +1790,14 @@ mod tests {
             let log = include_str!("../fixtures/include-nested/main.log");
             let d = diagnostic_from(log, "include-cannot-be-nested");
             assert_eq!(d.file.as_deref(), Some("outer.tex"));
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Change to \\input".to_string(),
+                    find: "\\include".to_string(),
+                    replace: "\\input".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
         }
 
@@ -1626,13 +1819,39 @@ mod tests {
         fn display_math_wrong_delimiter() {
             let log = include_str!("../fixtures/bad-math-delimiter/main.log");
             let d = diagnostic_from(log, "display-math-wrong-delimiter");
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Close with \\]".to_string(),
+                    find: "\\[ x = 1 $".to_string(),
+                    replace: "\\[ x = 1 \\]".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn display_math_wrong_delimiter_declines_when_the_opener_is_not_certain() {
+            // The message never says which delimiter opened the formula; without a visible `\[`
+            // on the same line, guessing one would risk turning a `$$`-opened display into a
+            // mismatched one instead of a matched one.
+            let log = "! Display math should end with $$.\nl.3 x = 1 $\n";
+            let d = diagnostic_from(log, "display-math-wrong-delimiter");
+            assert_eq!(d.fix, None);
         }
 
         #[test]
         fn duplicate_documentclass() {
             let log = include_str!("../fixtures/two-documentclass/main.log");
             let d = diagnostic_from(log, "duplicate-documentclass");
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Comment out this line".to_string(),
+                    find: "\\documentclass".to_string(),
+                    replace: "% \\documentclass".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
         }
 
@@ -1648,6 +1867,14 @@ mod tests {
         fn verb_unterminated() {
             let log = include_str!("../fixtures/verb-end-of-line/main.log");
             let d = diagnostic_from(log, "verb-unterminated");
+            assert_eq!(
+                d.fix,
+                Some(Fix {
+                    description: "Close with |".to_string(),
+                    find: "\\verb|unterminated".to_string(),
+                    replace: "\\verb|unterminated|".to_string(),
+                })
+            );
             assert_reads_like_a_sentence(&d);
         }
 

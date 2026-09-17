@@ -2,7 +2,11 @@
   {
     "explanation": "`&` is reserved for separating columns inside `tabular`, `align` and similar environments; TeX ran into one outside any of those. If you meant a literal ampersand, write `\\&` instead.",
     "file": "main.tex",
-    "fix": null,
+    "fix": {
+      "description": "Escape as \\&",
+      "find": "&",
+      "replace": "\\&"
+    },
     "line": 3,
     "rawMessage": "Misplaced alignment tab character &.",
     "rule": "misplaced-alignment-tab",

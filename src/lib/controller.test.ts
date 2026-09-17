@@ -111,6 +111,7 @@ vi.mock('./ipc', () => ({
 }));
 
 const {
+  applyDiagnosticFix,
   closeTab,
   goToOutlineItem,
   jumpToDiagnostic,
@@ -436,7 +437,7 @@ describe('diagnostics (S2.7)', () => {
     expect(app.errorCount).toBe(0);
   });
 
-  it('jumping to a diagnostic brings the root file to the front first', async () => {
+  it('jumping to a diagnostic brings its own file to the front first', async () => {
     disk.set('notes.tex', 'notes');
     await openFile('notes.tex');
     expect(app.activePath).toBe('notes.tex');
@@ -446,10 +447,88 @@ describe('diagnostics (S2.7)', () => {
     expect(app.jumpRequest?.line).toBe(87);
   });
 
+  it('jumping to a diagnostic in a different file opens that file, not the root (S5.6 wiring)', async () => {
+    disk.set('chapters/intro.tex', 'text\n');
+    await jumpToDiagnostic({ ...underscore, file: 'chapters/intro.tex', line: 1 });
+    expect(app.activePath).toBe('chapters/intro.tex');
+    expect(app.jumpRequest?.line).toBe(1);
+  });
+
+  it('a diagnostic with no file at all falls back to the root file', async () => {
+    disk.set('notes.tex', 'notes');
+    await openFile('notes.tex');
+    await jumpToDiagnostic({ ...underscore, file: null });
+    expect(app.activePath).toBe('main.tex');
+  });
+
   it('a diagnostic with no line goes nowhere', async () => {
     const before = app.jumpRequest;
     await jumpToDiagnostic({ ...underscore, line: null });
     expect(app.jumpRequest).toBe(before);
+  });
+});
+
+describe('applying a diagnostic fix (S6.2)', () => {
+  const withAmpersand = {
+    title: '`&` used outside a table',
+    explanation: 'If you meant a literal ampersand, write `\\&` instead.',
+    line: 3,
+    file: 'main.tex',
+    severity: 'error' as const,
+    rule: 'misplaced-alignment-tab',
+    rawMessage: 'Misplaced alignment tab character &.',
+    fix: { description: 'Escape as \\&', find: '&', replace: '\\&' },
+  };
+
+  /** `main.tex` is already open by the outer `beforeEach` (`openFolder` opens the root file),
+   * so replacing `disk`'s copy would not be seen — a fix always acts on the live buffer, the
+   * same as any other edit. Setting the already-open document's own text is what a real external
+   * change to that content would look like. */
+  function setMainTexBuffer(text: string): void {
+    const doc = app.docs.get('main.tex')!;
+    doc.ytext.delete(0, doc.ytext.length);
+    doc.ytext.insert(0, text);
+  }
+
+  beforeEach(() => {
+    setMainTexBuffer('one\ntwo\nSalt & pepper.\n');
+  });
+
+  it('finds the file, edits it through the CRDT, and saves it on the usual debounce', async () => {
+    const applied = await applyDiagnosticFix(withAmpersand);
+    expect(applied).toBe(true);
+    expect(app.activePath).toBe('main.tex');
+    expect(app.jumpRequest?.line).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('main.tex')).toBe('one\ntwo\nSalt \\& pepper.\n');
+  });
+
+  it('opens the file first when the fix belongs to a tab that is not open yet', async () => {
+    disk.set('chapters/intro.tex', 'Salt & pepper.\n');
+    const applied = await applyDiagnosticFix({ ...withAmpersand, file: 'chapters/intro.tex', line: 1 });
+    expect(applied).toBe(true);
+    expect(app.activePath).toBe('chapters/intro.tex');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('chapters/intro.tex')).toBe('Salt \\& pepper.\n');
+  });
+
+  it('declines, and leaves a notice, when the named line does not hold the fix anymore', async () => {
+    setMainTexBuffer('one\ntwo\nnothing to escape here\n');
+    const applied = await applyDiagnosticFix(withAmpersand);
+    expect(applied).toBe(false);
+    expect(app.notice).toContain('main.tex');
+  });
+
+  it('does nothing for a diagnostic with no fix', async () => {
+    const applied = await applyDiagnosticFix({ ...withAmpersand, fix: null });
+    expect(applied).toBe(false);
+  });
+
+  it('does nothing for a diagnostic with no file and no project root to fall back to', async () => {
+    app.project = null;
+    const applied = await applyDiagnosticFix({ ...withAmpersand, file: null });
+    expect(applied).toBe(false);
   });
 });
 

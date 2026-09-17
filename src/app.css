@@ -415,6 +415,13 @@ kbd {
   line-height: 1.45;
   white-space: pre-wrap;
 }
+.drawer .diag .fix {
+  grid-column: 2;
+  justify-self: start;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-color: var(--border);
+}
 .drawer pre {
   margin: 0;
   font-family: var(--font-mono);

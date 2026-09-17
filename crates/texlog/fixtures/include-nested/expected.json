@@ -2,7 +2,11 @@
   {
     "explanation": "`\\include` may only be called from the main document, never from a file that was itself brought in with `\\include`. Change the inner one to `\\input` instead — `\\input` has no such restriction and works from any file.",
     "file": "outer.tex",
-    "fix": null,
+    "fix": {
+      "description": "Change to \\input",
+      "find": "\\include",
+      "replace": "\\input"
+    },
     "line": 1,
     "rawMessage": "LaTeX Error: \\include cannot be nested.",
     "rule": "include-cannot-be-nested",

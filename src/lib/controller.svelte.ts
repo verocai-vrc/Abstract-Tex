@@ -584,15 +584,52 @@ export async function syncTexInverse(page: number, x: number, y: number): Promis
 }
 
 /**
- * Go to where a diagnostic points. Until the paren-stack resolver lands (S5.2) a diagnostic
- * carries a line but no file, so every one is taken to be about the root file — which is
- * right for a single-file paper and the best available guess for anything else.
+ * Which tab a diagnostic belongs to: its own resolved file when the log parser named one (S5.6's
+ * `Diagnostic.file`), falling back to the root file for the diagnostics that still have none — a
+ * log with nothing open on the resolver's stack at all (`emergency-stop`'s own fixture), or no
+ * project open yet.
+ */
+function diagnosticTarget(diagnostic: Diagnostic): string | null {
+  return diagnostic.file ?? app.project?.rootFile ?? null;
+}
+
+/**
+ * Go to where a diagnostic points, in the file it actually happened in (S5.6's `Diagnostic.file`,
+ * finally read by something — S2.7's own comment on the gutter has named this gap since sprint 2).
  */
 export async function jumpToDiagnostic(diagnostic: Diagnostic): Promise<void> {
   if (diagnostic.line === null) return;
-  const rootFile = app.project?.rootFile;
-  if (rootFile && app.activePath !== rootFile) await openFile(rootFile);
+  const target = diagnosticTarget(diagnostic);
+  if (target && app.activePath !== target) await openFile(target);
   jumpToLine(diagnostic.line);
+}
+
+/**
+ * Apply a rule's one-click fix (S5.5's `Fix`, S6.2 makes it real): open the diagnosed file if
+ * needed, then hand the line and the fix to the document's own `applyFix`, which does the actual
+ * find/replace through its Y.Doc transaction — the same path every keystroke takes, so Ctrl-Z
+ * undoes it and the 700 ms save debounce picks it up like any other edit. Requires a real target
+ * file: a diagnostic with no `file` and no project root to fall back to could only guess which
+ * tab to edit, and DESIGN.md §5.2's "a fix may only be automatic when it cannot be wrong" applies
+ * exactly as hard to picking the file as to picking the edit. Returns whether the fix actually
+ * applied, and leaves a notice rather than silently doing nothing when it did not — the same
+ * shape `openFile`'s own failure path already uses.
+ */
+export async function applyDiagnosticFix(diagnostic: Diagnostic): Promise<boolean> {
+  const fix = diagnostic.fix;
+  if (!fix || diagnostic.line === null) return false;
+  const target = diagnosticTarget(diagnostic);
+  if (!target) return false;
+  if (app.activePath !== target) await openFile(target);
+  const doc = manager.get(target);
+  if (!doc) return false;
+  const applied = doc.applyFix(diagnostic.line, fix);
+  if (applied) {
+    jumpToLine(diagnostic.line);
+  } else {
+    app.notice = `Could not find "${fix.find}" on line ${diagnostic.line} of ${target} — nothing was changed.`;
+  }
+  return applied;
 }
 
 export async function toggleRawLog(): Promise<void> {

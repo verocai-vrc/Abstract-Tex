@@ -2,7 +2,11 @@
   {
     "explanation": "`\\verb|...|` needs the same character on both sides, on the same line — TeX reached the end of the line before finding the matching one. Add the closing delimiter, or use the `verbatim` environment instead if the text needs to span multiple lines.",
     "file": "main.tex",
-    "fix": null,
+    "fix": {
+      "description": "Close with |",
+      "find": "\\verb|unterminated",
+      "replace": "\\verb|unterminated|"
+    },
     "line": 3,
     "rawMessage": "LaTeX Error: \\verb ended by end of line.",
     "rule": "verb-unterminated",

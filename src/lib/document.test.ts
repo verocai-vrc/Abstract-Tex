@@ -143,6 +143,31 @@ describe('OpenDocument', () => {
     doc.dispose();
   });
 
+  it('applies a fix through the ordinary edit path: dirty, saved, and undoable (S6.2)', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', 'Salt & pepper.\n', backend);
+    const applied = doc.applyFix(1, { description: 'Escape as \\&', find: '&', replace: '\\&' });
+    expect(applied).toBe(true);
+    expect(doc.text()).toBe('Salt \\& pepper.\n');
+    expect(doc.dirty).toBe(true); // the same debounced save every keystroke gets, not a side channel
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes).toEqual([{ path: 'main.tex', contents: 'Salt \\& pepper.\n' }]);
+    doc.undo.undo();
+    expect(doc.text()).toBe('Salt & pepper.\n');
+    doc.dispose();
+  });
+
+  it('declines a fix rather than editing the wrong text when the line does not hold it', () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', 'Hello.\n', backend);
+    const applied = doc.applyFix(1, { description: 'Escape as \\&', find: '&', replace: '\\&' });
+    expect(applied).toBe(false);
+    expect(doc.text()).toBe('Hello.\n');
+    expect(doc.dirty).toBe(false);
+    expect(writes).toHaveLength(0);
+    doc.dispose();
+  });
+
   it('after the file vanishes, an unchanged buffer still saves itself back', async () => {
     const { backend, writes } = fakeBackend();
     const doc = new OpenDocument('main.tex', 'abc', backend);

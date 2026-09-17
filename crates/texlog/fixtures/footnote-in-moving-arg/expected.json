@@ -2,7 +2,11 @@
   {
     "explanation": "This line is inside a \"moving argument\" — one LaTeX also writes somewhere else, such as a section title into the table of contents, or a caption into the list of figures — and \\footnote does something LaTeX cannot safely redo in that second place. Either write `\\protect\\footnote` right before it, or give the outer command (`\\section`, `\\caption`, ...) a plain-text short version in its optional argument: `\\section[short title]{full title with \\footnote{...}}`.",
     "file": "main.tex",
-    "fix": null,
+    "fix": {
+      "description": "Add \\protect before \\footnote",
+      "find": "\\footnote",
+      "replace": "\\protect\\footnote"
+    },
     "line": 3,
     "rawMessage": "Argument of \\@sect has an extra }.",
     "rule": "fragile-command-in-moving-argument",

@@ -1419,7 +1419,7 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
-| [ ] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
+| [~] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
 | [ ] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
 | [ ] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
 | [ ] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
@@ -1569,6 +1569,77 @@ real open design question logged in `bugs-issues-fixes.md`); `\vbox`/`\hbox` box
 (`\hbox` only); the `\PackageError` multi-line continuation gap affecting `raw_message` fidelity for
 long package messages (also logged, blocks nothing today). One-click fixes (S6.2), the drawer (S6.3)
 and the torture document (S6.4) are what the catalog was built for — all three are next.
+
+**S6.2 (17 September 2026).** `[~]`: rungs 1–2 are green — `cargo test -p texlog` 141 passed (99
+lib, 42 fixture, up from 139), `cargo clippy -p texlog --all-targets -- -D warnings` clean;
+`pnpm check` 433 files / 0 errors, `pnpm vitest run` 298/298 across 22 files (16 new: `fix.test.ts`
+is new, `document.test.ts` and `controller.test.ts` each grew). Rung 4 (`pnpm tauri dev`, clicking
+"Escape as `\&`" in the drawer and watching it land through the CRDT) is still pending — the same
+standing no-webview gate every frontend loop has carried since S3.1. `[~]`, not `[x]`, for an
+honest reason the card's own number invites: eight rules carry a fix, not ten — S6.1's own
+"about forty" was approximate, and this card's "ten" turned out to be too, once every other rule
+in a 36-rule catalog was actually tested against DESIGN.md §5.2's rule rather than assumed.
+
+**The split is backend-describes, frontend-applies, exactly where S5.5's own module doc left it.**
+`crates/texlog` never reads a `.tex` file (`lib.rs`'s own rule), so it can describe a `Fix` —
+a literal `find`/`replace` on the diagnosed line — but applying one needs real source text, which
+only the frontend has. `src/lib/fix.ts`'s `locateFix` is the seam: a pure function, text plus a
+1-indexed line plus a `Fix` in, a character range out or `null`, tested with no Yjs or Tauri in
+`fix.test.ts`. `OpenDocument.applyFix` (`document.ts`) is the one line of Yjs it needed: an
+ordinary `ydoc.transact` with no explicit origin, which is also `Y.UndoManager`'s default tracked
+origin — the same origin every keystroke already uses — so a fix dirties the buffer, schedules the
+usual 700 ms save, and undoes with a plain Ctrl-Z, all for free, with no second "applied edit"
+pipeline alongside the one that already exists.
+
+**Seven new fixes, each checked against a real Tectonic 0.17.0 capture already sitting in
+`crates/texlog/fixtures/`, not against a hand-imagined line:** escaping a bare `&`
+(`misplaced-alignment-tab`, the mirror of S5.5's `missing-dollar`); `\include` → `\input`
+(`include-cannot-be-nested`); `\protect` before the command `trailing_command` already recovers
+(`fragile-command-in-moving-argument`); appending TeX's own inserted unit (`illegal-unit-of-
+measure` — "(pt inserted)" names the unit, so this is not a guess); appending the verbatim
+delimiter a `\verb` call already opened with (`verb-unterminated`); closing a `\[`-opened display
+with `\]` (`display-math-wrong-delimiter`, offered only when `\[` is visible on the same line, not
+for a `$$`-opened display the message cannot tell apart from it); and commenting out a duplicate
+`\documentclass`/`\documentstyle` (`duplicate-documentclass` — a comment, not a delete, since this
+crate never sees the full argument text past the `l.NN` split point to reconstruct the line
+exactly).
+
+**Nine more were tested and rejected, not merely skipped — the same discipline S6.1's own closing
+note used for its last four candidate rules, turned on `Fix` instead of on new rules.**
+`mismatched-environment` disqualifies itself in its own explanation ("either the missing `\end` is
+missing, or this one should read `\end{open}`" — two edits, not one); `double-subscript` has three
+plausible groupings for `x_1_2`, not one; `counter-too-large`'s only candidate edit
+(`\alph`→`\arabic`) is DESIGN.md §5.2's own worked disqualifying example, changing what the reader
+sees rather than only fixing a build; `command-already-defined` splits into rename-or-
+`\renewcommand`, two different authorial intentions; and five more (`undefined-control-sequence`,
+`unbalanced-braces`, `file-not-found`, `undefined-reference`, `undefined-citation`) need either a
+real filesystem entry or a real label/key this crate cannot invent. All nine are pinned in
+`only_eight_rules_offer_a_fix_in_this_catalog`, each with the specific reason inline — a reviewer
+who wants to add a tenth has nine already-considered dead ends named rather than left to
+rediscover.
+
+**A real, pre-existing bug found while wiring the frontend half, not introduced by it.**
+`jumpToDiagnostic`'s own doc comment still said "every [diagnostic] is taken to be about the root
+file" pending "the paren-stack resolver" — which landed in S5.2, three sprints ago, and S5.6 had
+already made `Diagnostic.file` a real answer; nothing had come back to read it. Clicking a
+diagnostic inside an `\input`ed chapter opened `main.tex` and jumped to whatever line number that
+diagnostic carried there — silently the wrong file, wrong text. Applying a fix cannot tolerate that
+kind of guess (DESIGN.md §5.2's "cannot be wrong" applies to picking the file as much as picking
+the edit), so this loop added `diagnosticTarget` — `diagnostic.file`, falling back to the project
+root only when `file` is `null` — and pointed both `jumpToDiagnostic` and the new
+`applyDiagnosticFix` at it. Logged in `bugs-issues-fixes.md` with its own regression test.
+
+Not done here, on purpose: `caption-outside-float`, `missing-item`, `preamble-only-command` and
+`missing-begin-document` all want a multi-line insertion (wrap in a float, insert `\item`, move a
+line above `\begin{document}`) that a single line's `find`/`replace` cannot express — a future
+`Fix` variant, not a gap in this loop's own search. `line-end-with-nothing-before-it` has a
+real one-line fix (delete the stray `\\`) but TeX's own `l.NN` marker names the *following* line,
+not the one the mistake is on (`no-line-to-end`'s own fixture pins this), so offering it would
+silently do nothing rather than nothing wrong — declined, and the reason is in
+`explain_line_end_with_nothing_before_it`'s own doc comment for whoever gives diagnostics a
+corrected line for this shape. The drawer's own "Apply fix" button (`Drawer.svelte`) is new but
+untested against a live buffer — S6.3 (drawer v1: grouping, severity, filter) is the next loop to
+touch this file and should exercise it with a webview once one exists here.
 
 ### Sprint 7–8 — v0.4 bibliography
 
