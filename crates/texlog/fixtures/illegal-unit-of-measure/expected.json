@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "TeX expected a length here — something like `1pt`, `2cm` or `0.5\\baselineskip` — and found a plain number with no unit, so it assumed `pt` and kept going. Add a unit to the value if `pt` is not what you meant.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Illegal unit of measure (pt inserted).",
+    "rule": "illegal-unit-of-measure",
+    "severity": "error",
+    "title": "A length is missing its unit"
+  }
+]

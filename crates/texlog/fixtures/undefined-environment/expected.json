@@ -1,12 +1,12 @@
 [
   {
-    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"LaTeX Error: Environment nosuchenv undefined\". The raw log has the surrounding output.",
+    "explanation": "There is no `\\begin{nosuchenv}`/`\\end{nosuchenv}` pair defined anywhere this document loads. Check the spelling, or check whether it comes from a package this document does not `\\usepackage` yet.",
     "file": "main.tex",
     "fix": null,
     "line": 3,
     "rawMessage": "LaTeX Error: Environment nosuchenv undefined.",
-    "rule": null,
+    "rule": "undefined-environment",
     "severity": "error",
-    "title": "TeX reported an error"
+    "title": "`nosuchenv` is not an environment TeX knows"
   }
 ]

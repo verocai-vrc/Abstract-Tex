@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "TeX expected a number or a length here and found nothing usable, so it used 0. This is usually an empty argument to a command that needs a value, such as `\\vspace{}` or a counter set with no digits after it.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Missing number, treated as zero.",
+    "rule": "missing-number",
+    "severity": "error",
+    "title": "A number was expected but the value is empty"
+  }
+]

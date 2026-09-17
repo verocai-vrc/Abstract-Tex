@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`\\begin{itemize}` on line 3 was still open when TeX reached `\\end{enumerate}`, so the two do not match. Either `\\end{itemize}` is missing before this point, or this `\\end{enumerate}` should read `\\end{itemize}`.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 5,
+    "rawMessage": "LaTeX Error: \\begin{itemize} on input line 3 ended by \\end{enumerate}.",
+    "rule": "mismatched-environment",
+    "severity": "error",
+    "title": "`itemize` was closed with `\\end{enumerate}`"
+  }
+]

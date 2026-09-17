@@ -198,6 +198,76 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_undefined_citation,
         fix: None,
     },
+    // S6.1: rules 7–15 of DESIGN.md §5.2's "about forty" — common structural mistakes with no
+    // package involved. Package-specific rules (babel/hyperref/tikz/xcolor/fontspec) and the two
+    // box-warning rules follow in their own loops. Each ships with a fixture captured from a real
+    // Tectonic 0.17.0 run, the same discipline S2.6/S5.2/S5.4 already leaned on;
+    // `fixtures/README.md` names what each exercises.
+    &FnRule {
+        id: "misplaced-alignment-tab",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Misplaced alignment tab character"),
+        explain: explain_misplaced_alignment_tab,
+        fix: None,
+    },
+    &FnRule {
+        id: "extra-alignment-tab",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Extra alignment tab has been changed to"),
+        explain: explain_extra_alignment_tab,
+        fix: None,
+    },
+    &FnRule {
+        id: "undefined-environment",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Environment") && e.message.contains("undefined"),
+        explain: explain_undefined_environment,
+        fix: None,
+    },
+    &FnRule {
+        id: "mismatched-environment",
+        severity: Severity::Error,
+        // Checked before `missing-begin-document` below only by convention, not necessity — the
+        // two prefixes (`\begin{` vs `Missing \begin{document}`) never both match one message.
+        matches: |e| e.message.starts_with("LaTeX Error: \\begin{") && e.message.contains("ended by \\end{"),
+        explain: explain_mismatched_environment,
+        fix: None,
+    },
+    &FnRule {
+        id: "missing-begin-document",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Missing \\begin{document}"),
+        explain: explain_missing_begin_document,
+        fix: None,
+    },
+    &FnRule {
+        id: "illegal-unit-of-measure",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Illegal unit of measure"),
+        explain: explain_illegal_unit_of_measure,
+        fix: None,
+    },
+    &FnRule {
+        id: "missing-number",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Missing number, treated as zero"),
+        explain: explain_missing_number,
+        fix: None,
+    },
+    &FnRule {
+        id: "double-subscript",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Double subscript"),
+        explain: explain_double_script,
+        fix: None,
+    },
+    &FnRule {
+        id: "double-superscript",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("Double superscript"),
+        explain: explain_double_script,
+        fix: None,
+    },
 ];
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
@@ -500,6 +570,132 @@ fn explain_undefined_citation(error: &QuickError) -> (String, String) {
     )
 }
 
+fn explain_misplaced_alignment_tab(_error: &QuickError) -> (String, String) {
+    (
+        "`&` used outside a table".to_string(),
+        "`&` is reserved for separating columns inside `tabular`, `align` and similar \
+         environments; TeX ran into one outside any of those. If you meant a literal ampersand, \
+         write `\\&` instead."
+            .to_string(),
+    )
+}
+
+fn explain_extra_alignment_tab(_error: &QuickError) -> (String, String) {
+    (
+        "More columns than this row declared".to_string(),
+        "This row has more `&`-separated entries than the environment's column specification \
+         allows, so TeX gave up on the row early rather than guess where it should have ended. \
+         Count the `&`s in this row against the `{...}` column spec (or `\\begin{tabular}`'s own \
+         argument), and check the row above it for a missing `\\\\` that would make two rows read \
+         as one."
+            .to_string(),
+    )
+}
+
+/// `LaTeX Error: Environment nosuchenv undefined.` → `Some("nosuchenv")`.
+fn environment_name(message: &str) -> Option<&str> {
+    let start = message.find("Environment ")? + "Environment ".len();
+    let rest = &message[start..];
+    let end = rest.find(" undefined")?;
+    Some(&rest[..end])
+}
+
+fn explain_undefined_environment(error: &QuickError) -> (String, String) {
+    let name = environment_name(&error.message).unwrap_or("that environment");
+    (
+        format!("`{name}` is not an environment TeX knows"),
+        format!(
+            "There is no `\\begin{{{name}}}`/`\\end{{{name}}}` pair defined anywhere this \
+             document loads. Check the spelling, or check whether it comes from a package this \
+             document does not `\\usepackage` yet."
+        ),
+    )
+}
+
+/// `\begin{itemize} on input line 3 ended by \end{enumerate}.` →
+/// `Some(("itemize", "enumerate"))`.
+fn mismatched_environment_names(message: &str) -> Option<(&str, &str)> {
+    let open_start = message.find("\\begin{")? + "\\begin{".len();
+    let open_end = message[open_start..].find('}')? + open_start;
+    let close_start = message.find("\\end{")? + "\\end{".len();
+    let close_end = message[close_start..].find('}')? + close_start;
+    Some((&message[open_start..open_end], &message[close_start..close_end]))
+}
+
+fn explain_mismatched_environment(error: &QuickError) -> (String, String) {
+    match mismatched_environment_names(&error.message) {
+        Some((open, close)) => {
+            let opened_at = input_line_number(&error.message)
+                .map(|n| format!(" on line {n}"))
+                .unwrap_or_default();
+            (
+                format!("`{open}` was closed with `\\end{{{close}}}`"),
+                format!(
+                    "`\\begin{{{open}}}`{opened_at} was still open when TeX reached \
+                     `\\end{{{close}}}`, so the two do not match. Either `\\end{{{open}}}` is \
+                     missing before this point, or this `\\end{{{close}}}` should read \
+                     `\\end{{{open}}}`."
+                ),
+            )
+        }
+        None => (
+            "An environment was closed with the wrong name".to_string(),
+            "A `\\begin{...}` was still open when TeX reached an `\\end{...}` that did not match \
+             it. Check that every environment in between is closed in the order it was opened."
+                .to_string(),
+        ),
+    }
+}
+
+fn explain_missing_begin_document(_error: &QuickError) -> (String, String) {
+    (
+        "Content appears before `\\begin{document}`".to_string(),
+        "TeX reached ordinary text or a command that only makes sense inside the document body \
+         before it saw `\\begin{document}`. Check that `\\begin{document}` is present and that \
+         nothing meant for the body — a stray word, a `\\section`, a package's own output — sits \
+         above it in the preamble."
+            .to_string(),
+    )
+}
+
+fn explain_illegal_unit_of_measure(_error: &QuickError) -> (String, String) {
+    (
+        "A length is missing its unit".to_string(),
+        "TeX expected a length here — something like `1pt`, `2cm` or `0.5\\baselineskip` — and \
+         found a plain number with no unit, so it assumed `pt` and kept going. Add a unit to the \
+         value if `pt` is not what you meant."
+            .to_string(),
+    )
+}
+
+fn explain_missing_number(_error: &QuickError) -> (String, String) {
+    (
+        "A number was expected but the value is empty".to_string(),
+        "TeX expected a number or a length here and found nothing usable, so it used 0. This is \
+         usually an empty argument to a command that needs a value, such as `\\vspace{}` or a \
+         counter set with no digits after it."
+            .to_string(),
+    )
+}
+
+fn explain_double_script(error: &QuickError) -> (String, String) {
+    let (word, symbol) = if error.message.starts_with("Double superscript") {
+        ("superscript", "^")
+    } else {
+        ("subscript", "_")
+    };
+    (
+        format!("Two {word}s on the same base"),
+        format!(
+            "TeX only allows one `{symbol}` directly on a base, and this line has two — \
+             `x{symbol}1{symbol}2` does not say whether the second `{symbol}` attaches to `x` or \
+             to `1`. If both parts belong in one {word} together, group them: \
+             `x{symbol}{{1,2}}`. If a `{symbol}` was meant as ordinary text rather than a script, \
+             wrap it in `\\text{{}}` instead."
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -708,6 +904,85 @@ mod tests {
             // 'thebibliography' environment` warning. Neither is a thing the author can act on
             // separately, and repeating the same problem three times is noise.
             assert_eq!(diagnostics(log).len(), 2, "{:#?}", diagnostics(log));
+        }
+    }
+
+    /// S6.1: rules 7–15, each against a fixture captured from a real Tectonic 0.17.0 run the same
+    /// way as the six rules above — `fixtures/README.md` names what each document does to trigger
+    /// its error.
+    mod s6_1_captured_from_a_real_engine {
+        use super::*;
+
+        #[test]
+        fn misplaced_alignment_tab() {
+            let log = include_str!("../fixtures/misplaced-alignment-tab/main.log");
+            let d = diagnostic_from(log, "misplaced-alignment-tab");
+            assert_eq!(d.line, Some(3));
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn extra_alignment_tab() {
+            let log = include_str!("../fixtures/extra-alignment-tab/main.log");
+            let d = diagnostic_from(log, "extra-alignment-tab");
+            assert_eq!(d.line, Some(4));
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn undefined_environment() {
+            let log = include_str!("../fixtures/undefined-environment/main.log");
+            let d = diagnostic_from(log, "undefined-environment");
+            assert_eq!(d.title, "`nosuchenv` is not an environment TeX knows");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn mismatched_environment_names_the_opener_and_the_closer() {
+            let log = include_str!("../fixtures/mismatched-environment/main.log");
+            let d = diagnostic_from(log, "mismatched-environment");
+            assert_eq!(d.title, "`itemize` was closed with `\\end{enumerate}`");
+            // The `l.NN` marker points at the mismatched `\end`, not the `\begin` that opened it —
+            // the explanation names both, since only one of the two is where the marker landed.
+            assert_eq!(d.line, Some(5));
+            assert!(d.explanation.contains("line 3"), "{}", d.explanation);
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn missing_begin_document() {
+            let log = include_str!("../fixtures/missing-begin-document/main.log");
+            let d = diagnostic_from(log, "missing-begin-document");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn illegal_unit_of_measure() {
+            let log = include_str!("../fixtures/illegal-unit-of-measure/main.log");
+            let d = diagnostic_from(log, "illegal-unit-of-measure");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn missing_number_treated_as_zero() {
+            let log = include_str!("../fixtures/missing-number-treated-as-zero/main.log");
+            let d = diagnostic_from(log, "missing-number");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn double_subscript_and_superscript_are_told_apart() {
+            let subscript = diagnostic_from(
+                include_str!("../fixtures/double-subscript/main.log"),
+                "double-subscript",
+            );
+            assert!(subscript.explanation.contains('_'), "{}", subscript.explanation);
+            let superscript = diagnostic_from(
+                include_str!("../fixtures/double-superscript/main.log"),
+                "double-superscript",
+            );
+            assert!(superscript.explanation.contains('^'), "{}", superscript.explanation);
+            assert_ne!(subscript.explanation, superscript.explanation);
         }
     }
 

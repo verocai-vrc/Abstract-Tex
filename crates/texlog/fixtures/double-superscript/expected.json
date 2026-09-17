@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "TeX only allows one `^` directly on a base, and this line has two — `x^1^2` does not say whether the second `^` attaches to `x` or to `1`. If both parts belong in one superscript together, group them: `x^{1,2}`. If a `^` was meant as ordinary text rather than a script, wrap it in `\\text{}` instead.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Double superscript.",
+    "rule": "double-superscript",
+    "severity": "error",
+    "title": "Two superscripts on the same base"
+  }
+]

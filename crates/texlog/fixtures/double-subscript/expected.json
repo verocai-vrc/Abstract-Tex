@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "TeX only allows one `_` directly on a base, and this line has two — `x_1_2` does not say whether the second `_` attaches to `x` or to `1`. If both parts belong in one subscript together, group them: `x_{1,2}`. If a `_` was meant as ordinary text rather than a script, wrap it in `\\text{}` instead.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Double subscript.",
+    "rule": "double-subscript",
+    "severity": "error",
+    "title": "Two subscripts on the same base"
+  }
+]

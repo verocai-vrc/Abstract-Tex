@@ -1,12 +1,12 @@
 [
   {
-    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Misplaced alignment tab character &\". The raw log has the surrounding output.",
+    "explanation": "`&` is reserved for separating columns inside `tabular`, `align` and similar environments; TeX ran into one outside any of those. If you meant a literal ampersand, write `\\&` instead.",
     "file": "main.tex",
     "fix": null,
     "line": 3,
     "rawMessage": "Misplaced alignment tab character &.",
-    "rule": null,
+    "rule": "misplaced-alignment-tab",
     "severity": "error",
-    "title": "TeX reported an error"
+    "title": "`&` used outside a table"
   }
 ]

@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "This row has more `&`-separated entries than the environment's column specification allows, so TeX gave up on the row early rather than guess where it should have ended. Count the `&`s in this row against the `{...}` column spec (or `\\begin{tabular}`'s own argument), and check the row above it for a missing `\\\\` that would make two rows read as one.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 4,
+    "rawMessage": "Extra alignment tab has been changed to \\cr.",
+    "rule": "extra-alignment-tab",
+    "severity": "error",
+    "title": "More columns than this row declared"
+  }
+]

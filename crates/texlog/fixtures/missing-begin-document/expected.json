@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "TeX reached ordinary text or a command that only makes sense inside the document body before it saw `\\begin{document}`. Check that `\\begin{document}` is present and that nothing meant for the body — a stray word, a `\\section`, a package's own output — sits above it in the preamble.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 2,
+    "rawMessage": "LaTeX Error: Missing \\begin{document}.",
+    "rule": "missing-begin-document",
+    "severity": "error",
+    "title": "Content appears before `\\begin{document}`"
+  }
+]
