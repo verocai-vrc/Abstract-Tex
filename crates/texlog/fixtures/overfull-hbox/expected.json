@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "TeX could not break this line without stretching the spacing too far, so it let the line run past the right margin instead. Often harmless for a single long word — a URL, an identifier — but check the PDF at this line: rephrasing, a manual hyphen (`\\-`), or `\\sloppy` nearby usually fixes it if it is visible.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Overfull \\hbox (48.75pt too wide) in paragraph at lines 3--4",
+    "rule": "overfull-box",
+    "severity": "warning",
+    "title": "A line runs past the margin"
+  }
+]

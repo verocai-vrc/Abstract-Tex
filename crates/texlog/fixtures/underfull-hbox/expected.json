@@ -1,0 +1,22 @@
+[
+  {
+    "explanation": "TeX had too little material to fill this line at its normal word spacing, so the words are spread out more than usual to reach the margin. Common in a narrow column or right after a forced line break; check the PDF at this line if the spacing looks odd.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Underfull \\hbox (badness 10000) detected at line 3",
+    "rule": "underfull-box",
+    "severity": "warning",
+    "title": "A line is stretched looser than usual"
+  },
+  {
+    "explanation": "TeX could not break this line without stretching the spacing too far, so it let the line run past the right margin instead. Often harmless for a single long word — a URL, an identifier — but check the PDF at this line: rephrasing, a manual hyphen (`\\-`), or `\\sloppy` nearby usually fixes it if it is visible.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Overfull \\hbox (16.34999pt too wide) in paragraph at lines 3--4",
+    "rule": "overfull-box",
+    "severity": "warning",
+    "title": "A line runs past the margin"
+  }
+]

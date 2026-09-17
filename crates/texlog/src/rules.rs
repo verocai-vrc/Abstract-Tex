@@ -315,6 +315,22 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_font_not_found,
         fix: None,
     },
+    // S6.1: rules 21–22, DESIGN.md §5.2's "overfull boxes" — see `box_warnings` below for why
+    // these need their own scan rather than `located_errors`/`located_warnings`.
+    &FnRule {
+        id: "overfull-box",
+        severity: Severity::Warning,
+        matches: |e| e.message.starts_with("Overfull \\hbox"),
+        explain: explain_box,
+        fix: None,
+    },
+    &FnRule {
+        id: "underfull-box",
+        severity: Severity::Warning,
+        matches: |e| e.message.starts_with("Underfull \\hbox"),
+        explain: explain_box,
+        fix: None,
+    },
 ];
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
@@ -327,6 +343,7 @@ pub fn diagnostics(log: &str) -> Vec<Diagnostic> {
     let stacks = open_files(&lines);
     let mut found: Vec<Diagnostic> = located_errors(&lines, &stacks).iter().map(explain).collect();
     found.extend(located_warnings(&lines, &stacks).iter().map(explain));
+    found.extend(box_warnings(&lines, &stacks).iter().map(explain));
     found
 }
 
@@ -402,6 +419,44 @@ fn located_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError
             })
         })
         .collect()
+}
+
+/// `Overfull \hbox (...)`/`Underfull \hbox (...)` — TeX's own layout warnings, printed with
+/// neither a leading `!` nor a `Warning: ` banner (DESIGN.md §5.2 names "overfull boxes" as one
+/// of this catalog's rules, but the tokenizer's `LineKind::Warning` can never see one: `classify`
+/// only recognises `Warning: ` prefixes, and this is a wholly different, older diagnostic
+/// category TeX prints on its own `Text` lines). Only `\hbox`; `\vbox` is real but rarer and not
+/// covered here — a fixture-driven addition for whoever hits one, the same way this catalog's
+/// other rules were each grown from a real capture rather than guessed ahead of one.
+fn box_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError> {
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            if !matches!(line.kind, LineKind::Text) {
+                return None;
+            }
+            if !line.text.starts_with("Overfull \\hbox") && !line.text.starts_with("Underfull \\hbox") {
+                return None;
+            }
+            Some(QuickError {
+                message: line.text.clone(),
+                line: box_line_number(&line.text),
+                context: None,
+                file: file_at(stacks, i).map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+/// `... in paragraph at lines 3--4` or `... detected at line 3` — the two shapes a box warning's
+/// own line reference takes, captured from two real logs (`overfull-hbox`'s own paragraph case,
+/// `underfull-hbox`'s single-line `detected at` case). The *first* number in either shape is
+/// where the paragraph or box that triggered the warning starts.
+fn box_line_number(text: &str) -> Option<u32> {
+    let after = text.split("at line").nth(1)?;
+    let digits: String = after.trim_start_matches('s').trim_start().chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }
 
 /// Run one raw error through the catalog.
@@ -824,6 +879,28 @@ fn explain_font_not_found(error: &QuickError) -> (String, String) {
     )
 }
 
+fn explain_box(error: &QuickError) -> (String, String) {
+    if error.message.starts_with("Overfull") {
+        (
+            "A line runs past the margin".to_string(),
+            "TeX could not break this line without stretching the spacing too far, so it let the \
+             line run past the right margin instead. Often harmless for a single long word — a \
+             URL, an identifier — but check the PDF at this line: rephrasing, a manual hyphen \
+             (`\\-`), or `\\sloppy` nearby usually fixes it if it is visible."
+                .to_string(),
+        )
+    } else {
+        (
+            "A line is stretched looser than usual".to_string(),
+            "TeX had too little material to fill this line at its normal word spacing, so the \
+             words are spread out more than usual to reach the margin. Common in a narrow column \
+             or right after a forced line break; check the PDF at this line if the spacing looks \
+             odd."
+                .to_string(),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1155,6 +1232,24 @@ mod tests {
             let d = diagnostic_from(log, "font-not-found");
             assert_eq!(d.title, "`ThisFontDoesNotExistAnywhere` is not a font this engine can find");
             assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn overfull_and_underfull_boxes_are_warnings_not_errors() {
+            let overfull = diagnostic_from(include_str!("../fixtures/overfull-hbox/main.log"), "overfull-box");
+            assert_eq!(overfull.severity, Severity::Warning);
+            assert_eq!(overfull.line, Some(3));
+            assert_reads_like_a_sentence(&overfull);
+
+            // This capture holds both directions from one real log: a fixed-width `\hbox` around
+            // a single character is underfull itself, and also overfull once TeX tries to typeset
+            // the rest of the paragraph around it.
+            let log = include_str!("../fixtures/underfull-hbox/main.log");
+            let underfull = diagnostic_from(log, "underfull-box");
+            assert_eq!(underfull.severity, Severity::Warning);
+            assert_eq!(underfull.line, Some(3));
+            assert_reads_like_a_sentence(&underfull);
+            assert_eq!(diagnostics(log).len(), 2, "{:#?}", diagnostics(log));
         }
     }
 
