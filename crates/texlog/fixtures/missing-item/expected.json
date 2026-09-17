@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "Inside `itemize`, `enumerate` and `description`, everything must belong to an `\\item` — TeX found something (text, or a command) before the environment's first `\\item`. Add one before it, or check for a missing `\\item` higher up in the list.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 5,
+    "rawMessage": "LaTeX Error: Something's wrong--perhaps a missing \\item.",
+    "rule": "missing-item",
+    "severity": "error",
+    "title": "Content appears before the first \\item"
+  }
+]

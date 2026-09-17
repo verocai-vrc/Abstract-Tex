@@ -331,6 +331,50 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_box,
         fix: None,
     },
+    // S6.1: rules 23–27, general mistakes common enough to be worth a rule on their own — none of
+    // them package-specific, and none needing a package this catalog did not already load in an
+    // earlier fixture. `misplaced-alignment-tab` on down were common structural mistakes; these are
+    // a second pass at the same category, found by testing more real documents against the bundled
+    // engine rather than assuming the first pass's list was exhaustive.
+    &FnRule {
+        id: "command-already-defined",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Command") && e.message.contains("already defined"),
+        explain: explain_command_already_defined,
+        fix: None,
+    },
+    &FnRule {
+        id: "missing-item",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Something's wrong--perhaps a missing \\item"),
+        explain: explain_missing_item,
+        fix: None,
+    },
+    &FnRule {
+        id: "invalid-column-type",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: Illegal character in array arg"),
+        explain: explain_invalid_column_type,
+        fix: None,
+    },
+    &FnRule {
+        id: "caption-outside-float",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("LaTeX Error: \\caption outside float"),
+        explain: explain_caption_outside_float,
+        fix: None,
+    },
+    &FnRule {
+        id: "fragile-command-in-moving-argument",
+        severity: Severity::Error,
+        // The message names an internal command (`\@sect`, `\@caption`, ...) that the author never
+        // typed, not the fragile command that actually caused it — `trailing_command` on the
+        // `l.NN` context line is what recovers something the author will recognise, the same
+        // technique `explain_unbalanced_braces` already uses for a different message shape.
+        matches: |e| e.message.starts_with("Argument of") && e.message.contains("has an extra }"),
+        explain: explain_fragile_command_in_moving_argument,
+        fix: None,
+    },
 ];
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
@@ -901,6 +945,83 @@ fn explain_box(error: &QuickError) -> (String, String) {
     }
 }
 
+/// `LaTeX Error: Command \maketitle already defined.` → `Some("\maketitle")`.
+fn already_defined_command(message: &str) -> Option<&str> {
+    let start = message.find("Command ")? + "Command ".len();
+    let rest = &message[start..];
+    let end = rest.find(" already defined")?;
+    Some(&rest[..end])
+}
+
+fn explain_command_already_defined(error: &QuickError) -> (String, String) {
+    let name = already_defined_command(&error.message).unwrap_or("This command");
+    (
+        format!("{name} is already defined"),
+        format!(
+            "`\\newcommand` only ever defines a name once, and {name} was already defined — by \
+             this document class, by a package it loads, or by an earlier `\\newcommand` of your \
+             own. Use `\\renewcommand` instead if you meant to change what {name} does, or pick a \
+             name that is not already taken."
+        ),
+    )
+}
+
+fn explain_missing_item(_error: &QuickError) -> (String, String) {
+    (
+        "Content appears before the first \\item".to_string(),
+        "Inside `itemize`, `enumerate` and `description`, everything must belong to an `\\item` — \
+         TeX found something (text, or a command) before the environment's first `\\item`. Add \
+         one before it, or check for a missing `\\item` higher up in the list."
+            .to_string(),
+    )
+}
+
+fn explain_invalid_column_type(_error: &QuickError) -> (String, String) {
+    (
+        "An unknown column type in a table spec".to_string(),
+        "The `{...}` column specification for this `tabular` (or `array`) has a character TeX \
+         does not recognise as a column type. The built-in ones are `l`, `c`, `r`, `p{width}` and \
+         `|` for a vertical rule; anything else — a typo, or a column type from a package this \
+         document does not load — triggers this."
+            .to_string(),
+    )
+}
+
+fn explain_caption_outside_float(_error: &QuickError) -> (String, String) {
+    (
+        "`\\caption` used outside a figure or table".to_string(),
+        "`\\caption` only works inside a float environment such as `figure` or `table` (or \
+         another environment built to support it). If this is a custom box or a subfigure, wrap \
+         it in `figure`/`table`, or use `\\captionof` from the `caption` package if it genuinely \
+         cannot be a float."
+            .to_string(),
+    )
+}
+
+fn explain_fragile_command_in_moving_argument(error: &QuickError) -> (String, String) {
+    match trailing_command(error.context.as_ref()) {
+        Some(command) => (
+            format!("{command} cannot be used here directly"),
+            format!(
+                "This line is inside a \"moving argument\" — one LaTeX also writes somewhere else, \
+                 such as a section title into the table of contents, or a caption into the list of \
+                 figures — and {command} does something LaTeX cannot safely redo in that second \
+                 place. Either write `\\protect{command}` right before it, or give the outer \
+                 command (`\\section`, `\\caption`, ...) a plain-text short version in its optional \
+                 argument: `\\section[short title]{{full title with {command}{{...}}}}`."
+            ),
+        ),
+        None => (
+            "A command here cannot be used inside this argument".to_string(),
+            "This line is inside a \"moving argument\" — one LaTeX also writes somewhere else, \
+             such as a section title into the table of contents, or a caption into the list of \
+             figures — and something in it does not work safely there. Try `\\protect` right \
+             before whichever command is causing this."
+                .to_string(),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1250,6 +1371,48 @@ mod tests {
             assert_eq!(underfull.line, Some(3));
             assert_reads_like_a_sentence(&underfull);
             assert_eq!(diagnostics(log).len(), 2, "{:#?}", diagnostics(log));
+        }
+
+        #[test]
+        fn command_already_defined_names_the_command() {
+            let log = include_str!("../fixtures/command-already-defined/main.log");
+            let d = diagnostic_from(log, "command-already-defined");
+            assert_eq!(d.title, "\\maketitle is already defined");
+            assert!(d.explanation.contains("\\renewcommand"), "{}", d.explanation);
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn missing_item() {
+            let log = include_str!("../fixtures/missing-item/main.log");
+            let d = diagnostic_from(log, "missing-item");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn invalid_column_type() {
+            let log = include_str!("../fixtures/invalid-column-type/main.log");
+            let d = diagnostic_from(log, "invalid-column-type");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn caption_outside_float() {
+            let log = include_str!("../fixtures/caption-outside-float/main.log");
+            let d = diagnostic_from(log, "caption-outside-float");
+            assert_reads_like_a_sentence(&d);
+        }
+
+        #[test]
+        fn fragile_command_in_moving_argument_names_the_footnote_not_the_internal_sect_command() {
+            // The real message says `\@sect`, LaTeX's own internal sectioning command — never
+            // typed by the author, and not what `trailing_command`'s `l.NN` context read finds.
+            let log = include_str!("../fixtures/footnote-in-moving-arg/main.log");
+            let d = diagnostic_from(log, "fragile-command-in-moving-argument");
+            assert_eq!(d.title, "\\footnote cannot be used here directly");
+            assert!(!d.explanation.contains("@sect"), "{}", d.explanation);
+            assert!(d.explanation.contains("\\protect\\footnote"), "{}", d.explanation);
+            assert_reads_like_a_sentence(&d);
         }
     }
 

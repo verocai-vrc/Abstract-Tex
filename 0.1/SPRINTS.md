@@ -1480,6 +1480,38 @@ covers `\hbox` only, `\vbox` is real but rarer, named as a gap in both the code 
 README rather than guessed at ahead of a real log); and, as always, one-click fixes (S6.2) and
 wiring any of this into the drawer's own grouping (S6.3).
 
+**S6.1 continued (17 September 2026).** Still `[~]`: five more rules (23–27), the catalog now 22 →
+27. `cargo test -p texlog` 121 passed (88 lib, 33 fixture, up from 111), `cargo clippy -p texlog
+--all-targets -- -D warnings` clean, rest of the workspace unaffected. One commit this time — 163
+lines of Rust, comfortably under CLAUDE.md's ~400-line guideline, no split needed. Each rule is
+again a real Tectonic 0.17.0 capture: a redefined command (`\newcommand{\maketitle}{}`), text
+before an environment's first `\item` (arguably the single most common real first-time-author
+mistake in this whole catalog), an unrecognised `tabular` column type, `\caption` outside a float,
+and a `\footnote` inside a `\section` title.
+
+1. **The last of the five needed the same trick `explain_unbalanced_braces` already uses, not a new
+   one.** `\section{A title\footnote{a note}}` produces `! Argument of \@sect has an extra }.` —
+   `\@sect` is LaTeX's own internal sectioning command, never something the author typed, so naming
+   it in the explanation would just replace one confusing term with another. `trailing_command` on
+   the `l.NN` context line (already written for `explain_undefined_control_sequence` and
+   `explain_unbalanced_braces`) recovers `\footnote` instead — the same "read past what TeX chose to
+   print" move this catalog has leaned on since S2.6, applied to a third message shape.
+2. **A real finding that corrects the previous S6.1 commit's own framing, not a new gap.** Testing
+   whether any bibliography rule was reachable at all, a deliberately malformed `.bib` entry showed
+   this project's bundled Tectonic *does* invoke BibTeX automatically — the earlier "biblatex needs
+   biber, not yet bundled" reasoning was incomplete. The actual blocker is structural: BibTeX's own
+   diagnostic text lands entirely in `main.blg`, a file `texlog::diagnostics` is never given
+   (`lib.rs`'s "never read a file" rule). `biblatex` would hit the identical wall through `biber`'s
+   own `.blg`. Logged in `bugs-issues-fixes.md` as a real open design question — a second entry
+   point or an optional second parameter to `diagnostics` — for whichever loop picks bibliography
+   rules up, in sprint 6 or sprint 7/8.
+3. **One candidate tested and discarded rather than silently dropped:** `\usepackage[T1]{fontenc}`
+   followed by `\usepackage[OT1]{fontenc}` was expected to produce `Option clash for package
+   fontenc` (a real, general LaTeX error pattern), but this document class/kernel combination
+   reloads it cleanly with no warning at all. Not a fixture, not a rule — recorded here rather than
+   assumed to exist, the same "test it, don't guess it" discipline S2.6 and S5.4 already established
+   for the wording of rules that *did* pan out.
+
 ### Sprint 7–8 — v0.4 bibliography
 
 S7.1 `bib` parser crate (BibTeX and BibLaTeX, comments and `@string` preserved) · S7.2 `.bib`

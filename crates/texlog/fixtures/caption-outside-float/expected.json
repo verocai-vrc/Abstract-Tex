@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`\\caption` only works inside a float environment such as `figure` or `table` (or another environment built to support it). If this is a custom box or a subfigure, wrap it in `figure`/`table`, or use `\\captionof` from the `caption` package if it genuinely cannot be a float.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "LaTeX Error: \\caption outside float.",
+    "rule": "caption-outside-float",
+    "severity": "error",
+    "title": "`\\caption` used outside a figure or table"
+  }
+]

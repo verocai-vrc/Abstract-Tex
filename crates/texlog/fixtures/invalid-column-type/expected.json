@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "The `{...}` column specification for this `tabular` (or `array`) has a character TeX does not recognise as a column type. The built-in ones are `l`, `c`, `r`, `p{width}` and `|` for a vertical rule; anything else — a typo, or a column type from a package this document does not load — triggers this.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "LaTeX Error: Illegal character in array arg.",
+    "rule": "invalid-column-type",
+    "severity": "error",
+    "title": "An unknown column type in a table spec"
+  }
+]

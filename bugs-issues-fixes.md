@@ -15,6 +15,20 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **BibTeX's own error output never reaches `main.log`, so `texlog` cannot see it at all —
+  corrects the "biblatex needs biber, not yet bundled" framing from the previous S6.1 commit.**
+  (S6.1, builder, 17 Sep 2026) Tested directly: this project's bundled Tectonic *does* invoke
+  BibTeX automatically (confirmed by a deliberately malformed `.bib` entry — Tectonic's own stderr
+  reports `errors were issued by BibTeX, but were ignored`), so the earlier assumption that a
+  missing `biber` binary was the blocker was incomplete. The real blocker is structural: BibTeX's
+  diagnostic text — `Illegal end of database file`, the warnings about empty fields, the error
+  count — is written entirely to `main.blg`, a file `texlog::diagnostics` is never given (`lib.rs`'s
+  own rule: this crate only ever sees the text handed to it, never reads a file itself). `biblatex`
+  would face the identical problem one layer up, through `biber`'s own `.blg`. A bibliography-error
+  rule needs either a second entry point that also takes `.blg` content, or `diagnostics` gaining an
+  optional second parameter — a real design question, not a one-line fix, and not decided here.
+  Not required; no sprint-6 or sprint-7/8 (bibliography) card owns it yet.
+
 - **`unwrap_lines` does not undo a `\PackageError` message's own multi-line continuation, only a
   plain 79-column hard wrap.** (S6.1, builder, 17 Sep 2026) LaTeX's `\PackageError`/`\GenericError`
   machinery prints a long message across several physical lines, each continuation prefixed

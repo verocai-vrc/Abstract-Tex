@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`\\newcommand` only ever defines a name once, and \\maketitle was already defined — by this document class, by a package it loads, or by an earlier `\\newcommand` of your own. Use `\\renewcommand` instead if you meant to change what \\maketitle does, or pick a name that is not already taken.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 2,
+    "rawMessage": "LaTeX Error: Command \\maketitle already defined.",
+    "rule": "command-already-defined",
+    "severity": "error",
+    "title": "\\maketitle is already defined"
+  }
+]
