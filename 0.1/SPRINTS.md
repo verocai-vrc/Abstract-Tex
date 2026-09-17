@@ -1116,25 +1116,76 @@ whoever runs this loop's card on a machine with a webview.
 | [x] | S5.3 Fixture harness: `crates/texlog/fixtures/<name>/{main.log,expected.json}`; a test per fixture, generated from the directory | M | S5.2 |
 | [x] | S5.4 Twenty fixtures captured from real documents, including the torture document | M | S5.3 |
 | [x] | S5.5 Rule engine: matcher trait, explanation, optional fix; catalog as data, not code | M | S5.2 |
+| [x] | S5.6 Wire `tokenizer`/`resolver` into `rules::diagnostics`; `Diagnostic` gains `file` | M | S5.5 |
 
-**Outcome (16 September 2026).** All five loops ticked and green — 66 `texlog` lib tests, 15
+**Outcome (16 September 2026).** All six loops ticked and green — 69 `texlog` lib tests, 15
 generated fixture tests, `cargo clippy -p texlog --all-targets -- -D warnings` clean, rest of the
-workspace unaffected. **The exit demo as written — "twenty captured logs resolve to the right
-`file:line`"** — cannot be performed, and this is a real gap rather than an oversight: no card in
-this sprint's own table wires `tokenizer`/`resolver` (S5.1/S5.2) into `rules::diagnostics`
-(S2.6's rule catalog, now S5.5's trait-based one). `Diagnostic` carries a `line` from TeX's own
-`l.NN` claim — the same approximate number sprint 2 shipped with — and no `file` field at all.
-S5.4's fixtures README names this explicitly (`lib.rs`'s own module doc has said as much since
-S5.1), and this was a design call made without an architect back in S5.4, not one hidden here:
-wiring the resolver into the rule catalog looked like it could grow past any one of these five
-cards' own scope, so it was left for whichever loop rebuilds `rules.rs` on top of `tokenizer`/
-`resolver` for real, which no sprint 5 or sprint 6 card currently names. **Open question for the
-architect:** sprint 6's own table (`S6.1`, "Rules 6–40") assumes the six existing rules' shape
-carries forward unchanged; if `file:line` resolution is meant to land before the twenty-error
-torture document (S6.4), a card for that wiring needs adding — to sprint 6, or as a corrective
-sprint-5 loop first. Twenty real fixtures (S5.4) and a resolver that already answers `file_at`
-correctly (S5.2, including three files deep, S5.4's `nested-include`) are both ready and waiting
-for it; nothing further needs capturing first.
+workspace unaffected, `pnpm check`/`pnpm vitest run` green (284 tests, unchanged count — S5.6's
+frontend side was type parity, not new behaviour). **The exit demo — "twenty captured logs resolve
+to the right `file:line`"** — is now performable in the sense the architect's own open question
+below asked about: every fixture's diagnostics carry a real `file`, not just a `line`. What is
+still missing for the literal demo is unrelated to this sprint's own work: routing a diagnostic's
+`file` to the *right editor tab* is a frontend loop nobody has written yet (the gutter has drawn
+every dot on the root file's tab since S2.7, `Editor.svelte`'s own comment says as much), and
+S6.4's torture document (twenty errors across twenty separate compiles, per S5.4's own finding
+that this engine halts at the first `!`) has not been assembled. Both are sprint-6 business now
+that the backend answer they depend on exists.
+
+**S5.6 (16 September 2026) closes the architect's own open question from below: a corrective
+sprint-5 loop, not a sprint-6 card.** Landing it before S6.1's next thirty-four rules matters for a
+concrete reason, not a tidiness one: S5.4's own outcome already named `tikz-unknown-key` as a
+fixture that would need regenerating once this wiring landed, because `rules.rs` ran on
+`quick_errors`'s raw, un-unwrapped scan — every one of S6.1's new fixtures would have hit the same
+staleness the moment this loop finally shipped. `[x]`: `cargo test -p texlog` 84 passed (69 lib, 3
+new: a diagnostic three files deep resolving through the whole catalog, the bare-extensionless
+parent-file limitation surviving `explain`, and a diagnostic with nothing on the stack reporting
+`file: None` rather than guessing; 15 fixture tests, all still green after their `expected.json`
+regenerated). `cargo clippy -p texlog --all-targets -- -D warnings` clean. No rung-4 gate: a pure
+library-crate loop for its Rust half, and the frontend half touched only a type and two test
+fixtures, not a runtime path.
+
+1. **`diagnostics()` now runs `tokenize` once and `open_files` once, shared between two scans
+   that each used to walk the raw log on their own.** `located_errors` replaces the
+   `crate::quick_errors`-based scan inside `diagnostics` (though `quick_errors` itself is
+   untouched — still the plain raw scan a few of this crate's own tests reach for directly);
+   `located_warnings` replaces the old `undefined_reference_warnings`, which read raw
+   `log.lines()` and has been deleted rather than kept alongside its replacement. Both new
+   functions read `LineKind`/`LogLine` from `tokenizer.rs` and call `resolver::file_at` at the
+   error or warning's own logical-line index — correct per `resolver.rs`'s own doc comment,
+   since only `LineKind::Text` lines can change the stack, so an `Error`/`Warning` line's index
+   always reads the stack state as it stood when that line printed.
+2. **This is also, for free, the fix `tikz-unknown-key`'s own fixture note predicted.**
+   `located_errors` walks `tokenizer::tokenize`'s already-unwrapped lines instead of
+   `quick_errors`'s raw ones, so a message that wraps at 79 columns mid-word — pgfkeys' own `...
+   and I am go` / `ing to ignore it...` — now reaches the catalog whole:
+   `"...and I am going to ignore it. Perhaps you misspelled it."` where the old scan produced the
+   truncated half-word. No rule matches this message yet (S6.1's own job), so this only changed
+   the long tail's `raw_message`, but it is the first real proof the rebuild fixes the wrapping
+   problem DESIGN.md §5.2 names, not just adds a field next to it.
+3. **Regenerating thirteen of fifteen `expected.json` fixtures was the fixture harness (S5.3)
+   working exactly as designed, not a manual transcription.** Every fixture whose diagnostics
+   ever open a file gained a `"file"` key; the harness's own failure message already
+   pretty-prints the corrected JSON (`tests/fixtures.rs`'s own doc comment: "ready to paste in as
+   the new expected.json"), so each was captured from the test's own suggested output and
+   spot-checked against `fixtures/README.md`'s prose before being trusted — `emergency-stop`
+   (`file: null`, the one fixture with nothing open on the stack when it fires, matching the
+   README's own words) and `torture` (all three diagnostics resolve to `main.tex`, the only file
+   that log ever opens) were checked by hand as the two least obvious cases.
+4. **The frontend change is a type, not a feature, and stayed that size on purpose.** `ipc.ts`'s
+   `Diagnostic.file: string | null` mirrors the Rust field the same way S5.5 added `fix`; nothing
+   in the UI reads it yet, so `controller.test.ts` and `editor/diagnostics.test.ts` needed only
+   the field added to their hand-built fixtures, the same parity gap S5.5's own outcome already
+   named as a recurring trap for this struct. Routing a diagnostic to the *correct tab* by its new
+   `file` — today every dot still draws on the root file's tab, per `Editor.svelte`'s own comment
+   since S2.7 — is real UI work with its own design questions (what to do when the file has no
+   open tab; whether the drawer groups by file) and was left alone rather than rushed into this
+   loop's own scope.
+
+Not done here, on purpose: routing diagnostics to their own tab in the gutter/drawer (a frontend
+loop with no card yet — whoever adds it should start from `Diagnostic.file` existing now); S6.4's
+torture document itself; and any change to `quick_errors`, which stays exactly what `lib.rs`'s own
+module doc has always called it — the raw scan underneath the resolver-aware one, not replaced by
+it.
 
 **S5.1 (16 September 2026).** `[x]`: `cargo test -p texlog` 44 passed (20 new), `cargo clippy -p
 texlog --all-targets -- -D warnings` clean, rest of the workspace still builds
@@ -1367,7 +1418,7 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.5 |
+| [ ] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
 | [ ] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
 | [ ] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
 | [ ] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |

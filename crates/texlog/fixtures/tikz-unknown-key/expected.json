@@ -1,11 +1,12 @@
 [
   {
-    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am go\". The raw log has the surrounding output.",
+    "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am going to ignore it. Perhaps you misspelled it\". The raw log has the surrounding output.",
+    "file": "main.tex",
+    "fix": null,
     "line": 5,
-    "rawMessage": "Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am go",
+    "rawMessage": "Package pgfkeys Error: I do not know the key '/tikz/nosuchoption' and I am going to ignore it. Perhaps you misspelled it.",
     "rule": null,
     "severity": "error",
-    "title": "TeX reported an error",
-    "fix": null
+    "title": "TeX reported an error"
   }
 ]

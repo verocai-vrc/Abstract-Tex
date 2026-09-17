@@ -1,11 +1,12 @@
 [
   {
     "explanation": "There is a } here with no { to match it. Usually a brace was deleted from the opening side of a command's argument, or one was typed twice at the end.",
+    "file": "main.tex",
+    "fix": null,
     "line": 3,
     "rawMessage": "Too many }'s.",
     "rule": "unbalanced-braces",
     "severity": "error",
-    "title": "One closing brace too many",
-    "fix": null
+    "title": "One closing brace too many"
   }
 ]

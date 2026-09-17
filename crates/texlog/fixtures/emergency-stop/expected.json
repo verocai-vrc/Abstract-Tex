@@ -1,11 +1,12 @@
 [
   {
     "explanation": "Preamble does not have an explanation for this one yet. TeX said: \"Emergency stop\". The raw log has the surrounding output.",
+    "file": null,
+    "fix": null,
     "line": null,
     "rawMessage": "Emergency stop",
     "rule": null,
     "severity": "error",
-    "title": "TeX reported an error",
-    "fix": null
+    "title": "TeX reported an error"
   }
 ]

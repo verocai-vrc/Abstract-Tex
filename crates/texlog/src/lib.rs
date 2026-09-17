@@ -1,13 +1,11 @@
 //! TeX log parsing — the differentiating subsystem (DESIGN.md §5.2).
 //!
-//! **Sprint 5 status.** [`rules::diagnostics`] is still what the app calls today, and it still
-//! works the sprint-1/2 way: [`quick_errors`] finds `!` lines and the `l.NN` marker after each
-//! one, on raw, un-unwrapped log lines, with no notion of which file is open. [`tokenizer`]
-//! (S5.1) and [`resolver`] (S5.2) are the new, separate foundation that will replace it: the
-//! former unwraps 79-column wrapping and classifies every logical line, the latter walks those
-//! lines' `(`/`)` characters as a stack to say which file was open at each one — but nothing
-//! wires either into `diagnostics` yet. The two paths run side by side until `rules.rs` is
-//! rebuilt on top of them instead of `quick_errors`'s own ad hoc scan.
+//! **S5.6 wired the resolver in.** [`rules::diagnostics`] now scans [`tokenizer::tokenize`]'s
+//! unwrapped, classified lines and resolves each one's file with [`resolver::open_files`], so a
+//! [`rules::Diagnostic`] carries a real `file` alongside its `line`. [`quick_errors`] below is
+//! kept as the original raw, un-unwrapped scan — simpler, and still what a handful of this
+//! crate's own tests reach for directly — but `diagnostics` no longer calls it; see
+//! `rules.rs`'s own module doc for the scan it uses instead.
 //!
 //! This crate must never read a file, spawn anything, or know about the editor. Text in, data
 //! out, so it can be extracted as a standalone MIT crate at S6.5.
@@ -33,6 +31,10 @@ pub struct QuickError {
     pub line: Option<u32>,
     /// The source excerpt TeX printed on the `l.NN` line, if any. Useful context for a person.
     pub context: Option<String>,
+    /// The file open on the log's own timeline when this error was printed, resolved by
+    /// [`resolver::open_files`]. Always `None` here: this raw scan has no notion of files at
+    /// all, unlike `rules.rs`'s own resolver-backed scan, which sets it for real.
+    pub file: Option<String>,
 }
 
 /// Scan a log for `! ...` errors.
@@ -44,7 +46,8 @@ pub fn quick_errors(log: &str) -> Vec<QuickError> {
         let Some(message) = line.strip_prefix("! ") else {
             continue;
         };
-        let mut error = QuickError { message: message.trim().to_string(), line: None, context: None };
+        let mut error =
+            QuickError { message: message.trim().to_string(), line: None, context: None, file: None };
 
         // TeX prints the `l.NN` marker within the next few lines; stop looking at the next `!`
         // or after a generous window, whichever comes first.

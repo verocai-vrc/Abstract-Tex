@@ -1,11 +1,12 @@
 [
   {
     "explanation": "This document asks for `nosuchpackage.sty`, and the engine could not find it. If it is a package, check the name for a typo; Preamble's bundled engine downloads packages on demand, so a correctly spelled one will be fetched the next time you build with a network connection.",
+    "file": "main.tex",
+    "fix": null,
     "line": 3,
     "rawMessage": "! LaTeX Error: File `nosuchpackage.sty' not found..",
     "rule": "file-not-found",
     "severity": "error",
-    "title": "`nosuchpackage.sty` could not be found",
-    "fix": null
+    "title": "`nosuchpackage.sty` could not be found"
   }
 ]

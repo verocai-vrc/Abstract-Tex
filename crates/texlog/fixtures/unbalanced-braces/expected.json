@@ -1,11 +1,12 @@
 [
   {
-    "explanation": "The argument to \\emph was opened with { and never closed, so TeX kept collecting text until it ran out. Look for the \\emph whose argument is missing its } \u2014 it is earlier in the file than any line number reported here.",
+    "explanation": "The argument to \\emph was opened with { and never closed, so TeX kept collecting text until it ran out. Look for the \\emph whose argument is missing its } — it is earlier in the file than any line number reported here.",
+    "file": null,
+    "fix": null,
     "line": null,
     "rawMessage": "File ended while scanning use of \\emph .",
     "rule": "unbalanced-braces",
     "severity": "error",
-    "title": "\\emph is missing its closing brace",
-    "fix": null
+    "title": "\\emph is missing its closing brace"
   }
 ]

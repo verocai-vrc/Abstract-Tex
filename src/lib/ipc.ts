@@ -41,8 +41,12 @@ export interface Diagnostic {
   title: string;
   /** Complete sentences saying what happened and what to do. */
   explanation: string;
-  /** TeX's `l.NN` claim — often approximate, sometimes absent. No file yet: that is S5.2. */
+  /** TeX's `l.NN` claim — often approximate, sometimes absent. */
   line: number | null;
+  /** The file open when this was printed (S5.6), resolved from the log's own `(`/`)` trail —
+   * `null` only when nothing was open at that point. Project-relative in spelling only when the
+   * log itself reported it that way; nothing here re-resolves it against the file tree yet. */
+  file: string | null;
   severity: 'error' | 'warning';
   /** The rule that matched, or `null` when the catalog has no explanation and `explanation`
    * is a fallback that quotes TeX. */

@@ -1,11 +1,12 @@
 [
   {
-    "explanation": "TeX reached \\textbold and had no definition for it. Either it is a typo for a command that does exist, or it comes from a package this document does not load yet \u2014 check the spelling first, then the \\usepackage lines in your preamble.",
+    "explanation": "TeX reached \\textbold and had no definition for it. Either it is a typo for a command that does exist, or it comes from a package this document does not load yet — check the spelling first, then the \\usepackage lines in your preamble.",
+    "file": "main.tex",
+    "fix": null,
     "line": 4,
     "rawMessage": "Undefined control sequence.",
     "rule": "undefined-control-sequence",
     "severity": "error",
-    "title": "\\textbold is not a command TeX knows",
-    "fix": null
+    "title": "\\textbold is not a command TeX knows"
   }
 ]

@@ -6,20 +6,28 @@
 //!
 //! **Six rule ids of about forty (S2.6's five errors, one split into two ids), landed early in
 //! sprint 2 so the v0.1 demo could show an explanation instead of a raw log (SPRINTS.md §2)
-//! rather than waiting for the sprint the rule catalog otherwise belongs to.** What is
-//! deliberately *not* here yet: the paren-stack resolver that says which *file* an error is in
-//! is built (`resolver.rs`, S5.2) but not wired into [`diagnostics`], which still runs on
-//! [`crate::quick_errors`]'s un-unwrapped scan — see `lib.rs`'s own module doc — and *applying*
-//! a fix (S6.2) rather than only describing one. [`Rule`] is the matcher-plus-explanation-plus-
-//! optional-fix shape every entry in [`CATALOG`] implements (S5.5); [`FnRule`] is the one
-//! implementation this crate needs today, wrapping the plain functions each of these six rules
-//! already had. A future rule with no logic at all — a fixed prefix and a fixed sentence, no
-//! dynamic content — would implement [`Rule`] directly instead, as pure data with no `fn`.
+//! rather than waiting for the sprint the rule catalog otherwise belongs to.** [`Rule`] is the
+//! matcher-plus-explanation-plus-optional-fix shape every entry in [`CATALOG`] implements
+//! (S5.5); [`FnRule`] is the one implementation this crate needs today, wrapping the plain
+//! functions each of these six rules already had. A future rule with no logic at all — a fixed
+//! prefix and a fixed sentence, no dynamic content — would implement [`Rule`] directly instead,
+//! as pure data with no `fn`. *Applying* a fix (S6.2), rather than only describing one, is still
+//! not here.
+//!
+//! **S5.6: [`diagnostics`] is rebuilt on [`crate::tokenizer`] and [`crate::resolver`], not
+//! [`crate::quick_errors`].** `located_errors`/`located_warnings` below walk
+//! [`crate::tokenizer::tokenize`]'s unwrapped, classified lines the same way `quick_errors` and
+//! the old `undefined_reference_warnings` used to walk raw ones, but each also asks
+//! [`crate::resolver::open_files`] which file was open at that line — which is what lets
+//! [`Diagnostic::file`] be a real answer instead of always `None`. `crate::quick_errors` itself
+//! is untouched, still the plain raw scan `lib.rs`'s own module doc describes.
 //!
 //! A rule never guesses. If no rule matches, the diagnostic still appears with TeX's own words
 //! rather than being dropped, because an unexplained error the author can see beats a silent
 //! one — but it is marked `rule: None` so the drawer can tell the two apart.
 
+use crate::resolver::{file_at, open_files};
+use crate::tokenizer::{tokenize, LineKind, LogLine};
 use crate::QuickError;
 
 /// How much the author should care. Sprint 2 needs only these two.
@@ -43,6 +51,13 @@ pub struct Diagnostic {
     pub explanation: String,
     /// TeX's `l.NN` claim, which is frequently approximate and sometimes absent.
     pub line: Option<u32>,
+    /// The file open when this diagnostic was printed, resolved by [`crate::resolver::open_files`]
+    /// against the log's own `(`/`)` trail — `None` only for a log with no file open at all at
+    /// that point (the very first few lines, or a diagnostic after everything has closed, as
+    /// `emergency-stop`'s fixture captures). An extensionless `\input` still resolves to its
+    /// *parent* file rather than itself; `resolver.rs`'s own module doc names this as a real,
+    /// irreducible limit of text-only resolution, not a bug in this field.
+    pub file: Option<String>,
     pub severity: Severity,
     /// The rule that recognised this, or `None` when nothing in the catalog matched and
     /// `explanation` is a fallback built from TeX's own message.
@@ -187,12 +202,89 @@ const CATALOG: &[&dyn Rule] = &[
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
 ///
-/// This is the only entry point the app should call. [`crate::quick_errors`] stays as the raw
-/// scan underneath it.
+/// This is the only entry point the app should call. `tokenize` and `open_files` each run once
+/// and are shared between the error scan and the warning scan below, rather than each repeating
+/// its own pass over the log.
 pub fn diagnostics(log: &str) -> Vec<Diagnostic> {
-    let mut found: Vec<Diagnostic> = crate::quick_errors(log).iter().map(explain).collect();
-    found.extend(undefined_reference_warnings(log).iter().map(explain));
+    let lines = tokenize(log);
+    let stacks = open_files(&lines);
+    let mut found: Vec<Diagnostic> = located_errors(&lines, &stacks).iter().map(explain).collect();
+    found.extend(located_warnings(&lines, &stacks).iter().map(explain));
     found
+}
+
+/// Walks `lines` for `LineKind::Error`, the same shape `crate::quick_errors` scans for on raw
+/// text, but resolves each one's `file` against `stacks` (index-aligned with `lines`, from
+/// [`open_files`]) and reads the `l.NN` marker off an already-unwrapped logical line instead of a
+/// raw physical one — which is what fixes a message like `tikz-unknown-key`'s own capture, whose
+/// raw `quick_errors` scan truncated mid-word at the 79-column wrap (SPRINTS.md's S5.4 outcome
+/// names this exact fixture as the one waiting on this loop).
+fn located_errors(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError> {
+    let mut errors = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let LineKind::Error(message) = &lines[i].kind else {
+            i += 1;
+            continue;
+        };
+        let mut error = QuickError {
+            message: message.trim().to_string(),
+            line: None,
+            context: None,
+            file: file_at(stacks, i).map(str::to_string),
+        };
+
+        // TeX prints the `l.NN` marker within the next few lines; stop looking at the next `!`
+        // or after a generous window, whichever comes first — mirrors `crate::quick_errors`'s
+        // own search, just over tokenized lines instead of raw ones.
+        let mut looked = 0;
+        let mut j = i + 1;
+        while j < lines.len() && looked <= 12 {
+            if matches!(lines[j].kind, LineKind::Error(_)) {
+                break;
+            }
+            if let LineKind::LineMarker { line, context } = &lines[j].kind {
+                error.line = Some(*line);
+                let ctx = context.trim();
+                if !ctx.is_empty() {
+                    error.context = Some(ctx.to_string());
+                }
+                j += 1;
+                break;
+            }
+            j += 1;
+            looked += 1;
+        }
+        errors.push(error);
+        i = j;
+    }
+    errors
+}
+
+/// LaTeX reports undefined `\ref`s and `\cite`s as warnings, not `!` errors, so [`located_errors`]
+/// never sees them — but a paper full of bold `??` marks is exactly the kind of thing an author
+/// wants told to their face. Deliberately narrow, the same way the scan this replaced was: only
+/// `Reference `…undefined` and `Citation `…undefined`, whichever warning banner carried them.
+fn located_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError> {
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, line)| {
+            let LineKind::Warning { message } = &line.kind else { return None };
+            if !message.contains("undefined") {
+                return None;
+            }
+            if !message.starts_with("Reference ") && !message.starts_with("Citation ") {
+                return None;
+            }
+            Some(QuickError {
+                message: message.trim().to_string(),
+                line: input_line_number(message),
+                context: None,
+                file: file_at(stacks, i).map(str::to_string),
+            })
+        })
+        .collect()
 }
 
 /// Run one raw error through the catalog.
@@ -204,6 +296,7 @@ pub fn explain(error: &QuickError) -> Diagnostic {
                 title,
                 explanation,
                 line: error.line,
+                file: error.file.clone(),
                 severity: rule.severity(),
                 rule: Some(rule.id()),
                 raw_message: error.message.clone(),
@@ -221,35 +314,12 @@ pub fn explain(error: &QuickError) -> Diagnostic {
             error.message.trim_end_matches('.')
         ),
         line: error.line,
+        file: error.file.clone(),
         severity: Severity::Error,
         rule: None,
         raw_message: error.message.clone(),
         fix: None,
     }
-}
-
-/// LaTeX reports undefined `\ref`s and `\cite`s as warnings, not `!` errors, so `quick_errors`
-/// never sees them — but a paper full of bold `??` marks is exactly the kind of thing an author
-/// wants told to their face. This is a deliberately narrow scan for those two lines; the general
-/// warning tokenizer is S5.1.
-fn undefined_reference_warnings(log: &str) -> Vec<QuickError> {
-    log.lines()
-        .filter_map(|line| {
-            // `LaTeX Warning: Reference `fig:setup' on page 3 undefined on input line 42.`
-            let rest = line.trim().strip_prefix("LaTeX Warning: ")?;
-            if !rest.contains("undefined") {
-                return None;
-            }
-            if !rest.starts_with("Reference ") && !rest.starts_with("Citation ") {
-                return None;
-            }
-            Some(QuickError {
-                message: rest.trim().to_string(),
-                line: input_line_number(rest),
-                context: None,
-            })
-        })
-        .collect()
 }
 
 /// `… undefined on input line 42.` → `Some(42)`. The warning carries its own line number in
@@ -698,4 +768,40 @@ mod tests {
         assert_eq!(found[1].severity, Severity::Warning);
     }
 
+    /// S5.6: `diagnostics` now resolves `file` for real, on the fixture built for exactly this —
+    /// three files deep, with an unrecognised extensionless wrapper (`outer`) in the middle that
+    /// must not stop resolution of the real file nested inside it. `resolver.rs`'s own test
+    /// already proved `file_at` gets this right at the `open_files` layer; this proves it survives
+    /// all the way through the rule catalog to a `Diagnostic`.
+    #[test]
+    fn a_diagnostic_three_files_deep_resolves_to_its_own_file_not_a_wrapper_or_the_root() {
+        let log = include_str!("../fixtures/nested-include/main.log");
+        let d = diagnostic_from(log, "undefined-control-sequence");
+        assert_eq!(d.file.as_deref(), Some("chapters/inner"));
+    }
+
+    /// The documented limit, not a bug: a diagnostic inside a bare extensionless `\input` resolves
+    /// to its *parent* file, because nothing in the log's own text distinguishes `(plainchapter`
+    /// from an incidental parenthetical (`resolver.rs`'s own module doc). The real
+    /// `bare-input-no-extension` fixture captures the shape but not an error inside it, so this
+    /// combines two real captured shapes — a bare extensionless open and a real error message —
+    /// into one hand-built log, the same way several rules above already do for a case no single
+    /// real capture exercises in full.
+    #[test]
+    fn a_diagnostic_inside_a_bare_extensionless_input_resolves_to_its_parent() {
+        let log = "(main.tex\n(plainchapter\n! Undefined control sequence.\nl.1 \\undefinedcmd\n)\n)\n";
+        let d = diagnostic_from(log, "undefined-control-sequence");
+        assert_eq!(d.file.as_deref(), Some("main.tex"));
+    }
+
+    /// A log with no file ever open at the point a diagnostic fires — the real shape
+    /// `emergency-stop`'s fixture captures (every open file closes cleanly before the fatal
+    /// error prints) — must not panic and must report `file: None` rather than guess.
+    #[test]
+    fn a_diagnostic_with_nothing_open_on_the_stack_reports_no_file_rather_than_guessing() {
+        let log = include_str!("../fixtures/emergency-stop/main.log");
+        let found = diagnostics(log);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].file, None);
+    }
 }
