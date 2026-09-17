@@ -1,0 +1,22 @@
+[package]
+name = "texbib"
+description = "Parses BibTeX and BibLaTeX .bib files into entries with byte spans, keeping comments and @string macros, and never failing on a bad entry"
+# Its own version and licence, like `texlog` (S6.5): published on its own under MIT at S8.5
+# while the application stays AGPL. `bib` was the working name in SPRINTS.md; it is taken on
+# crates.io, and `texbib` pairs with `texlog`.
+version = "0.1.0"
+license = "MIT"
+readme = "README.md"
+keywords = ["bibtex", "biblatex", "latex", "bibliography", "parser"]
+categories = ["parser-implementations", "text-processing"]
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+include = ["/src", "/tests", "/fixtures", "/build.rs", "/README.md", "/LICENSE"]
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]
+# The fixture harness (tests/fixtures.rs) compares parsed output against expected.json as data.
+serde_json = { workspace = true }

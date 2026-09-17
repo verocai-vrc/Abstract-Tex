@@ -15,6 +15,7 @@ members = [
     "crates/preamble-lsp",
     "crates/preamble-reconcile",
     "crates/preamble-synctex",
+    "crates/texbib",
     "crates/texlog",
 ]
 

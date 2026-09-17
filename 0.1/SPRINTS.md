@@ -1881,11 +1881,128 @@ grow a `biblatex` rule.
 
 ### Sprint 7–8 — v0.4 bibliography
 
-S7.1 `bib` parser crate (BibTeX and BibLaTeX, comments and `@string` preserved) · S7.2 `.bib`
-watcher and project-wide index · S7.3 `\cite` completion with author/year/title · S7.4 DOI
-content negotiation · S7.5 arXiv and ISBN · S7.6 paste-to-cite with deduplication · S8.1 Zotero
-detection on port 23119 · S8.2 Better BibTeX collection linking · S8.3 health checks · S8.4
-forty-reference exit demo · S8.5 `bib` published MIT.
+**Exit demo.** `DESIGN.md` §7 v0.4: assemble a forty-reference paper from scratch without opening
+a browser once.
+
+Sprint 7's cards are expanded below (17 September 2026); sprint 8's stay as titles until sprint 7
+closes, per §1.1. One rename at expansion time: the crate is `texbib`, not `bib` — `bib` is
+already a crates.io name (a Bitbucket tool), and `texbib` pairs with `texlog`, the other crate
+this project publishes.
+
+| ✓ | Loop | Size | Depends |
+|---|---|---|---|
+| [ ] | S7.1 `texbib` parser crate: BibTeX and BibLaTeX syntax, comments and `@string` preserved, byte spans on everything, never fails on a bad entry | L | — |
+| [ ] | S7.2 `.bib` watcher and project-wide index: which files, which keys, who cites what | M | S7.1, S4.1 |
+| [ ] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
+| [ ] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
+| [ ] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
+| [ ] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
+
+S8.1 Zotero detection on port 23119 · S8.2 Better BibTeX collection linking · S8.3 health checks ·
+S8.4 forty-reference exit demo · S8.5 `texbib` published MIT.
+
+```
+Loop      S7.1 · texbib parser crate · L
+Reads     DESIGN.md §5.4, §2 rule 1 (the .bib file is the truth); crates/texlog/src/lib.rs (the
+          "never read a file" rule this crate inherits)
+Depends   —
+Files     crates/texbib/{Cargo.toml,LICENSE,README.md,src/lib.rs,src/parse.rs,src/value.rs,
+          fixtures/,tests/fixtures.rs}, Cargo.toml (workspace member)
+Build     Text in, data out. `parse(&str) -> Bibliography` never fails: the result is the file
+          as a sequence of items — entries, `@string`, `@preamble`, `@comment`, the free text
+          between items, and a `ParseError` item for anything malformed, after which parsing
+          resumes at the next `@`. Every item, entry key, field and value carries byte spans, so
+          a later loop can edit one field in place and leave every other byte of the file
+          alone. Values keep their written form (braced, quoted, number, macro name, `#`
+          concatenation) and can be resolved against the file's own `@string`s plus BibTeX's
+          twelve month macros. Type and field names compare case-insensitively but are stored
+          as written. BibLaTeX is the same syntax with more entry types and field names, so it
+          costs nothing here; `@set`/`@xdata` and `crossref` are parsed as ordinary entries and
+          fields, resolved by nobody yet (S7.2's index is where inheritance belongs).
+Verify    cargo test -p texbib; cargo clippy -p texbib --all-targets -- -D warnings
+Done when fixtures in the shape of Zotero/Better BibTeX, JabRef, doi.org and hand-typed .bib
+          files parse to the expected items; a deliberately broken entry in the middle of a file
+          costs exactly that entry; and for every fixture, concatenating the source text of
+          every item's span reproduces the input byte for byte.
+```
+
+```
+Loop      S7.2 · .bib watcher and project-wide index · M
+Reads     DESIGN.md §5.4, §5.1; crates/preamble-includes (the include graph, S4.1); src-tauri/src/watcher.rs
+Depends   S7.1, S4.1
+Files     src-tauri/src/bibliography.rs, src-tauri/src/watcher.rs, src-tauri/src/commands.rs,
+          src/lib/ipc.ts, src/lib/bibliography.svelte.ts
+Build     Find every `.bib` the document uses (`\bibliography{a,b}`, `\addbibresource{}`), parse
+          each through `texbib`, and keep an index: key → entry summary (type, author, year,
+          title, file, span), plus every `\cite` key seen in the include graph's `.tex` files.
+          Re-index a `.bib` when the watcher sees it change; emit `bibliography:changed`.
+Verify    cargo test -p preamble -- bibliography (on a machine that can link the app crate);
+          pnpm vitest run
+Done when editing a .bib on disk updates the index within one debounce window, and a project
+          with two .bib files and one missing one reports all three by path.
+```
+
+```
+Loop      S7.3 · \cite completion with author/year/title · M
+Reads     DESIGN.md §5.4 ("not a bare key"), §5.3; src/lib/lsp/ (S3.3's completion wiring)
+Depends   S7.2, S3.3
+Files     crates/texbib/src/names.rs, src/lib/editor/cite.ts, src/lib/editor/cite.test.ts
+Build     Inside `\cite{`, `\parencite{`, `\textcite{`, `\autocite{` and friends, offer the
+          index's entries with a label of "Surname et al. (2019) — Title", fuzzy-matched on all
+          three. Name splitting (`Last, First and ...`, `von` parts, `{Corporate Name}`) is a
+          `texbib` module because S7.6's key generation and S8.3's checks need it too. TexLab's
+          own cite completion is suppressed for these commands so there is one list, not two.
+Verify    cargo test -p texbib -- names; pnpm vitest run
+Done when a key never appears without its author and year, and multi-key `\cite{a,b}` completes
+          the key under the cursor only.
+```
+
+```
+Loop      S7.4 · DOI content negotiation · S
+Reads     DESIGN.md §5.4 (acquisition), §1.3 (no cloud service: these are the publisher's own
+          endpoints, and the app calls them only when the author pastes an identifier)
+Depends   S7.1
+Files     crates/texbib/src/acquire/{mod.rs,doi.rs}, crates/texbib/Cargo.toml (reqwest behind a
+          feature, so the parser stays dependency-free for the MIT publish)
+Build     `GET https://doi.org/<doi>` with `Accept: application/x-bibtex`, parse the reply with
+          this crate's own parser, and return the entry or a typed error (not found, network,
+          unparseable — each a sentence). Normalise the pasted form first: `https://doi.org/10…`,
+          `doi:10…`, bare `10.…`.
+Verify    cargo test -p texbib --features acquire (recorded replies as fixtures);
+          cargo test -p texbib --features acquire -- --ignored (one live request)
+Done when the three pasted forms resolve to the same entry and the fixture replies round-trip.
+```
+
+```
+Loop      S7.5 · arXiv and ISBN · M
+Reads     DESIGN.md §5.4
+Depends   S7.4
+Files     crates/texbib/src/acquire/{arxiv.rs,isbn.rs,identify.rs}
+Build     arXiv through its Atom API (`export.arxiv.org/api/query?id_list=`), ISBN through
+          OpenLibrary's JSON, each mapped onto a BibLaTeX entry by hand (`@online`/`@misc` with
+          `eprint`/`eprinttype` for arXiv, `@book` with `isbn` for a book). `identify(&str)`
+          says which of the three an arbitrary pasted string is, or none.
+Verify    cargo test -p texbib --features acquire
+Done when the recorded replies for one paper, one preprint and one book each produce an entry
+          with a stable generated key, and `identify` rejects a plain sentence.
+```
+
+```
+Loop      S7.6 · Paste-to-cite with deduplication · M
+Reads     DESIGN.md §5.4 ("the entry appears, deduplicated"), §2 rule 1, §5.3 (smart paste)
+Depends   S7.2, S7.5
+Files     crates/texbib/src/{render.rs,keys.rs}, src-tauri/src/bibliography.rs,
+          src/lib/editor/paste.ts, src/lib/editor/paste.test.ts
+Build     Pasting text that `identify` recognises offers "Cite" instead of inserting the text.
+          Dedup by DOI, then by arXiv id/ISBN, then by normalised title + year, against the
+          index; a hit reuses the existing key. A miss renders the new entry (`render.rs`: one
+          field per line, aligned, the way Better BibTeX writes them) and appends it to the
+          project's first `.bib` after the last item, touching no other byte (S7.1's spans are
+          the proof), then inserts `\cite{key}`. Keys are `surnameYEARfirstword`, made unique.
+Verify    cargo test -p texbib -- render keys; pnpm vitest run
+Done when pasting the same DOI twice yields one entry and two identical `\cite`s, and a diff of
+          the .bib before and after shows only the appended entry.
+```
 
 ### Sprint 9 — v0.5 speed
 
