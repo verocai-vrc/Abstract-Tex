@@ -1895,7 +1895,7 @@ this project publishes.
 | [~] | S7.2 `.bib` watcher and project-wide index: which files, which keys, who cites what | M | S7.1, S4.1 |
 | [x] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
 | [x] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
-| [ ] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
+| [x] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
 | [ ] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
 
 S8.1 Zotero detection on port 23119 · S8.2 Better BibTeX collection linking · S8.3 health checks ·
@@ -2220,6 +2220,101 @@ rendering of the bibliography index elsewhere in the UI (still S8.3's, per S7.2'
 suppression by protocol rather than by position (`citeThenLsp` never tells the server "don't
 answer here" — it simply never calls the LSP source at all when `citeContextAt` matches, which is
 the cheaper and equally correct way to get "exactly one list").
+
+**S7.5 (21 September 2026).** `[x]`: `cargo test -p texbib --features acquire` 74 lib tests
+passed, 3 ignored (39 new: 14 in `identify.rs`, 15 in `arxiv.rs`, 10 in `isbn.rs`; `doi.rs`
+untouched, its 12 from S7.4 unchanged), `cargo clippy -p texbib --features acquire --all-targets
+-- -D warnings` clean,
+`cargo clippy -p texbib --all-targets -- -D warnings` (feature off) clean, `RUSTDOCFLAGS="-D
+warnings" cargo doc -p texbib` clean both with and without the feature. No rung-4 gate: a
+library-crate loop with no caller, same as S7.1/S7.4. The wider workspace was re-checked as a
+side effect (`cargo test --workspace --exclude preamble --no-fail-fast`, `cargo clippy
+--workspace --exclude preamble --all-targets -- -D warnings`, and — this Windows machine can
+link it — `cargo test -p preamble` / `cargo clippy -p preamble`): clean apart from the two
+pre-existing, already-ledgered checkout-path failures (`preamble-synctex`'s and
+`src-tauri/src/synctex.rs`'s real-fixture tests, S4.6/S7.3) and the CRLF fixture-harness failure
+(S7.3), none touched by this loop. Three new files —
+`crates/texbib/src/acquire/{identify,arxiv,isbn}.rs` — plus real captured fixtures under
+`crates/texbib/fixtures/{arxiv-*,isbn-book}/`, the same "hand-typed shapes are known-stable,
+real captures are for anything an API might answer differently than assumed" split S7.1's own
+outcome drew for `.bib` syntax versus TeX log output.
+
+1. **The card's two sources are not the same shape, and the difference was only visible by
+   calling the real APIs, not by reading about them.** arXiv answers one request with everything
+   a citation needs, authors included (`arxiv.rs`, unremarkable — the same one-request pattern
+   S7.4's `doi.rs` already established). OpenLibrary's per-edition record
+   (`/isbn/<isbn>.json`) carries **no author names at all**, only a `works` key and a loose
+   jacket-copy byline; a real author list means following `works[0].key` to `/works/<id>.json`
+   for author *keys*, then one more request per author to `/authors/<key>.json` for the name — a
+   book with N authors costs `2 + N` requests. OpenLibrary's own `jscmd=data` "Books API", which
+   is documented to inline author names in one call and would have avoided this entirely, was
+   checked live against its own published example URL and 404s — confirmed before designing
+   around it, not assumed working from the README. Put to the maintainer as a real trade-off
+   (real names at up to `2 + N` requests vs. one request for raw jacket-copy text); the answer was
+   real names, which is what `isbn.rs` builds.
+2. **A fixture bug the test suite caught before it shipped: `bare_id` was derived from the
+   *pasted* id, not from what arXiv itself resolved to.** The first version of
+   `entry_from_feed` computed the version-stripped `eprint`/`url` fields with
+   `normalized_id.split('v').next()` — the string the author pasted. This "worked" for every
+   test written against a versioned paste (`1706.03762v7` has a `v` to split on) and for a
+   versionless one too, but only by coincidence: there was no `v` in `1706.03762` to trip over.
+   Confirmed live that arXiv's own `<entry><id>` **always** carries a version number, even when
+   `id_list=` requested none (`EIGHT_AUTHORS_REPLY`, captured from `id_list=1706.03762`, answers
+   `.../abs/1706.03762v7`) — so deriving the bare id from the *feed's own canonical `<id>`*
+   instead of from the pasted string is not a style preference, it is the only version that is
+   correct for what "the paper's current version" actually means. Regression test:
+   `a_pasted_id_with_no_version_still_gets_a_version_free_eprint_from_the_feeds_own_id`, which
+   pins the case the old code only passed by luck.
+3. **Neither `arxiv.rs` nor `isbn.rs` pulls in an XML or JSON dependency for production code.**
+   arXiv's Atom reply is read with `tag_content`, a deliberately naive "first `<tag>` to its
+   first matching `</tag>`" scanner — safe because every tag this module reads is a leaf, or,
+   for `<entry>`, only ever asked for once per feed — the same "hand-written subset, not a whole
+   library" choice this project already made for LSP's protocol types
+   (`src/lib/lsp-protocol.ts`). OpenLibrary's JSON needs more than substring scanning (nested
+   objects, arrays, escaped strings), so `isbn.rs` carries a ~100-line hand-rolled `Json` enum
+   that only answers "get me this string/array/object field," never round-trips or writes —
+   `serde_json` is already a pinned workspace dependency and a dev-dependency of this crate
+   (`build.rs`'s fixture harness), but promoting it to a real dependency would add to what S8.5
+   eventually publishes standalone under MIT for a feature-gated module most callers never touch.
+4. **A stable generated key is shared between the two hand-built sources, not duplicated.**
+   `arxiv::generated_key` (`surnameYEARfirstword`, ASCII-folded) is `pub(super)` and called from
+   both `arxiv.rs` and `isbn.rs`, since the two are the only sources whose `Entry` is built by
+   hand rather than parsed from someone else's text (`doi::fetch_doi`'s entry inherits a real key
+   from the publisher's own BibTeX, via `crate::parse`). This is deliberately looser than S7.6's
+   own eventual `keys.rs` will likely want (collision-avoidance against a real index, a different
+   split for a corporate author) — the same "leave the real shape for the first real caller"
+   deferral S7.3 made for name-splitting rather than guess ahead of a loop that has not started.
+5. **Every hand-built `Entry` (`arxiv`, `isbn`) carries `0..0` spans on every field, on
+   purpose, and every doc comment that explains why says so in plain prose, not a doc-link.**
+   Two attempts at linking across these three files to a private sibling function
+   (`` [`crate::acquire::arxiv::zero_span`] ``) or to a not-yet-written S7.6 module
+   (`` [`crate::acquire::render`] ``) both looked fine under `cargo clippy` but one broke
+   `cargo doc -p texbib --features acquire -- -D warnings` outright (ambiguous `parse`/`identify`
+   paths that are both a function and a module) and the other two were fragile links to
+   private/nonexistent items that happened not to error today. Fixed by using plain backticks
+   for anything not `pub` or not yet built, and `[`item()`]`/`[`mod@item`]` disambiguation for
+   anything that is both a function and a module — the reason `RUSTDOCFLAGS="-D warnings" cargo
+   doc` is worth running as its own check, separate from `clippy`, which does not catch this
+   category at all.
+
+**One environment finding logged rather than chased further, in `bugs-issues-fixes.md` under
+Open:** `reqwest` cannot resolve DNS from inside any Rust-compiled process on this machine —
+confirmed with a throwaway standalone binary printing the real `{:?}` error (`os error 11001`,
+DNS resolution failure) underneath the generic message the crate's own typed errors show —
+though `curl.exe` resolves the identical hostnames instantly in the same shell at the same
+moment. All three `#[ignore]`d live-network tests fail this way, including S7.4's own unmodified
+`doi.rs` one, which confirms this predates and is unrelated to this loop's diff. Shape matches
+the already-logged sprint-1 WebView2/Kaspersky entry (a security product treating a compiled
+`.exe`'s network calls differently from a known tool's) rather than anything code-side; does not
+block this loop, since the card's own `Verify` line is the non-`--ignored` run, which is clean.
+
+Not done here, on purpose: `render.rs`/`keys.rs` (S7.6's own files, per the sprint table);
+wiring `identify`/`fetch_arxiv`/`fetch_isbn` into any frontend or `src-tauri` command — nothing
+outside `texbib` calls this module yet, matching S7.4's own precedent of shipping the source
+before the caller exists; and any attempt to work around the DNS finding above, since it is this
+machine's environment, not a defect in the three sources' own logic (all three passed their
+fixture-based tests, and two of the three passed the real live lookup as recently as this
+session's own manual `curl` probes against the same endpoints).
 
 ### Sprint 9 — v0.5 speed
 

@@ -15,6 +15,37 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`reqwest` cannot resolve DNS from inside a Rust-compiled process on this machine, though
+  `curl.exe` resolves the identical hostname instantly in the same shell.** (S7.5, builder, 21
+  Sep 2026, found running the `#[ignore]`d live-network tests for all three `texbib::acquire`
+  sources) `cargo test -p texbib --features acquire -- --ignored` fails all three real-network
+  tests — `doi::tests::the_real_doi_org_resolves_a_known_doi` (S7.4, unmodified by this loop),
+  and this loop's own `arxiv::tests::the_real_arxiv_resolves_a_known_paper` and
+  `isbn::tests::the_real_openlibrary_resolves_a_known_isbn` — every one with the same
+  `reqwest::Error { kind: Request, source: ConnectError("dns error", Os { code: 11001, ... }) }`
+  once printed with `{:?}` instead of the `Display` impl `DoiError`/`ArxivError`/`IsbnError`
+  collapse it into (a one-off standalone binary using `reqwest` directly, built and deleted for
+  this diagnosis, is what surfaced the real `os error 11001` — "Este host não é conhecido" /
+  "this host is not known" — underneath the generic "error sending request" string the crate's
+  own tests would otherwise report). In the same shell, at the same moment,
+  `curl.exe https://doi.org/...` and `curl.exe https://export.arxiv.org/...` both resolve and
+  connect immediately — proving this is not an offline machine, a real DNS outage, or anything
+  wrong with the three fixture-based (non-network) test suites, which are all green. Confirmed
+  this predates and is unrelated to S7.5's own diff: `doi.rs`'s live test is untouched since
+  S7.4 and fails identically. The shape — a security product resolving or blocking DNS
+  differently per originating process rather than per machine — matches the sprint-1
+  WebView2/Kaspersky entry already in this file (`Sprint-1 WebView2/Kaspersky failure`, under
+  Fixed) and the DNS-inside-Tectonic note that entry itself references
+  (`scripts/dev-proxy.py`), so a security suite intercepting or filtering DNS for compiled `.exe`
+  binaries specifically, and passing `curl.exe` through, is the leading theory — not confirmed,
+  since nothing about that process's policy is visible from here. Does not block this loop: the
+  card's own `Verify` line is `cargo test -p texbib --features acquire` with no `--ignored`, and
+  all 73 non-network lib tests plus clippy (with and without the feature) and both `cargo doc`
+  builds are clean. Whoever next hits this — likely S7.6, or S8.3's health checks, both real
+  network callers — should check the maintainer's security-suite configuration (an exception for
+  `target\debug\*.exe`/`target\release\*.exe`, matching the existing WebView2 exception) before
+  assuming a code bug.
+
 - **`texbib`'s fixture harness fails on a checkout with `core.autocrlf=true`: six of seven
   fixtures mismatch on every byte span after the first line ending.** (S7.3, builder, 21 Sep
   2026, found running `pnpm verify` for an unrelated frontend loop) `crates/texbib/tests/
