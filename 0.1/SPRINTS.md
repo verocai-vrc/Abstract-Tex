@@ -1893,7 +1893,7 @@ this project publishes.
 |---|---|---|---|
 | [x] | S7.1 `texbib` parser crate: BibTeX and BibLaTeX syntax, comments and `@string` preserved, byte spans on everything, never fails on a bad entry | L | — |
 | [~] | S7.2 `.bib` watcher and project-wide index: which files, which keys, who cites what | M | S7.1, S4.1 |
-| [ ] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
+| [x] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
 | [x] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
 | [ ] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
 | [ ] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
@@ -2134,6 +2134,92 @@ before calling `zig cc`; nothing in the repository changed for it, and CI's real
 sees this. Not filed in `bugs-issues-fixes.md`: it is this sandbox's toolchain, not a defect in
 the project, the same category as the WebKitGTK/`pkg-config` gap sprint 2 recorded here rather
 than there.
+
+**S7.3 (21 September 2026).** `[x]`: rungs 1–2 are green — `svelte-check` 439 files / 0 errors /
+0 warnings (up from 437), `pnpm vitest run` 382/382 across 25 files (42 new, all in
+`cite.test.ts`). No rung-3 integration test exists for this card (its own `Verify` line names
+only unit tests), and rung 4 (`pnpm tauri dev`, typing `\cite{` in the app) was not attempted this
+session; both sidecars were fetched fresh (`pnpm fetch-sidecars`, neither had been downloaded on
+this checkout) so the Rust half of the workspace could build at all, and the rest of the workspace
+was checked as a side effect: `cargo test --workspace` and `cargo clippy --workspace --all-targets
+-- -D warnings` are clean apart from two pre-existing, environment-tied failures neither caused by
+nor related to this loop (no Rust file changed) — both newly logged in `bugs-issues-fixes.md`.
+Only `src/lib/editor/cite.ts` (new), `src/lib/editor/cite.test.ts` (new), and four lines in
+`src/components/Editor.svelte` changed; `setup.ts` did not need touching. What a reader should
+take from the diff:
+
+1. **One card deviation, deliberate and self-reported: no `crates/texbib/src/names.rs`.** The
+   card asks for name splitting to live in `texbib` "because S7.6's key generation and S8.3's
+   checks need it too" — both real future callers, but both server-side and both loops that have
+   not started. Completion, by contrast, must answer synchronously from whatever the bibliography
+   index already holds in memory (`bibliography.svelte.ts`, built by S7.2): a language-server-style
+   round trip per keystroke would put a `\cite{` popup on the wrong side of the <16 ms budget
+   (DESIGN.md §2 commitment 2) for no reason, since the whole index is already sitting in the
+   frontend. So `splitName`/`splitNames`/`authorLabel` are plain TypeScript in `cite.ts`, and
+   `names.rs` is left for S7.6 to write when it exists — which may want a different split anyway
+   (a key generator likely wants just the first surname, ASCII-folded, not "et al." handling), and
+   can decide that shape against a real caller instead of two nothing-calls-this-yet functions
+   built from guesswork now. Recorded here rather than silently deviating from the card.
+2. **A regex almost shipped a real bug: the same "escaped backslash before a command" case
+   `bibliography.rs`'s own comment already names.** The first version of `citeContextAt`'s command
+   check was a single regex, `/\\([A-Za-z]*[Cc]ite[A-Za-z]*)...$/`, tested only by hand against a
+   few strings — and a hand check missed that an *anchored-at-the-end, unanchored-at-the-start*
+   regex matches the **leftmost** position that still lets the rest succeed, which for a run of
+   several backslashes before "cite" is not necessarily the last one. `\\cite{` (TeX's own
+   line-break command, `\\`, followed by the plain word "cite{") was being accepted as a real
+   `\cite`, exactly the false positive `bibliography.rs`'s `find_commands` has a comment
+   specifically warding off ("an escaped backslash *and* the character after it, so `\\cite` is not
+   mistaken for `\cite`"). Writing the *test* for that case — mirroring the Rust side's own
+   `scan_citations_is_not_fooled_by_commented_or_escaped_text` — is what caught it; a plain
+   `node -e` sanity check confirmed the regex's `match.index` landed on the *second* backslash of a
+   two-backslash run, not the first. Fixed by replacing the regex with `endsInCiteCommand`, a
+   right-to-left scan that consumes the trailing whitespace, `[...]` groups, star and letter-run in
+   bounded steps — the same discipline `find_commands` uses scanning forward, chosen for the same
+   reason: it cannot land on an ambiguous position because it only ever looks at exactly one
+   character at a time. Two regression tests pin both parities (`\\cite{` rejected, `\\\cite{`
+   accepted) so this cannot regress silently again.
+3. **`citeSource` and `citeThenLsp` disagree on purpose about what an empty match list means, and
+   the difference is the whole reason both exist.** `citeSource` alone returns `null` for zero
+   matches, matching `lspCompletionSource`'s own rule against an empty-but-open popup — but a bare
+   `citeSource` cannot tell a caller whether that `null` means "not a cite position" or "a cite
+   position with nothing in it," and those two must not be treated the same: the second must still
+   suppress TexLab's fallback (there is nothing useful it could offer inside a bibliography key
+   anyway), while the first must not. `citeThenLsp` is what actually gets wired into `Editor.svelte`
+   and is where that distinction lives — it re-checks the *position* with `citeContextAt`
+   independently of whatever the match list came back as, so an empty `\cite{}` shows "no matches"
+   rather than silently falling through to whatever TexLab thinks a bare word inside `{}` should
+   complete to. `citeSource` stays exported (and tested) for anything that only wants the
+   bibliography's own opinion with no fallback question attached.
+4. **Multi-key `\cite{a,b}` completes only the key under the cursor, by construction, not by a
+   special case.** `citeContextAt` always looks for the *last* comma before the cursor inside the
+   open brace and reports the partial key from there; `\cite{smith2019,do|` (cursor after `do`)
+   reports `{ from: <right after the comma>, partial: "do" }`, leaving `smith2019,` on the buffer
+   side of `from` untouched — CodeMirror's own `from`/`to` replacement does the rest. No branch for
+   "is this the first key or a later one" exists because the rule ("since the last `{` or `,`") is
+   the same either way.
+5. **`displayLabel` carries the author/year/title; `label`/`apply` stay the bare key.** DESIGN.md
+   §5.4's "not a bare key" describes what the popup *shows* — `citeLabel` builds "Smith (2019)"
+   from `splitNames`/`authorLabel`, and `toCompletion` sets `displayLabel` to
+   `"Smith (2019) — smith2019"` — but the buffer still needs to hold a key BibTeX/Biber can
+   resolve, so `apply` (what CodeMirror inserts) and `label` (what it filters/sorts by, and the
+   fallback display) both stay `entry.key`. Fuzzy-ranked with `fuzzyMatch` (S2.4's own matcher)
+   against author, year and title joined into one haystack per entry, so a query like `"gadg"`
+   finds an entry through its title alone.
+
+Two things found while verifying, neither caused by this loop, both newly logged in
+`bugs-issues-fixes.md` under **Open**: `texbib`'s fixture harness fails on any checkout with
+`core.autocrlf=true` (six of seven `expected.json` fixtures were computed against `\n` line
+endings on the Linux session that built them in S7.1, and this Windows checkout silently rewrote
+the committed fixtures to `\r\n` on checkout — no `.gitattributes` exists to pin it); and
+`src-tauri/src/synctex.rs`'s own real-fixture test fails on any checkout path other than the
+original author's, the same already-known-and-logged cause (S4.6, 16 Sep 2026) as the
+`preamble-synctex` crate's identical test, just a second instance of the same pattern.
+
+Not done here, on purpose: `names.rs` (see point 1 above — S7.6's business when it starts); any
+rendering of the bibliography index elsewhere in the UI (still S8.3's, per S7.2's outcome); TexLab
+suppression by protocol rather than by position (`citeThenLsp` never tells the server "don't
+answer here" — it simply never calls the LSP source at all when `citeContextAt` matches, which is
+the cheaper and equally correct way to get "exactly one list").
 
 ### Sprint 9 — v0.5 speed
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
   import { app } from '../lib/state.svelte';
+  import { bibliography } from '../lib/bibliography.svelte';
   import {
     lspCompletion,
     lspDiagnosticsFor,
@@ -12,6 +13,7 @@
   import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
   import { diagnosticsForFile } from '../lib/drawer';
+  import { citeThenLsp } from '../lib/editor/cite';
   import { lspCompletionSource } from '../lib/editor/completion';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
@@ -38,7 +40,17 @@
     // tab, closing over `path`, rather than reading `app.activePath` at call time: each runs
     // asynchronously and a tab switch mid-request must not silently redirect an in-flight query
     // to a different file.
-    const completionSource = lspCompletionSource((line, character) => lspCompletion(path, line, character));
+    //
+    // `citeThenLsp` (S7.3) wraps the LSP source rather than sitting beside it in a second
+    // `override` entry: inside a `\cite{`-family argument it answers from the bibliography index
+    // on its own and never calls the LSP source at all, so there is one popup at that position,
+    // not TexLab's word completion competing with the reference list. `() => [...bibliography.
+    // entries.values()]` reads the store fresh on every keystroke rather than closing over a
+    // snapshot, the same freshness `citeSource`'s own doc comment requires.
+    const completionSource = citeThenLsp(
+      () => [...bibliography.entries.values()],
+      lspCompletionSource((line, character) => lspCompletion(path, line, character)),
+    );
     const hoverRequest = (line: number, character: number) => lspHover(path, line, character);
     const definitionRequest = (line: number, character: number) => lspGoToDefinition(path, line, character);
     const forwardSearchRequest = (line: number) => void syncTexForward(path, line);

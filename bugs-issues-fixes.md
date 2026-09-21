@@ -15,6 +15,40 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`texbib`'s fixture harness fails on a checkout with `core.autocrlf=true`: six of seven
+  fixtures mismatch on every byte span after the first line ending.** (S7.3, builder, 21 Sep
+  2026, found running `pnpm verify` for an unrelated frontend loop) `crates/texbib/tests/
+  fixtures.rs`'s `run_fixture` reads `main.bib` with `fs::read_to_string` — raw bytes, no
+  normalisation — and compares the parsed spans against a committed `expected.json` computed
+  when the S7.1 fixtures were built and verified on a Linux sandbox session, where line endings
+  are `\n`. This repository has no `.gitattributes`, and this checkout's `git config
+  core.autocrlf` is `true` (a common Git-for-Windows default), so `git checkout` silently
+  rewrote every committed `\n` in the six multi-line fixtures to `\r\n` on disk; `file` confirms
+  it (`ASCII text, with CRLF line terminators`). Every span after the first line ending is then
+  off by however many `\r`s precede it, and `fixture_better_bibtex`, `fixture_biblatex_
+  inheritance`, `fixture_broken_middle`, `fixture_hand_typed`, `fixture_jabref` and `fixture_
+  strings_and_preamble` all fail; the seventh, `fixture_doi_negotiation`, is one line with no
+  terminator (S7.4's own note) and passes untouched. Not caused by S7.3, which touched no Rust
+  and no `crates/texbib` file. Likely fix: a `.gitattributes` marking `crates/**/fixtures/*.bib`
+  (and any other fixture depending on an exact byte layout) `-text` or `eol=lf`, so a fresh
+  checkout matches what `expected.json` was computed against regardless of the checking-out
+  machine's global `autocrlf` setting.
+
+- **`src-tauri/src/synctex.rs`'s own real-fixture test fails on any checkout path other than the
+  original author's, the same way the already-logged `preamble-synctex` one does.** (S7.3,
+  builder, 21 Sep 2026, found running `pnpm verify` for an unrelated frontend loop)
+  `inverse_search_end_to_end_against_the_real_fixture` (line 138) calls `table.forward_search(&source,
+  3).expect("line 3 is on page 1")`, and the `.expect` panics with exactly that message: the
+  committed `crates/preamble-synctex/fixtures/multi.synctex.gz` bakes in the absolute path Tectonic
+  resolved at capture time (`C:\Users\arthur\Desktop\LaTeX Editor\Abstract Tex\Abstract-Tex\...`),
+  `paths_match` normalises case and separators but not the checkout prefix, and this checkout sits at
+  `C:\Ambiente de Desenvolvimento\Abstract-Tex`. Same root cause as `the_real_fixture_parses_and_both_
+  searches_answer`'s entry below (S4.6, 16 Sep 2026) in the *other* crate's copy of this pattern — this
+  is the sibling failure in `src-tauri`'s own end-to-end test, not a second bug, and not caused by
+  anything in S7.3 (which touched only `src/lib/editor/cite.ts`, its test, and two files wiring it in —
+  no Rust). Same fix candidates apply: look the tag up by the fixture's own recorded `Input:` path, or
+  compare by trailing path components in the test rather than the full resolved path.
+
 - **`fragile-command-in-moving-argument`'s one-click fix is only offered when the offending line
   is short: TeX truncates the `l.NN` context from the left, and the command name goes with it.**
   (S6.4, builder, 17 Sep 2026) The rule (S6.1) and its fix (S6.2) recover the command from the end
