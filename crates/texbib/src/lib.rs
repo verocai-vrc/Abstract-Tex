@@ -28,8 +28,12 @@
 
 #[cfg(feature = "acquire")]
 pub mod acquire;
+pub mod keys;
 pub mod parse;
+pub mod render;
 pub mod value;
 
+pub use keys::unique_key;
 pub use parse::{parse, Bibliography, Comment, Entry, Field, Item, ParseError, Preamble, Span, StringDef};
+pub use render::{append_entry, render_entry};
 pub use value::{Value, ValuePart};
