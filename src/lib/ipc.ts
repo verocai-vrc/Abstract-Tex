@@ -189,6 +189,22 @@ export interface PasteCiteResult {
  * installed" — this app cannot and does not try to tell the two apart. */
 export type ZoteroStatus = 'not_running' | 'no_better_bibtex' | 'ready';
 
+/** One Zotero library ("group" — the personal library is one too), with its collection tree
+ * (S8.2). Mirrors `texbib::acquire::zotero::Library`. */
+export interface ZoteroLibrary {
+  id: number;
+  name: string;
+  collections: ZoteroCollection[];
+}
+
+/** One collection inside a library. `path` is what `linkZoteroCollection`'s `collectionPath`
+ * argument wants, verbatim. */
+export interface ZoteroCollection {
+  name: string;
+  path: string;
+  children: ZoteroCollection[];
+}
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -236,6 +252,14 @@ export const ipc = {
   /** Probe once for a running Zotero + Better BibTeX (S8.1). Not polled automatically — call
    * this when the author opens whatever UI offers linking a collection (S8.2). */
   detectZotero: () => invoke<ZoteroStatus>('detect_zotero'),
+
+  /** Every library and collection Zotero currently has (S8.2), for the "pick a collection" UI.
+   * Rejects with a sentence if Zotero/Better BibTeX is not reachable. */
+  listZoteroLibraries: () => invoke<ZoteroLibrary[]>('list_zotero_libraries'),
+  /** Link a collection (S8.2): `outputPath` is project-relative, where the auto-exported `.bib`
+   * should live; Better BibTeX keeps it current from then on, and this app only ever reads it. */
+  linkZoteroCollection: (collectionPath: string, outputPath: string) =>
+    invoke<void>('link_zotero_collection', { collectionPath, outputPath }),
 
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {

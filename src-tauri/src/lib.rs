@@ -104,6 +104,8 @@ pub fn run() {
             commands::identify_paste,
             commands::paste_cite,
             commands::detect_zotero,
+            commands::list_zotero_libraries,
+            commands::link_zotero_collection,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Preamble window");

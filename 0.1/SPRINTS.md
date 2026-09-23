@@ -1903,7 +1903,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S8.1 Zotero detection on port 23119: is it running, is Better BibTeX installed, surfaced read-only in the UI | S | S7.5 |
-| [ ] | S8.2 Better BibTeX collection linking: pick a collection, its `.bib` export path, watch it the way any other `.bib` is watched | M | S8.1, S7.2 |
+| [x] | S8.2 Better BibTeX collection linking: pick a collection, its `.bib` export path, watch it the way any other `.bib` is watched | M | S8.1, S7.2 |
 | [ ] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
 | [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
 | [ ] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
@@ -2084,6 +2084,67 @@ Not done here, on purpose: parsing Better BibTeX's actual collection list, writi
 `preamble.toml`, and any file-watcher wiring — all S8.2's, per the sprint table. The 2-second
 timeout on the detection request is a guess, not measured against a real Better BibTeX reply;
 worth revisiting if S8.2's own manual testing finds it too short or too long for a real machine.
+
+**S8.2 (23 September 2026).** `[x]`: rungs 1–2 are green — `cargo test -p texbib --features
+acquire -- zotero` 12 passed, 1 ignored, `cargo test -p preamble -- bibliography` 19 passed
+(three new: `an_extra_bib_file_is_indexed_though_no_tex_file_names_it`,
+`an_extra_bib_file_the_document_also_names_is_listed_once`,
+`a_missing_extra_bib_file_is_listed_with_exists_false`), `cargo test -p preamble --lib` clean
+apart from the already-ledgered S4.6 `synctex` fixture failure, `cargo clippy --workspace
+--all-targets -- -D warnings` and the same with `--features acquire` both clean, `RUSTDOCFLAGS="-D
+warnings" cargo doc -p texbib -p preamble --no-deps --features texbib/acquire` clean, `pnpm check`
+442 files / 0 errors, `pnpm vitest run` 395/395 (unchanged, same reasoning as S8.1: the new
+frontend code is glue, and the real decision logic — parsing `user.groups`, building autoexport
+requests — is tested in Rust), `pnpm build` succeeds. No rung 3 or 4: linking a real collection
+needs a real Zotero + Better BibTeX install and the webview this environment cannot open, the same
+standing gate since sprint 2. What a reader should take from the diff:
+
+1. **A bug found while designing this loop, fixed as part of it.** Checking Better BibTeX's real
+   JSON-RPC method list (`retorque.re/zotero-better-bibtex/exporting/json-rpc/`, and its own
+   `content/json-rpc.ts` source) against S8.1's `item.libraries` call — the same "verify live
+   before building on it" discipline S7.5's outcome asked for — found that method does not exist.
+   S8.1's detection was accidentally still correct (Better BibTeX answers an unknown method with a
+   JSON-RPC `error` envelope, and `detect_with` only checks *shape*), so nothing was visibly
+   broken, but S8.2 needed a real method anyway. `zotero.rs`'s probe now sends `user.groups`,
+   which is both a valid liveness check and the call this loop needs for listing collections — one
+   request serves both jobs. Logged and fixed in `bugs-issues-fixes.md` before writing any new
+   code, per CLAUDE.md's bug-ledger rule.
+2. **Listing collections and linking one are two different JSON-RPC calls, not one.** `user.groups`
+   (with `includeCollections: true`) reads the tree; `autoexport.add` is a write — the one
+   deliberate exception to "this integration never writes to Zotero" DESIGN.md §5.4 promises,
+   and the exception is narrow on purpose: `autoexport.add`'s write is "keep this file on my disk
+   updated", never an edit to anything inside the Zotero library itself. `list_libraries` and
+   `add_autoexport` in `zotero.rs` are two small functions rather than one that does both, mirroring
+   `doi.rs`'s own separation of "look something up" from "act on what was found."
+3. **Better BibTeX's own reply shape drove `Collection`'s design, not a guess.** `user.groups`'s
+   real reply nests collections arbitrarily deep with no `path` field of its own — `parse_groups_
+   reply`/`collections_from_json` build each node's forward-slash `path` (library name first) while
+   walking the tree, because `autoexport.add`'s own `collection` parameter wants exactly that
+   string. A hand-rolled JSON walk rather than a generated type: the shape needed is narrow (arrays
+   of `{name, collections}`) and `texbib` had no JSON dependency to justify before this loop —
+   `serde_json` is now pulled in, but only behind the `acquire` feature, so the base crate stays as
+   dependency-light as S8.5 needs it to be.
+4. **The auto-export path is chosen for the author, not asked of them.** `linkZoteroCollection`
+   (`controller.svelte.ts`) writes to a fixed `zotero/<collection name>.bib`, sanitised for
+   filesystem-unsafe characters, rather than opening a save dialog — DESIGN.md §2 rule 4 ("zero
+   setup to first PDF") read as "one click links a collection," not "configure where a `.bib` file
+   should live." `Project::add_extra_bib_file` is idempotent (the same path added twice is a no-op)
+   so re-linking the same collection after a crash or a retry never grows `preamble.toml`'s list.
+5. **`bibliography::build_index` gained a third parameter, not a second function.** `extra_bib_
+   files: &[String]` folds into the same `files`/`entries` vectors the document's own `\bibliography`
+   commands populate, deduplicated against them by path — a linked collection an author also
+   happens to `\addbibresource` by hand is listed once, not twice. Every existing call site
+   (`bibliography_index`, `paste_cite`, `emit_bibliography` in `commands.rs`) now threads
+   `project.config.project.extra_bib_files` through; `project_root`'s return type grew a third
+   tuple element to carry it, the smallest change that keeps one function as the single source of
+   "where does the project's bibliography data come from."
+
+Not done here, on purpose: nothing yet reads back what Better BibTeX actually exported to confirm
+the auto-export succeeded beyond the JSON-RPC call itself returning without an `error` member — a
+`.bib` file that never appears (Better BibTeX misconfigured, wrong translator name, a stale Zotero)
+would look like a successful link until the author notices no new entries show up. Worth a health
+check (S8.3 territory, or a dedicated follow-up) rather than a silent fix here. Also not done: any
+UI for *removing* a linked collection from `extra_bib_files` — the picker only adds.
 
 ```
 Loop      S7.1 · texbib parser crate · L

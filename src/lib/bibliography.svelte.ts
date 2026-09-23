@@ -8,7 +8,7 @@
 // same rule `app` follows. The pure helpers below take the index as an argument rather than
 // reading the store, so `bibliography.test.ts` exercises them with a literal.
 
-import type { BibEntrySummary, BibliographyIndex, Citation, ZoteroStatus } from './ipc';
+import type { BibEntrySummary, BibliographyIndex, Citation, ZoteroLibrary, ZoteroStatus } from './ipc';
 
 /** Entries keyed by citation key. A key defined twice keeps its *first* definition, which is
  * what BibTeX itself does; the index still lists both for S8.3 to complain about. */
@@ -48,6 +48,11 @@ class BibliographyState {
   /** `null` until the author asks (S8.1): detection is a one-shot probe, not a background poll,
    * so there is nothing to show before that first ask. */
   zoteroStatus = $state<ZoteroStatus | null>(null);
+
+  /** The libraries listed for the "link a collection" picker (S8.2). `null` before the author
+   * opens it; cleared again once they pick a collection or close it, so a stale list is never
+   * shown the next time. */
+  zoteroLibraries = $state<ZoteroLibrary[] | null>(null);
 }
 
 export const bibliography = new BibliographyState();

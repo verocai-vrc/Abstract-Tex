@@ -126,13 +126,16 @@ pub fn affects_index(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("bib") || ext.eq_ignore_ascii_case("tex"))
 }
 
-/// Build the index for the document rooted at `root_file` (project-relative) in `project_dir`.
+/// Build the index for the document rooted at `root_file` (project-relative) in `project_dir`,
+/// plus whatever `extra_bib_files` names (S8.2: `preamble.toml`'s `extra_bib_files`, most often a
+/// linked Zotero collection's auto-export path) — a `.bib` the document's own `\bibliography`/
+/// `\addbibresource` commands never mention, but the author still wants indexed.
 ///
 /// Walks the include graph, scans each existing `.tex` for bibliography resources and
 /// citations, then parses each `.bib` through `texbib`. Never fails: a file that cannot be
 /// read is simply one with no citations, and a malformed `.bib` item is a [`Problem`] on its
 /// file — the same "never fail, report what you saw" rule the parser itself follows.
-pub fn build_index(project_dir: &Path, root_file: &Path) -> BibliographyIndex {
+pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[String]) -> BibliographyIndex {
     let graph = build_graph(project_dir, root_file);
     // `\bibliography{refs}` resolves against the root file's directory, exactly as `\input`
     // does and for the same reason: paths are relative to where the engine runs.
@@ -159,6 +162,16 @@ pub fn build_index(project_dir: &Path, root_file: &Path) -> BibliographyIndex {
         for (key, line) in scan_citations(&text) {
             citations.push(Citation { key, file: node.path.clone(), line });
         }
+    }
+
+    // Already project-relative (that is what `preamble.toml` stores), so no `resolve_bib_argument`
+    // step: a linked collection's export path is not written relative to the root file's folder.
+    for extra in extra_bib_files {
+        if files.iter().any(|file| &file.path == extra) {
+            continue;
+        }
+        let exists = project_dir.join(extra).is_file();
+        files.push(BibFile { path: extra.clone(), exists, entry_count: 0, problems: Vec::new() });
     }
 
     let mut entries: Vec<EntrySummary> = Vec::new();
@@ -521,7 +534,7 @@ mod tests {
             ("refs.bib", REFS),
             ("bib/more.bib", MORE),
         ]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
 
         let files: Vec<(&str, bool, usize)> =
             index.files.iter().map(|f| (f.path.as_str(), f.exists, f.entry_count)).collect();
@@ -535,7 +548,7 @@ mod tests {
     #[test]
     fn a_summary_carries_author_year_title_file_and_span() {
         let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n"), ("refs.bib", REFS)]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         let entry = index.entry("smith2019").expect("indexed");
         assert_eq!(entry.entry_type, "article");
         assert_eq!(entry.author.as_deref(), Some("Smith, Jane"));
@@ -548,7 +561,7 @@ mod tests {
     #[test]
     fn editor_stands_in_for_author_and_a_biblatex_date_for_year() {
         let dir = scaffold(&[("main.tex", "\\addbibresource{more.bib}\n"), ("more.bib", MORE)]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         let entry = index.entry("doe2020").unwrap();
         assert_eq!(entry.author.as_deref(), Some("Doe, John"));
         assert_eq!(entry.year.as_deref(), Some("2020"));
@@ -559,7 +572,7 @@ mod tests {
         let bib = "@inproceedings{paper, title = {The Paper}, author = {A. Author}, crossref = {PROC}}\n\
                    @proceedings{proc, title = {The Proceedings}, editor = {E. Editor}, year = 2018}\n";
         let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n"), ("refs.bib", bib)]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         let child = index.entry("paper").unwrap();
         assert_eq!(child.author.as_deref(), Some("A. Author"), "own field wins");
         assert_eq!(child.title.as_deref(), Some("The Paper"));
@@ -570,7 +583,7 @@ mod tests {
     fn a_broken_entry_is_a_problem_on_its_file_not_a_failure() {
         let bib = "@article{ok, title = {Fine}}\n@article{broken, title = \n@article{also, title = {Fine}}\n";
         let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n"), ("refs.bib", bib)]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert_eq!(index.files[0].entry_count, 2);
         assert_eq!(index.files[0].problems.len(), 1);
         assert!(index.entry("ok").is_some() && index.entry("also").is_some());
@@ -581,14 +594,14 @@ mod tests {
         let bib = "@string{jmlr = {Journal of Machine Learning Research}}\n\
                    @article{k, author = {X}, title = {T}, year = 2001, journal = jmlr, month = jan}\n";
         let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n"), ("refs.bib", bib)]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert_eq!(index.entry("k").unwrap().year.as_deref(), Some("2001"));
     }
 
     #[test]
     fn a_resource_outside_the_project_is_listed_but_never_read() {
         let dir = scaffold(&[("main.tex", "\\bibliography{../shared/refs}\n")]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert_eq!(index.files.len(), 1);
         assert_eq!(index.files[0].path, "../shared/refs.bib");
         assert!(!index.files[0].exists);
@@ -597,7 +610,7 @@ mod tests {
     #[test]
     fn resources_resolve_against_the_root_files_directory() {
         let dir = scaffold(&[("paper/main.tex", "\\bibliography{refs}\n"), ("paper/refs.bib", REFS)]);
-        let index = build_index(dir.path(), Path::new("paper/main.tex"));
+        let index = build_index(dir.path(), Path::new("paper/main.tex"), &[]);
         assert_eq!(index.files[0].path, "paper/refs.bib");
         assert!(index.files[0].exists);
     }
@@ -609,7 +622,7 @@ mod tests {
             ("a.tex", "\\addbibresource{refs.bib}\n"),
             ("refs.bib", REFS),
         ]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert_eq!(index.files.len(), 1);
         assert_eq!(index.entries.len(), 1);
     }
@@ -617,8 +630,39 @@ mod tests {
     #[test]
     fn a_missing_root_yields_an_empty_index() {
         let dir = scaffold(&[]);
-        let index = build_index(dir.path(), Path::new("main.tex"));
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert_eq!(index, BibliographyIndex::default());
+    }
+
+    // ---- extra_bib_files (S8.2: a linked Zotero collection's export path) ----
+
+    #[test]
+    fn an_extra_bib_file_is_indexed_though_no_tex_file_names_it() {
+        let dir = scaffold(&[("main.tex", "As shown~\\cite{smith2019}.\n"), ("zotero/reading.bib", REFS)]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/reading.bib".to_string()]);
+        assert_eq!(index.files, vec![BibFile {
+            path: "zotero/reading.bib".to_string(),
+            exists: true,
+            entry_count: 1,
+            problems: Vec::new(),
+        }]);
+        assert!(index.entry("smith2019").is_some());
+    }
+
+    #[test]
+    fn an_extra_bib_file_the_document_also_names_is_listed_once() {
+        let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n"), ("refs.bib", REFS)]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &["refs.bib".to_string()]);
+        assert_eq!(index.files.len(), 1);
+        assert_eq!(index.entries.len(), 1);
+    }
+
+    #[test]
+    fn a_missing_extra_bib_file_is_listed_with_exists_false() {
+        let dir = scaffold(&[("main.tex", "")]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/gone.bib".to_string()]);
+        assert_eq!(index.files.len(), 1);
+        assert!(!index.files[0].exists);
     }
 
     // ---- scanners ----

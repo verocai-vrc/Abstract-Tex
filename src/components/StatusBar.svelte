@@ -3,6 +3,18 @@
   import { bibliography } from '../lib/bibliography.svelte';
   import { detectZotero, toggleDrawer } from '../lib/controller.svelte';
 
+  // Clicking the Zotero button probes on the first click (status still `null`); once it reads
+  // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
+  // there is nothing more to detect once linking is possible, and re-probing on every click would
+  // be a wasted round trip for no visible benefit.
+  function onZoteroClick() {
+    if (bibliography.zoteroStatus === 'ready') {
+      app.zoteroLinkVisible = true;
+    } else {
+      void detectZotero();
+    }
+  }
+
   // A ticking clock while a build runs, so a long first compile (package downloads) never
   // looks like a hang (DESIGN.md §6, first run).
   let now = $state(Date.now());
@@ -18,10 +30,11 @@
   );
 
   // Detection is a manual probe (S8.1), not a background poll: nobody asked until they click
-  // this, so `zoteroStatus` stays `null` and the button reads as an offer, not a state.
+  // this, so `zoteroStatus` stays `null` and the button reads as an offer, not a state. Once
+  // `ready`, the same button's job changes from "detect" to "link a collection" (S8.2).
   const zoteroLabel = $derived(
     bibliography.zoteroStatus === 'ready'
-      ? 'Zotero linked'
+      ? 'Link Zotero collection'
       : bibliography.zoteroStatus === 'no_better_bibtex'
         ? 'Zotero running, no Better BibTeX'
         : bibliography.zoteroStatus === 'not_running'
@@ -62,7 +75,7 @@
     <span class="muted" title={app.lspMessage}>no language server</span>
   {/if}
   <span class={app.engine === null ? 'error' : ''}>{engineLabel}</span>
-  <button class={`ghost muted${bibliography.zoteroStatus === 'ready' ? ' ok' : ''}`} onclick={() => void detectZotero()}>
+  <button class={`ghost muted${bibliography.zoteroStatus === 'ready' ? ' ok' : ''}`} onclick={onZoteroClick}>
     {zoteroLabel}
   </button>
   <span><kbd>Ctrl</kbd><kbd>S</kbd> save · <kbd>Ctrl</kbd><kbd>B</kbd> build</span>

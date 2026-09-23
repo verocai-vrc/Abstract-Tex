@@ -17,6 +17,7 @@
   import StatusBar from './components/StatusBar.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+  import ZoteroLink from './components/ZoteroLink.svelte';
 
   onMount(() => {
     void start();
@@ -78,3 +79,4 @@
 
 <QuickOpen />
 <CommandPalette />
+<ZoteroLink />

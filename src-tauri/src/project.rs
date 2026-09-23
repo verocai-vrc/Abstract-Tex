@@ -45,6 +45,13 @@ pub struct ProjectSection {
     /// `"tectonic"` (the default, bundled) or `"system"` (a detected TeX Live, from v0.5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub engine: Option<String>,
+    /// `.bib` files the bibliography index reads in addition to whatever the document's own
+    /// `\bibliography`/`\addbibresource` commands name (S8.2) — a Better BibTeX auto-export
+    /// path, most often, but nothing here assumes that; it is just another `.bib` on disk.
+    /// Project-relative, forward slashes. Empty (the default) means "none": most projects never
+    /// touch this field.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_bib_files: Vec<String>,
 }
 
 /// One entry in the file tree the sidebar shows.
@@ -132,6 +139,17 @@ impl Project {
             bail!("{relative} is not a file in this project");
         }
         self.config.project.root = Some(relative.replace('\\', "/"));
+        self.save_config()
+    }
+
+    /// Add a `.bib` file to `extra_bib_files` (S8.2's "link a collection") and save. Idempotent:
+    /// linking the same path twice is a no-op, not a duplicate entry — the author re-opening the
+    /// link dialog and picking the same collection again should not grow the list.
+    pub fn add_extra_bib_file(&mut self, relative: &str) -> Result<()> {
+        let normalised = relative.replace('\\', "/");
+        if !self.config.project.extra_bib_files.iter().any(|existing| existing == &normalised) {
+            self.config.project.extra_bib_files.push(normalised);
+        }
         self.save_config()
     }
 

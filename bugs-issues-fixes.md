@@ -15,6 +15,35 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`cargo test -p texbib --features acquire --test fixtures` fails all six real-fixture cases on
+  this machine, purely from CRLF byte-offset drift.** (S8.2, builder, 23 Sep 2026, found running
+  the full `texbib` test suite as this loop's own verification step) Every failure is the same
+  shape: the parsed spans in `left` are consistently larger than the recorded `expected.json`
+  spans in `right`, by exactly the count of `\r` bytes before that point in the file — the
+  fixture `.bib` files are checked out CRLF on this machine, but `expected.json` was recorded
+  against an LF checkout. Confirmed pre-existing and unrelated to this loop's diff: `git stash`
+  (removing every S8.2 change) reproduces the identical six failures with identical `left`/`right`
+  diffs. Likely the same root cause as the synctex real-fixture failure below (a `.gitattributes`
+  gap letting Windows checkouts normalise line endings in fixture text files that must stay
+  byte-for-byte what they were recorded against) — worth checking both under the same fix rather
+  than two separate ones. Does not block this loop: the card's `Verify` line does not run the
+  `fixtures` integration test, and all unit tests (including this loop's new `zotero.rs` and
+  `bibliography.rs` ones) are green.
+
+- **S8.1's `zotero.rs` probed a JSON-RPC method, `item.libraries`, that does not exist in Better
+  BibTeX's real API.** (S8.2, builder, 23 Sep 2026, found checking the real JSON-RPC method list
+  against `retorque.re/zotero-better-bibtex/exporting/json-rpc/` and the project's own
+  `content/json-rpc.ts` source while designing S8.2's collection listing, the same "check live
+  before building on it" step S7.5's outcome recommended after a documented endpoint 404ed in
+  practice) The real method for listing libraries is `user.groups` (optionally
+  `includeCollections: true` to also list each library's collections). Calling the nonexistent
+  `item.libraries` did not break S8.1 itself — Better BibTeX answers an unknown method with a
+  JSON-RPC `error` envelope, and `detect_with` only checks *shape* (any `jsonrpc` + `result`/`error`
+  reply counts as `Ready`), so detection was accidentally still correct.
+  **Fixed** in this loop (S8.2) by switching the probe to `user.groups`, which is both a valid
+  liveness check and the call S8.2 needs anyway for listing collections — one request now does
+  both jobs. Verified by `cargo test -p texbib --features acquire -- zotero` (12 passed).
+
 - **`RUSTDOCFLAGS="-D warnings" cargo doc --workspace` fails on `preamble-synctex`: its module doc
   links to a private item.** (S7.6, builder, 23 Sep 2026, found running `cargo doc --workspace`
   as this loop's own final check, since `crates/preamble-synctex` was untouched by the diff)

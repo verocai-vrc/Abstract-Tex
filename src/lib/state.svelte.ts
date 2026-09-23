@@ -111,6 +111,9 @@ class AppState {
   /** The `Ctrl P` file list (S2.4). */
   quickOpenVisible = $state(false);
 
+  /** The "link a Zotero collection" picker (S8.2), opened from the status bar. */
+  zoteroLinkVisible = $state(false);
+
   /** The `Ctrl K` command palette (S4.3): every action, plus the open file list and the active
    * file's outline, searched together. */
   commandPaletteVisible = $state(false);

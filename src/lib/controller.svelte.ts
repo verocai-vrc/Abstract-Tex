@@ -208,6 +208,38 @@ export async function detectZotero(): Promise<void> {
 }
 
 /**
+ * List Zotero's libraries and collections into `bibliography.zoteroLibraries`, for the "link a
+ * collection" picker (S8.2). Called when the author opens that picker, not before — the same
+ * ask-first shape as `detectZotero`.
+ */
+export async function listZoteroLibraries(): Promise<void> {
+  try {
+    bibliography.zoteroLibraries = await ipc.listZoteroLibraries();
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
+/**
+ * Link a Zotero collection (S8.2): ask Better BibTeX to auto-export it to
+ * `zotero/<collection name>.bib` under the project, add that path to the bibliography index, and
+ * clear the picker's library list (`bibliography.zoteroLibraries`) so a re-open never shows a
+ * stale snapshot. The chosen output path is deliberately a fixed, predictable location rather
+ * than something the author names — DESIGN.md §2 rule 4 ("zero setup"), and one Zotero-managed
+ * `.bib` per collection under `zotero/` is enough naming scheme for now; nothing stops a second
+ * loop from letting the author choose if this turns out to matter.
+ */
+export async function linkZoteroCollection(collection: { path: string; name: string }): Promise<void> {
+  const outputPath = `zotero/${collection.name.replace(/[\\/:*?"<>|]/g, '_')}.bib`;
+  try {
+    await ipc.linkZoteroCollection(collection.path, outputPath);
+    bibliography.zoteroLibraries = null;
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
+/**
  * The document's symbol tree, flattened, for whatever first wants one (S4.2's Document map
  * panel, most likely). No UI reads this today; it exists so that loop starts from a request that
  * already works rather than from nothing, the same "plumbing before the visual layer" shape

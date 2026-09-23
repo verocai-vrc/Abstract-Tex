@@ -225,7 +225,7 @@ pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
 pub fn bibliography_index(state: State<'_, AppState>) -> CommandResult<BibliographyIndex> {
     let located = project_root(&state)?;
     Ok(match located {
-        Some((root_dir, root_file)) => bibliography::build_index(&root_dir, &root_file),
+        Some((root_dir, root_file, extra_bib_files)) => bibliography::build_index(&root_dir, &root_file, &extra_bib_files),
         None => BibliographyIndex::default(),
     })
 }
@@ -266,8 +266,9 @@ pub async fn paste_cite(app: AppHandle, state: State<'_, AppState>, pasted: Stri
         .map_err(to_message)?
         .map_err(to_message)?;
 
-    let (root_dir, root_file) = project_root(&state)?.ok_or_else(|| "No root .tex file found.".to_string())?;
-    let index = bibliography::build_index(&root_dir, &root_file);
+    let (root_dir, root_file, extra_bib_files) =
+        project_root(&state)?.ok_or_else(|| "No root .tex file found.".to_string())?;
+    let index = bibliography::build_index(&root_dir, &root_file, &extra_bib_files);
 
     match crate::paste::resolve_paste(&fetched, &index).map_err(to_message)? {
         crate::paste::PasteOutcome::Existing { key } => Ok(PasteCiteResult { key, created: false }),
@@ -310,6 +311,43 @@ pub async fn detect_zotero() -> CommandResult<texbib::acquire::zotero::ZoteroSta
     tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::detect).await.map_err(to_message)
 }
 
+/// List every library and collection Zotero (with Better BibTeX) currently has, for the "pick a
+/// collection to link" UI (S8.2). Same async/`spawn_blocking` shape as `detect_zotero`, for the
+/// same reason: `texbib::acquire::zotero::list_libraries` is a synchronous `reqwest::blocking`
+/// call.
+#[tauri::command]
+pub async fn list_zotero_libraries() -> CommandResult<Vec<texbib::acquire::zotero::Library>> {
+    tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::list_libraries).await.map_err(to_message)?.map_err(to_message)
+}
+
+/// Link a Zotero collection (S8.2): ask Better BibTeX to keep `output_path` (project-relative,
+/// under the project so the bibliography watcher can see it) auto-exported from `collection_path`
+/// in BibTeX format, then record `output_path` in `preamble.toml`'s `extra_bib_files` so the next
+/// index build reads it. The two steps are not one transaction — if Better BibTeX accepts the
+/// auto-export but saving the config fails, the author sees the config error and the auto-export
+/// is registered but unused, which `add_extra_bib_file`'s idempotence lets a retry fix without a
+/// duplicate. No JSON-RPC method that would edit the library itself is ever called; see
+/// `zotero.rs`'s module doc for the read/one-write shape this app allows itself.
+#[tauri::command]
+pub async fn link_zotero_collection(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    collection_path: String,
+    output_path: String,
+) -> CommandResult<()> {
+    let absolute = with_project(&state, |project| project.resolve(&output_path))?;
+    let absolute_str = absolute.to_string_lossy().into_owned();
+
+    tauri::async_runtime::spawn_blocking(move || texbib::acquire::zotero::add_autoexport(&collection_path, &absolute_str))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)?;
+
+    with_project(&state, |project| project.add_extra_bib_file(&output_path))?;
+    emit_bibliography(&app);
+    Ok(())
+}
+
 /// Rebuild the index and emit it as `bibliography:changed`. Called from the watcher thread and
 /// from `write_file`; both take the project lock only long enough to copy two paths out.
 fn emit_bibliography(app: &AppHandle) {
@@ -317,16 +355,23 @@ fn emit_bibliography(app: &AppHandle) {
     // watcher's — reaches the same shared state the commands borrow.
     let state = app.state::<AppState>();
     let index = match project_root(&state) {
-        Ok(Some((root_dir, root_file))) => bibliography::build_index(&root_dir, &root_file),
+        Ok(Some((root_dir, root_file, extra_bib_files))) => {
+            bibliography::build_index(&root_dir, &root_file, &extra_bib_files)
+        }
         Ok(None) => BibliographyIndex::default(),
         Err(_) => return, // the project was closed meanwhile; nobody is listening
     };
     let _ = app.emit("bibliography:changed", index);
 }
 
-/// The open project's folder and root file, or `None` when it has no root file yet.
-fn project_root(state: &AppState) -> CommandResult<Option<(PathBuf, PathBuf)>> {
-    with_project(state, |project| Ok(project.root_file().map(|root_file| (project.root_dir.clone(), root_file))))
+/// The open project's folder, root file, and configured extra `.bib` files (S8.2), or `None`
+/// when it has no root file yet.
+fn project_root(state: &AppState) -> CommandResult<Option<(PathBuf, PathBuf, Vec<String>)>> {
+    with_project(state, |project| {
+        Ok(project
+            .root_file()
+            .map(|root_file| (project.root_dir.clone(), root_file, project.config.project.extra_bib_files.clone())))
+    })
 }
 
 // ---------------------------------------------------------------------------
