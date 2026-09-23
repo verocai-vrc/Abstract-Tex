@@ -33,6 +33,7 @@ import { diagnosticGutter } from './diagnostics';
 import { focusModeExtension } from './focus';
 import { lspHoverSource, type HoverRequester } from './hover';
 import { mathPreview } from './math-preview';
+import { pasteCiteHandler, type PasteCiteRequester } from './paste';
 import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
 import { typewriterModeExtension } from './typewriter';
 
@@ -115,6 +116,7 @@ export function createEditor(
   forwardSearchRequest?: ForwardSearchRequester,
   focusModeEnabled = false,
   typewriterModeEnabled = false,
+  pasteCiteRequest?: PasteCiteRequester,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -164,6 +166,7 @@ export function createEditor(
       ...(definitionRequest
         ? [EditorView.domEventHandlers({ mousedown: definitionClickHandler(definitionRequest) })]
         : []),
+      ...(pasteCiteRequest ? [EditorView.domEventHandlers({ paste: pasteCiteHandler(pasteCiteRequest) })] : []),
       // No awareness yet (that is v0.8); the undo manager is the document's own.
       yCollab(doc.ytext, null, { undoManager: doc.undo }),
       theme,

@@ -7,6 +7,7 @@
     lspDiagnosticsFor,
     lspGoToDefinition,
     lspHover,
+    pasteCite,
     resolveConflict,
     syncTexForward,
   } from '../lib/controller.svelte';
@@ -63,6 +64,7 @@
       forwardSearchRequest,
       app.focusModeEnabled,
       app.typewriterModeEnabled,
+      pasteCite,
     );
     view = created;
     created.focus();

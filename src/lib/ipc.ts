@@ -172,6 +172,18 @@ export interface Citation {
   line: number;
 }
 
+/** Which acquisition source (S7.4/S7.5) a pasted string was recognised as. */
+export type PasteKind = 'doi' | 'arxiv' | 'isbn';
+
+/** What paste-to-cite (S7.6) resolved a paste to. */
+export interface PasteCiteResult {
+  /** The citation key to insert as `\cite{key}` — either reused or freshly generated. */
+  key: string;
+  /** `false` when `key` already named an entry in the bibliography (nothing was written);
+   * `true` when a new entry was appended. */
+  created: boolean;
+}
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -206,6 +218,15 @@ export const ipc = {
 
   /** The bibliography index, built fresh from disk (S7.2). Empty when there is no root file. */
   bibliographyIndex: () => invoke<BibliographyIndex>('bibliography_index'),
+
+  /** Which of `doi` / `arxiv` / `isbn` a pasted string looks like, or `null` for plain text —
+   * S7.6's paste-to-cite, checked before offering "Cite" so a normal paste is never delayed by a
+   * network round trip. */
+  identifyPaste: (pasted: string) => invoke<PasteKind | null>('identify_paste', { pasted }),
+  /** Fetch the identified entry, deduplicate against the project's bibliography, and — on a
+   * miss — append a new entry to the first `.bib` file the document names. Rejects with a
+   * sentence: no network, nothing found for the identifier, or no `.bib` file to append to. */
+  pasteCite: (pasted: string) => invoke<PasteCiteResult>('paste_cite', { pasted }),
 
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {

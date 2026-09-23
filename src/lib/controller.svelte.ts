@@ -2,6 +2,7 @@
 // build finishing, react to a file changing on disk. Components call these; nothing else
 // mutates `app`.
 
+import type { EditorView } from '@codemirror/view';
 import { bibliography } from './bibliography.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
@@ -163,6 +164,31 @@ export async function lspGoToDefinition(relativePath: string, line: number, char
   if (app.activePath !== targetPath) await openFile(targetPath);
   jumpToLine(location.range.start.line + 1);
   return true;
+}
+
+/**
+ * Paste-to-cite (S7.6): `pasteCiteHandler` in `editor/paste.ts` has already recognised `pasted`
+ * as a DOI/arXiv id/ISBN and prevented CodeMirror's own paste; this is what actually happens —
+ * ask the backend to fetch, deduplicate, and maybe write a new `.bib` entry (`ipc.pasteCite`,
+ * S7.6's whole point: "the entry appears, deduplicated," DESIGN.md §5.4), then insert `\cite{key}`
+ * at the position the paste landed on. `from`/`to` were captured *before* this awaited, so the
+ * insertion still targets the right spot even if the cursor moved during the round trip; if the
+ * document was edited there in the meantime CodeMirror simply maps the position through those
+ * changes itself; a plain `changes: { from, to, insert }` on a stale-but-still-valid range is
+ * exactly what every other deferred edit in this codebase already trusts CodeMirror to do.
+ *
+ * A failure — no network, nothing found for the identifier, no `.bib` file to append to — is a
+ * status message, not a dialog: the author's paste is simply left as it was (no raw text falls
+ * back into the buffer, since nothing was ever inserted), same as everywhere else `app.notice`
+ * reports a backend rejection without interrupting typing.
+ */
+export async function pasteCite(pasted: string, view: EditorView, from: number, to: number): Promise<void> {
+  try {
+    const { key } = await ipc.pasteCite(pasted);
+    view.dispatch({ changes: { from, to, insert: `\\cite{${key}}` } });
+  } catch (error) {
+    app.notice = String(error);
+  }
 }
 
 /**
