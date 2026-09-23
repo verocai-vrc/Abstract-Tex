@@ -28,6 +28,7 @@
 
 #[cfg(feature = "acquire")]
 pub mod acquire;
+pub mod health;
 pub mod keys;
 pub mod parse;
 pub mod render;

@@ -133,6 +133,10 @@ export interface BibliographyIndex {
   entries: BibEntrySummary[];
   /** Include-graph order, then line order. */
   citations: Citation[];
+  /** Whether any `.tex` file has `\nocite{*}` — "treat every entry as cited". S8.3's never-cited
+   * check reads this on the Rust side; the frontend has no reason to read it itself today, but it
+   * rides along since `BibliographyIndex` is sent whole. */
+  hasNociteStar: boolean;
 }
 
 export interface BibFile {
@@ -170,6 +174,27 @@ export interface Citation {
   file: string;
   /** 1-based line of the `\cite` command. */
   line: number;
+}
+
+/** How much the author should care about a health `Finding` — the same two words
+ * `Diagnostic['severity']` uses, kept as its own type because a bibliography finding is not a
+ * compile diagnostic. */
+export type HealthSeverity = 'error' | 'warning';
+
+/** Where a `Finding` points: a line in a `.tex` file, or a `.bib` entry's byte span. */
+export type Jump =
+  | { kind: 'texLine'; file: string; line: number }
+  | { kind: 'bibEntry'; file: string; span: { start: number; end: number } };
+
+/** One bibliography health-check result (S8.3, DESIGN.md §5.4): a sentence, a severity, and a
+ * place to click, never a raw anything (DESIGN.md §2 rule 3). `rule` is one of
+ * `'undefined-citation' | 'never-cited' | 'duplicate-doi' | 'missing-field' | 'page-range-dash'`,
+ * left as `string` here since nothing on this side branches on it beyond display. */
+export interface Finding {
+  rule: string;
+  severity: HealthSeverity;
+  message: string;
+  jump: Jump;
 }
 
 /** Which acquisition source (S7.4/S7.5) a pasted string was recognised as. */
@@ -239,6 +264,10 @@ export const ipc = {
 
   /** The bibliography index, built fresh from disk (S7.2). Empty when there is no root file. */
   bibliographyIndex: () => invoke<BibliographyIndex>('bibliography_index'),
+  /** The five bibliography health checks (S8.3), built fresh from disk. Empty when there is no
+   * root file. A second read of the same files `bibliographyIndex` reads, not derived from its
+   * result — call after a `bibliography:changed` event, not instead of listening for one. */
+  bibliographyHealth: () => invoke<Finding[]>('bibliography_health'),
 
   /** Which of `doi` / `arxiv` / `isbn` a pasted string looks like, or `null` for plain text —
    * S7.6's paste-to-cite, checked before offering "Cite" so a normal paste is never delayed by a

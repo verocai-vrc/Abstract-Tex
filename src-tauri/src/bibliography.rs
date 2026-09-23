@@ -12,12 +12,19 @@
 //!    and the entry's byte span in it — which is what `\cite` completion (S7.3) shows and
 //!    paste-to-cite (S7.6) deduplicates against.
 //! 3. Every `\cite`-family key in the document's `.tex` files, with file and line, which is
-//!    what "undefined citation" and "never cited" health checks (S8.3) will read.
+//!    what "undefined citation" and "never cited" health checks (S8.3) read.
 //!
 //! It must never write a file, and it must never keep the `.bib` file's text hostage: the
 //! `.bib` is the author's (DESIGN.md §2, rule 1), so this module reads it through `texbib`,
 //! summarises, and forgets. It deliberately does not import Tauri either, so it can be tested
 //! on a machine that cannot link the app crate (see the S4.1 note in `SPRINTS.md`).
+//!
+//! **S8.3: five health checks, two crates.** `texbib::health` covers the two checks that need
+//! only one parsed `.bib` file — missing required field, wrong dash in a page range — and are
+//! published with that crate. The other three need data only this module has: `undefined
+//! citation` and `never cited` compare `entries` against `citations` (a `.tex`-side scan,
+//! outside `texbib`'s remit), and `duplicate DOI` compares entries *across* every `.bib` file the
+//! project has open, not just one. [`BibliographyIndex::health`] runs all five and merges them.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -38,6 +45,12 @@ pub struct BibliographyIndex {
     pub entries: Vec<EntrySummary>,
     /// Every citation in the document's `.tex` files, in include-graph order then line order.
     pub citations: Vec<Citation>,
+    /// Whether any `.tex` file has a `\nocite{*}` — BibTeX/Biber's "treat every entry as cited"
+    /// command. `scan_citations` already drops the `*` itself rather than turning it into a
+    /// `Citation` naming a literal key `"*"`, so this is the one bit of that command's meaning
+    /// the index still needs to carry, for the never-cited check (`health`, below) to skip
+    /// entirely rather than report every single entry in the bibliography.
+    pub has_nocite_star: bool,
 }
 
 impl BibliographyIndex {
@@ -46,6 +59,173 @@ impl BibliographyIndex {
     pub fn entry(&self, key: &str) -> Option<&EntrySummary> {
         self.entries.iter().find(|entry| entry.key == key)
     }
+
+    /// All five health checks (DESIGN.md §5.4), in a fixed order: undefined citations, never
+    /// cited, duplicate DOIs — the three that need this whole index — then this module reparses
+    /// each existing file to run `texbib::health::check` on it (missing field, page-range dash).
+    /// A sentence per finding, never a raw anything, matching DESIGN.md §2 rule 3.
+    pub fn health(&self, project_dir: &Path) -> Vec<Finding> {
+        let mut findings = Vec::new();
+        findings.extend(undefined_citations(self));
+        findings.extend(never_cited(self));
+        findings.extend(duplicate_dois(self));
+        findings.extend(entry_level_findings(self, project_dir));
+        findings
+    }
+}
+
+/// One health-check result, ready for a panel: a sentence, a severity, and a place to click.
+/// The frontend's counterpart to `texlog::rules::Diagnostic` — that crate explains a compile
+/// failure, this explains a bibliography, and neither ever reaches the screen unexplained
+/// (DESIGN.md §2 rule 3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Finding {
+    /// Which check found this: `"undefined-citation"`, `"never-cited"`, `"duplicate-doi"`, or
+    /// one of `texbib::health`'s two rule ids.
+    pub rule: &'static str,
+    pub severity: HealthSeverity,
+    /// One complete sentence.
+    pub message: String,
+    /// Where to jump to: a `.tex` line for an undefined citation, a `.bib` entry's span
+    /// otherwise. Exactly one of the two is set, matching what the check found.
+    pub jump: Jump,
+}
+
+/// Mirrors `texbib::health::Severity` so both crates' findings render with the same two words;
+/// kept as its own type (not a re-export) because this one also has to describe `undefined
+/// citation` and friends, which `texbib` has never heard of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HealthSeverity {
+    Error,
+    Warning,
+}
+
+impl From<texbib::health::Severity> for HealthSeverity {
+    fn from(severity: texbib::health::Severity) -> Self {
+        match severity {
+            texbib::health::Severity::Error => HealthSeverity::Error,
+            texbib::health::Severity::Warning => HealthSeverity::Warning,
+        }
+    }
+}
+
+/// Where a [`Finding`] points: a line in a `.tex` file, or a byte span in a `.bib` file. Two
+/// variants rather than optional fields on `Finding` itself, so a caller cannot forget to check
+/// which one is set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Jump {
+    /// A `\cite` command: project-relative `.tex` path and 1-based line.
+    TexLine { file: String, line: u32 },
+    /// A `.bib` entry: project-relative path and its byte span in that file.
+    BibEntry { file: String, span: Span },
+}
+
+/// A key cited somewhere but defined nowhere — one finding per *key*, not per citation, so
+/// citing the same missing key five times does not flood the panel; the message still says how
+/// many places, since that is the number that tells the author how much work fixing it is.
+fn undefined_citations(index: &BibliographyIndex) -> Vec<Finding> {
+    let mut by_key: HashMap<&str, Vec<&Citation>> = HashMap::new();
+    for citation in &index.citations {
+        if index.entry(&citation.key).is_none() {
+            by_key.entry(citation.key.as_str()).or_default().push(citation);
+        }
+    }
+    let mut keys: Vec<&str> = by_key.keys().copied().collect();
+    keys.sort_unstable();
+    keys.into_iter()
+        .map(|key| {
+            let places = &by_key[key];
+            let first = places[0];
+            let message = if places.len() == 1 {
+                format!("'{key}' is cited but no entry defines it.")
+            } else {
+                format!("'{key}' is cited in {} places but no entry defines it.", places.len())
+            };
+            Finding {
+                rule: "undefined-citation",
+                severity: HealthSeverity::Error,
+                message,
+                jump: Jump::TexLine { file: first.file.clone(), line: first.line },
+            }
+        })
+        .collect()
+}
+
+/// An entry nobody cites. `\nocite{*}` (cite every entry) is already dropped by `scan_citations`
+/// before it ever becomes a [`Citation`], which would make every bibliography using it report
+/// every entry as never cited — so this check treats that command as an explicit "everything in
+/// this file counts as cited" and skips the whole `.tex` corpus's worth of checking when any
+/// `\nocite{*}` is present, rather than re-scanning raw text this module has already discarded.
+fn never_cited(index: &BibliographyIndex) -> Vec<Finding> {
+    if index.has_nocite_star {
+        return Vec::new();
+    }
+    let cited: std::collections::HashSet<&str> = index.citations.iter().map(|c| c.key.as_str()).collect();
+    index
+        .entries
+        .iter()
+        .filter(|entry| !cited.contains(entry.key.as_str()))
+        .map(|entry| Finding {
+            rule: "never-cited",
+            severity: HealthSeverity::Warning,
+            message: format!("'{}' is defined but never cited.", entry.key),
+            jump: Jump::BibEntry { file: entry.file.clone(), span: entry.span },
+        })
+        .collect()
+}
+
+/// Two (or more) entries whose `doi` field normalises to the same value — the same comparison
+/// S7.6's paste-to-cite already makes before appending a new entry, run here across everything
+/// already in the bibliography rather than against one candidate paste.
+fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
+    let mut by_doi: HashMap<&str, Vec<&EntrySummary>> = HashMap::new();
+    for entry in &index.entries {
+        if let Some(doi) = entry.doi.as_deref() {
+            by_doi.entry(doi).or_default().push(entry);
+        }
+    }
+    let mut groups: Vec<&Vec<&EntrySummary>> = by_doi.values().filter(|group| group.len() > 1).collect();
+    groups.sort_unstable_by_key(|group| group[0].key.clone());
+    groups
+        .into_iter()
+        .flat_map(|group| {
+            let others: Vec<&str> = group.iter().map(|e| e.key.as_str()).collect();
+            group.iter().map(move |entry| {
+                let rest: Vec<&str> = others.iter().copied().filter(|key| *key != entry.key).collect();
+                Finding {
+                    rule: "duplicate-doi",
+                    severity: HealthSeverity::Warning,
+                    message: format!("'{}' has the same DOI as {}.", entry.key, rest.join(", ")),
+                    jump: Jump::BibEntry { file: entry.file.clone(), span: entry.span },
+                }
+            })
+        })
+        .collect()
+}
+
+/// Reparses each existing `.bib` file to run `texbib::health::check` on it. Reparsing rather
+/// than keeping a `Bibliography` around is the same choice `build_index` itself already makes —
+/// `EntrySummary` is what this module keeps, not the parse tree, so a second pass over already
+/// summarised entries could not answer "which field is missing" without the fields themselves.
+/// The file is small and this runs once per index rebuild, not per keystroke.
+fn entry_level_findings(index: &BibliographyIndex, project_dir: &Path) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for file in index.files.iter().filter(|file| file.exists) {
+        let Ok(text) = std::fs::read_to_string(project_dir.join(&file.path)) else { continue };
+        let bibliography = texbib::parse(&text);
+        for finding in texbib::health::check(&bibliography) {
+            findings.push(Finding {
+                rule: finding.rule,
+                severity: finding.severity.into(),
+                message: finding.message,
+                jump: Jump::BibEntry { file: file.path.clone(), span: finding.at },
+            });
+        }
+    }
+    findings
 }
 
 /// One `.bib` file the document names.
@@ -143,6 +323,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
 
     let mut files: Vec<BibFile> = Vec::new();
     let mut citations: Vec<Citation> = Vec::new();
+    let mut has_nocite_star = false;
 
     for node in graph.nodes.iter().filter(|node| node.exists) {
         let Ok(text) = std::fs::read_to_string(project_dir.join(&node.path)) else { continue };
@@ -162,6 +343,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
         for (key, line) in scan_citations(&text) {
             citations.push(Citation { key, file: node.path.clone(), line });
         }
+        has_nocite_star |= scan_has_nocite_star(&text);
     }
 
     // Already project-relative (that is what `preamble.toml` stores), so no `resolve_bib_argument`
@@ -189,7 +371,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
         entries.extend(summarise_file(&file.path, &bibliography));
     }
 
-    BibliographyIndex { files, entries, citations }
+    BibliographyIndex { files, entries, citations, has_nocite_star }
 }
 
 /// One summary per entry of one parsed file, with `crossref` inheritance applied within it.
@@ -339,6 +521,19 @@ pub fn scan_citations(source: &str) -> Vec<(String, u32)> {
         }
     }
     citations
+}
+
+/// Whether the text has a `\nocite{*}` (any spacing, any argument list containing a bare `*`) —
+/// BibTeX/Biber's "cite every entry in the bibliography" command. `scan_citations` above already
+/// walks the same commands and drops the `*` as a non-key, which is correct for the citation list
+/// but throws away the one piece of information [`never_cited`] needs, so this is a second, much
+/// smaller pass over the same `find_commands` output rather than a change to what `scan_citations`
+/// returns.
+fn scan_has_nocite_star(source: &str) -> bool {
+    let cleaned = strip_line_comments(source);
+    find_commands(&cleaned, |name| name.contains("cite"))
+        .into_iter()
+        .any(|(_command, arguments, _line)| arguments.iter().any(|argument| argument.split(',').any(|key| key.trim() == "*")))
 }
 
 /// Find every `\name` whose letters `wanted` accepts, and read its arguments: `[…]` options
@@ -663,6 +858,93 @@ mod tests {
         let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/gone.bib".to_string()]);
         assert_eq!(index.files.len(), 1);
         assert!(!index.files[0].exists);
+    }
+
+    // ---- health checks (S8.3) ----
+
+    /// The card's done-when: one instance of each of the five problems, five findings.
+    ///
+    /// - `undefined` is cited but has no entry.
+    /// - `nocited` is a real entry that nothing cites.
+    /// - `dupe_a`/`dupe_b` share a DOI (one written as a bare DOI, the other as a full URL, to
+    ///   also prove normalisation runs before the comparison).
+    /// - `incomplete` is an `@article` with no `journal`.
+    /// - `dashed` has `pages = {12-15}`, a hyphen.
+    ///
+    /// `clean` has none of the five problems and exists only to prove it produces no finding of
+    /// its own — the second half of the card's done-when.
+    fn health_fixture() -> (&'static str, &'static str) {
+        let tex = "As shown~\\cite{undefined, dupe_a, dupe_b, incomplete, dashed, clean}.\n";
+        let bib = "@article{clean, author = {A}, title = {T0}, journal = {J}, year = 2019, pages = {1--2}}\n\
+                   @article{nocited, author = {B}, title = {T1}, journal = {J}, year = 2019}\n\
+                   @article{dupe_a, author = {C}, title = {T2}, journal = {J}, year = 2019, doi = {10.1/x}}\n\
+                   @article{dupe_b, author = {D}, title = {T3}, journal = {J}, year = 2019, doi = {https://doi.org/10.1/x}}\n\
+                   @article{incomplete, author = {E}, title = {T4}, year = 2019}\n\
+                   @article{dashed, author = {F}, title = {T5}, journal = {J}, year = 2019, pages = {12-15}}\n";
+        (tex, bib)
+    }
+
+    #[test]
+    fn one_of_each_of_the_five_problems_yields_exactly_five_findings() {
+        let (tex, bib) = health_fixture();
+        let dir = scaffold(&[("main.tex", &format!("\\bibliography{{refs}}\n{tex}")), ("refs.bib", bib)]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let findings = index.health(dir.path());
+
+        let mut rules: Vec<&str> = findings.iter().map(|f| f.rule).collect();
+        rules.sort_unstable();
+        assert_eq!(
+            rules,
+            vec!["duplicate-doi", "duplicate-doi", "missing-field", "never-cited", "page-range-dash", "undefined-citation"],
+            "{findings:#?}"
+        );
+    }
+
+    #[test]
+    fn a_clean_bibliography_has_no_findings() {
+        let dir = scaffold(&[
+            ("main.tex", "As shown~\\cite{clean}.\n\\bibliography{refs}\n"),
+            ("refs.bib", "@article{clean, author = {A}, title = {T}, journal = {J}, year = 2019, pages = {1--2}}\n"),
+        ]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        assert_eq!(index.health(dir.path()), Vec::new());
+    }
+
+    #[test]
+    fn an_undefined_citation_points_at_its_tex_line() {
+        let dir = scaffold(&[("main.tex", "line one\n\\cite{missing}\n"), ("refs.bib", "")]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let findings = index.health(dir.path());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule, "undefined-citation");
+        assert_eq!(findings[0].severity, HealthSeverity::Error);
+        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 2 });
+    }
+
+    #[test]
+    fn nocite_star_suppresses_the_never_cited_check() {
+        let dir = scaffold(&[
+            ("main.tex", "\\nocite{*}\n\\bibliography{refs}\n"),
+            ("refs.bib", "@misc{k, title = {T}}\n"),
+        ]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        assert!(index.has_nocite_star);
+        assert!(index.health(dir.path()).is_empty(), "{:#?}", index.health(dir.path()));
+    }
+
+    #[test]
+    fn duplicate_dois_name_each_other_and_ignore_entries_with_no_doi() {
+        let dir = scaffold(&[
+            ("main.tex", "\\cite{a, b, c}\n\\bibliography{refs}\n"),
+            (
+                "refs.bib",
+                "@misc{a, title={A}, doi={10.1/x}}\n@misc{b, title={B}, doi={10.1/x}}\n@misc{c, title={C}}\n",
+            ),
+        ]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let findings: Vec<Finding> = index.health(dir.path()).into_iter().filter(|f| f.rule == "duplicate-doi").collect();
+        assert_eq!(findings.len(), 2);
+        assert!(findings[0].message.contains('b') || findings[0].message.contains('a'), "{findings:#?}");
     }
 
     // ---- scanners ----

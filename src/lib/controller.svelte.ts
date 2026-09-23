@@ -3,9 +3,9 @@
 // mutates `app`.
 
 import type { EditorView } from '@codemirror/view';
-import { bibliography } from './bibliography.svelte';
+import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { registerCommand } from './commands';
-import { ipc, type CompileEvent, type Diagnostic, type FsEvent, type LspEvent } from './ipc';
+import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
@@ -403,9 +403,11 @@ export async function start(): Promise<void> {
   await ipc.onFsChanged((event) => void handleFsEvent(event));
   await ipc.onLsp(handleLspEvent);
   // Rust rebuilds the index whenever a .bib or .tex changes and sends it whole (S7.2); the
-  // frontend only ever replaces its snapshot.
+  // frontend only ever replaces its snapshot. Health (S8.3) is not part of that event's payload —
+  // it is its own backend read, over the same files, kept in step by asking again right after.
   await ipc.onBibliographyChanged((index) => {
     bibliography.index = index;
+    void refreshBibliographyHealth();
   });
   try {
     app.engine = await ipc.engineInfo();
@@ -459,6 +461,18 @@ async function refreshBibliography(): Promise<void> {
     bibliography.index = await ipc.bibliographyIndex();
   } catch {
     /* no project open any more, or it has no root file yet */
+  }
+  void refreshBibliographyHealth();
+}
+
+/** Ask Rust for the five health findings (S8.3), as they stand on disk. Same "silent on failure"
+ * rule as `refreshBibliography`, and the same reason: a bibliography that cannot be checked right
+ * now is not a reason to interrupt anything else the author is doing. */
+async function refreshBibliographyHealth(): Promise<void> {
+  try {
+    bibliography.findings = await ipc.bibliographyHealth();
+  } catch {
+    bibliography.findings = [];
   }
 }
 
@@ -716,6 +730,27 @@ export async function jumpToDiagnostic(diagnostic: Diagnostic): Promise<void> {
   const target = diagnosticTarget(diagnostic);
   if (target && app.activePath !== target) await openFile(target);
   jumpToLine(diagnostic.line);
+}
+
+/**
+ * Go to where a bibliography health finding (S8.3) points: a `.tex` line for an undefined
+ * citation, or a `.bib` entry's span otherwise. A span is bytes, not the UTF-16 units `jumpToLine`
+ * ultimately drives CodeMirror with, so a `BibEntry` jump opens the file (if it is not already the
+ * active tab) and reads *that* file's just-opened text to convert — the same "open, then use the
+ * text that came back" order `openFile` itself already applies, since the file may not have been
+ * open at all before this call.
+ */
+export async function jumpToFinding(finding: Finding): Promise<void> {
+  const { jump } = finding;
+  if (jump.kind === 'texLine') {
+    if (app.activePath !== jump.file) await openFile(jump.file);
+    jumpToLine(jump.line);
+    return;
+  }
+  if (app.activePath !== jump.file) await openFile(jump.file);
+  const doc = manager.get(jump.file);
+  if (!doc) return; // open failed; openFile already left a notice
+  jumpToLine(lineAtByteOffset(doc.text(), jump.span.start));
 }
 
 /**

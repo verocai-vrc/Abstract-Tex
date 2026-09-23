@@ -8,7 +8,7 @@
 // same rule `app` follows. The pure helpers below take the index as an argument rather than
 // reading the store, so `bibliography.test.ts` exercises them with a literal.
 
-import type { BibEntrySummary, BibliographyIndex, Citation, ZoteroLibrary, ZoteroStatus } from './ipc';
+import type { BibEntrySummary, BibliographyIndex, Citation, Finding, ZoteroLibrary, ZoteroStatus } from './ipc';
 
 /** Entries keyed by citation key. A key defined twice keeps its *first* definition, which is
  * what BibTeX itself does; the index still lists both for S8.3 to complain about. */
@@ -33,6 +33,43 @@ export function citationsByKey(index: BibliographyIndex | null): Map<string, Cit
   return map;
 }
 
+/** The 1-based line a `Finding.jump`'s `BibEntry` byte offset falls on, within `text` (the
+ * `.bib` file's own contents). `Span.start`/`end` (`crates/texbib/src/parse.rs`) are *byte*
+ * offsets — BibTeX files are commonly UTF-8 with non-ASCII author names, so a JS string index
+ * (UTF-16 code units) cannot be compared to one directly. `TextEncoder` re-encodes the text once
+ * and counts `\n` bytes (0x0A, which never appears as a continuation byte in UTF-8) up to the
+ * offset — the same reasoning `crates/preamble-reconcile` uses on the Rust side of this same
+ * byte/unit boundary, just going the other way. */
+export function lineAtByteOffset(text: string, byteOffset: number): number {
+  const bytes = new TextEncoder().encode(text);
+  let line = 1;
+  const end = Math.min(byteOffset, bytes.length);
+  for (let i = 0; i < end; i++) {
+    if (bytes[i] === 0x0a) line++;
+  }
+  return line;
+}
+
+/** One file's worth of findings, for `BibliographyHealth.svelte`'s per-file sections. */
+export interface FindingGroup {
+  file: string;
+  findings: Finding[];
+}
+
+/** Every finding grouped by file, in the order they first appear — `Drawer.svelte`'s
+ * `groupDiagnostics` returns the same shape (an array, not a `Map`) for the same reason: a
+ * Svelte `{#each}` over groups reads better than one over `Map` entries. */
+export function findingsByFile(findings: Finding[]): FindingGroup[] {
+  const groups: FindingGroup[] = [];
+  for (const finding of findings) {
+    const file = finding.jump.file;
+    const existing = groups.find((group) => group.file === file);
+    if (existing) existing.findings.push(finding);
+    else groups.push({ file, findings: [finding] });
+  }
+  return groups;
+}
+
 class BibliographyState {
   /** `null` until the first index arrives after a folder opens. `$state.raw` because the index
    * is replaced whole on every change and never edited in place — deep reactivity over a few
@@ -44,6 +81,14 @@ class BibliographyState {
   /** Files the document names that are not on disk — the first thing worth telling the author
    * about a bibliography, and the reason a missing file is still listed by path. */
   missingFiles = $derived((this.index?.files ?? []).filter((file) => !file.exists).map((file) => file.path));
+
+  /** The five health checks (S8.3), refreshed alongside `index` (same trigger, separate backend
+   * call — `bibliography_health` reparses rather than deriving from the index the frontend
+   * already has, see `ipc.ts`). `[]` before the first project opens or when nothing is wrong —
+   * `findingsGroups` tells those two apart by checking `index` instead. */
+  findings = $state.raw<Finding[]>([]);
+
+  findingsGroups = $derived(findingsByFile(this.findings));
 
   /** `null` until the author asks (S8.1): detection is a one-shot probe, not a background poll,
    * so there is nothing to show before that first ask. */

@@ -41,6 +41,11 @@
           ? 'Zotero not running'
           : 'Detect Zotero',
   );
+
+  // S8.3: a quiet count, shown only once there is something to say — an empty bibliography or a
+  // clean one both mean "nothing to show here", matching the drawer's own "only interrupt for a
+  // real problem" rule (DESIGN.md §6).
+  const bibIssueCount = $derived(bibliography.findings.length);
 </script>
 
 <footer class="statusbar">
@@ -78,5 +83,10 @@
   <button class={`ghost muted${bibliography.zoteroStatus === 'ready' ? ' ok' : ''}`} onclick={onZoteroClick}>
     {zoteroLabel}
   </button>
+  {#if bibIssueCount > 0}
+    <button class="ghost warn" onclick={() => (app.bibliographyPanelVisible = !app.bibliographyPanelVisible)}>
+      {bibIssueCount === 1 ? '1 bibliography issue' : `${bibIssueCount} bibliography issues`}
+    </button>
+  {/if}
   <span><kbd>Ctrl</kbd><kbd>S</kbd> save · <kbd>Ctrl</kbd><kbd>B</kbd> build</span>
 </footer>

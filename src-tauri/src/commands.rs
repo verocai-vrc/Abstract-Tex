@@ -11,7 +11,7 @@ use preamble_engine::{BuildJob, EngineInfo};
 use preamble_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::bibliography::{self, BibliographyIndex};
+use crate::bibliography::{self, BibliographyIndex, Finding};
 use crate::compile::CompileEvent;
 use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
@@ -227,6 +227,22 @@ pub fn bibliography_index(state: State<'_, AppState>) -> CommandResult<Bibliogra
     Ok(match located {
         Some((root_dir, root_file, extra_bib_files)) => bibliography::build_index(&root_dir, &root_file, &extra_bib_files),
         None => BibliographyIndex::default(),
+    })
+}
+
+/// The project's bibliography health findings (S8.3), built fresh from disk — a second pass over
+/// the same files `bibliography_index` just read, not a cached copy of that call's result, so it
+/// is never stale relative to whatever the author saved last. Empty when there is no root file,
+/// the same "empty, not an error" rule `bibliography_index` follows.
+#[tauri::command]
+pub fn bibliography_health(state: State<'_, AppState>) -> CommandResult<Vec<Finding>> {
+    let located = project_root(&state)?;
+    Ok(match located {
+        Some((root_dir, root_file, extra_bib_files)) => {
+            let index = bibliography::build_index(&root_dir, &root_file, &extra_bib_files);
+            index.health(&root_dir)
+        }
+        None => Vec::new(),
     })
 }
 

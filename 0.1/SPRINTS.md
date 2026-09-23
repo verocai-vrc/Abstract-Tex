@@ -2146,6 +2146,83 @@ would look like a successful link until the author notices no new entries show u
 check (S8.3 territory, or a dedicated follow-up) rather than a silent fix here. Also not done: any
 UI for *removing* a linked collection from `extra_bib_files` — the picker only adds.
 
+**S8.3 (23 September 2026).** `[x]`: rungs 1–2 are green — `cargo test -p texbib --lib` 50 passed
+(9 new, in the new `health` module), `cargo test -p preamble --lib -- bibliography` 24 passed (5
+new: the card's own done-when fixture plus one test each for undefined-citation's jump target,
+`\nocite{*}` suppression, and duplicate-DOI's cross-entry naming), `cargo test --workspace` and
+`--exclude preamble` both clean apart from the already-ledgered S4.6 `synctex`/CRLF fixture
+failures (both reproduced unchanged on a `git stash` of this loop's diff, so neither is new),
+`cargo clippy --workspace --all-targets -- -D warnings` clean, `RUSTDOCFLAGS="-D warnings" cargo
+doc -p texbib -p preamble --no-deps --features texbib/acquire` clean (after two intra-doc-link
+fixes below), `pnpm check` 445 files / 0 errors, `pnpm vitest run` 402/402 (7 new: `lineAtByteOffset`
+and `findingsByFile` in `bibliography.test.ts`), `pnpm build` succeeds. No rung 3 or 4: there is no
+fixture-based integration test the card asks for beyond the unit-level done-when, and the panel
+needs the webview this environment cannot open, the same standing gate since sprint 2. What a
+reader should take from the diff:
+
+1. **Two crates, five checks, because two different kinds of data are needed.** `texbib::health`
+   (`crates/texbib/src/health.rs`) covers missing-required-field and wrong-dash-in-page-range —
+   both need only one parsed `.bib` file, so they ship in the published crate with no Tauri and no
+   app-level types. The other three — undefined citation, never cited, duplicate DOI — need
+   `EntrySummary`/`Citation`, which only exist in `src-tauri/src/bibliography.rs`'s
+   `BibliographyIndex` (cross-file entries, `.tex`-side citations), so they are methods on that
+   type instead. `BibliographyIndex::health` runs all five and merges them into one `Vec<Finding>`,
+   the only place a caller needs to know the split happened at all.
+2. **`\nocite{*}` needed a new field, not a new scanner.** `scan_citations` already special-cased
+   `*` by dropping it — correct for the citation list itself, since `*` is not a real key — but
+   that meant the never-cited check could not tell "nothing cites this key" from "everything is
+   meant to be cited" without re-reading `.tex` text the index had already discarded. Rather than
+   widen `Citation` to carry a sentinel, `BibliographyIndex` gained one `bool`,
+   `has_nocite_star`, set by a second, much smaller pass (`scan_has_nocite_star`) over the same
+   `find_commands` output `scan_citations` already computes. `never_cited` checks it first and
+   returns nothing when it is set — the one check DESIGN.md §5.4 lists that a single boolean can
+   turn off entirely, rather than a filter threaded through every entry.
+3. **Duplicate DOI reuses S7.6's own normalisation, not a second copy of it.** `EntrySummary.doi`
+   is already `texbib::acquire::doi::normalize_doi`'d by `bibliography.rs`'s existing `doi_of`
+   (built for paste-to-cite's dedup check) — `duplicate_dois` only had to group entries by that
+   field and require the group to have more than one member. The fixture test
+   (`duplicate_dois_name_each_other_and_ignore_entries_with_no_doi`) writes one DOI as a bare
+   `10.1/x` and the other as `https://doi.org/10.1/x` specifically to prove the comparison runs
+   after normalisation, not before.
+4. **A `Jump` enum, not an optional line plus an optional span.** `Finding.jump` is
+   `TexLine { file, line }` or `BibEntry { file, span }` — two variants rather than four optional
+   fields on `Finding` itself, so a frontend `switch` on `jump.kind` cannot forget to check which
+   one is actually set. `commands.rs`'s `bibliography_health` command serialises it with
+   `#[serde(tag = "kind")]`, verified against a throwaway example before it was trusted (`{"kind":
+   "texLine", ...}` / `{"kind": "bibEntry", ...}`) rather than assumed from the derive alone.
+5. **A byte span meeting a JS string needed its own function, and its own non-ASCII test.**
+   `EntrySummary.span`/`Finding.jump`'s `BibEntry` span are `texbib::parse::Span` byte offsets
+   (`lib.rs`'s own "byte span on everything" rule) but CodeMirror's `jumpToLine` wants a 1-based
+   *line*, and no prior loop had ever converted one of this crate's spans into anything the
+   frontend could jump to — S7.6's paste-to-cite only ever *appended after* a span, it never had
+   to point back at one. `lineAtByteOffset` (`bibliography.svelte.ts`) re-encodes the text with
+   `TextEncoder` and counts `\n` bytes up to the offset rather than counting JS string indices;
+   `bibliography.test.ts` pins the case that would silently disagree — a title with `Ærø, Søren`
+   in it, whose UTF-8 byte length is longer than its JS character length — so a future edit that
+   swaps the byte-counting loop for `text.indexOf` or similar fails a test instead of shipping a
+   line number that is right for ASCII bibliographies and wrong for real ones.
+6. **The panel is its own component, not a new section of the compile Drawer.** The card left this
+   an open decision. `Drawer.svelte` is built entirely around `Diagnostic` (a `.log` line behind
+   every card, a raw-log view, gutter squiggles) — a bibliography `Finding` has none of that, and
+   forcing it into the same shape would mean inventing a raw view for something that was never raw
+   to begin with. `BibliographyHealth.svelte` follows `ZoteroLink.svelte`'s own modal-panel pattern
+   instead (same backdrop/dialog CSS), opened from a status-bar count button that — like the
+   Zotero button before it — says nothing when there is nothing to say, matching DESIGN.md §6's
+   "never show a raw log by default" read as "never show an empty panel's button, either."
+7. **`bibliography_health` is a second backend read, not a projection of the index the frontend
+   already has.** The alternative — computing findings from `BibliographyIndex` on the frontend —
+   cannot work for the two `texbib::health` checks, since those need each entry's *fields*
+   (`missing-field` needs to know which one), which `EntrySummary` deliberately does not carry.
+   `bibliography_health` therefore reparses each `.bib` file itself, the same trade-off
+   `entry_level_findings`'s own doc comment names: a second parse per index rebuild, not per
+   keystroke, in exchange for not growing `EntrySummary` to serialise data only one check needs.
+
+Not done here, on purpose: no automatic fix for any of the five findings (DESIGN.md §5.2's "a fix
+may only be automatic when it cannot be wrong" applies at least as hard to a page-range dash as to
+a texlog rule, but S6.2's fix-application machinery is scoped to `Diagnostic`, not `Finding` — a
+later loop's decision, not this one's). Also not done: any UI affordance to jump *from* the drawer
+or gutter to a bibliography finding, or the reverse — the two panels are fully separate today.
+
 ```
 Loop      S7.1 · texbib parser crate · L
 Reads     DESIGN.md §5.4, §2 rule 1 (the .bib file is the truth); crates/texlog/src/lib.rs (the

@@ -3,7 +3,7 @@
 // every line of the reaction except the Rust on the far side of `invoke`.
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import type { BibliographyIndex, CompileEvent, FsEvent, LspEvent, ProjectInfo, TextOp } from './ipc';
+import type { BibliographyIndex, CompileEvent, Finding, FsEvent, LspEvent, ProjectInfo, TextOp } from './ipc';
 
 /** The fake disk and the calls made against it. Declared before the mock factory uses it. */
 const disk = new Map<string, string>();
@@ -29,7 +29,7 @@ let lspRequestAnswer: unknown = null;
 /** What `readLog` returns — the `main.log` on the fake disk, for the raw-view tests (S6.3). */
 let logOnDisk = '';
 /** What `bibliographyIndex` answers with — the index Rust would have built from the fake disk. */
-const emptyBibliography: BibliographyIndex = { files: [], entries: [], citations: [] };
+const emptyBibliography: BibliographyIndex = { files: [], entries: [], citations: [], hasNociteStar: false };
 let bibliographyOnDisk: BibliographyIndex = emptyBibliography;
 let bibliographyHandler: (index: BibliographyIndex) => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
@@ -119,6 +119,7 @@ vi.mock('./ipc', () => ({
       return () => {};
     },
     bibliographyIndex: async (): Promise<BibliographyIndex> => bibliographyOnDisk,
+    bibliographyHealth: async (): Promise<Finding[]> => [],
     onBibliographyChanged: async (handler: (index: BibliographyIndex) => void) => {
       bibliographyHandler = handler;
       return () => {};
@@ -1157,6 +1158,7 @@ describe('the bibliography index (S7.2)', () => {
       files: [{ path: 'refs.bib', exists: true, entryCount: 1, problems: [] }],
       entries: [smith],
       citations: [{ key: 'smith2019', file: 'main.tex', line: 3 }],
+      hasNociteStar: false,
     };
     await openFolder('/proj');
     expect(bibliography.entries.get('smith2019')).toEqual(smith);
@@ -1173,6 +1175,7 @@ describe('the bibliography index (S7.2)', () => {
       ],
       entries: [smith],
       citations: [],
+      hasNociteStar: false,
     });
     expect(bibliography.entries.get('smith2019')).toEqual(smith);
     expect(bibliography.missingFiles).toEqual(['missing.bib']);

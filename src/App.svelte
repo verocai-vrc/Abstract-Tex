@@ -18,6 +18,7 @@
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
+  import BibliographyHealth from './components/BibliographyHealth.svelte';
 
   onMount(() => {
     void start();
@@ -80,3 +81,4 @@
 <QuickOpen />
 <CommandPalette />
 <ZoteroLink />
+<BibliographyHealth />

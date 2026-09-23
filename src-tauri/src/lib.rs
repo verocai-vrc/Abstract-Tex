@@ -101,6 +101,7 @@ pub fn run() {
             commands::lsp_notify,
             commands::lsp_respond,
             commands::bibliography_index,
+            commands::bibliography_health,
             commands::identify_paste,
             commands::paste_cite,
             commands::detect_zotero,

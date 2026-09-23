@@ -167,6 +167,7 @@ mod tests {
             files: vec![BibFile { path: "refs.bib".to_string(), exists: true, entry_count: entries.len(), problems: Vec::<Problem>::new() }],
             entries,
             citations: Vec::new(),
+            has_nocite_star: false,
         }
     }
 

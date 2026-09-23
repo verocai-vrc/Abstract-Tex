@@ -114,6 +114,11 @@ class AppState {
   /** The "link a Zotero collection" picker (S8.2), opened from the status bar. */
   zoteroLinkVisible = $state(false);
 
+  /** The bibliography health panel (S8.3), opened from the status bar. Findings themselves live
+   * in `bibliography.findings` — this is only whether the panel is on screen, the same split
+   * `zoteroLinkVisible` makes from `bibliography.zoteroLibraries`. */
+  bibliographyPanelVisible = $state(false);
+
   /** The `Ctrl K` command palette (S4.3): every action, plus the open file list and the active
    * file's outline, searched together. */
   commandPaletteVisible = $state(false);
