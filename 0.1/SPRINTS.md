@@ -1896,7 +1896,7 @@ this project publishes.
 | [x] | S7.3 `\cite` completion with author/year/title; name splitting lives in `texbib` | M | S7.2, S3.3 |
 | [x] | S7.4 DOI content negotiation: `https://doi.org/<doi>` with `Accept: application/x-bibtex` | S | S7.1 |
 | [x] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
-| [ ] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
+| [~] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
 
 S8.1 Zotero detection on port 23119 · S8.2 Better BibTeX collection linking · S8.3 health checks ·
 S8.4 forty-reference exit demo · S8.5 `texbib` published MIT.
@@ -2315,6 +2315,105 @@ before the caller exists; and any attempt to work around the DNS finding above, 
 machine's environment, not a defect in the three sources' own logic (all three passed their
 fixture-based tests, and two of the three passed the real live lookup as recently as this
 session's own manual `curl` probes against the same endpoints).
+
+**S7.6 (23 September 2026).** `[~]`: rungs 1–2 are green — `cargo test -p texbib` 55 lib tests
+(14 new: 8 in `keys.rs`, 6 in `render.rs`), `cargo test -p preamble --lib` 63/64 (the one failure
+is the already-logged S4.6 checkout-path `synctex.rs` fixture, untouched by this loop; the new
+`paste::tests` module's 9 tests are all green), `cargo clippy --workspace --all-targets -- -D
+warnings` clean, `RUSTDOCFLAGS="-D warnings" cargo doc -p texbib -p preamble --no-deps` clean,
+`pnpm check` 441 files / 0 errors, `pnpm vitest run` 395/395 (13 new, all in the new
+`editor/paste.test.ts`), `pnpm build` succeeds. Rung 3 does not exist for this card the way it
+does for S7.1–S7.5: `paste_cite` is the first `texbib::acquire` caller to exist at all (S7.5's
+outcome deferred exactly this), but exercising it end to end needs a real network request *and*
+the webview, so it waits on rung 4 rather than getting its own integration test — the fetch layer
+itself already has its S7.4/S7.5 fixture-based and `--ignored` live tests, and nothing about
+*calling* it from `src-tauri` changes what those already proved. Rung 4 (`pnpm tauri dev`, pasting
+a real DOI) was not attempted this session, the same standing gap `SPRINTS.md` has recorded since
+sprint 2; the tick stays `[~]` for that reason alone — every done-when the card names is met by
+the unit tests below.
+
+1. **Dedup and rendering split cleanly along the "needs a file read" line, not along the
+   Rust/TypeScript boundary the rest of this sprint has used.** `texbib::render` (`render_entry`,
+   `append_entry`) and `texbib::keys::unique_key` are pure — text and data in, text out, no
+   network, no file — and live in the crate that gets published standalone at S8.5, the same
+   split S7.1–S7.5 already established. What is new this loop is `src-tauri/src/paste.rs`,
+   deciding *whether* a paste is new or a dedup hit; it is pure too (`resolve_paste` takes an
+   already-fetched `texbib::Entry` and the in-memory `BibliographyIndex`, no I/O), split from
+   `commands.rs` the way `synctex.rs` already is, so the whole "identifier match, then title+year
+   fallback" decision table has 9 unit tests with no Tauri, no network, and no temp directory.
+   `commands::paste_cite` is deliberately thin: fetch (network), read the target `.bib` (disk),
+   call the pure functions, write (disk), emit. This is the same "push everything with a name for
+   it out of the command" shape `bibliography.rs`'s own module doc already argues for.
+2. **`resolve_paste` cannot render the new entry itself, and this is a real split, not
+   over-engineering.** The card's dedup order needs the *index* first (to know whether to render
+   anything at all), but rendering needs the target file's *current text* — and which file that is
+   is exactly what dedup decides. An earlier version passed the file's text in from the start and
+   called `resolve_paste` twice from `commands.rs` (once to learn which file, once for real);
+   splitting it into `resolve_paste` (decide) and `render_new_entry` (given the decision plus the
+   now-known file's text, produce the key and the new contents) removes the double call and the
+   double dedup-logic run it implied, at the cost of `PasteOutcome::New` carrying `keys_in_use`
+   instead of a ready-made key — one field more, one fewer redundant pass over the index.
+3. **Identifier-based dedup only ever compares one field, because a hand-built entry only ever
+   has one.** `find_by_identifier` checks DOI, then arXiv `eprint` (gated on `eprinttype` naming
+   arXiv — a generic BibLaTeX `eprint` from some other archive must not collide with an arXiv id
+   that happens to share digits), then ISBN — in that order, but never more than one actually
+   fires, since `texbib::acquire`'s three sources (S7.4/S7.5) each build an `Entry` carrying
+   exactly one of the three. `bibliography.rs` grew the matching `doi`/`eprint`/`isbn` fields on
+   `EntrySummary`, normalised through the *same* `texbib::acquire::{doi,arxiv,isbn}::normalize_*`
+   functions a pasted identifier is normalised through, so the comparison is a plain `==` with no
+   second normalisation step to keep in sync with the first. This is also why `src-tauri`'s
+   `texbib` dependency gained the `acquire` feature this loop — S7.5's outcome noted "nothing
+   outside `texbib` calls this module yet"; this is that caller.
+4. **Title+year is the fallback for exactly one real case: two sources that share no identifier
+   field at all.** A DOI-sourced entry has no `eprint`; an arXiv-sourced one has no `doi` — so a
+   preprint already in the bibliography via its journal DOI, pasted again as its arXiv id, has
+   nothing in common to match on except title and year. Comparing titles case-insensitively after
+   collapsing whitespace, and requiring both fields present and non-empty on both sides, is
+   deliberately conservative: an entry missing a year is treated as "not enough to go on," not as
+   a wildcard match, so a genuinely different paper with a coincidentally identical working title
+   is never silently folded into an unrelated existing key.
+5. **`unique_key` disambiguates with a letter suffix before it ever reaches for a number,** matching
+   the shape `arxiv::generated_key`'s own doc comment already promised a future caller would
+   supply once it "has a real index to check uniqueness against" — this loop is that caller.
+   `smith2019a`, `smith2019aa`, `smith2019ab`, ... `smith2019az`, then a running-number fallback
+   for the (unrealistic) case of 26 real collisions on one surname/year/word, so the function is
+   total rather than looping forever on an adversarial `existing` list. An entry that already
+   carries a real key (the DOI path, whose `Entry` comes back through `texbib::parse()` on the
+   publisher's own BibTeX and so already has one) keeps it unchanged — `unique_key` only invents
+   one for a keyless, hand-built entry.
+6. **The frontend intercepts a `paste` DOM event synchronously, which means `texbib::acquire
+   ::identify`'s matching logic exists twice, on purpose.** Deciding whether to `preventDefault()`
+   an ordinary paste must happen inside the event handler itself — by the time an IPC round trip
+   to ask Rust could resolve, CodeMirror has already inserted the clipboard text — so
+   `src/lib/editor/paste.ts`'s `identify` is a plain TypeScript port of the same DOI/arXiv/ISBN
+   shape rules `crates/texbib/src/acquire/identify.rs` already encodes. This is the one place in
+   the sprint where the "protocol lives in Rust, TypeScript only builds CodeMirror types" rule
+   `cite.ts`'s own doc comment states bends: the *decision to intercept* has to be client-side and
+   synchronous, but `ipc.pasteCite` re-runs the real `identify` server-side before ever fetching
+   anything, so the TypeScript copy being slightly wrong would show up as "nothing happened" (a
+   paste that looked like a candidate but was not), never as a fabricated network request or a
+   wrong fetch — the authoritative check still gates every actual side effect.
+7. **The captured selection, not the live one, is what the eventual `\cite{key}` replaces.**
+   `pasteCiteHandler` reads `view.state.selection.main` synchronously inside the `paste` handler
+   and passes `from`/`to` through to the requester, because the network round trip in between is
+   real time in which the author's cursor can move. `controller.svelte.ts`'s `pasteCite` dispatches
+   `{ changes: { from, to, insert: `\cite{${key}}` } }` directly on the `EditorView` rather than
+   touching the Y.Text — `yCollab` (already wired in `setup.ts`) mirrors every `view.dispatch`
+   transaction into the CRDT itself, the same "only ever dispatch on the view" discipline every
+   other editor extension in this codebase already follows.
+8. **A rejected paste leaves the buffer exactly as it was, not with the raw pasted text as a
+   fallback.** `preventDefault()` runs before the fetch even starts, so a failure — no network,
+   nothing found for the identifier, no `.bib` file in the project yet (`PasteError::NoBibFile`,
+   the one condition the card's own dedup logic cannot paper over) — surfaces as `app.notice`, the
+   same transient-message channel every other backend rejection in this codebase already uses, and
+   nothing is inserted. Re-pasting the raw identifier as plain text is the deliberate recovery path
+   available to the author, not something this loop tries to do on their behalf.
+
+One finding logged rather than fixed, in `bugs-issues-fixes.md` under **Open**: this loop's own
+final check, `RUSTDOCFLAGS="-D warnings" cargo doc --workspace`, surfaced a pre-existing failure
+in `crates/preamble-synctex` (a module doc links to a private `parse` item) that a per-crate doc
+build does not catch and that this loop's diff does not touch — `cargo doc -p texbib -p preamble
+--no-deps` is clean, which is what this card's own verification asked for.
 
 ### Sprint 9 — v0.5 speed
 

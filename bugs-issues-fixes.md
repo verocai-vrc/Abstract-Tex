@@ -15,6 +15,20 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`RUSTDOCFLAGS="-D warnings" cargo doc --workspace` fails on `preamble-synctex`: its module doc
+  links to a private item.** (S7.6, builder, 23 Sep 2026, found running `cargo doc --workspace`
+  as this loop's own final check, since `crates/preamble-synctex` was untouched by the diff)
+  `crates/preamble-synctex/src/lib.rs:6` reads `decompressing and tokenising the SyncTeX text
+  format (see [`parse`])`, and `parse` is a private module-level item — `cargo doc` on this crate
+  alone (`cargo doc -p preamble-synctex`) does not catch it, only a `--workspace` run does,
+  because per-crate doc builds do not turn on `rustdoc::private-intra-doc-links` the same way
+  `-D warnings` does at the workspace level. Not caused by this loop, which touched only
+  `crates/texbib` and `src-tauri`; both build clean under `RUSTDOCFLAGS="-D warnings" cargo doc -p
+  texbib -p preamble --no-deps`. Likely fix: plain backticks for `parse` (the convention
+  `crates/texbib/src/acquire/arxiv.rs`'s own `zero_span` doc comment already uses for the same
+  reason, after S7.5 hit an identical class of error), or `#[allow(rustdoc::private_intra_doc_links)]`
+  if the module doc is meant to describe internals a reader is expected to open the source for.
+
 - **`reqwest` cannot resolve DNS from inside a Rust-compiled process on this machine, though
   `curl.exe` resolves the identical hostname instantly in the same shell.** (S7.5, builder, 21
   Sep 2026, found running the `#[ignore]`d live-network tests for all three `texbib::acquire`
