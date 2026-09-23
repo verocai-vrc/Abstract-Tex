@@ -1898,8 +1898,140 @@ this project publishes.
 | [x] | S7.5 arXiv and ISBN: arXiv API, OpenLibrary; one `acquire` module, three sources | M | S7.4 |
 | [~] | S7.6 Paste-to-cite with deduplication: paste an identifier, get a `\cite` and a new entry appended without disturbing the rest of the file | M | S7.2, S7.5 |
 
-S8.1 Zotero detection on port 23119 · S8.2 Better BibTeX collection linking · S8.3 health checks ·
-S8.4 forty-reference exit demo · S8.5 `texbib` published MIT.
+Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per §1.1.
+
+| ✓ | Loop | Size | Depends |
+|---|---|---|---|
+| [ ] | S8.1 Zotero detection on port 23119: is it running, is Better BibTeX installed, surfaced read-only in the UI | S | S7.5 |
+| [ ] | S8.2 Better BibTeX collection linking: pick a collection, its `.bib` export path, watch it the way any other `.bib` is watched | M | S8.1, S7.2 |
+| [ ] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
+| [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
+| [ ] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
+
+```
+Loop      S8.1 · Zotero detection on port 23119 · S
+Reads     DESIGN.md §5.4 ("Detect a running instance… a read-only integration that cannot
+          corrupt anyone's library"); crates/texbib/src/acquire/doi.rs (the Transport-trait
+          pattern this loop reuses for a fixture-testable HTTP call)
+Depends   S7.5
+Files     crates/texbib/src/acquire/zotero.rs, crates/texbib/src/acquire/mod.rs,
+          src-tauri/src/commands.rs, src/lib/ipc.ts, src/lib/bibliography.svelte.ts,
+          src/components/StatusBar.svelte (or wherever the bib status already renders)
+Build     `GET http://127.0.0.1:23119/better-bibtex/json-rpc` with a JSON-RPC
+          `{"jsonrpc":"2.0","method":"item.libraries","params":[]}` body (Better BibTeX's
+          liveness probe) tells us three things: nothing answers on the port (Zotero is not
+          running), something answers but not the BibTeX endpoint (Zotero without Better
+          BibTeX), or a valid JSON-RPC reply (both present). One `zotero::detect()` call,
+          behind the `acquire` feature like `doi`/`arxiv`/`isbn`, same `Transport` trait split
+          so the three outcomes are fixture tests with no real Zotero required. Detection is a
+          manual command (`detect_zotero`), not a background poll — DESIGN.md §2 rule 2 costs
+          nothing here since nobody asked, and polling a port every few seconds for a feature
+          most sessions never touch is waste for no visible benefit. The UI shows a quiet
+          status ("Zotero detected" / "Zotero not running") and nothing else; S8.2 is what
+          "offer to link a collection" means in practice. No write, no request beyond the one
+          liveness probe — the read-only claim in DESIGN.md is enforced by this loop doing
+          nothing else, not by a permission check.
+Verify    cargo test -p texbib --features acquire -- zotero; pnpm vitest run
+Done when three fixture replies (connection refused, a non-JSON-RPC 200, a valid
+          `item.libraries` reply) each map to the right one of "not running" / "running,
+          no Better BibTeX" / "ready", and the status bar reflects whichever the command
+          returns without polling.
+```
+
+```
+Loop      S8.2 · Better BibTeX collection linking · M
+Reads     DESIGN.md §5.4; S7.2's outcome (the `.bib` watcher and index this loop feeds into)
+Depends   S8.1, S7.2
+Files     crates/texbib/src/acquire/zotero.rs, src-tauri/src/bibliography.rs,
+          src-tauri/src/commands.rs, src/lib/ipc.ts, src/components/ZoteroLink.svelte (new)
+Build     `item.collections` lists the library's collections by name; the author picks one and
+          this loop asks Better BibTeX for that collection's auto-export `.bib` path
+          (`item.collectionExportPath`, or the equivalent RPC — confirmed against the real
+          Better BibTeX docs when this loop starts, since S7.5's outcome already found one
+          documented endpoint 404ing in practice and had to check live). The chosen path is
+          written to `preamble.toml` (S3.6's precedent: settings live there, not in app state)
+          as an extra `.bib` resource, so S7.2's existing watcher and index pick it up with no
+          special case — "let Better BibTeX keep the file current" means this app only ever
+          reads that file, the same as any other `.bib` on disk. No JSON-RPC write call is ever
+          made; the export is Better BibTeX's own auto-export feature, configured by the author
+          in Zotero, not triggered by us.
+Verify    cargo test -p texbib --features acquire -- zotero; cargo test -p preamble --
+          bibliography; pnpm vitest run
+Done when picking a collection adds its export path to `preamble.toml`, the next `.bib` index
+          build includes it, and no code path in this app ever issues a write RPC to Zotero.
+```
+
+```
+Loop      S8.3 · Bibliography health checks · M
+Reads     DESIGN.md §5.4 ("Health checks run continuously in the background: undefined
+          citations, entries defined but never cited, duplicate DOIs, missing required fields
+          for the entry type, and page ranges with the wrong kind of dash"); §2 rule 3 (never a
+          raw anything by default — checks get a sentence each, the same rule texlog's rules
+          follow)
+Depends   S7.2, S7.3
+Files     crates/texbib/src/health.rs, src-tauri/src/bibliography.rs,
+          src/lib/bibliography.svelte.ts, src/components/Drawer.svelte (a bibliography section
+          beside the diagnostics one, or its own panel — decide against the real drawer during
+          the loop)
+Build     Five checks over a `BibliographyIndex` already built by S7.2, each producing a
+          sentence, a severity, and a place to click to (a `.bib` span or a `.tex` line, reusing
+          `EntrySummary.span`/`Citation.line`): (1) undefined citation — a key in
+          `index.citations` with no `index.entry(key)`; (2) never cited — an entry whose key
+          appears in no citation, excluding one covered by a `\nocite{*}` (S7.2's scanner
+          already special-cases `*`, worth checking whether it should stop doing so for this
+          one caller); (3) duplicate DOI — two entries whose normalised `doi` matches, the same
+          normalisation S7.6 already applies for paste dedup; (4) missing required field — a
+          small per-`entry_type` table (`article` needs `author`,`title`,`journal`,`year`; etc,
+          scoped to the types `DESIGN.md` and the fixture corpus actually use, not BibTeX's
+          full manual); (5) wrong dash in a page range — `pages = {12-15}` (a hyphen) where
+          BibTeX wants an en-dash (`12--15`), a regex over the raw field text before resolution.
+          `texbib::health::check(&Bibliography) -> Vec<Finding>` is pure, in the crate, so it
+          tests without Tauri the way `rules.rs` (texlog) does; `bibliography.rs` calls it per
+          file and folds the results into `BibliographyIndex`.
+Verify    cargo test -p texbib -- health; cargo test -p preamble -- bibliography; pnpm vitest run
+Done when a fixture `.bib`+`.tex` pair with one instance of each of the five problems produces
+          exactly five findings, each with a correct sentence and jump target, and a clean
+          bibliography produces none.
+```
+
+```
+Loop      S8.4 · Forty-reference exit demo · S
+Reads     DESIGN.md §7 v0.4 exit criterion; SPRINTS.md §1 step 6 (record the outcome here)
+Depends   S8.1, S8.2, S8.3
+Files     fixtures/paper (or a new fixtures/bibliography-demo), 0.1/SPRINTS.md (this file, the
+          outcome paragraph)
+Build     Not new code by default: assemble a real ~40-reference paper using only this app —
+          paste-to-cite for DOIs/arXiv/ISBNs (S7.6), a linked Zotero collection (S8.2) for the
+          rest, health checks (S8.3) clearing before the demo is called done — and write down
+          what broke. Any gap found becomes a loop (S8.6 onward) rather than a silent fix
+          folded into this card, matching how S1's exit demo surfaced the webview problem as
+          its own thread rather than being patched quietly.
+Verify    manual — the exit demo itself is the verification
+Done when a forty-reference paper compiles with zero undefined citations and the maintainer
+          never opened a browser tab to get a reference into the file.
+```
+
+```
+Loop      S8.5 · texbib published to crates.io under MIT · S
+Reads     S6.5's outcome (the same loop shape for `texlog`, this sprint's precedent); S7.1's
+          outcome ("the crate carries its LICENSE and README.md from day one so this is a
+          `cargo publish`, not another S6.5")
+Depends   S7.1–S7.5 (all `[x]`); ideally after S8.1/S8.2 so `zotero.rs` ships in the first
+          published version rather than forcing a second release immediately after
+Files     crates/texbib/{Cargo.toml,README.md,LICENSE}, crates/texbib/src/lib.rs (crate-level
+          doc polish only — no behaviour change)
+Build     Same shape as S6.5: confirm the crate builds and docs clean standalone (outside the
+          workspace, with and without the `acquire` feature), the README states what it is and
+          is not (a `.bib` parser plus optional acquisition sources; not a bibliography manager),
+          version `0.1.0`, then `cargo publish -p texbib` (and `--features acquire` verified
+          separately, since publish ships both but crates.io only builds the default feature set
+          for docs.rs unless told otherwise — check `docs.rs` metadata in `Cargo.toml`).
+Verify    cargo package -p texbib; cargo package -p texbib --features acquire;
+          RUSTDOCFLAGS="-D warnings" cargo doc -p texbib --features acquire --no-deps
+Done when `cargo publish -p texbib --dry-run` succeeds clean and the maintainer has approved
+          the real publish (a one-way action — this loop prepares it, the maintainer pulls the
+          trigger).
+```
 
 ```
 Loop      S7.1 · texbib parser crate · L
