@@ -1902,7 +1902,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S8.1 Zotero detection on port 23119: is it running, is Better BibTeX installed, surfaced read-only in the UI | S | S7.5 |
+| [x] | S8.1 Zotero detection on port 23119: is it running, is Better BibTeX installed, surfaced read-only in the UI | S | S7.5 |
 | [ ] | S8.2 Better BibTeX collection linking: pick a collection, its `.bib` export path, watch it the way any other `.bib` is watched | M | S8.1, S7.2 |
 | [ ] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
 | [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
@@ -2032,6 +2032,58 @@ Done when `cargo publish -p texbib --dry-run` succeeds clean and the maintainer 
           the real publish (a one-way action — this loop prepares it, the maintainer pulls the
           trigger).
 ```
+
+**S8.1 (23 September 2026).** `[x]`: rungs 1–2 are green — `cargo test -p texbib --features
+acquire -- zotero` 6 passed, 1 ignored (the real-network probe, run by hand), `cargo test
+--workspace --exclude preamble` and `cargo test -p preamble --lib` both clean apart from the
+already-ledgered S4.6 checkout-path `synctex` fixture failure (untouched by this loop, on both
+its `preamble-synctex` and `src-tauri/src/synctex.rs` copies), `cargo clippy --workspace
+--all-targets -- -D warnings` clean, `RUSTDOCFLAGS="-D warnings" cargo doc -p texbib -p preamble
+--no-deps --features texbib/acquire` clean, `pnpm check` 441 files / 0 errors, `pnpm vitest run`
+395/395 (unchanged — see point 3), `pnpm build` succeeds. No rung-3 or rung-4 gate exists for
+this card in the way S7's did: there is no fixture-based integration test to write (the real
+counterpart, an actual Zotero + Better BibTeX install, is exactly what the ignored test defers
+to a machine that has one), and manually verifying the status-bar button needs the webview this
+environment cannot open, the same standing gate since sprint 2. What a reader should take from
+the diff:
+
+1. **Detection is one liveness probe, reused from `doi.rs`'s own shape.** `crates/texbib/src/
+   acquire/zotero.rs`'s `Transport` trait is the same split S7.4 established — `HttpTransport`
+   for a real `reqwest::blocking` call, `FixedReply` in tests — because it is what let five of
+   this loop's six tests run under plain `cargo test`, no `--ignored`, no Zotero installed
+   anywhere near this machine. `detect_with` asks Better BibTeX's `item.libraries` (its own
+   cheapest read-only method) and reads only the *shape* of the answer, not its content — a
+   connection refusal is "not running", any 200 with a JSON-RPC envelope is "ready", anything
+   else (Zotero's own 404 for a route Better BibTeX never registered, or any other unexpected
+   reply) is "no Better BibTeX". Nothing here parses the collection list Better BibTeX would
+   actually return; that is S8.2's job, once there is a caller for it.
+2. **`ZoteroStatus` derives `Ord` on purpose, though nothing sorts by it yet.** The three
+   variants are written least-to-most-complete (`NotRunning < NoBetterBibtex < Ready`) so a
+   later caller that only cares "is linking even possible" can write `status >= NoBetterBibtex`
+   instead of a three-way match — the same kind of small affordance `EntrySummary`'s dedup
+   fields were built with before S7.6 existed to use them. Not exercised by S8.1 itself beyond
+   one ordering test; left for S8.2 to use or ignore.
+3. **Detection stays a manual command, and the UI change is the smallest thing that could show
+   it.** DESIGN.md §5.4 says "detect a running instance", not "poll for one" — nobody asked
+   until they open Zotero-related UI, so `detect_zotero` runs once, on a status-bar button click
+   (`StatusBar.svelte`), and `bibliography.zoteroStatus` starts and stays `null` until then. No
+   new Vitest file: the only logic on the frontend is a four-way label lookup with no branch
+   worth a unit test on its own, and the real decision table (three transport shapes → three
+   statuses) is already covered where it lives, in `zotero.rs`. This is also why rung-1's Vitest
+   count is unchanged from S7.6's 395 — a deliberate choice, not an oversight, matching S7.4's
+   own "acquire is feature-gated at the module boundary" discipline of keeping a loop's tests
+   next to the code whose decisions they actually pin.
+4. **`detect_zotero` is `async` for the same reason `paste_cite` already is.** `texbib::acquire::
+   zotero::detect` is a synchronous `reqwest::blocking` call; running it directly on a Tauri
+   command would stall every other command sharing that worker thread for up to its 2-second
+   timeout. `tauri::async_runtime::spawn_blocking` is the same one-line fix S7.6's `paste_cite`
+   already uses, and `src-tauri`'s `texbib` dependency needed no new feature flag — `acquire` was
+   already turned on for `paste_cite`.
+
+Not done here, on purpose: parsing Better BibTeX's actual collection list, writing anything to
+`preamble.toml`, and any file-watcher wiring — all S8.2's, per the sprint table. The 2-second
+timeout on the detection request is a guess, not measured against a real Better BibTeX reply;
+worth revisiting if S8.2's own manual testing finds it too short or too long for a real machine.
 
 ```
 Loop      S7.1 · texbib parser crate · L

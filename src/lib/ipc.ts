@@ -184,6 +184,11 @@ export interface PasteCiteResult {
   created: boolean;
 }
 
+/** Whether Zotero, with the Better BibTeX plugin, answers on `127.0.0.1:23119` (S8.1,
+ * `crates/texbib/src/acquire/zotero.rs`). `'not_running'` also covers "Zotero is not
+ * installed" — this app cannot and does not try to tell the two apart. */
+export type ZoteroStatus = 'not_running' | 'no_better_bibtex' | 'ready';
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -227,6 +232,10 @@ export const ipc = {
    * miss — append a new entry to the first `.bib` file the document names. Rejects with a
    * sentence: no network, nothing found for the identifier, or no `.bib` file to append to. */
   pasteCite: (pasted: string) => invoke<PasteCiteResult>('paste_cite', { pasted }),
+
+  /** Probe once for a running Zotero + Better BibTeX (S8.1). Not polled automatically — call
+   * this when the author opens whatever UI offers linking a collection (S8.2). */
+  detectZotero: () => invoke<ZoteroStatus>('detect_zotero'),
 
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {

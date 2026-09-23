@@ -299,6 +299,17 @@ fn fetch_identified(identified: texbib::acquire::Identified) -> Result<texbib::E
     }
 }
 
+/// Whether Zotero, with the Better BibTeX plugin, is reachable on this machine (S8.1;
+/// DESIGN.md §5.4). Async for the same reason `paste_cite` is: `texbib::acquire::zotero::detect`
+/// is a synchronous `reqwest::blocking` call, and running it directly on an async command would
+/// stall every other command sharing this runtime's worker thread until it times out. A manual
+/// command, not a background poll — nothing calls this until the author opens whatever UI offers
+/// Zotero linking, matching the card's "detection is a manual command" choice.
+#[tauri::command]
+pub async fn detect_zotero() -> CommandResult<texbib::acquire::zotero::ZoteroStatus> {
+    tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::detect).await.map_err(to_message)
+}
+
 /// Rebuild the index and emit it as `bibliography:changed`. Called from the watcher thread and
 /// from `write_file`; both take the project lock only long enough to copy two paths out.
 fn emit_bibliography(app: &AppHandle) {

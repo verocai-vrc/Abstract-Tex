@@ -11,10 +11,15 @@
 //! everywhere (see `arxiv`'s `zero_span` for why) until something writes them out as text for
 //! the first time (S7.6). [`identify()`] is what a paste-to-cite caller (S7.6) asks first, to
 //! learn which of the three — or none — a pasted string names.
+//!
+//! [`zotero`] (S8.1) is a different shape from the other three: it answers "is Zotero, with
+//! Better BibTeX, reachable on this machine" rather than fetching any one entry, and nothing
+//! calls it during paste-to-cite — it is the detection step S8.2's collection linking builds on.
 
 pub mod arxiv;
 pub mod doi;
 pub mod identify;
 pub mod isbn;
+pub mod zotero;
 
 pub use identify::{identify, Identified};

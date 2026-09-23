@@ -8,7 +8,7 @@
 // same rule `app` follows. The pure helpers below take the index as an argument rather than
 // reading the store, so `bibliography.test.ts` exercises them with a literal.
 
-import type { BibEntrySummary, BibliographyIndex, Citation } from './ipc';
+import type { BibEntrySummary, BibliographyIndex, Citation, ZoteroStatus } from './ipc';
 
 /** Entries keyed by citation key. A key defined twice keeps its *first* definition, which is
  * what BibTeX itself does; the index still lists both for S8.3 to complain about. */
@@ -44,6 +44,10 @@ class BibliographyState {
   /** Files the document names that are not on disk — the first thing worth telling the author
    * about a bibliography, and the reason a missing file is still listed by path. */
   missingFiles = $derived((this.index?.files ?? []).filter((file) => !file.exists).map((file) => file.path));
+
+  /** `null` until the author asks (S8.1): detection is a one-shot probe, not a background poll,
+   * so there is nothing to show before that first ask. */
+  zoteroStatus = $state<ZoteroStatus | null>(null);
 }
 
 export const bibliography = new BibliographyState();

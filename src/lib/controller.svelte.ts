@@ -192,6 +192,22 @@ export async function pasteCite(pasted: string, view: EditorView, from: number, 
 }
 
 /**
+ * Probe once for a running Zotero + Better BibTeX (S8.1) and record the answer in
+ * `bibliography.zoteroStatus`. Not called automatically — DESIGN.md §5.4's Zotero integration
+ * only matters to authors who use Zotero, and polling a local port for everyone else on every
+ * session would be work with no visible benefit. A failure (the command itself erroring, not a
+ * "not running" answer, which is a normal `ZoteroStatus` value) is a status message like every
+ * other backend rejection.
+ */
+export async function detectZotero(): Promise<void> {
+  try {
+    bibliography.zoteroStatus = await ipc.detectZotero();
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
+/**
  * The document's symbol tree, flattened, for whatever first wants one (S4.2's Document map
  * panel, most likely). No UI reads this today; it exists so that loop starts from a request that
  * already works rather than from nothing, the same "plumbing before the visual layer" shape

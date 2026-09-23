@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
-  import { toggleDrawer } from '../lib/controller.svelte';
+  import { bibliography } from '../lib/bibliography.svelte';
+  import { detectZotero, toggleDrawer } from '../lib/controller.svelte';
 
   // A ticking clock while a build runs, so a long first compile (package downloads) never
   // looks like a hang (DESIGN.md §6, first run).
@@ -14,6 +15,18 @@
   const elapsed = $derived(((now - app.compile.startedAt) / 1000).toFixed(1));
   const engineLabel = $derived(
     app.engine === undefined ? 'probing engine…' : app.engine === null ? 'no TeX engine found' : `${app.engine.name} ${app.engine.version.replace(/^tectonic\s*/i, '')}`,
+  );
+
+  // Detection is a manual probe (S8.1), not a background poll: nobody asked until they click
+  // this, so `zoteroStatus` stays `null` and the button reads as an offer, not a state.
+  const zoteroLabel = $derived(
+    bibliography.zoteroStatus === 'ready'
+      ? 'Zotero linked'
+      : bibliography.zoteroStatus === 'no_better_bibtex'
+        ? 'Zotero running, no Better BibTeX'
+        : bibliography.zoteroStatus === 'not_running'
+          ? 'Zotero not running'
+          : 'Detect Zotero',
   );
 </script>
 
@@ -49,5 +62,8 @@
     <span class="muted" title={app.lspMessage}>no language server</span>
   {/if}
   <span class={app.engine === null ? 'error' : ''}>{engineLabel}</span>
+  <button class={`ghost muted${bibliography.zoteroStatus === 'ready' ? ' ok' : ''}`} onclick={() => void detectZotero()}>
+    {zoteroLabel}
+  </button>
   <span><kbd>Ctrl</kbd><kbd>S</kbd> save · <kbd>Ctrl</kbd><kbd>B</kbd> build</span>
 </footer>

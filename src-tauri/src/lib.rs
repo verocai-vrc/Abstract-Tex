@@ -103,6 +103,7 @@ pub fn run() {
             commands::bibliography_index,
             commands::identify_paste,
             commands::paste_cite,
+            commands::detect_zotero,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Preamble window");
