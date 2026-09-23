@@ -89,6 +89,16 @@ pub struct EntrySummary {
     /// parent.
     pub year: Option<String>,
     pub title: Option<String>,
+    /// The `doi` field, normalised through `texbib::acquire::doi::normalize_doi` so a paste of
+    /// `https://doi.org/10.…` compares equal to an entry whose field already reads bare
+    /// `10.…` — S7.6's dedup key, not shown anywhere.
+    pub doi: Option<String>,
+    /// The `eprint` field when `eprinttype` is (case-insensitively) `arxiv`, normalised through
+    /// `texbib::acquire::arxiv::normalize_arxiv_id` — S7.6's dedup key for a pasted arXiv id.
+    pub eprint: Option<String>,
+    /// The `isbn` field, normalised through `texbib::acquire::isbn::normalize_isbn` (digits and
+    /// a possible trailing check digit only) — S7.6's dedup key for a pasted ISBN.
+    pub isbn: Option<String>,
     /// Project-relative path of the `.bib` this entry is in.
     pub file: String,
     /// Byte span of the whole entry in that file (`texbib::Span`), so S7.6 can append after the
@@ -202,6 +212,9 @@ fn summarise_file(path: &str, bibliography: &Bibliography) -> Vec<EntrySummary> 
                 author: own_or_parent(author_of),
                 year: own_or_parent(year_of),
                 title: own_or_parent(title_of),
+                doi: own_or_parent(doi_of),
+                eprint: own_or_parent(eprint_of),
+                isbn: own_or_parent(isbn_of),
                 file: path.to_string(),
                 span: entry.span,
             }
@@ -226,6 +239,28 @@ fn author_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
 
 fn title_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
     resolved_field(entry, bibliography, "title")
+}
+
+/// The entry's `doi` field, normalised the same way a pasted DOI is (S7.6's paste-to-cite dedup
+/// key), so a hand-typed `10.1109/tcbb.2019.000001` and an export's `https://doi.org/10.1109/…`
+/// compare equal.
+fn doi_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
+    resolved_field(entry, bibliography, "doi").map(|doi| texbib::acquire::doi::normalize_doi(&doi))
+}
+
+/// The entry's `eprint` field, but only when `eprinttype` names arXiv — `eprint` alone is
+/// BibLaTeX's generic "identifier in some other archive" field, and treating every archive's
+/// eprint as an arXiv id would dedup two unrelated papers that merely share a number.
+fn eprint_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
+    let eprinttype = resolved_field(entry, bibliography, "eprinttype")?;
+    if !eprinttype.eq_ignore_ascii_case("arxiv") {
+        return None;
+    }
+    resolved_field(entry, bibliography, "eprint").map(|id| texbib::acquire::arxiv::normalize_arxiv_id(&id))
+}
+
+fn isbn_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
+    resolved_field(entry, bibliography, "isbn").map(|isbn| texbib::acquire::isbn::normalize_isbn(&isbn))
 }
 
 /// `year = 2019`, or the year of a BibLaTeX `date = {2019-05-01}` (or a range, `2019/2020`):

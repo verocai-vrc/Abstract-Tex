@@ -16,6 +16,7 @@ pub mod bibliography;
 pub mod commands;
 pub mod compile;
 pub mod lsp;
+pub mod paste;
 pub mod project;
 pub mod synctex;
 pub mod watcher;
@@ -100,6 +101,8 @@ pub fn run() {
             commands::lsp_notify,
             commands::lsp_respond,
             commands::bibliography_index,
+            commands::identify_paste,
+            commands::paste_cite,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Preamble window");

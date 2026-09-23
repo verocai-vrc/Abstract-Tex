@@ -230,6 +230,75 @@ pub fn bibliography_index(state: State<'_, AppState>) -> CommandResult<Bibliogra
     })
 }
 
+/// What `identify` recognised a paste as, so the frontend can offer "Cite" without repeating
+/// `texbib::acquire::identify`'s own matching rules.
+#[tauri::command]
+pub fn identify_paste(pasted: String) -> Option<String> {
+    match texbib::acquire::identify(&pasted)? {
+        texbib::acquire::Identified::Doi(_) => Some("doi".to_string()),
+        texbib::acquire::Identified::Arxiv(_) => Some("arxiv".to_string()),
+        texbib::acquire::Identified::Isbn(_) => Some("isbn".to_string()),
+    }
+}
+
+/// What a successful paste-to-cite resolves to: a key to insert as `\cite{key}`, and whether it
+/// was already in the bibliography or a new entry was appended.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteCiteResult {
+    pub key: String,
+    pub created: bool,
+}
+
+/// Paste-to-cite (S7.6): identify `pasted`, fetch its entry from the matching source, deduplicate
+/// against the project's bibliography, and — on a miss — append the new entry to the first `.bib`
+/// file the document names. Async because fetching is a real network request; the request itself
+/// runs on a blocking-pool thread (`texbib::acquire`'s fetchers are synchronous `reqwest::blocking`
+/// calls, the same shape S2.2's outcome warned an async command must never run directly, since
+/// that would stall every other command sharing this runtime's worker thread for as long as the
+/// request takes).
+#[tauri::command]
+pub async fn paste_cite(app: AppHandle, state: State<'_, AppState>, pasted: String) -> CommandResult<PasteCiteResult> {
+    let identified = texbib::acquire::identify(&pasted).ok_or_else(|| "Not a DOI, arXiv id, or ISBN.".to_string())?;
+
+    let fetched = tauri::async_runtime::spawn_blocking(move || fetch_identified(identified))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)?;
+
+    let (root_dir, root_file) = project_root(&state)?.ok_or_else(|| "No root .tex file found.".to_string())?;
+    let index = bibliography::build_index(&root_dir, &root_file);
+
+    match crate::paste::resolve_paste(&fetched, &index).map_err(to_message)? {
+        crate::paste::PasteOutcome::Existing { key } => Ok(PasteCiteResult { key, created: false }),
+        crate::paste::PasteOutcome::New { bib_file, keys_in_use } => {
+            let absolute = with_project(&state, |project| project.resolve(&bib_file))?;
+            let current_text = std::fs::read_to_string(&absolute).map_err(to_message)?;
+            let (key, new_text) = crate::paste::render_new_entry(&fetched, &keys_in_use, &current_text);
+
+            with_project(&state, |project| {
+                let absolute = project.resolve(&bib_file)?;
+                remember_write(&state.written, &absolute, new_text.as_bytes());
+                write_atomically(&absolute, &new_text)?;
+                Ok(())
+            })?;
+            emit_bibliography(&app);
+            Ok(PasteCiteResult { key, created: true })
+        }
+    }
+}
+
+/// The blocking half of [`paste_cite`]: one network request, on whichever source `identified`
+/// names. Kept as a plain function (not a closure inline in `spawn_blocking`) so the "this runs
+/// off the async runtime" boundary is a named, readable line rather than an anonymous block.
+fn fetch_identified(identified: texbib::acquire::Identified) -> Result<texbib::Entry, String> {
+    match identified {
+        texbib::acquire::Identified::Doi(doi) => texbib::acquire::doi::fetch_doi(&doi).map_err(to_message),
+        texbib::acquire::Identified::Arxiv(id) => texbib::acquire::arxiv::fetch_arxiv(&id).map_err(to_message),
+        texbib::acquire::Identified::Isbn(isbn) => texbib::acquire::isbn::fetch_isbn(&isbn).map_err(to_message),
+    }
+}
+
 /// Rebuild the index and emit it as `bibliography:changed`. Called from the watcher thread and
 /// from `write_file`; both take the project lock only long enough to copy two paths out.
 fn emit_bibliography(app: &AppHandle) {

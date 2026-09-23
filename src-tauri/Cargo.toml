@@ -27,7 +27,7 @@ preamble-includes = { path = "../crates/preamble-includes" }
 preamble-lsp = { path = "../crates/preamble-lsp" }
 preamble-reconcile = { path = "../crates/preamble-reconcile" }
 preamble-synctex = { path = "../crates/preamble-synctex" }
-texbib = { path = "../crates/texbib" }
+texbib = { path = "../crates/texbib", features = ["acquire"] }
 texlog = { path = "../crates/texlog" }
 
 tokio = { workspace = true }
