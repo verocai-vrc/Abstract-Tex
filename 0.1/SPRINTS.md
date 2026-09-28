@@ -2905,9 +2905,120 @@ build does not catch and that this loop's diff does not touch — `cargo doc -p 
 
 ### Sprint 9 — v0.5 speed
 
-S9.1 benchmark corpus (eight documents, `DESIGN.md` §8) · S9.2 `.aux` hash convergence ·
-S9.3 precompiled preamble with hash invalidation · S9.4 system TeX Live / MiKTeX detection and
-per-project engine switching · S9.5 CI performance gate that fails the build.
+**Exit demo.** `DESIGN.md` §7 v0.5: p95 warm recompile under 1.2 s on a sixty-page thesis with a
+TikZ- and biblatex-heavy preamble, measured in CI and failing the build if breached.
+
+Cards expanded at the start of the sprint (28 September 2026), per §1.1, after re-reading
+`DESIGN.md` §1.3 (nothing here edges toward a non-goal: engine switching *detects* a TeX
+distribution, it never installs or manages one). Two facts about the bundled Tectonic 0.17 shape
+them, both checked against `tectonic --help` rather than assumed: it already reruns TeX by itself
+when the `.aux` changes (so S9.2 measures before it builds anything), and it has `--outfmt fmt` /
+`--format`, the two halves S9.3 needs. It does **not** bundle Biber, so "biblatex-heavy" means
+`biblatex` with `backend=bibtex` until S9.4 can hand the job to a system TeX that has Biber. On this
+Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py` (ledger, DNS).
+
+| ✓ | Loop | Size | Depends |
+|---|---|---|---|
+| [ ] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
+| [ ] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
+| [ ] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
+| [ ] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "latexmk"` in `abstract-tex.toml`) | M | S9.1 |
+| [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
+| [ ] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
+
+```
+Loop      S9.1 · Benchmark corpus · L
+Reads     DESIGN.md §8 (the eight documents), §9 row "Tectonic cannot compile real documents";
+          crates/abstract-tex-engine/tests/torture.rs (the ignored real-engine test shape to reuse)
+Depends   —
+Files     fixtures/corpus/<name>/main.tex (+ its files), fixtures/corpus/README.md,
+          crates/abstract-tex-engine/tests/corpus.rs
+Build     Eight documents, each small in source but real in shape: a two-column conference paper,
+          a sixty-page thesis (chapters, figures, tables, TikZ, biblatex with backend=bibtex), a
+          Beamer deck, a TikZ-heavy figure paper, a `minted` document needing shell-escape, a
+          non-Latin-script paper (fontspec, at least two scripts), one deliberately broken
+          document, and one with a pathological preamble (many packages, heavy option
+          processing). Text may be generated (lipsum/blindtext) where only length matters; the
+          structure and the preamble are what the timings measure. One `#[ignore]`d test builds
+          every document with the real engine and asserts success, except the broken one, whose
+          diagnostics are compared with a recorded `expected.json`. A document the bundled engine
+          cannot build (minted without Pygments on PATH, a font not in the bundle) is recorded as
+          such in the README, not quietly dropped — that is §9's risk row, measured.
+Verify    cargo test -p abstract-tex-engine --test corpus -- --ignored
+Done when seven documents build and the broken one produces exactly its recorded diagnostics,
+          or the README says which cannot build on the bundled engine and why.
+```
+
+```
+Loop      S9.2 · Timing harness and pass counting · M
+Reads     DESIGN.md §5.1 rungs 1–2, §3.1 (the illustrative figures this replaces)
+Depends   S9.1
+Files     crates/abstract-tex-engine/tests/corpus.rs (or an `examples/bench.rs`), 0.1/DESIGN.md §3.1
+Build     For each corpus document: one cold build (empty build dir), then N warm builds each
+          after a one-line edit that moves no cross-reference; record wall time and the number
+          of TeX passes Tectonic ran (from its chatter). Write `target/corpus-report.json`. If
+          warm edits already cost one pass, S5.1 rung 2 is done by the engine and this loop
+          records that instead of building a hash check; if not, `--reruns 0` on an unchanged
+          `.aux` hash is the lever. Replace §3.1's illustrative compile row with a measured one.
+Verify    cargo test -p abstract-tex-engine --test corpus -- --ignored --nocapture
+Done when the report exists for all buildable documents and §3.1 cites it.
+```
+
+```
+Loop      S9.3 · Precompiled preamble · L
+Reads     DESIGN.md §5.1 rung 3, §5.8 (`.abstract-tex/formats/`)
+Depends   S9.2 (the numbers that say whether this is worth it, and the harness that proves it)
+Files     crates/abstract-tex-engine/src/{format.rs,tectonic.rs}, src-tauri/src/compile.rs
+Build     Spike first: can Tectonic 0.17 dump a format from a preamble (`--outfmt fmt` over the
+          preamble plus `\dump`, or `mylatexformat`) and load it with `--format`? If yes: hash
+          the bytes before `\begin{document}` (following `\input` of a preamble file), build
+          `formats/<hash>.fmt` once in the background, then build with it; any failure — a
+          preamble that cannot be dumped, a format the engine rejects — falls back to a normal
+          build and remembers not to retry that hash. If no: record why and close the loop.
+Verify    cargo test -p abstract-tex-engine -- format; the S9.2 harness before and after
+Done when the thesis's warm build is measurably faster with the format than without, the
+          output PDF is the same, and editing the preamble invalidates the format.
+```
+
+```
+Loop      S9.4 · System TeX detection and engine switching · M
+Reads     DESIGN.md §5.1 (one trait, interchangeable engines), §9 row on Tectonic's gaps
+Depends   S9.1
+Files     crates/abstract-tex-engine/src/{latexmk.rs,lib.rs}, src-tauri/src/{project.rs,compile.rs}
+Build     `Latexmk` implements `Engine`: probe `latexmk` plus the TeX binary it would call on PATH
+          (TeX Live and MiKTeX both ship it), build with `-pdf`/`-xelatex`/`-lualatex` into the
+          same build dir with SyncTeX on. `abstract-tex.toml` gains `engine`; Tectonic stays the
+          default. The corpus test runs every document under each available engine.
+Verify    cargo test -p abstract-tex-engine; the corpus test with a system TeX present
+Done when a project switched to `latexmk` builds the corpus's minted document where Tectonic
+          could not, and a machine without a system TeX still builds everything else unchanged.
+```
+
+```
+Loop      S9.5 · CI performance and golden-corpus gate · M
+Reads     DESIGN.md §8 ("both fail the build rather than warn")
+Depends   S9.2, S9.3
+Files     .github/workflows/verify.yml, crates/abstract-tex-engine/tests/corpus.rs
+Build     A CI job on Linux runs the corpus test and the harness; it fails on a document that
+          stops building, on any change to the broken document's diagnostics, and on the thesis's
+          p95 warm build exceeding 1.2 s. Runner noise is handled by the p95 over N builds and by
+          caching Tectonic's bundle between runs, not by loosening the threshold.
+Verify    a green run, and a red one from a deliberately slowed commit on a throwaway branch
+Done when both runs are recorded here.
+```
+
+```
+Loop      S9.6 · Typing-path waste · M
+Reads     DESIGN.md §2 rule 2 (16 ms keystroke); the three ledger entries it names
+Depends   —
+Files     src/lib/editor/focus.ts, src/lib/editor/diagnostics.ts, src-tauri/src/project.rs
+Build     Focus mode maps its decorations through changes and rebuilds only when the cursor's
+          paragraph changes; the gutter re-merges only when either diagnostic source changed;
+          `Project::info()` reuses the include graph unless a `.tex` changed. Each with a test
+          that counts the expensive call, since the webview is not here to time.
+Verify    pnpm vitest run; cargo test -p abstract-tex -- project
+Done when the three ledger entries are Fixed with the test that proves each.
+```
 
 ### Sprint 10–11 — v0.6 sync
 

@@ -142,6 +142,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   network callers — should check the maintainer's security-suite configuration (an exception for
   `target\debug\*.exe`/`target\release\*.exe`, matching the existing WebView2 exception) before
   assuming a code bug.
+  **Still open, wider than recorded (28 Sep 2026, Sprint 9 planning):** the bundled Tectonic is
+  hit too. `cargo test -p abstract-tex-engine --test torture -- --ignored` fails at step 1 with
+  `File 'graphicx.sty' not found` — the engine cannot reach its package bundle
+  (`relay.fullyjustified.net`, `data1b.fullyjustified.net`) — and passes in 21 s with
+  `HTTPS_PROXY=http://127.0.0.1:3128` pointed at `scripts/dev-proxy.py`, which resolves DNS from
+  Python. So on this machine every real-engine run that needs a package not yet cached must go
+  through the proxy; the app itself would show an author the same missing-package error. Worth
+  the maintainer checking the security suite's per-process DNS policy, since the app's
+  zero-setup promise (DESIGN.md §2 rule 4) depends on the engine reaching the network once.
 
 - **`texbib`'s fixture harness fails on a checkout with `core.autocrlf=true`: six of seven
   fixtures mismatch on every byte span after the first line ending.** (S7.3, builder, 21 Sep

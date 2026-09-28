@@ -514,10 +514,10 @@ thesis/
 │   └── results.tex
 ├── figures/
 ├── refs.bib
-├── abstract-tex.toml       # engine, root file, output dir, bib source, AI opt-in
+├── abstract-tex.toml   # engine, root file, output dir, bib source, AI opt-in
 ├── .gitignore          # written on init; excludes .abstract-tex/ and build junk
 ├── .git/               # the storage layer — remote is your GitHub repo
-└── .abstract-tex/          # gitignored, disposable, never in the source tree
+└── .abstract-tex/      # gitignored, disposable, never in the source tree
     ├── build/          # .aux .bbl .pdf .synctex.gz
     ├── formats/        # precompiled preamble dumps, keyed by hash
     ├── crdt/           # Yjs update log, comment anchors
