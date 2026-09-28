@@ -3,7 +3,8 @@
 //! This crate owns:
 //! - the [`Engine`] trait every engine implements (`probe`, `build`),
 //! - the plain data types a build takes and produces ([`BuildJob`], [`BuildOutcome`]),
-//! - the one concrete engine we ship today, [`tectonic::Tectonic`].
+//! - the engines themselves: the bundled [`tectonic::Tectonic`] and a system [`latexmk::Latexmk`],
+//! - the one-chapter draft a multi-file document can have beside its full build ([`draft`], S9.7).
 //!
 //! It must never:
 //! - know about Tauri, windows or events (that is the app crate's job),
@@ -19,6 +20,7 @@
 //! errors only get shown to a person, uses `anyhow`, which erases the type and keeps a message.
 //! Typed on the inside, flattened at the edge.
 
+pub mod draft;
 pub mod incremental;
 pub mod latexmk;
 mod process;
@@ -133,5 +135,20 @@ pub trait Engine: Send + Sync {
         cancel: CancellationToken,
         progress: Option<ProgressSink>,
     ) -> Result<BuildOutcome, EngineError>;
+
+    /// Typeset one chapter of `job`'s document in a single pass, from the folder
+    /// [`draft::prepare`] laid out, borrowing the last full build's numbering (S9.7). Meant to
+    /// run *beside* a `build` of the same job, never instead of one. `Ok(None)` when the engine
+    /// has no draft mode — this default, which a trait method body provides to every engine
+    /// that does not write its own. `latexmk` keeps it for now: its own rerun logic would need
+    /// teaching to stop after one pass.
+    async fn build_draft(
+        &self,
+        _job: &BuildJob,
+        _layout: &draft::DraftLayout,
+        _cancel: CancellationToken,
+    ) -> Result<Option<BuildOutcome>, EngineError> {
+        Ok(None)
+    }
 }
 

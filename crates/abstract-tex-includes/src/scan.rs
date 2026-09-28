@@ -9,8 +9,10 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Directive {
     /// `\input{path}` / `\include{path}` / `\subfile{path}` with a plain braced argument: no
-    /// macros inside the braces, so the crate can resolve it to a file on its own.
-    Include { argument: String, line: u32 },
+    /// macros inside the braces, so the crate can resolve it to a file on its own. `command` is
+    /// which of the three wrote it (`"input"`, `"include"` or `"subfile"`): `\include` is the one
+    /// that makes a chapter in LaTeX's sense (S9.7, [`crate::graph::Chapter`]).
+    Include { command: &'static str, argument: String, line: u32 },
     /// Something that reads like an include directive but whose argument this scanner cannot
     /// resolve by itself: no braces at all (`\input foo`), a macro inside the braces
     /// (`\input{\chapdir/intro}`), or a command shape this crate does not model
@@ -85,7 +87,7 @@ fn starts_with_command(text: &str, name: &str) -> bool {
 /// Parses the argument(s) after one recognised command name, starting at `after_command`
 /// (the byte offset just past the command's letters). Returns the directive and the byte
 /// offset just past whatever it consumed, so the caller's scan can resume from there.
-fn read_directive(text: &str, command: &str, command_start: usize, after_command: usize, line: u32) -> (Directive, usize) {
+fn read_directive(text: &str, command: &'static str, command_start: usize, after_command: usize, line: u32) -> (Directive, usize) {
     let after_ws = skip_spaces_and_tabs(text, after_command);
 
     if command == "import" {
@@ -104,7 +106,7 @@ fn read_directive(text: &str, command: &str, command_start: usize, after_command
     }
 
     match read_braced_argument(text, after_ws) {
-        Some((argument, end)) if is_literal_argument(&argument) => (Directive::Include { argument, line }, end),
+        Some((argument, end)) if is_literal_argument(&argument) => (Directive::Include { command, argument, line }, end),
         // Braced, but not a plain path — e.g. `\input{\chapdir/intro}`.
         Some((_, end)) => (Directive::Unparsed { raw: text[command_start..end].to_string(), line }, end),
         // The brace never closes. Nothing sane to resolve; take the rest of the text.
@@ -234,9 +236,9 @@ mod tests {
         assert_eq!(
             directives,
             vec![
-                Directive::Include { argument: "preamble".into(), line: 1 },
-                Directive::Include { argument: "sections/intro".into(), line: 2 },
-                Directive::Include { argument: "sections/appendix".into(), line: 3 },
+                Directive::Include { command: "input", argument: "preamble".into(), line: 1 },
+                Directive::Include { command: "include", argument: "sections/intro".into(), line: 2 },
+                Directive::Include { command: "subfile", argument: "sections/appendix".into(), line: 3 },
             ]
         );
     }
@@ -248,10 +250,10 @@ mod tests {
         assert_eq!(
             directives,
             vec![
-                Directive::Include { argument: "a".into(), line: 1 },
+                Directive::Include { command: "input", argument: "a".into(), line: 1 },
                 // `\%` is a literal percent inside the argument; it is not a backslash-macro,
                 // so this is still a resolvable literal path.
-                Directive::Include { argument: "b\\%c".into(), line: 2 },
+                Directive::Include { command: "input", argument: "b\\%c".into(), line: 2 },
             ]
         );
     }
@@ -260,7 +262,7 @@ mod tests {
     fn a_backslash_before_a_real_comment_does_not_hide_it() {
         // `\\` is an escaped backslash; the `%` right after it is a genuine comment start.
         let source = "\\input{a}\\\\ % \\input{b}\n";
-        assert_eq!(scan_includes(source), vec![Directive::Include { argument: "a".into(), line: 1 }]);
+        assert_eq!(scan_includes(source), vec![Directive::Include { command: "input", argument: "a".into(), line: 1 }]);
     }
 
     #[test]

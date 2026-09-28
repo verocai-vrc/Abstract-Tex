@@ -11,6 +11,7 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use crate::draft::DraftLayout;
 use crate::incremental::{self, AuxSnapshot};
 use crate::process::{self, hide_console_window};
 use crate::{BuildJob, BuildOutcome, BuildSteps, Engine, EngineError, EngineInfo, ProgressSink};
@@ -80,6 +81,26 @@ impl Tectonic {
             args.push(format!("search-path={}", job.out_dir.to_string_lossy()));
         }
         args.push(job.root_file.to_string_lossy().into_owned());
+        args
+    }
+
+    /// The command line for a draft (S9.7): the warm single pass, built from the wrapper into the
+    /// draft's folder. The wrapper is the primary input, so the folder Tectonic searches first is
+    /// the draft's own; the root file's folder is added so that the root's `\input{preamble}`
+    /// and `\include{chapters/…}` still find the author's files.
+    fn draft_arguments(job: &BuildJob, layout: &DraftLayout) -> Vec<String> {
+        let draft_job = BuildJob {
+            project_dir: job.project_dir.clone(),
+            root_file: layout.wrapper.clone(),
+            out_dir: layout.out_dir.clone(),
+            synctex: job.synctex,
+        };
+        let mut args = Self::arguments(&draft_job, true);
+        let root_dir = job.project_dir.join(job.root_file.parent().unwrap_or(Path::new("")));
+        // Before the last argument, which must stay the file to build.
+        let file_position = args.len() - 1;
+        args.insert(file_position, "-Z".to_string());
+        args.insert(file_position + 1, format!("search-path={}", root_dir.to_string_lossy()));
         args
     }
 
@@ -197,6 +218,36 @@ impl Engine for Tectonic {
         info!(success = outcome.success, ms = duration.as_millis(), ?steps, "tectonic finished");
         Ok(outcome)
     }
+
+    async fn build_draft(
+        &self,
+        job: &BuildJob,
+        layout: &DraftLayout,
+        cancel: CancellationToken,
+    ) -> Result<Option<BuildOutcome>, EngineError> {
+        let started = Instant::now();
+        let args = Self::draft_arguments(job, layout);
+        // No progress sink: the full build beside this one is the build the status bar follows.
+        let (status, stderr) = self.run_once(job, &args, &cancel, None).await?;
+
+        let stem = job.root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".to_string());
+        let artifact = |ext: &str| {
+            let p = layout.out_dir.join(format!("{stem}.{ext}"));
+            p.is_file().then_some(p)
+        };
+        let outcome = BuildOutcome {
+            success: status.success(),
+            pdf: artifact("pdf"),
+            log: artifact("log"),
+            synctex: artifact("synctex.gz"),
+            stderr,
+            exit_code: status.code(),
+            duration: started.elapsed(),
+            steps: BuildSteps { single_passes: 1, full: false },
+        };
+        info!(success = outcome.success, ms = outcome.duration.as_millis(), "tectonic draft finished");
+        Ok(Some(outcome))
+    }
 }
 
 #[cfg(test)]
@@ -287,6 +338,21 @@ mod tests {
         assert!(cited.success, "{}", cited.stderr);
         assert_eq!(cited.steps, BuildSteps { single_passes: 1, full: true });
         assert_eq!(undefined(&cited.log), 0, "the full build must have run BibTeX for the new key");
+    }
+
+    #[test]
+    fn a_draft_builds_the_wrapper_and_can_still_find_the_root_files_neighbours() {
+        let layout = DraftLayout { wrapper: PathBuf::from(".abstract-tex/draft/main.tex"), out_dir: PathBuf::from("proj/.abstract-tex/draft/build") };
+        let mut j = job(Path::new("proj"));
+        j.root_file = PathBuf::from("book/main.tex");
+        let args = Tectonic::draft_arguments(&j, &layout);
+        assert_eq!(args.last().map(String::as_str), Some(".abstract-tex/draft/main.tex"));
+        let outdir = args.iter().position(|a| a == "--outdir").unwrap();
+        assert!(args[outdir + 1].ends_with("draft/build"), "never the full build's folder");
+        let searched: Vec<&str> = args.iter().filter_map(|a| a.strip_prefix("search-path=")).collect();
+        assert_eq!(searched.len(), 2, "{args:?}");
+        assert!(searched[0].ends_with("draft/build"));
+        assert!(searched[1].replace('\\', "/").ends_with("proj/book"), "{searched:?}");
     }
 
     #[test]

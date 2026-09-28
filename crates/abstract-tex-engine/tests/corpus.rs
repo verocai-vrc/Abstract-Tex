@@ -216,6 +216,98 @@ async fn warm_build_timings() {
     println!("report: {}", path.display());
 }
 
+/// S9.7's done-when, on the document it is for: after a full build of the thesis and an edit to
+/// chapter 3, a draft of the chapter the include graph names builds with every reference
+/// resolved, numbers the chapter exactly as the full build then does, leaves the full build's
+/// folder byte-for-byte alone, and is faster than the warm full pass.
+#[tokio::test]
+#[ignore]
+async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
+    use abstract_tex_engine::draft::DraftJob;
+
+    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir(&corpus_dir().join("thesis"), tmp.path());
+    let job = BuildJob {
+        project_dir: tmp.path().to_path_buf(),
+        root_file: PathBuf::from("main.tex"),
+        out_dir: tmp.path().join(".abstract-tex/build"),
+        synctex: true,
+    };
+    assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
+
+    let edited = "chapters/03-method.tex";
+    let mut text = fs::read_to_string(tmp.path().join(edited)).unwrap();
+    text.push_str("\nOne more sentence of method, written between builds.\n");
+    fs::write(tmp.path().join(edited), text).unwrap();
+
+    let graph = abstract_tex_includes::build_graph(tmp.path(), Path::new("main.tex"));
+    let chapter = graph.chapter_of(edited).expect("chapter 3 is an \\include").argument.clone();
+    assert_eq!(chapter, "chapters/03-method");
+    let draft = DraftJob { chapter, dir: tmp.path().join(".abstract-tex/draft") };
+
+    let full_folder_before = folder_bytes(&job.out_dir);
+    let layout = abstract_tex_engine::draft::prepare(&job, &draft).unwrap().expect("a warm thesis has a draft");
+    let drafted = engine.build_draft(&job, &layout, CancellationToken::new()).await.unwrap().expect("Tectonic drafts");
+    assert!(drafted.success, "{}", drafted.stderr);
+    assert!(full_folder_before == folder_bytes(&job.out_dir), "a draft must not touch the full build's folder");
+    let draft_log = fs::read_to_string(drafted.log.as_ref().unwrap()).unwrap();
+    assert_eq!(draft_log.matches("undefined").count(), 0, "a draft borrows every reference from the full build");
+    assert!(drafted.pdf.is_some(), "a draft that leaves no PDF is no draft");
+
+    let full = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+    assert!(full.success);
+    let chapter_numbering = |folder: &Path| numbering(&fs::read_to_string(folder.join("chapters/03-method.aux")).unwrap());
+    let drafted_numbering = chapter_numbering(&draft.dir.join("build"));
+    assert!(drafted_numbering.len() > 50, "{drafted_numbering:?}");
+    assert_eq!(drafted_numbering, chapter_numbering(&job.out_dir), "the draft numbers the chapter as the full build does");
+    let pages = |log: &str| pages_written(log).unwrap();
+    let full_log = fs::read_to_string(full.log.as_ref().unwrap()).unwrap();
+    println!(
+        "draft {} ms, {} pages | full warm pass {} ms, {} pages",
+        drafted.duration.as_millis(),
+        pages(&draft_log),
+        full.duration.as_millis(),
+        pages(&full_log)
+    );
+    assert!(pages(&draft_log) < pages(&full_log));
+    assert!(drafted.duration < full.duration, "a draft slower than the full pass has no reason to exist");
+}
+
+/// What an author reads off a chapter's `.aux`: each label's number and page, and every counter
+/// the chapter hands on to the next one. Not the raw bytes: hyperref names its link targets from
+/// a document-wide caption count that `\\include` does not checkpoint, so a draft's anchors are
+/// `figure.caption.4` where the full build's are `figure.caption.8` — consistent inside each
+/// PDF, never shown, and not numbering.
+fn numbering(aux: &str) -> Vec<String> {
+    let mut kept = Vec::new();
+    for line in aux.lines() {
+        if line.starts_with("\\setcounter{") {
+            kept.push(line.to_string());
+        } else if let Some(rest) = line.strip_prefix("\\newlabel{") {
+            // `name}{{number}{page}{title}{anchor}{}}`: keep up to the end of the page group.
+            let groups: Vec<&str> = rest.splitn(4, '}').collect();
+            kept.push(groups[..3.min(groups.len())].join("}"));
+        }
+    }
+    kept
+}
+
+/// Every file under `dir` with its bytes, in a stable order: "untouched" means equal to this.
+fn folder_bytes(dir: &Path) -> Vec<(PathBuf, Vec<u8>)> {
+    let mut files = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files.extend(folder_bytes(&path));
+        } else {
+            files.push((path.clone(), fs::read(&path).unwrap()));
+        }
+    }
+    files.sort();
+    files
+}
+
 /// Nearest-rank percentile: the smallest sample with at least `p`% of samples at or below it.
 /// With the handful of runs a local harness makes, p95 is simply the slowest; S9.5's CI gate
 /// takes enough runs for it to mean more.

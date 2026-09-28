@@ -8,7 +8,9 @@
 //! (`IncludeGraph::is_complete`).
 //!
 //! Out of scope on purpose (S4.1's card): `\includeonly` pruning, `\graphicspath`, macro
-//! expansion. A file `\includeonly` excludes from one build is still part of the document.
+//! expansion. A file `\includeonly` excludes from one build is still part of the document. The
+//! graph does record which files are `\include`d ([`Chapter`], S9.7), because that is a fact
+//! about the document; choosing what a build leaves out is the engine's business.
 
 use std::collections::{HashSet, VecDeque};
 use std::fs;
@@ -47,6 +49,17 @@ pub enum Unresolved {
     Unreadable { path: String },
 }
 
+/// One `\include` in the document: a chapter in LaTeX's sense, the unit `\includeonly` selects.
+/// LaTeX forbids `\include` inside an `\include`d file, so chapters never nest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chapter {
+    /// The argument exactly as written. `\includeonly` compares names, not files, so this is the
+    /// spelling a scoped build must repeat — `chapters/intro`, not `chapters/intro.tex`.
+    pub argument: String,
+    /// The file it resolves to: project-relative, forward slashes, the same key as [`Node::path`].
+    pub path: String,
+}
+
 /// The `\input`/`\include`/`\subfile` graph of one project, rooted at one file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncludeGraph {
@@ -55,6 +68,8 @@ pub struct IncludeGraph {
     /// Discovery order, root first — the order `document_files` reports it in.
     pub nodes: Vec<Node>,
     pub unresolved: Vec<Unresolved>,
+    /// Every `\include`, in the order the walk met them.
+    pub chapters: Vec<Chapter>,
 }
 
 impl IncludeGraph {
@@ -64,6 +79,29 @@ impl IncludeGraph {
     /// scope until the author fixes whatever `unresolved` is pointing at.
     pub fn is_complete(&self) -> bool {
         self.unresolved.is_empty()
+    }
+
+    /// The chapter `file` belongs to: the chapter itself, or the nearest one that reaches it
+    /// through `\input`s (a figure file `\input` by chapter 3 belongs to chapter 3). `None` for
+    /// the root, for files only the root's preamble or front matter reads, and for files the
+    /// graph never met. When two chapters both reach a file, the nearer one wins, then the
+    /// earlier one: a draft of either shows the edit.
+    pub fn chapter_of(&self, file: &str) -> Option<&Chapter> {
+        // Breadth-first up the `included_by` links, so the nearest chapter is found first.
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut queue: VecDeque<&str> = VecDeque::from([file]);
+        while let Some(current) = queue.pop_front() {
+            if !visited.insert(current) {
+                continue;
+            }
+            if let Some(chapter) = self.chapters.iter().find(|chapter| chapter.path == current) {
+                return Some(chapter);
+            }
+            if let Some(node) = self.nodes.iter().find(|node| node.path == current) {
+                queue.extend(node.included_by.iter().map(String::as_str));
+            }
+        }
+        None
     }
 }
 
@@ -81,6 +119,7 @@ pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
 
     let mut nodes: Vec<Node> = vec![Node { path: root_path.clone(), included_by: Vec::new(), exists: root_exists }];
     let mut unresolved: Vec<Unresolved> = Vec::new();
+    let mut chapters: Vec<Chapter> = Vec::new();
     // Keyed by resolved, forward-slash path, so `{intro}` and `{intro.tex}` collapse onto the
     // same node instead of becoming two, and a two-file cycle terminates instead of recursing.
     let mut visited: HashSet<String> = HashSet::new();
@@ -107,9 +146,12 @@ pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
 
         for directive in scan_includes(&text) {
             match directive {
-                Directive::Include { argument, line } => {
+                Directive::Include { command, argument, line } => {
                     match resolve_include_argument(project_dir, &base_dir, &argument) {
                         Some(resolved) => {
+                            if command == "include" && !chapters.iter().any(|chapter| chapter.path == resolved) {
+                                chapters.push(Chapter { argument: argument.clone(), path: resolved.clone() });
+                            }
                             add_edge(&mut nodes, &mut queue, &mut visited, &current_path, &resolved, depth, project_dir);
                         }
                         None => unresolved.push(Unresolved::OutsideProject {
@@ -126,7 +168,7 @@ pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
         }
     }
 
-    IncludeGraph { root: to_forward_slashes(root_relative), nodes, unresolved }
+    IncludeGraph { root: to_forward_slashes(root_relative), nodes, unresolved, chapters }
 }
 
 /// Records that `parent` includes `resolved`: adds a new node the first time `resolved` is seen,
@@ -359,5 +401,46 @@ mod tests {
             resolve_include_argument(dir.path(), Path::new("sections"), "../main"),
             Some("main.tex".to_string())
         );
+    }
+
+    // ---- chapters (S9.7) ----
+
+    #[test]
+    fn chapters_are_the_includes_as_written_and_inputs_are_not() {
+        let dir = done_when_scaffold();
+        let graph = build_graph(dir.path(), Path::new("main.tex"));
+        assert_eq!(graph.chapters, vec![Chapter { argument: "sections/intro".into(), path: "sections/intro.tex".into() }]);
+    }
+
+    #[test]
+    fn chapter_of_walks_up_through_inputs_and_stops_at_the_root() {
+        let dir = done_when_scaffold();
+        let graph = build_graph(dir.path(), Path::new("main.tex"));
+        let chapter = |file: &str| graph.chapter_of(file).map(|chapter| chapter.argument.as_str());
+        assert_eq!(chapter("sections/intro.tex"), Some("sections/intro"));
+        assert_eq!(chapter("sections/fig.tex"), Some("sections/intro"), "a file a chapter inputs is part of it");
+        assert_eq!(chapter("preamble.tex"), None, "the preamble belongs to no chapter");
+        assert_eq!(chapter("main.tex"), None);
+        assert_eq!(chapter("figures/plot.tex"), None, "a file outside the document has no chapter");
+    }
+
+    #[test]
+    fn a_file_two_chapters_share_belongs_to_the_first() {
+        let dir = scaffold(&[
+            ("main.tex", "\\include{one}\n\\include{two}\n"),
+            ("one.tex", "\\input{shared}\n"),
+            ("two.tex", "\\input{shared}\n"),
+            ("shared.tex", "Used twice.\n"),
+        ]);
+        let graph = build_graph(dir.path(), Path::new("main.tex"));
+        assert_eq!(graph.chapter_of("shared.tex").map(|chapter| chapter.argument.as_str()), Some("one"));
+    }
+
+    #[test]
+    fn chapter_of_terminates_on_a_cycle_with_no_chapter_in_it() {
+        let dir = scaffold(&[("main.tex", "\\input{a}\n"), ("a.tex", "\\input{b}\n"), ("b.tex", "\\input{a}\n")]);
+        let graph = build_graph(dir.path(), Path::new("main.tex"));
+        assert!(graph.chapters.is_empty());
+        assert_eq!(graph.chapter_of("b.tex"), None);
     }
 }

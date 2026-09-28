@@ -36,6 +36,7 @@ dependencies = [
 name = "abstract-tex-engine"
 version = "0.1.0"
 dependencies = [
+ "abstract-tex-includes",
  "abstract-tex-sidecar",
  "async-trait",
  "serde",

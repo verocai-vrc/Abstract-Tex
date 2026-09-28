@@ -273,7 +273,10 @@ the budget in §2 requires:
    pdfLaTeX system engine (S9.4).
 4. **Scoped preview.** For multi-file projects, generate a temporary `\includeonly` wrapper
    limited to the section under the cursor. Draft-quality, instantly available, with a full build
-   still running behind it.
+   still running behind it. **Measured** (S9.7): the unit is the `\include`d chapter the edited
+   file belongs to, and on the corpus thesis a draft of one chapter takes 2.1 s against 3.4 s for
+   the warm full pass — but a draft of *no* chapter still takes 1.9 s. The preamble is the floor,
+   and on the bundled engine nothing in rungs 1–4 goes below it.
 5. **Persistent engine process.** Amortise interpreter start-up. Last rung; only if measurement
    demands it.
 
@@ -528,6 +531,7 @@ thesis/
 ├── .git/               # the storage layer — remote is your GitHub repo
 └── .abstract-tex/      # gitignored, disposable, never in the source tree
     ├── build/          # .aux .bbl .pdf .synctex.gz
+    ├── draft/          # one-chapter draft: \includeonly wrapper + its own build/ (§5.1 rung 4)
     ├── formats/        # precompiled preamble dumps, keyed by hash
     ├── crdt/           # Yjs update log, comment anchors
     └── cache/          # diagnostics, bib index, model responses

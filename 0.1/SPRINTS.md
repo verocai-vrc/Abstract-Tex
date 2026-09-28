@@ -2925,7 +2925,8 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [~] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "pdflatex" \| "xelatex" \| "lualatex"` in `abstract-tex.toml`) | M | S9.1 |
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
 | [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
-| [ ] | S9.7 Scoped preview (DESIGN.md §5.1 rung 4): a temporary `\includeonly` build of the chapter under the cursor for an instant draft, with the full build behind it — the only rung left that shrinks the sixty pages themselves | L | S9.2, S9.3 |
+| [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
+| [ ] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
 | [ ] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 
 ```
@@ -3167,6 +3168,100 @@ should take from the diff:
 4. **`Project::info` caches by stamp, not by content.** `(exists, len, modified)` per walked file
    is enough to know nothing changed without opening anything; stamping missing files too is
    what makes a newly created chapter count as a change.
+
+```
+Loop      S9.7 · Scoped draft build · L
+Reads     DESIGN.md §5.1 rung 4, §5.8; crates/abstract-tex-includes (S4.1's graph); the spike below
+Depends   S9.2, S9.3
+Files     crates/abstract-tex-includes/src/{scan.rs,graph.rs,lib.rs},
+          crates/abstract-tex-engine/src/{draft.rs,lib.rs,tectonic.rs}, crates/abstract-tex-engine/tests/corpus.rs
+Build     Measure first, as S9.2 and S9.3 did. Then: the include graph records every `\include`
+          as written (`Chapter`) and answers which chapter a file belongs to, walking `\input`s
+          upwards. `draft::prepare` writes a wrapper `<draft dir>/<stem>.tex` —
+          `\includeonly{<chapter>}` then `\input` of the root by a relative path — and seeds the
+          draft's own build folder with the last full build's cross-reference files (never its
+          PDF, log or warm marker). `Engine::build_draft` runs one warm pass of the wrapper; the
+          default is "no draft mode". No draft when the full build is not warm, when a name would
+          need quoting in TeX, or when the draft folder is not beside the build folder.
+Verify    cargo test -p abstract-tex-includes; cargo test -p abstract-tex-engine;
+          cargo test -p abstract-tex-engine --test corpus -- --ignored a_thesis_chapter
+Done when on the corpus thesis a draft of the chapter the graph names builds with no undefined
+          reference, numbers the chapter as the full build does, leaves the full build's folder
+          byte-for-byte alone, and is faster than the warm full pass.
+```
+
+**S9.7 (28 September 2026).** `[x]`: rungs 1–3 green, on a Linux machine this time — `cargo test
+--workspace` 456 passed / 0 failed (13 new: 4 in `graph.rs`, 8 in `draft.rs`, 1 in `tectonic.rs`),
+clippy and `cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors, Vitest 418/418; rung
+3: `a_thesis_chapter_drafts_faster_with_the_full_builds_numbering` passes against the real engine
+— a draft of chapter 3 in **2.06 s, 14 pages**, against the warm full pass's **3.30 s, 62 pages**.
+The card was expanded at the start of the loop and cut in two by what the spike found: this loop
+is the library half, and showing the draft in the app is new card S9.9. The diff is 550 lines of
+Rust, over `CLAUDE.md`'s ~400, but 280 of them are tests; the implementation is about 270. What a
+reader should take from it:
+
+1. **The spike found a bug in S9.2 before it found anything about S9.7.** `--pass tex` writes a
+   `.xdv` and no PDF, so every warm build since S9.2 had left the previous PDF on screen. Fixed
+   first, in its own commit (`S9.2: a warm single pass writes the PDF…`, ledger); every number
+   below includes making the PDF.
+2. **The numbers, thesis, warm, this machine (12 cores).** Full single pass: 3.43 s. Draft of one
+   chapter: 2.12–2.21 s. Draft of *no* chapter (`\includeonly{}`): 1.88 s. Draft and full run
+   side by side: 2.08 s and 3.35 s, so no contention — the draft is on screen about 1.3 s before
+   the full PDF. **The floor is the preamble**: nothing a scoped build does gets the thesis below
+   1.9 s, so the v0.5 exit criterion (p95 under 1.2 s on this thesis) cannot be met on the bundled
+   engine by any rung left in §5.1. That is the maintainer's call to make, as S9.3 already said;
+   the options are to measure the criterion on a pdfLaTeX system engine (S9.4, where rung 3's
+   precompiled preamble works) or to restate it for the draft.
+3. **LaTeX already had the mechanism.** `\includeonly` makes every other `\include` read its
+   chapter's `.aux` instead of typesetting it, so page numbers, references and citations carry
+   over — if those `.aux` files are there. The draft's folder is therefore a fresh copy of the full
+   build's, minus outputs, every time; the proof is that the chapter's labels and counters come
+   out identical to the full build's. Not its raw bytes: hyperref names link targets from a
+   document-wide caption count that `\include` does not checkpoint (`figure.caption.4` against
+   `.8`) — consistent within each PDF, never shown, and not numbering.
+4. **Tectonic has no `--jobname`, which shapes the wrapper.** The job is named after the file, and
+   the `.aux`/`.bbl` it must find are the root's, so the wrapper is `<draft dir>/main.tex`. That
+   folder is searched first, so `\input{main}` found the wrapper itself (`TeX capacity exceeded`);
+   the root is reached by a relative path instead (`../../main.tex`), which also keeps the
+   project folder's own name — spaces and all — out of TeX. The root's folder is added to the
+   search path so its `\input{preamble}` still resolves.
+5. **`prepare` and `build_draft` are separate on purpose.** A full build removes its warm marker
+   and rewrites the `.aux` files the moment it starts, so seeding a draft concurrently with it
+   would copy half-written files. The caller seeds first, synchronously, then runs both. The
+   draft folder must sit beside the build folder, checked, because `prepare` clears it: a path
+   pointing at the project, or at an author's folder named `build`, gets no draft rather than a
+   deletion.
+6. **Which chapter is a fact about the document, so it lives in the include graph.** The crate's
+   rule — it never knows about `\includeonly` — still holds: it records `\include`s and answers
+   `chapter_of`; choosing what a build leaves out stays in the engine. `Directive::Include` gained
+   the command that wrote it, since `\input` and `\include` look the same to the graph otherwise.
+
+**Environment note, sandbox-specific.** The same `zig cc` shim S7.4 recorded is on this Linux
+machine's `PATH` and cannot build `ring` (`UnknownOperatingSystem`); every cargo run here used
+`CC=/usr/bin/gcc`, the system's real compiler. Nothing in the repository changed for it. This
+machine also has WebKitGTK, so it is the first here to run the app crate's tests in place.
+
+Not done here, on purpose: anything in `src-tauri/` or `src/` (S9.9); drafts under `latexmk`
+(the trait default says "no draft mode"; its rerun logic would need teaching to stop after one
+pass); a draft of a file only the preamble or front matter reads (no chapter, no draft).
+
+```
+Loop      S9.9 · Draft preview in the app · M
+Reads     DESIGN.md §5.1 rung 4, §6; S9.7's outcome (why `prepare` runs first)
+Depends   S9.7
+Files     src-tauri/src/{compile.rs,commands.rs,synctex.rs}, src/lib/{ipc.ts,controller.svelte.ts},
+          src/components/{PdfPane,StatusBar}.svelte
+Build     `compile` takes the file being edited. If the include graph gives it a chapter, the
+          orchestrator calls `draft::prepare` before starting the full build, then runs the draft
+          pass beside it under the same cancel token, and emits `draft` when it succeeds — never
+          after that generation's `finished` (one lock around both emits). The PDF pane shows the
+          draft and the status bar says it is one; SyncTeX in both directions reads the draft's
+          `.synctex.gz` while it is on screen; `finished` replaces it. A failed draft is silent:
+          the full build's diagnostics are the only ones shown.
+Verify    cargo test -p abstract-tex -- compile synctex; pnpm vitest run; rung 4 on the thesis
+Done when an edit to chapter 3 of the thesis shows its draft before the full PDF, a click in the
+          draft lands on the right line, and a draft never replaces a finished build.
+```
 
 ### Sprint 10–11 — v0.6 sync
 
