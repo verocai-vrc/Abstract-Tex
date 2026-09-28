@@ -168,6 +168,7 @@ mod tests {
             entries,
             citations: Vec::new(),
             has_nocite_star: false,
+            base_dir: std::path::PathBuf::new(),
         }
     }
 

@@ -38,6 +38,7 @@ use std::path::{Component, Path, PathBuf};
 use abstract_tex_includes::build_graph;
 use serde::Serialize;
 use texbib::{Bibliography, Entry, Span};
+use texlog::Fix;
 
 /// Everything the frontend needs about the project's bibliography, sent whole as the payload of
 /// the `bibliography:changed` event and as the answer to the `bibliography_index` command.
@@ -57,6 +58,11 @@ pub struct BibliographyIndex {
     /// the index still needs to carry, for the never-cited check (`health`, below) to skip
     /// entirely rather than report every single entry in the bibliography.
     pub has_nocite_star: bool,
+    /// The root file's folder, project-relative: what `\bibliography` arguments resolve against.
+    /// Only S8.8's fix needs it, to write a linked export's path the way the document would.
+    /// `#[serde(skip)]` because the frontend has no use for it and should not grow a field for it.
+    #[serde(skip)]
+    pub base_dir: PathBuf,
 }
 
 impl BibliographyIndex {
@@ -75,6 +81,7 @@ impl BibliographyIndex {
     pub fn health(&self, project_dir: &Path) -> Vec<Finding> {
         let mut findings = Vec::new();
         findings.extend(missing_bib_files(self));
+        findings.extend(linked_but_not_named(self, project_dir));
         findings.extend(undefined_citations(self));
         findings.extend(never_cited(self));
         findings.extend(duplicate_dois(self));
@@ -100,6 +107,11 @@ pub struct Finding {
     /// `.bib` entry's span for an entry-level finding, or only a file path for a linked export
     /// that is not on disk.
     pub jump: Jump,
+    /// A one-click edit to the `.tex` line `jump` names, in exactly the shape a compile
+    /// diagnostic's fix has (S6.2), so the frontend applies both the same way. Only S8.8's
+    /// linked-but-not-named finding offers one: every other finding either has no edit that
+    /// cannot be wrong, or points into a `.bib`, which no fix touches.
+    pub fix: Option<Fix>,
 }
 
 /// Mirrors `texbib::health::Severity` so both crates' findings render with the same two words;
@@ -157,6 +169,7 @@ fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
                     severity: HealthSeverity::Error,
                     message: format!("'{path}' is named here but is not in the project folder."),
                     jump: Jump::TexLine { file: tex_file.clone(), line: *line },
+                    fix: None,
                 },
                 BibOrigin::Outside { file: tex_file, line } => Finding {
                     rule: "missing-bib-file",
@@ -168,6 +181,7 @@ fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
                          and citations to them show as undefined."
                     ),
                     jump: Jump::TexLine { file: tex_file.clone(), line: *line },
+                    fix: None,
                 },
                 BibOrigin::Linked => Finding {
                     rule: "missing-bib-file",
@@ -177,10 +191,139 @@ fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
                          writes it while Zotero is running with the collection's automatic export on."
                     ),
                     jump: Jump::MissingFile { file: path.clone() },
+                    fix: None,
                 },
             }
         })
         .collect()
+}
+
+/// A linked export (S8.2) that the document does not name (S8.8). The index reads it, so
+/// completion offers its keys and the undefined-citation check counts them as defined — but
+/// BibTeX and Biber read only the files the document names, so in the PDF every citation that
+/// only this file defines prints as `[?]`. That disagreement between the panel and the engine is
+/// what this finding exists to remove: an error when such citations exist, a warning otherwise
+/// (the file's entries are still missing from the reference list).
+///
+/// The fix adds the file to the document's own last resource command, the one place that makes
+/// the engine and the index agree without the build doing anything the `.tex` does not say
+/// (DESIGN.md §2 rule 1). A document with no resource command gets no fix: where a new one
+/// belongs is the author's call.
+fn linked_but_not_named(index: &BibliographyIndex, project_dir: &Path) -> Vec<Finding> {
+    // Where the document names its bibliography, if it does: the last command, so a new
+    // resource lands after every existing one and changes no existing entry's precedence.
+    let last_named = index.files.iter().rev().find_map(|file| match &file.origin {
+        BibOrigin::Named { file, line } => Some((file.clone(), *line)),
+        _ => None,
+    });
+    let keys_the_engine_sees: std::collections::HashSet<&str> = index
+        .entries
+        .iter()
+        .filter(|entry| index.files.iter().any(|f| f.path == entry.file && !matches!(f.origin, BibOrigin::Linked)))
+        .map(|entry| entry.key.as_str())
+        .collect();
+
+    let mut findings = Vec::new();
+    // A linked export that is not on disk is S8.6's finding already; one cause, one finding.
+    for linked in index.files.iter().filter(|f| f.exists && matches!(f.origin, BibOrigin::Linked)) {
+        let only_here: std::collections::HashSet<&str> = index
+            .entries
+            .iter()
+            .filter(|entry| entry.file == linked.path && !keys_the_engine_sees.contains(entry.key.as_str()))
+            .map(|entry| entry.key.as_str())
+            .collect();
+        let cited_only_here =
+            only_here.iter().filter(|key| index.citations.iter().any(|c| c.key == **key)).count();
+
+        let path = &linked.path;
+        let (severity, message) = if cited_only_here > 0 {
+            let entries = if cited_only_here == 1 { "entry" } else { "entries" };
+            (
+                HealthSeverity::Error,
+                format!(
+                    "'{path}' is linked but the document does not name it, so BibTeX never reads it: \
+                     {cited_only_here} cited {entries} from it will print as [?]."
+                ),
+            )
+        } else {
+            (
+                HealthSeverity::Warning,
+                format!(
+                    "'{path}' is linked but the document does not name it, so its entries will not \
+                     appear in the PDF."
+                ),
+            )
+        };
+
+        let argument = relative_to(&index.base_dir, path);
+        let (jump, fix) = match &last_named {
+            Some((tex_file, line)) => {
+                let line_text = std::fs::read_to_string(project_dir.join(tex_file))
+                    .ok()
+                    .and_then(|text| text.lines().nth(*line as usize - 1).map(str::to_string));
+                let fix = line_text.and_then(|text| fix_adding_bib_resource(&text, &argument));
+                (Jump::TexLine { file: tex_file.clone(), line: *line }, fix)
+            }
+            // Nothing in the document to point at, so open the linked file itself.
+            None => (Jump::BibEntry { file: path.clone(), span: Span { start: 0, end: 0 } }, None),
+        };
+        findings.push(Finding { rule: "linked-not-named", severity, message, jump, fix });
+    }
+    findings
+}
+
+/// The edit that adds `argument` (a `.bib` path as the document would write it) to the resource
+/// command on `line_text`: one more stem in a `\bibliography{…}` list, or a new
+/// `\addbibresource{…}` line after an existing one. `None` when the line has neither, which is
+/// what makes a stale line number (the file changed since the index was built) a no-op rather
+/// than an edit in the wrong place — `locateFix` on the frontend checks the same text again.
+fn fix_adding_bib_resource(line_text: &str, argument: &str) -> Option<Fix> {
+    if let Some(command) = command_with_argument(line_text, "\\bibliography") {
+        let stem = argument.strip_suffix(".bib").unwrap_or(argument);
+        let replace = format!("{},{stem}}}", command.strip_suffix('}')?);
+        return Some(Fix {
+            description: format!("Add {stem} to \\bibliography"),
+            find: command,
+            replace,
+        });
+    }
+    let command = command_with_argument(line_text, "\\addbibresource")?;
+    Some(Fix {
+        description: format!("Add \\addbibresource{{{argument}}}"),
+        replace: format!("{command}\n\\addbibresource{{{argument}}}"),
+        find: command,
+    })
+}
+
+/// `name` and everything up to its first closing brace — `\bibliography{a,b}`, or
+/// `\addbibresource[datatype=bibtex]{refs.bib}` with its options — as written on the line.
+/// Resource arguments are file names, which never contain a nested brace, so the first `}` ends
+/// it. `\bibliographystyle` is not `\bibliography`: the character after the name must open the
+/// argument (or its options), not continue a longer command name.
+fn command_with_argument(line_text: &str, name: &str) -> Option<String> {
+    let mut search_from = 0;
+    while let Some(found) = line_text[search_from..].find(name) {
+        let start = search_from + found;
+        let rest = &line_text[start + name.len()..];
+        if rest.starts_with('{') || rest.starts_with('[') {
+            let end = rest.find('}')?;
+            return Some(line_text[start..start + name.len() + end + 1].to_string());
+        }
+        search_from = start + name.len();
+    }
+    None
+}
+
+/// `path` (project-relative) as seen from `base` (project-relative folder): how a document whose
+/// root file sits in `base` must write it. `..` for each level of `base` the path does not share.
+fn relative_to(base: &Path, path: &str) -> String {
+    let base_parts: Vec<String> =
+        base.components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect();
+    let path_parts: Vec<&str> = path.split('/').collect();
+    let shared = base_parts.iter().zip(&path_parts).take_while(|(a, b)| a.as_str() == **b).count();
+    let mut parts: Vec<&str> = vec![".."; base_parts.len() - shared];
+    parts.extend(&path_parts[shared..]);
+    parts.join("/")
 }
 
 /// A key cited somewhere but defined nowhere — one finding per *key*, not per citation, so
@@ -209,6 +352,7 @@ fn undefined_citations(index: &BibliographyIndex) -> Vec<Finding> {
                 severity: HealthSeverity::Error,
                 message,
                 jump: Jump::TexLine { file: first.file.clone(), line: first.line },
+                fix: None,
             }
         })
         .collect()
@@ -233,6 +377,7 @@ fn never_cited(index: &BibliographyIndex) -> Vec<Finding> {
             severity: HealthSeverity::Warning,
             message: format!("'{}' is defined but never cited.", entry.key),
             jump: Jump::BibEntry { file: entry.file.clone(), span: entry.span },
+            fix: None,
         })
         .collect()
 }
@@ -260,6 +405,7 @@ fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
                     severity: HealthSeverity::Warning,
                     message: format!("'{}' has the same DOI as {}.", entry.key, rest.join(", ")),
                     jump: Jump::BibEntry { file: entry.file.clone(), span: entry.span },
+                    fix: None,
                 }
             })
         })
@@ -282,6 +428,7 @@ fn entry_level_findings(index: &BibliographyIndex, project_dir: &Path) -> Vec<Fi
                 severity: finding.severity.into(),
                 message: finding.message,
                 jump: Jump::BibEntry { file: file.path.clone(), span: finding.at },
+                fix: None,
             });
         }
     }
@@ -449,7 +596,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
         entries.extend(summarise_file(&file.path, &bibliography));
     }
 
-    BibliographyIndex { files, entries, citations, has_nocite_star }
+    BibliographyIndex { files, entries, citations, has_nocite_star, base_dir }
 }
 
 /// One summary per entry of one parsed file, with `crossref` inheritance applied within it.
@@ -1056,6 +1203,84 @@ mod tests {
         let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n")]);
         let index = build_index(dir.path(), Path::new("main.tex"), &["refs.bib".to_string()]);
         assert_eq!(index.files[0].origin, BibOrigin::Named { file: "main.tex".to_string(), line: 1 });
+    }
+
+    // ---- linked but not named (S8.8) ----
+
+    const LINKED: &str = "@article{zot2020, author = {Z}, title = {T}, journal = {J}, year = 2020}\n";
+
+    fn linked_findings(tex: &str) -> (TempDir, Vec<Finding>) {
+        let dir = scaffold(&[("main.tex", tex), ("references.bib", ""), ("zotero/Thesis.bib", LINKED)]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/Thesis.bib".to_string()]);
+        let findings: Vec<Finding> =
+            index.health(dir.path()).into_iter().filter(|f| f.rule == "linked-not-named").collect();
+        (dir, findings)
+    }
+
+    #[test]
+    fn a_cited_linked_export_the_document_does_not_name_is_an_error_with_a_bibliography_fix() {
+        let (_dir, findings) = linked_findings("Text~\\cite{zot2020}.\n\n\\bibliography{references}\n");
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert_eq!(findings[0].severity, HealthSeverity::Error);
+        assert!(findings[0].message.contains("1 cited entry from it will print as [?]"), "{}", findings[0].message);
+        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 3 });
+        assert_eq!(
+            findings[0].fix,
+            Some(Fix {
+                description: "Add zotero/Thesis to \\bibliography".to_string(),
+                find: "\\bibliography{references}".to_string(),
+                replace: "\\bibliography{references,zotero/Thesis}".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn with_addbibresource_the_fix_adds_a_line_after_the_existing_one() {
+        let (_dir, findings) = linked_findings("\\addbibresource[datatype=bibtex]{references.bib}\n");
+        // Nothing cites it yet: the entries are still missing from the PDF, so a warning.
+        assert_eq!(findings[0].severity, HealthSeverity::Warning);
+        let fix = findings[0].fix.as_ref().expect("an addbibresource line has a fix");
+        assert_eq!(fix.find, "\\addbibresource[datatype=bibtex]{references.bib}");
+        assert_eq!(fix.replace, "\\addbibresource[datatype=bibtex]{references.bib}\n\\addbibresource{zotero/Thesis.bib}");
+    }
+
+    #[test]
+    fn without_any_resource_command_there_is_no_fix_and_the_jump_opens_the_export() {
+        let (_dir, findings) = linked_findings("No bibliography yet.\n");
+        assert_eq!(findings[0].fix, None);
+        assert_eq!(findings[0].jump, Jump::BibEntry { file: "zotero/Thesis.bib".to_string(), span: Span { start: 0, end: 0 } });
+    }
+
+    #[test]
+    fn applying_the_fix_makes_the_export_named_and_the_finding_goes_away() {
+        let (dir, findings) = linked_findings("\\cite{zot2020}\n\\bibliography{references}\n");
+        let fix = findings[0].fix.clone().unwrap();
+        let fixed = std::fs::read_to_string(dir.path().join("main.tex")).unwrap().replace(&fix.find, &fix.replace);
+        std::fs::write(dir.path().join("main.tex"), fixed).unwrap();
+
+        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/Thesis.bib".to_string()]);
+        let rules: Vec<&str> = index.health(dir.path()).iter().map(|f| f.rule).collect();
+        assert!(!rules.contains(&"linked-not-named"), "{rules:?}");
+        assert!(!rules.contains(&"undefined-citation"), "{rules:?}");
+    }
+
+    #[test]
+    fn a_root_file_in_a_subfolder_gets_a_path_relative_to_its_own_folder() {
+        assert_eq!(relative_to(Path::new(""), "zotero/Thesis.bib"), "zotero/Thesis.bib");
+        assert_eq!(relative_to(Path::new("paper"), "zotero/Thesis.bib"), "../zotero/Thesis.bib");
+        assert_eq!(relative_to(Path::new("paper"), "paper/zotero/Thesis.bib"), "zotero/Thesis.bib");
+        // And the argument the fix writes resolves back to the linked file, the round trip that
+        // makes the finding go away.
+        assert_eq!(resolve_bib_argument(Path::new("paper"), "../zotero/Thesis.bib"), Some("zotero/Thesis.bib".to_string()));
+    }
+
+    #[test]
+    fn bibliographystyle_is_not_mistaken_for_bibliography() {
+        assert_eq!(command_with_argument("\\bibliographystyle{plain}", "\\bibliography"), None);
+        assert_eq!(
+            command_with_argument("\\bibliographystyle{plain} \\bibliography{refs}", "\\bibliography").as_deref(),
+            Some("\\bibliography{refs}")
+        );
     }
 
     #[test]

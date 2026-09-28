@@ -7,7 +7,7 @@
   // mean inventing a raw view for something that never had one.
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
-  import { jumpToFinding, unlinkBibFile } from '../lib/controller.svelte';
+  import { applyFindingFix, jumpToFinding, unlinkBibFile } from '../lib/controller.svelte';
   import type { Finding } from '../lib/ipc';
 
   function close() {
@@ -17,6 +17,13 @@
   async function onClick(finding: Finding) {
     await jumpToFinding(finding);
     close();
+  }
+
+  // Same reason as `Drawer.svelte`'s fix button: the row is itself a "go there" button, so the
+  // fix's click must not bubble up and jump a second time.
+  async function onApplyFix(event: MouseEvent, finding: Finding) {
+    event.stopPropagation();
+    if (await applyFindingFix(finding)) close();
   }
 
   function onKeydown(event: KeyboardEvent, finding: Finding) {
@@ -61,6 +68,9 @@
                   >
                     <span class="severity">{finding.severity}</span>
                     <span class="message">{finding.message}</span>
+                    {#if finding.fix}
+                      <button class="ghost unlink" onclick={(e) => void onApplyFix(e, finding)}>{finding.fix.description}</button>
+                    {/if}
                   </div>
                 {/if}
               {/each}

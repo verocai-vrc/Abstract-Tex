@@ -36,9 +36,11 @@ Needs Zotero with Better BibTeX installed and a collection holding the rest of t
 2. Within a few seconds `zotero/<collection>.bib` appears in the file tree. If it does not, the
    bibliography count in the status bar shows an issue: open it, and the finding names the file
    and Better BibTeX (S8.6). Its **Unlink** button must work with Zotero closed (S8.7).
-3. **Known gap (S8.8):** BibTeX reads only files named in the document. Add the export to
-   `main.tex`'s last line: `\bibliography{references,zotero/<collection>}`. Record whether you
-   would have realised this without being told — that is the evidence S8.8 needs.
+3. BibTeX reads only files named in the document, so once you cite from the collection the
+   bibliography panel shows an error: the export is linked but not named (S8.8). Its button,
+   **Add zotero/<collection> to \bibliography**, edits `main.tex`'s last line; the error and
+   the undefined citations behind it both clear. Record whether the sentence alone told you
+   what was wrong.
 4. Cite the collection's entries with `\cite{` completion: each suggestion shows author, year and
    title, never a bare key (S7.3).
 

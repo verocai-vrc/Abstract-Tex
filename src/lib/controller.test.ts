@@ -129,6 +129,7 @@ vi.mock('./ipc', () => ({
 
 const {
   applyDiagnosticFix,
+  applyFindingFix,
   closeTab,
   goToOutlineItem,
   jumpToDiagnostic,
@@ -555,6 +556,48 @@ describe('applying a diagnostic fix (S6.2)', () => {
     app.project = null;
     const applied = await applyDiagnosticFix({ ...withAmpersand, file: null });
     expect(applied).toBe(false);
+  });
+});
+
+describe('applying a bibliography finding fix (S8.8)', () => {
+  const linkedNotNamed: Finding = {
+    rule: 'linked-not-named',
+    severity: 'error',
+    message: "'zotero/Thesis.bib' is linked but the document does not name it.",
+    jump: { kind: 'texLine', file: 'main.tex', line: 2 },
+    fix: {
+      description: 'Add zotero/Thesis to \\bibliography',
+      find: '\\bibliography{references}',
+      replace: '\\bibliography{references,zotero/Thesis}',
+    },
+  };
+
+  function setMainTexBuffer(text: string): void {
+    const doc = app.docs.get('main.tex')!;
+    doc.ytext.delete(0, doc.ytext.length);
+    doc.ytext.insert(0, text);
+  }
+
+  it('edits the named line through the CRDT, the same way a diagnostic fix does', async () => {
+    setMainTexBuffer('\\cite{zot2020}\n\\bibliography{references}\n');
+    const applied = await applyFindingFix(linkedNotNamed);
+    expect(applied).toBe(true);
+    expect(app.jumpRequest?.line).toBe(2);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('main.tex')).toBe('\\cite{zot2020}\n\\bibliography{references,zotero/Thesis}\n');
+  });
+
+  it('declines with a notice when the line changed since the index was built', async () => {
+    setMainTexBuffer('\\cite{zot2020}\n\\bibliography{other}\n');
+    expect(await applyFindingFix(linkedNotNamed)).toBe(false);
+    expect(app.notice).toContain('main.tex');
+  });
+
+  it('does nothing for a finding with no fix, or one that does not point at a .tex line', async () => {
+    expect(await applyFindingFix({ ...linkedNotNamed, fix: null })).toBe(false);
+    expect(await applyFindingFix({ ...linkedNotNamed, jump: { kind: 'missingFile', file: 'zotero/Thesis.bib' } })).toBe(
+      false,
+    );
   });
 });
 

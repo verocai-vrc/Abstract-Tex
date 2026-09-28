@@ -1915,7 +1915,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 | [~] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
 | [x] | S8.6 A `.bib` the index cannot read is a health finding: named but absent, outside the project, or a linked export not yet written | S | S8.2, S8.3 |
 | [x] | S8.7 Unlink a Zotero collection: remove its export path from `preamble.toml`'s `extra_bib_files` | S | S8.2 |
-| [ ] | S8.8 A linked export the document does not name is a finding with a one-click fix that adds it to the document's own `\bibliography`/`\addbibresource` — today its entries are indexed but never reach the PDF (ledger, 28 Sep 2026); needs the maintainer's call on editing the author's `.tex` | S | S8.6, S6.2 |
+| [x] | S8.8 A linked export the document does not name is a finding with a one-click fix that adds it to the document's own `\bibliography`/`\addbibresource` — its entries were indexed but never reached the PDF | S | S8.6, S6.2 |
 
 ```
 Loop      S8.1 · Zotero detection on port 23119 · S
@@ -2316,6 +2316,45 @@ should take from the diff:
    index record why each file is there, so the frontend needed no new state: `linkedFiles` is a
    filter over the index it already has. A file both linked and named is `named`, so it is not
    offered — unlinking it would change nothing visible, since the document still names it.
+
+```
+Loop      S8.8 · Linked but not named · S
+Reads     the ledger entry (28 Sep 2026) this closes; S6.2's outcome (the fix shape reused here);
+          DESIGN.md §2 rule 1 (plain files are the truth) and §5.2 (a fix only when it cannot be wrong)
+Depends   S8.6, S6.2
+Files     src-tauri/src/bibliography.rs, src/lib/ipc.ts, src/lib/controller.svelte.ts,
+          src/components/BibliographyHealth.svelte
+Build     A linked, existing export with `BibOrigin::Linked` is a finding: an error when some
+          citation is defined only there (it prints `[?]`), a warning otherwise. Its fix, when the
+          document has a resource command, adds the export to the last one — a stem in
+          `\bibliography{…}`, or a new `\addbibresource{…}` line — written relative to the root
+          file's folder. Applied like a diagnostic fix: find-on-this-line, through the CRDT.
+Verify    cargo test -p abstract-tex -- bibliography; pnpm vitest run; pnpm check
+Done when a cited entry from a linked-only export is an error with the right fix, applying the
+          fix clears both it and the undefined citations, and a document with no resource command
+          gets the finding without a fix.
+```
+
+**S8.8 (28 September 2026).** `[x]`: rungs 1–2 green — `cargo test --workspace` 425 passed / 0
+failed (6 new), clippy clean, `pnpm check` 443 / 0, Vitest 405/405 (3 new, `applyFindingFix`). No
+rung 4. Decided without a new maintainer call, on the precedent it reuses: S6.2 already
+established that a one-click fix may edit the author's `.tex` through the CRDT when the author
+clicks it, so this is the same kind of edit, not a new permission. What a reader should take from
+the diff:
+
+1. **Fix the document, not the build.** Passing linked files to the engine would have made the
+   PDF right while the `.tex` said otherwise — a project that builds differently here than on a
+   co-author's machine or in CI. The fix instead writes the one line an author would have written,
+   after which the export is `named`, and every check and the engine read the same list.
+2. **`Finding` carries `texlog::Fix` itself, not a copy.** The frontend already had `locateFix`
+   and `applyFix` for diagnostics; `applyFindingFix` is `applyDiagnosticFix` with a different
+   source for the line. A stale index (the line changed) finds nothing to replace and edits
+   nothing, the same safety S6.2 relies on.
+3. **`command_with_argument` refuses `\bibliographystyle`.** The one prefix trap in this shape;
+   it has its own test.
+4. **`base_dir` is on the index but `#[serde(skip)]`.** Only the fix needs the root file's folder
+   (for `../zotero/X` when the root sits in a subfolder, round-trip tested against
+   `resolve_bib_argument`); the frontend never sees it.
 
 **S8.5 (28 September 2026).** `[~]`: everything short of the upload is done and proven, the same
 place S6.5 stopped — `cargo package -p texbib` with and without `--features acquire` (42 files,

@@ -240,6 +240,27 @@ export async function linkZoteroCollection(collection: { path: string; name: str
 }
 
 /**
+ * Apply a bibliography finding's fix (S8.8) — the same find-on-this-line edit, through the CRDT
+ * and so undoable, that `applyDiagnosticFix` makes for a compile diagnostic. Only a `texLine`
+ * jump can carry one. When the line no longer holds the text the fix expects (the file changed
+ * since the index was built), nothing is edited and the notice says so.
+ */
+export async function applyFindingFix(finding: Finding): Promise<boolean> {
+  const { fix, jump } = finding;
+  if (!fix || jump.kind !== 'texLine') return false;
+  if (app.activePath !== jump.file) await openFile(jump.file);
+  const doc = manager.get(jump.file);
+  if (!doc) return false;
+  const applied = doc.applyFix(jump.line, fix);
+  if (applied) {
+    jumpToLine(jump.line);
+  } else {
+    app.notice = `Could not find "${fix.find}" on line ${jump.line} of ${jump.file} — nothing was changed.`;
+  }
+  return applied;
+}
+
+/**
  * Unlink a linked `.bib` (S8.7). The backend re-indexes and emits `bibliography:changed`, which is
  * what updates every list showing it; a failure (say, `abstract-tex.toml` not writable) becomes the
  * notice, the same way `linkZoteroCollection` reports one.

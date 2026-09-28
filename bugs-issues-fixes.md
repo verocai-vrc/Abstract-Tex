@@ -31,6 +31,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   add the export to the document's own command, as a one-click fix like S6.2's) or make the
   build differ from what the document says (pass extra files to the engine), and DESIGN.md §2
   rule 1 ("plain files are the truth") argues for the first.
+  **Fixed** (S8.8, 28 Sep 2026) the first way: a `linked-not-named` finding — an error when a
+  citation is defined only in the export — whose one-click fix adds the export to the document's
+  own resource command. Verified by `applying_the_fix_makes_the_export_named_and_the_finding_goes_away`.
 
 - **The workspace `repository` field points at `github.com/verocai-vrc/preamble`, but the
   repository is `github.com/verocai-vrc/Abstract-Tex`.** (S8.5, builder, 28 Sep 2026, found

@@ -65,7 +65,7 @@ describe('lineAtByteOffset (S8.3)', () => {
 
 describe('findingsByFile (S8.3)', () => {
   function finding(file: string, message: string): Finding {
-    return { rule: 'missing-field', severity: 'error', message, jump: { kind: 'bibEntry', file, span: { start: 0, end: 1 } } };
+    return { rule: 'missing-field', severity: 'error', message, jump: { kind: 'bibEntry', file, span: { start: 0, end: 1 } }, fix: null };
   }
 
   it('groups findings by file in first-appearance order', () => {
@@ -85,6 +85,7 @@ describe('findingsByFile (S8.3)', () => {
       severity: 'warning',
       message: 'not on disk yet',
       jump: { kind: 'missingFile', file: 'zotero/Thesis.bib' },
+      fix: null,
     };
     const groups = findingsByFile([finding('refs.bib', '1'), missing]);
     expect(groups.map((g) => g.file)).toEqual(['refs.bib', 'zotero/Thesis.bib']);
