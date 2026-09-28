@@ -1,6 +1,6 @@
 [package]
-name = "preamble-engine"
-description = "TeX engine abstraction for Preamble: probe an engine, run a build, cancel it."
+name = "abstract-tex-engine"
+description = "TeX engine abstraction for Abstract-Tex: probe an engine, run a build, cancel it."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-preamble-sidecar = { path = "../preamble-sidecar" }
+abstract-tex-sidecar = { path = "../abstract-tex-sidecar" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 thiserror = { workspace = true }

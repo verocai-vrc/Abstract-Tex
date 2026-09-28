@@ -3,6 +3,97 @@
 version = 3
 
 [[package]]
+name = "abstract-tex"
+version = "0.1.0"
+dependencies = [
+ "abstract-tex-engine",
+ "abstract-tex-includes",
+ "abstract-tex-lsp",
+ "abstract-tex-reconcile",
+ "abstract-tex-synctex",
+ "anyhow",
+ "async-trait",
+ "flate2",
+ "notify",
+ "notify-debouncer-mini",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tempfile",
+ "texbib",
+ "texlog",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "toml 1.1.5+spec-1.1.0",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "abstract-tex-engine"
+version = "0.1.0"
+dependencies = [
+ "abstract-tex-sidecar",
+ "async-trait",
+ "serde",
+ "tempfile",
+ "texlog",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "abstract-tex-includes"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
+name = "abstract-tex-lsp"
+version = "0.1.0"
+dependencies = [
+ "abstract-tex-sidecar",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "abstract-tex-reconcile"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "similar",
+]
+
+[[package]]
+name = "abstract-tex-sidecar"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "abstract-tex-synctex"
+version = "0.1.0"
+dependencies = [
+ "abstract-tex-sidecar",
+ "flate2",
+ "tempfile",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2514,97 +2605,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
-]
-
-[[package]]
-name = "preamble"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "flate2",
- "notify",
- "notify-debouncer-mini",
- "preamble-engine",
- "preamble-includes",
- "preamble-lsp",
- "preamble-reconcile",
- "preamble-synctex",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tempfile",
- "texbib",
- "texlog",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "toml 1.1.5+spec-1.1.0",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "preamble-engine"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "preamble-sidecar",
- "serde",
- "tempfile",
- "texlog",
- "thiserror 2.0.20",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
-name = "preamble-includes"
-version = "0.1.0"
-dependencies = [
- "tempfile",
-]
-
-[[package]]
-name = "preamble-lsp"
-version = "0.1.0"
-dependencies = [
- "preamble-sidecar",
- "serde_json",
- "tempfile",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "preamble-reconcile"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "serde",
- "similar",
-]
-
-[[package]]
-name = "preamble-sidecar"
-version = "0.1.0"
-dependencies = [
- "tempfile",
- "tracing",
-]
-
-[[package]]
-name = "preamble-synctex"
-version = "0.1.0"
-dependencies = [
- "flate2",
- "preamble-sidecar",
- "tempfile",
- "thiserror 2.0.20",
 ]
 
 [[package]]

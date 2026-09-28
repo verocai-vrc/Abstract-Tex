@@ -1,5 +1,5 @@
 [package]
-name = "preamble-synctex"
+name = "abstract-tex-synctex"
 description = "Parses .synctex.gz and answers forward (cursor to PDF) and inverse (click to source) queries."
 version.workspace = true
 edition.workspace = true
@@ -13,4 +13,4 @@ flate2 = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-preamble-sidecar = { path = "../preamble-sidecar" }
+abstract-tex-sidecar = { path = "../abstract-tex-sidecar" }

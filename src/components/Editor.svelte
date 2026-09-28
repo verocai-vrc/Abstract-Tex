@@ -145,7 +145,7 @@
         <p>Pick a file on the left, or press <kbd>Ctrl</kbd> <kbd>P</kbd>.</p>
       {:else}
         <p>
-          <strong>Preamble</strong><br />
+          <strong>Abstract-Tex</strong><br />
           Open a folder with a <code>.tex</code> file in it.<br />
           <kbd>Ctrl</kbd> <kbd>O</kbd>
         </p>

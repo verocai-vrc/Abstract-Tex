@@ -56,7 +56,7 @@
 
 <div class="app">
   <header class="toolbar">
-    <span class="title">Preamble</span>
+    <span class="title">Abstract-Tex</span>
     <button onclick={() => void openFolder()}>Open folder…</button>
     <span class="project-name">{app.project ? app.project.rootDir : 'No project open'}</span>
     <button

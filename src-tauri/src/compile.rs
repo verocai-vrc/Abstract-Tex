@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use preamble_engine::{BuildJob, Engine, EngineError};
+use abstract_tex_engine::{BuildJob, Engine, EngineError};
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -126,7 +126,7 @@ impl Orchestrator {
 
         // Progress lines arrive on a channel rather than through `on_event` directly, because
         // the engine only knows how to send lines — it must never know it is even talking to
-        // Tauri (preamble-engine's module doc). This task's only job is to relay each one as a
+        // Tauri (abstract-tex-engine's module doc). This task's only job is to relay each one as a
         // `CompileEvent::Progress` until the sender side (in the build task below) is dropped.
         let (progress_tx, mut progress_rx) = mpsc::unbounded_channel::<String>();
         let progress_on_event = Arc::clone(&on_event);
@@ -259,7 +259,7 @@ mod tests {
         assert!(json.get("root_file").is_none(), "root_file leaked: {json}");
     }
 
-    use preamble_engine::{BuildOutcome, EngineInfo};
+    use abstract_tex_engine::{BuildOutcome, EngineInfo};
     use std::path::PathBuf;
     use std::time::Duration;
     use tokio::sync::mpsc;
@@ -279,7 +279,7 @@ mod tests {
             &self,
             _job: &BuildJob,
             cancel: CancellationToken,
-            _progress: Option<preamble_engine::ProgressSink>,
+            _progress: Option<abstract_tex_engine::ProgressSink>,
         ) -> Result<BuildOutcome, EngineError> {
             tokio::select! {
                 _ = tokio::time::sleep(self.delay) => Ok(BuildOutcome {
@@ -305,7 +305,7 @@ mod tests {
             &self,
             _job: &BuildJob,
             _cancel: CancellationToken,
-            progress: Option<preamble_engine::ProgressSink>,
+            progress: Option<abstract_tex_engine::ProgressSink>,
         ) -> Result<BuildOutcome, EngineError> {
             if let Some(sink) = &progress {
                 let _ = sink.send("Downloading amsmath.sty".to_string());
@@ -327,7 +327,7 @@ mod tests {
         BuildJob {
             project_dir: PathBuf::from("."),
             root_file: PathBuf::from("main.tex"),
-            out_dir: PathBuf::from("./.preamble/build"),
+            out_dir: PathBuf::from("./.abstract-tex/build"),
             synctex: false,
         }
     }

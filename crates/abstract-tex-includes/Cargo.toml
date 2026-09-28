@@ -1,5 +1,5 @@
 [package]
-name = "preamble-includes"
+name = "abstract-tex-includes"
 description = "The \\input/\\include/\\subfile graph of a project: which files make up the document, and the 'no other file includes this one' check root detection needs."
 version.workspace = true
 edition.workspace = true

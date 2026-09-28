@@ -39,7 +39,7 @@ let lspHandler: (event: LspEvent) => void = () => {};
 const project: ProjectInfo = {
   rootDir: '/proj',
   rootFile: 'main.tex',
-  buildDir: '/proj/.preamble/build',
+  buildDir: '/proj/.abstract-tex/build',
   tree: [],
   // Every test that triggers a filesystem event uses main.tex (see `fileChanged` below), so a
   // complete graph that lists it is enough to keep `shouldCompileFor` compiling as these tests
@@ -69,7 +69,7 @@ vi.mock('./ipc', () => ({
     compile: async () => ++calls.compiles,
     diffOps: async (oldText: string, newText: string): Promise<TextOp[]> => {
       // Prefix/suffix trimming, as the Rust reconciler does. Its own correctness is proved by
-      // the proptests in preamble-reconcile; here it only has to leave untouched text alone.
+      // the proptests in abstract-tex-reconcile; here it only has to leave untouched text alone.
       let prefix = 0;
       while (prefix < oldText.length && prefix < newText.length && oldText[prefix] === newText[prefix]) prefix++;
       let suffix = 0;
@@ -439,8 +439,8 @@ describe('diagnostics (S2.7)', () => {
       status: 'finished',
       generation: 1,
       success,
-      pdfPath: success ? '/proj/.preamble/build/main.pdf' : null,
-      logPath: '/proj/.preamble/build/main.log',
+      pdfPath: success ? '/proj/.abstract-tex/build/main.pdf' : null,
+      logPath: '/proj/.abstract-tex/build/main.log',
       diagnostics,
       durationMs: 10,
       stderr: '',
@@ -576,8 +576,8 @@ describe('the drawer v1 (S6.3)', () => {
       status: 'finished',
       generation,
       success,
-      pdfPath: success ? '/proj/.preamble/build/main.pdf' : null,
-      logPath: '/proj/.preamble/build/main.log',
+      pdfPath: success ? '/proj/.abstract-tex/build/main.pdf' : null,
+      logPath: '/proj/.abstract-tex/build/main.log',
       diagnostics,
       durationMs: 10,
       stderr: '',

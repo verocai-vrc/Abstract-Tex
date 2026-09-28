@@ -6,7 +6,7 @@ import { lspCompletionSource } from './completion';
 
 /**
  * A real `textDocument/completion` reply from TexLab 5.26.0, captured by temporarily printing
- * the response inside `crates/preamble-lsp/tests/bridge.rs`'s
+ * the response inside `crates/abstract-tex-lsp/tests/bridge.rs`'s
  * `the_real_texlab_completes_an_environment_name` (S3.3a card, rung 3) rather than spawning a
  * server from Vitest. The request was completion inside `\begin{` on
  * `\documentclass{article}\n\begin{document}\n\begin{}\n\end{document}\n`, line 2 character 7 —

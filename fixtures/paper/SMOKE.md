@@ -7,8 +7,8 @@ Launch:
 
 ```
 pnpm tauri dev                       # then Ctrl+O and pick fixtures/paper
-PREAMBLE_OPEN=fixtures/paper pnpm tauri dev    # opens it on start (bash / CI)
-$env:PREAMBLE_OPEN='fixtures/paper'; pnpm tauri dev   # PowerShell
+ABSTRACT_TEX_OPEN=fixtures/paper pnpm tauri dev    # opens it on start (bash / CI)
+$env:ABSTRACT_TEX_OPEN='fixtures/paper'; pnpm tauri dev   # PowerShell
 ```
 
 On the maintainer's machine Tectonic needs the DNS workaround the first time a package is
@@ -25,9 +25,9 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 ## §2 External change and conflict (S2.1)
 
-1. In another editor, change a word in `main.tex` and save. The change appears in Preamble's
+1. In another editor, change a word in `main.tex` and save. The change appears in Abstract-Tex's
    editor without the cursor jumping, and a rebuild starts.
-2. Type in Preamble and, within 0.7 s, save a different change from the other editor. A red
+2. Type in Abstract-Tex and, within 0.7 s, save a different change from the other editor. A red
    bar appears: *changed on disk while you had unsaved edits*. Nothing was merged.
 3. *Load from disk* replaces the buffer with the disk version; *Keep mine* writes the buffer
    over the disk version. Either way the bar goes away and a build runs.
@@ -40,7 +40,7 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 2. Click the error: the cursor lands on that line.
 3. *Raw log* shows the log; *Hide raw output* hides it. The raw log is never shown by default.
 4. Restore the brace: the drawer closes on the next successful build.
-5. Delete `.preamble/` (or use a document with a package not yet cached) so Tectonic fetches
+5. Delete `.abstract-tex/` (or use a document with a package not yet cached) so Tectonic fetches
    packages on the next build. While it runs, the status bar's `Compiling… N.Ns` grows a
    `· Downloading <package>` suffix that changes as each package arrives — never a spinner
    frozen on the same text for the whole fetch.
@@ -79,9 +79,9 @@ Open `fixtures/broken` instead.
    Clicking it opens the drawer with an amber card marked WARNING: **`nosuch` is cited but not in
    the bibliography**.
 7. Trigger an error the catalog does not know (e.g. `\hspace{99999pt}`): the card has a dashed
-   border and says Preamble has no explanation yet, quoting TeX — still never the raw log.
+   border and says Abstract-Tex has no explanation yet, quoting TeX — still never the raw log.
 8. Grouping and filtering (S6.3) need more than one file: open a fresh copy of `fixtures/thesis`
-   (no `.preamble/build` yet), add a line with a bare `_` to the end of
+   (no `.abstract-tex/build` yet), add a line with a bare `_` to the end of
    `sections/background.tex`, and build. The error halts the run before the pass that resolves
    cross-references, so on a first build every `\ref` is also an undefined-reference warning —
    six of them, four in `background` and two in `introduction`; a build directory that already

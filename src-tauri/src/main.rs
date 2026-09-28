@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    preamble_lib::run()
+    abstract_tex_lib::run()
 }

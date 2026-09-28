@@ -241,7 +241,7 @@ export async function linkZoteroCollection(collection: { path: string; name: str
 
 /**
  * Unlink a linked `.bib` (S8.7). The backend re-indexes and emits `bibliography:changed`, which is
- * what updates every list showing it; a failure (say, `preamble.toml` not writable) becomes the
+ * what updates every list showing it; a failure (say, `abstract-tex.toml` not writable) becomes the
  * notice, the same way `linkZoteroCollection` reports one.
  */
 export async function unlinkBibFile(path: string): Promise<void> {
@@ -428,7 +428,7 @@ export async function start(): Promise<void> {
     app.engine = null;
     app.notice = `Could not probe the TeX engine: ${String(error)}`;
   }
-  // `preamble <folder>` on the command line, or PREAMBLE_OPEN in the environment.
+  // `abstract-tex <folder>` on the command line, or ABSTRACT_TEX_OPEN in the environment.
   const initial = await ipc.initialProject();
   if (initial) await openFolder(initial);
 }

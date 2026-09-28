@@ -10,8 +10,8 @@ import { locateFix } from './fix';
 import type { Fix, TextOp } from './ipc';
 
 /** Transaction origins that are *not* the author typing. */
-export const ORIGIN_LOAD = 'preamble:load';
-export const ORIGIN_EXTERNAL = 'preamble:external';
+export const ORIGIN_LOAD = 'abstract-tex:load';
+export const ORIGIN_EXTERNAL = 'abstract-tex:external';
 
 /** How long the keyboard must be idle before we write to disk (DESIGN.md §3). */
 export const SAVE_DELAY_MS = 700;

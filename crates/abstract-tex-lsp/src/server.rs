@@ -14,8 +14,8 @@ use tracing::{debug, info};
 use crate::transport::{encode, FrameReader};
 use crate::LspError;
 
-/// Set this to point Preamble at a specific TexLab binary. Useful for testing a new release.
-pub const ENV_OVERRIDE: &str = "PREAMBLE_TEXLAB";
+/// Set this to point Abstract-Tex at a specific TexLab binary. Useful for testing a new release.
+pub const ENV_OVERRIDE: &str = "ABSTRACT_TEX_TEXLAB";
 
 /// The language server. Holds only the path it resolved; `spawn` starts a fresh process.
 #[derive(Debug, Clone)]
@@ -28,10 +28,10 @@ pub struct TexLab {
 
 impl TexLab {
     /// Locate a TexLab binary, or return `LspError::NotFound`. The search order — an explicit
-    /// `PREAMBLE_TEXLAB`, then the bundled sidecar, then `PATH` — lives in `preamble-sidecar`,
+    /// `ABSTRACT_TEX_TEXLAB`, then the bundled sidecar, then `PATH` — lives in `abstract-tex-sidecar`,
     /// shared with the engine.
     pub fn locate() -> Result<Self, LspError> {
-        match preamble_sidecar::locate("texlab", ENV_OVERRIDE) {
+        match abstract_tex_sidecar::locate("texlab", ENV_OVERRIDE) {
             Some(found) => Ok(Self::at(found.path)),
             None => Err(LspError::NotFound),
         }

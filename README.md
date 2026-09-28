@@ -1,10 +1,10 @@
-# Preamble
+# Abstract-Tex
 
 *(working name — see [`0.1/DESIGN.md`](0.1/DESIGN.md) §10)*
 
 **A local-first LaTeX editor for people who write papers, not servers.**
 
-Preamble is an open-source desktop LaTeX editor built on one idea: **compilation belongs on
+Abstract-Tex is an open-source desktop LaTeX editor built on one idea: **compilation belongs on
 the machine the author is already sitting at**, not on a shared queue somewhere else. Once that
 is true, most of what makes hosted LaTeX painful — the queue wait, the compile-time cap, the
 timeout on your thesis, the manuscript living in a database you do not administer — simply stops
@@ -21,7 +21,7 @@ existing. Everything else in the project is a consequence of that choice.
 ## Why this exists
 
 Overleaf is really three products fused together — an editor, a compiler, and a filestore — and
-you cannot take one without the other two. Preamble unbundles them:
+you cannot take one without the other two. Abstract-Tex unbundles them:
 
 - **The compiler is local.** A bundled [Tectonic](https://tectonic-typesetting.github.io/)
   engine compiles on your machine, with no TeX Live install to sit through first.
@@ -33,7 +33,7 @@ you cannot take one without the other two. Preamble unbundles them:
 
 ### The numbers behind "local"
 
-| Stage            | Hosted    | Preamble (local, warm) |
+| Stage            | Hosted    | Abstract-Tex (local, warm) |
 | ---------------- | --------: | ---------------------: |
 | sync / debounce  | 0.3 s     | 0.7 s *(keyboard idle)* |
 | **queue wait**   | **1.5 s** | **—**                 |
@@ -50,12 +50,12 @@ with benchmark-corpus measurements once that exists.)*
 
 ## What makes it different
 
-Once latency is solved, the editor still has to be worth using. Preamble spends its entire
+Once latency is solved, the editor still has to be worth using. Abstract-Tex spends its entire
 remaining budget on three subsystems that serious LaTeX users currently work around with a pile
 of external tools:
 
 - **Errors are explained, not shown.** `! Missing $ inserted.` is a true statement that tells a
-  first-time author nothing. Preamble resolves every diagnostic to a real `file:line` and
+  first-time author nothing. Abstract-Tex resolves every diagnostic to a real `file:line` and
   rewrites it as a sentence about *your* document, with a one-click fix where the correction is
   unambiguous. The raw log stays one click away, forever — but it is never the default.
 - **Citations without the browser.** Paste a DOI, arXiv ID or ISBN and the BibTeX entry appears,
@@ -72,7 +72,7 @@ fully useful.
 
 ---
 
-## What Preamble is *not*
+## What Abstract-Tex is *not*
 
 These are stated non-goals, not missing features:
 
@@ -109,7 +109,7 @@ flowchart LR
 ```
 
 A `.tex` file on disk is always the authoritative state — the CRDT is a session model, never a
-storage format, which is what keeps the file plain and Git-clean. Uninstalling Preamble leaves
+storage format, which is what keeps the file plain and Git-clean. Uninstalling Abstract-Tex leaves
 your paper completely intact and completely normal.
 
 ---
@@ -171,13 +171,13 @@ pnpm tauri dev        # builds the Rust core, starts Vite, opens the window
 ```
 
 Then `Ctrl O` and pick a folder with a `.tex` file in it — `fixtures/paper` is a good first one.
-To open a folder on launch: `PREAMBLE_OPEN=fixtures/paper pnpm tauri dev`.
+To open a folder on launch: `ABSTRACT_TEX_OPEN=fixtures/paper pnpm tauri dev`.
 
 `pnpm verify` runs everything CI runs: Rust tests and clippy, `svelte-check`, Vitest.
-`cargo test -p preamble-engine -- --ignored` compiles a fixture with the real engine.
+`cargo test -p abstract-tex-engine -- --ignored` compiles a fixture with the real engine.
 [`.github/workflows/verify.yml`](.github/workflows/verify.yml) does all of that on Linux,
 Windows and macOS for every push, and builds the app crate on each — run `pnpm build` first if
-you want `cargo build -p preamble` to work locally, since the app embeds `dist/`.
+you want `cargo build -p abstract-tex` to work locally, since the app embeds `dist/`.
 
 Repository layout: `src-tauri/` is the Tauri app crate, `crates/` holds the engine wrapper,
 the CRDT reconciler and the log parser as standalone crates, `src/` is the Svelte frontend,

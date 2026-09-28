@@ -243,7 +243,7 @@ impl Transport for HttpTransport {
     fn get(&self, url: &str) -> Result<(u16, String), String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
-            .user_agent("preamble (https://github.com/verocai-vrc/preamble)")
+            .user_agent("abstract-tex (https://github.com/verocai-vrc/Abstract-Tex)")
             .build()
             .map_err(|err| err.to_string())?;
         let response = client.get(url).send().map_err(|err| err.to_string())?;

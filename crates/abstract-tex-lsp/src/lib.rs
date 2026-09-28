@@ -9,7 +9,7 @@
 //! CodeMirror behaviour (DESIGN.md §4.1).
 //!
 //! It must never touch the editor or the filesystem beyond spawning the process, and must
-//! never depend on Tauri, so `cargo test -p preamble-lsp` runs with no window open.
+//! never depend on Tauri, so `cargo test -p abstract-tex-lsp` runs with no window open.
 
 pub mod bridge;
 pub mod server;
@@ -20,10 +20,10 @@ pub use server::{Running, TexLab, ENV_OVERRIDE};
 pub use transport::{encode, FrameReader};
 
 /// Why the language server could not be used. `thiserror` derives `Display` and `Error` from
-/// the `#[error]` lines, the same way `preamble-engine` does for its errors.
+/// the `#[error]` lines, the same way `abstract-tex-engine` does for its errors.
 #[derive(Debug, thiserror::Error)]
 pub enum LspError {
-    #[error("no TexLab binary found (set PREAMBLE_TEXLAB, or run `pnpm fetch-lsp`)")]
+    #[error("no TexLab binary found (set ABSTRACT_TEX_TEXLAB, or run `pnpm fetch-lsp`)")]
     NotFound,
     #[error("could not start TexLab: {0}")]
     Spawn(#[source] std::io::Error),

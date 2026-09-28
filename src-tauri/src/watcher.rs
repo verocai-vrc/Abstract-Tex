@@ -3,7 +3,7 @@
 //! Owns: turning raw `notify` events into a small, debounced stream of "this path changed"
 //! notifications, with two filters applied:
 //!
-//! 1. Paths under `.preamble/` and `.git/` are dropped. The engine writes into the first on
+//! 1. Paths under `.abstract-tex/` and `.git/` are dropped. The engine writes into the first on
 //!    every build and Git churns the second; neither is an edit to the manuscript.
 //! 2. Files whose content matches what *we* just wrote are dropped. Otherwise every debounced
 //!    save would come back as an "external change" and the reconciler would run a no-op diff.
@@ -96,7 +96,8 @@ where
 fn is_ignored(path: &Path) -> bool {
     path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
-        name == ".preamble" || name == ".git" || name.ends_with(".preamble-tmp")
+        // `.preamble` is the state folder from before the rename (see `project.rs`).
+        name == ".abstract-tex" || name == ".preamble" || name == ".git" || name.ends_with(".abstract-tex-tmp")
     })
 }
 
@@ -147,8 +148,8 @@ mod tests {
         std::thread::sleep(Duration::from_millis(200));
 
         let target = dir.path().join("main.tex");
-        remember_write(&written, &target, b"from preamble");
-        std::fs::write(&target, "from preamble").unwrap();
+        remember_write(&written, &target, b"from the app");
+        std::fs::write(&target, "from the app").unwrap();
 
         assert!(
             wait_for_event(&rx, Duration::from_millis(1500)).is_none(),
@@ -159,7 +160,7 @@ mod tests {
     #[test]
     fn build_directory_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
-        let build = dir.path().join(".preamble").join("build");
+        let build = dir.path().join(".abstract-tex").join("build");
         std::fs::create_dir_all(&build).unwrap();
         let (tx, rx) = mpsc::channel();
         let _watcher = watch(dir.path(), WrittenHashes::default(), move |e| {
@@ -175,9 +176,9 @@ mod tests {
 
     #[test]
     fn ignore_rules_match_state_and_git_dirs() {
-        assert!(is_ignored(Path::new("C:/p/.preamble/build/main.pdf")));
+        assert!(is_ignored(Path::new("C:/p/.abstract-tex/build/main.pdf")));
         assert!(is_ignored(Path::new("/p/.git/index")));
-        assert!(is_ignored(Path::new("/p/main.tex.preamble-tmp")));
+        assert!(is_ignored(Path::new("/p/main.tex.abstract-tex-tmp")));
         assert!(!is_ignored(Path::new("/p/sections/intro.tex")));
     }
 }

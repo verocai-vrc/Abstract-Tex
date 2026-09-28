@@ -8,7 +8,7 @@ chapter, a recent article) — its identifiers are the input; nothing here is a 
 Launch:
 
 ```
-PREAMBLE_OPEN=fixtures/bibliography-demo pnpm tauri dev
+ABSTRACT_TEX_OPEN=fixtures/bibliography-demo pnpm tauri dev
 ```
 
 Keep a tally as you go: references added by paste, references added through Zotero, and

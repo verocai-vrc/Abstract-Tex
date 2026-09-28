@@ -1,6 +1,6 @@
 [package]
-name = "preamble-sidecar"
-description = "Finds a helper program Preamble bundles (Tectonic, TexLab): env override, then the sidecar beside our executable, then PATH."
+name = "abstract-tex-sidecar"
+description = "Finds a helper program Abstract-Tex bundles (Tectonic, TexLab): env override, then the sidecar beside our executable, then PATH."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -17,7 +17,7 @@
 //! recorded exit demo, and it keeps the rule catalog honest against this document on every
 //! `pnpm verify`. `the_real_engine_walk_resolves_every_mistake` repeats the walk with the real
 //! Tectonic (ignored by default, like the engine's own real-build test), and re-records the
-//! captures when `PREAMBLE_RECORD_TORTURE` is set, so the two can never quietly drift apart.
+//! captures when `ABSTRACT_TEX_RECORD_TORTURE` is set, so the two can never quietly drift apart.
 //!
 //! This file must never assert on TeX's own wording: the drawer never shows it, so neither
 //! should the exit criterion depend on it.
@@ -25,8 +25,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use preamble_engine::tectonic::Tectonic;
-use preamble_engine::{BuildJob, Engine, EngineError};
+use abstract_tex_engine::tectonic::Tectonic;
+use abstract_tex_engine::{BuildJob, Engine, EngineError};
 use texlog::{Diagnostic, Severity};
 use tokio_util::sync::CancellationToken;
 
@@ -146,7 +146,7 @@ fn is_chapter(diagnostic: &Diagnostic, chapter: &str) -> bool {
 fn the_recorded_walk_still_resolves_every_mistake() {
     for step in 0..MISTAKES.len() {
         let log = fs::read_to_string(capture_path(step)).unwrap_or_else(|e| {
-            panic!("step {}: no capture ({e}); run the ignored test with PREAMBLE_RECORD_TORTURE=1", step + 1)
+            panic!("step {}: no capture ({e}); run the ignored test with ABSTRACT_TEX_RECORD_TORTURE=1", step + 1)
         });
         check_step(step, &texlog::diagnostics(&log));
     }
@@ -166,20 +166,20 @@ async fn the_real_engine_walk_resolves_every_mistake() {
     let engine = match Tectonic::locate() {
         Ok(engine) => engine,
         Err(EngineError::NotFound) => {
-            let found = preamble_sidecar::in_repo_binaries("tectonic", &repo_root())
+            let found = abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root())
                 .expect("run `pnpm fetch-engine` first");
             Tectonic::at(found)
         }
         Err(e) => panic!("{e}"),
     };
-    let record = std::env::var_os("PREAMBLE_RECORD_TORTURE").is_some();
+    let record = std::env::var_os("ABSTRACT_TEX_RECORD_TORTURE").is_some();
 
     let tmp = tempfile::tempdir().unwrap();
     copy_project(&torture_dir(), tmp.path());
     let job = BuildJob {
         project_dir: tmp.path().to_path_buf(),
         root_file: PathBuf::from("main.tex"),
-        out_dir: tmp.path().join(".preamble/build"),
+        out_dir: tmp.path().join(".abstract-tex/build"),
         synctex: false,
     };
 

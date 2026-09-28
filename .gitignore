@@ -9,10 +9,10 @@ node_modules/
 /src-tauri/binaries/*
 !/src-tauri/binaries/.gitkeep
 
-# Per-project state Preamble writes for itself. Never source (DESIGN.md §2, rule 2).
-.preamble/
+# Per-project state Abstract-Tex writes for itself. Never source (DESIGN.md §2, rule 2).
+.abstract-tex/
 # The atomic-write temp files from src-tauri/src/commands.rs.
-*.preamble-tmp
+*.abstract-tex-tmp
 
 # Build artifacts next to a .tex, for anyone who has run a system TeX in these folders.
 *.aux
@@ -29,7 +29,7 @@ node_modules/
 # point of both crates that read them.
 !crates/texlog/fixtures/**/*.log
 !fixtures/**/*.log
-!crates/preamble-synctex/fixtures/**/*.synctex.gz
+!crates/abstract-tex-synctex/fixtures/**/*.synctex.gz
 
 # OS and editor noise
 .DS_Store

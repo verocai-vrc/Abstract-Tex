@@ -38,7 +38,7 @@ export function citationsByKey(index: BibliographyIndex | null): Map<string, Cit
  * offsets — BibTeX files are commonly UTF-8 with non-ASCII author names, so a JS string index
  * (UTF-16 code units) cannot be compared to one directly. `TextEncoder` re-encodes the text once
  * and counts `\n` bytes (0x0A, which never appears as a continuation byte in UTF-8) up to the
- * offset — the same reasoning `crates/preamble-reconcile` uses on the Rust side of this same
+ * offset — the same reasoning `crates/abstract-tex-reconcile` uses on the Rust side of this same
  * byte/unit boundary, just going the other way. */
 export function lineAtByteOffset(text: string, byteOffset: number): number {
   const bytes = new TextEncoder().encode(text);
@@ -71,7 +71,7 @@ export function findingsByFile(findings: Finding[]): FindingGroup[] {
 }
 
 /** The linked `.bib` files (S8.7: what "Unlink" can offer) — those listed because
- * `preamble.toml` links them, not because the document names them. A file the document also names
+ * `abstract-tex.toml` links them, not because the document names them. A file the document also names
  * is `named`, and unlinking it would change nothing the author could see, so it is not offered. */
 export function linkedFiles(index: BibliographyIndex | null): string[] {
   return (index?.files ?? []).filter((file) => file.origin.kind === 'linked').map((file) => file.path);

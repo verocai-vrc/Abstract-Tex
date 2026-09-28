@@ -99,7 +99,7 @@ export interface FsEvent {
   exists: boolean;
 }
 
-/** One CRDT edit from preamble-reconcile: at `index` (UTF-16 units) delete, then insert. */
+/** One CRDT edit from abstract-tex-reconcile: at `index` (UTF-16 units) delete, then insert. */
 export interface TextOp {
   index: number;
   delete: number;
@@ -149,7 +149,7 @@ export interface BibFile {
   /** One sentence per item `texbib` could not parse, with the byte offset it gave up at. */
   problems: Array<{ message: string; at: number }>;
   /** Why the index lists it (S8.6): a `\bibliography`-style command inside or outside the
-   * project, at that `.tex` file and line, or a linked Zotero export from `preamble.toml`. */
+   * project, at that `.tex` file and line, or a linked Zotero export from `abstract-tex.toml`. */
   origin: BibOrigin;
 }
 
@@ -301,7 +301,7 @@ export const ipc = {
    * should live; Better BibTeX keeps it current from then on, and this app only ever reads it. */
   linkZoteroCollection: (collectionPath: string, outputPath: string) =>
     invoke<void>('link_zotero_collection', { collectionPath, outputPath }),
-  /** Unlink (S8.7): drop `path` from `preamble.toml`'s linked `.bib` files. Leaves the file on
+  /** Unlink (S8.7): drop `path` from `abstract-tex.toml`'s linked `.bib` files. Leaves the file on
    * disk and Zotero untouched, so it works with Zotero closed. */
   unlinkBibFile: (path: string) => invoke<void>('unlink_bib_file', { path }),
 

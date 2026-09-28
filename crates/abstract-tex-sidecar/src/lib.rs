@@ -26,7 +26,7 @@ pub struct Found {
     pub source: Source,
 }
 
-/// Locate `name` (e.g. `"tectonic"`), honouring `env_override` (e.g. `"PREAMBLE_TECTONIC"`).
+/// Locate `name` (e.g. `"tectonic"`), honouring `env_override` (e.g. `"ABSTRACT_TEX_TECTONIC"`).
 ///
 /// Order matters and is deliberate:
 /// 1. The environment variable — an explicit choice always wins, and it is how a developer
@@ -60,7 +60,7 @@ pub fn locate(name: &str, env_override: &str) -> Option<Found> {
 
 /// Tauri places `externalBin` sidecars beside the main executable, with the target triple
 /// stripped from the name: `binaries/tectonic-x86_64-pc-windows-msvc.exe` in the repo becomes
-/// `tectonic.exe` next to `preamble.exe`. This is true in `tauri dev` too, because
+/// `tectonic.exe` next to `abstract-tex.exe`. This is true in `tauri dev` too, because
 /// `tauri-build` copies sidecars into `target/debug/`.
 pub fn sidecar_path(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -116,17 +116,17 @@ mod tests {
         let fake = dir.path().join("fake-program");
         std::fs::write(&fake, b"").unwrap();
         // Each test picks its own variable name so they cannot race on a shared one.
-        std::env::set_var("PREAMBLE_SIDECAR_TEST_A", &fake);
-        let found = locate("nothing-called-this-exists", "PREAMBLE_SIDECAR_TEST_A");
-        std::env::remove_var("PREAMBLE_SIDECAR_TEST_A");
+        std::env::set_var("ABSTRACT_TEX_SIDECAR_TEST_A", &fake);
+        let found = locate("nothing-called-this-exists", "ABSTRACT_TEX_SIDECAR_TEST_A");
+        std::env::remove_var("ABSTRACT_TEX_SIDECAR_TEST_A");
         assert_eq!(found, Some(Found { path: fake, source: Source::EnvOverride }));
     }
 
     #[test]
     fn env_override_pointing_nowhere_is_ignored_not_fatal() {
-        std::env::set_var("PREAMBLE_SIDECAR_TEST_B", "/definitely/not/here");
-        let found = locate("nothing-called-this-exists", "PREAMBLE_SIDECAR_TEST_B");
-        std::env::remove_var("PREAMBLE_SIDECAR_TEST_B");
+        std::env::set_var("ABSTRACT_TEX_SIDECAR_TEST_B", "/definitely/not/here");
+        let found = locate("nothing-called-this-exists", "ABSTRACT_TEX_SIDECAR_TEST_B");
+        std::env::remove_var("ABSTRACT_TEX_SIDECAR_TEST_B");
         assert_eq!(found, None);
     }
 

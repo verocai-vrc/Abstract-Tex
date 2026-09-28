@@ -26,7 +26,7 @@ contains one: not a single one has a second. A log can still hold several *warni
 point (`torture` has two), and warnings alone never halt a run at all (`undefined-reference`,
 `duplicate-label`), but "many `!` errors in one real log" is not a shape this engine ever
 produces. S6.4's twenty-error torture document (`fixtures/torture/`, at the repository root) is
-therefore twenty-one compiles, not one: `crates/preamble-engine/tests/torture.rs` "fixes" one
+therefore twenty-one compiles, not one: `crates/abstract-tex-engine/tests/torture.rs` "fixes" one
 chapter per step and checks the next mistake, and `fixtures/torture/captures/` holds each step's
 real log.
 
@@ -79,8 +79,8 @@ real log.
 | `verb-end-of-line` | Tectonic 0.17.0 (XeTeX) | `\verb|unterminated` with no closing `|` on the same line: `! LaTeX Error: \verb ended by end of line.` S6.1. |
 | `package-after-begin-document` | Tectonic 0.17.0 (XeTeX) | `\usepackage{amsmath}` written after `\begin{document}`: `! LaTeX Error: Can be used only in preamble.` — the message never names the command; the `preamble-only-command` rule reads it off the `l.NN` context line with `trailing_command`, the same technique `fragile-command-in-moving-argument` above already uses. S6.1. |
 
-Capture a new one with the engine flags Preamble itself uses:
+Capture a new one with the engine flags Abstract-Tex itself uses:
 
 ```
-tectonic --outdir .preamble/build --keep-logs --keep-intermediates --synctex --chatter minimal main.tex
+tectonic --outdir .abstract-tex/build --keep-logs --keep-intermediates --synctex --chatter minimal main.tex
 ```

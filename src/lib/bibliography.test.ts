@@ -92,7 +92,7 @@ describe('findingsByFile (S8.3)', () => {
 });
 
 describe('linkedFiles (S8.7)', () => {
-  it('offers only files preamble.toml links, not ones the document names', () => {
+  it('offers only files abstract-tex.toml links, not ones the document names', () => {
     const index: BibliographyIndex = {
       files: [
         { path: 'refs.bib', exists: true, entryCount: 1, problems: [], origin: { kind: 'named', file: 'main.tex', line: 9 } },

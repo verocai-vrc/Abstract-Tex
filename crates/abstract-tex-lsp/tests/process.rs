@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use preamble_lsp::{LspError, TexLab};
+use abstract_tex_lsp::{LspError, TexLab};
 
 fn echo_server() -> TexLab {
     TexLab::at(env!("CARGO_BIN_EXE_fake-lsp-echo"))
@@ -86,7 +86,7 @@ fn kill_probe(pid: u32) -> bool {
 }
 
 /// Talks to the real TexLab. Ignored by default because it needs the sidecar fetched
-/// (`pnpm fetch-lsp`). `cargo test -p preamble-lsp -- --ignored` runs it.
+/// (`pnpm fetch-lsp`). `cargo test -p abstract-tex-lsp -- --ignored` runs it.
 #[tokio::test]
 #[ignore]
 async fn the_real_texlab_answers_initialize() {
@@ -94,7 +94,7 @@ async fn the_real_texlab_answers_initialize() {
         Ok(t) => t,
         Err(LspError::NotFound) => {
             let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            TexLab::at(preamble_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp` first"))
+            TexLab::at(abstract_tex_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp` first"))
         }
         Err(e) => panic!("{e}"),
     };
@@ -104,7 +104,7 @@ async fn the_real_texlab_answers_initialize() {
     // `format!("file://{path}")` is wrong on Windows: a path there is `C:\Users\...`, so the
     // result keeps its backslashes and has only two slashes — TexLab reads `C:` as the host and
     // exits. `path_to_uri` is the one place that conversion lives.
-    let uri = preamble_lsp::bridge::path_to_uri(root.path());
+    let uri = abstract_tex_lsp::bridge::path_to_uri(root.path());
     let initialize = format!(
         r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"processId":null,"rootUri":"{uri}","capabilities":{{}}}}}}"#
     );

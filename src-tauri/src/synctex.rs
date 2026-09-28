@@ -1,6 +1,6 @@
 //! SyncTeX forward search (S3.4) and inverse search (S3.5), wired to the open project.
 //!
-//! `preamble-synctex` knows nothing about a project layout — it takes a `.synctex.gz` path and
+//! `abstract-tex-synctex` knows nothing about a project layout — it takes a `.synctex.gz` path and
 //! answers a position query. This module owns exactly the part that crate cannot: finding *which*
 //! `.synctex.gz` belongs to the open project (the same `build_dir / stem` convention `commands
 //! ::read_log` already uses for `.log`), and turning its typed errors into the plain sentences
@@ -12,7 +12,7 @@
 
 use std::path::{Path, PathBuf};
 
-use preamble_synctex::{PdfPosition, SourceLocation, SyncTex, SyncTexError};
+use abstract_tex_synctex::{PdfPosition, SourceLocation, SyncTex, SyncTexError};
 use serde::{Deserialize, Serialize};
 
 /// What the frontend sends for a forward search: a source position.
@@ -99,8 +99,8 @@ mod tests {
 
     #[test]
     fn synctex_path_is_named_after_the_root_files_stem() {
-        let path = synctex_path(Path::new("/proj/.preamble/build"), Path::new("main.tex"));
-        assert_eq!(path, PathBuf::from("/proj/.preamble/build/main.synctex.gz"));
+        let path = synctex_path(Path::new("/proj/.abstract-tex/build"), Path::new("main.tex"));
+        assert_eq!(path, PathBuf::from("/proj/.abstract-tex/build/main.synctex.gz"));
     }
 
     #[test]
@@ -130,7 +130,7 @@ mod tests {
         assert_eq!(result.file, None);
     }
 
-    /// The whole S3.5 chain against `preamble-synctex`'s own real fixture: `open` finds the
+    /// The whole S3.5 chain against `abstract-tex-synctex`'s own real fixture: `open` finds the
     /// `.synctex.gz` this module resolves the path for, `inverse_search` answers from it, and
     /// `to_relative` turns the hit into the shape `synctex_inverse`'s caller gets back — the same
     /// three calls the Tauri command makes, minus the `State` plumbing `commands.rs` adds.
@@ -147,7 +147,7 @@ mod tests {
         let source = project.path().join("multi.tex");
         let forward = table.forward_search(&source, 3).expect("line 3 is on page 1");
 
-        let position = preamble_synctex::PdfPosition { page: forward.page, x: forward.x, y: forward.y };
+        let position = abstract_tex_synctex::PdfPosition { page: forward.page, x: forward.x, y: forward.y };
         let hit = table.inverse_search(position).expect("a record exists at this exact point");
         let result = to_relative(project.path(), hit);
 
@@ -155,7 +155,7 @@ mod tests {
         assert_eq!(result.line, 3);
     }
 
-    /// Copy `preamble-synctex`'s committed fixture into `folder`, rewriting its `Input:1:` line to
+    /// Copy `abstract-tex-synctex`'s committed fixture into `folder`, rewriting its `Input:1:` line to
     /// `folder/multi.tex`. SyncTeX records the absolute path Tectonic saw when it built the file —
     /// the original author's Windows folder — so the unmodified fixture only matched on that one
     /// machine, and `to_relative`'s `strip_prefix` cannot split a Windows path on Linux or macOS
@@ -166,7 +166,7 @@ mod tests {
         use flate2::{read::GzDecoder, write::GzEncoder, Compression};
         use std::io::{Read, Write};
 
-        let committed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/preamble-synctex/fixtures/multi.synctex.gz");
+        let committed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/abstract-tex-synctex/fixtures/multi.synctex.gz");
         let mut text = String::new();
         GzDecoder::new(std::fs::File::open(committed).unwrap()).read_to_string(&mut text).unwrap();
 

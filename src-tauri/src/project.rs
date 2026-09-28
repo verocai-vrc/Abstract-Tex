@@ -1,9 +1,14 @@
 //! A project is a folder (DESIGN.md §5.8). Nothing more.
 //!
 //! This module owns: opening a folder, listing its files, finding the root `.tex`, and reading
-//! and writing `preamble.toml`. It must never write anything into the source tree except
-//! `preamble.toml` and the files the author edits; every other artifact goes under `.preamble/`,
-//! which must be deletable at any moment at the cost of one slow compile.
+//! and writing `abstract-tex.toml`. It must never write anything into the source tree except
+//! `abstract-tex.toml` and the files the author edits; every other artifact goes under
+//! `.abstract-tex/`, which must be deletable at any moment at the cost of one slow compile.
+//!
+//! The app was called Preamble until September 2026, and projects opened by that build carry a
+//! `preamble.toml` and a `.preamble/` folder. The first is read when there is no new config and
+//! moved to the new name the first time the config is saved; the second is disposable build
+//! output, so it is only kept out of the file tree and the watcher, never read or deleted.
 
 use std::collections::HashSet;
 use std::fs;
@@ -13,20 +18,25 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 /// The one configuration file a project may carry. Human-editable, diff-friendly TOML.
-pub const CONFIG_FILE: &str = "preamble.toml";
+pub const CONFIG_FILE: &str = "abstract-tex.toml";
 /// Disposable per-project state. Gitignored by the file we drop inside it.
-pub const STATE_DIR: &str = ".preamble";
+pub const STATE_DIR: &str = ".abstract-tex";
 /// Where the engine writes `.pdf`, `.log`, `.aux` and friends.
 pub const BUILD_SUBDIR: &str = "build";
+/// The config file's name before the rename (see the module doc).
+pub const LEGACY_CONFIG_FILE: &str = "preamble.toml";
+/// The state folder's name before the rename. Still ignored, so an old project does not show a
+/// stale build folder in its tree or recompile when something inside it changes.
+pub const LEGACY_STATE_DIR: &str = ".preamble";
 
 /// Directories we never list and never watch.
-const IGNORED_DIRS: &[&str] = &[".git", ".preamble", "node_modules", ".svn", ".hg"];
+const IGNORED_DIRS: &[&str] = &[".git", STATE_DIR, LEGACY_STATE_DIR, "node_modules", ".svn", ".hg"];
 /// Build junk left behind by other tools in the source tree. Hidden, not deleted: not ours.
 const JUNK_EXTENSIONS: &[&str] = &[
     "aux", "log", "out", "toc", "bbl", "blg", "fls", "fdb_latexmk", "nav", "snm", "lof", "lot", "bcf", "xdv",
 ];
 
-/// `preamble.toml`, deserialised. Every field is optional so an empty file is valid.
+/// `abstract-tex.toml`, deserialised. Every field is optional so an empty file is valid.
 ///
 /// `#[serde(default)]` on the struct means missing fields take their `Default` value instead of
 /// failing to parse; `derive(Default)` supplies that value.
@@ -77,7 +87,7 @@ pub struct ProjectInfo {
     /// forward-slash (S4.1). Empty when there is no root file to walk from.
     pub document_files: Vec<String>,
     /// `false` when at least one directive in the document could not be resolved
-    /// (`preamble_includes::IncludeGraph::is_complete`). The frontend's `shouldCompileFor` falls
+    /// (`abstract_tex_includes::IncludeGraph::is_complete`). The frontend's `shouldCompileFor` falls
     /// back to recompiling on every `.tex` change while this is false: an include graph that
     /// might be missing a file is a worse mistake to compile around than an extra rebuild.
     pub document_files_complete: bool,
@@ -91,7 +101,7 @@ pub struct Project {
 }
 
 impl Project {
-    /// Open a folder as a project. Creates `.preamble/build/` and nothing else.
+    /// Open a folder as a project. Creates `.abstract-tex/build/` and nothing else.
     pub fn open(dir: &Path) -> Result<Self> {
         // `absolute` cleans up `.` and `..` without touching the filesystem. We avoid
         // `canonicalize` on purpose: on Windows it returns `\\?\C:\...` paths, which are correct
@@ -107,7 +117,7 @@ impl Project {
         fs::create_dir_all(state_dir.join(BUILD_SUBDIR))
             .with_context(|| format!("could not create {}", state_dir.display()))?;
         // Belt and braces: even before the project is a Git repository with our .gitignore,
-        // a `*` inside .preamble/ keeps it out of any `git add .` the author might run.
+        // a `*` inside .abstract-tex/ keeps it out of any `git add .` the author might run.
         let keep_out = state_dir.join(".gitignore");
         if !keep_out.exists() {
             fs::write(&keep_out, "*\n")?;
@@ -132,7 +142,7 @@ impl Project {
         detect_root(&self.root_dir)
     }
 
-    /// Record a root file choice in `preamble.toml`.
+    /// Record a root file choice in `abstract-tex.toml`.
     pub fn set_root_file(&mut self, relative: &str) -> Result<()> {
         let resolved = self.resolve(relative)?;
         if !resolved.is_file() {
@@ -157,7 +167,7 @@ impl Project {
     /// Only the list entry goes: the `.bib` on disk is the author's and stays, and Better BibTeX's
     /// auto-export in Zotero is left as it is, since removing it would be a second write to Zotero
     /// that DESIGN.md §5.4 does not allow. Unlinking a path that is not listed changes nothing and
-    /// does not rewrite `preamble.toml`.
+    /// does not rewrite `abstract-tex.toml`.
     pub fn remove_extra_bib_file(&mut self, relative: &str) -> Result<()> {
         let normalised = relative.replace('\\', "/");
         let before = self.config.project.extra_bib_files.len();
@@ -169,9 +179,16 @@ impl Project {
     }
 
     pub fn save_config(&self) -> Result<()> {
-        let text = toml::to_string_pretty(&self.config).context("could not serialise preamble.toml")?;
-        let header = "# Preamble project configuration. Safe to edit by hand; safe to commit.\n\n";
+        let text = toml::to_string_pretty(&self.config).context("could not serialise abstract-tex.toml")?;
+        let header = "# Abstract-Tex project configuration. Safe to edit by hand; safe to commit.\n\n";
         write_atomically(&self.root_dir.join(CONFIG_FILE), &format!("{header}{text}"))?;
+        // Only after the new file is safely written: a project still carrying the pre-rename
+        // config has now had its contents carried over, so the old file goes rather than leaving
+        // two configs that could drift apart.
+        let legacy = self.root_dir.join(LEGACY_CONFIG_FILE);
+        if legacy.is_file() {
+            fs::remove_file(&legacy).with_context(|| format!("could not remove {}", legacy.display()))?;
+        }
         Ok(())
     }
 
@@ -206,7 +223,7 @@ impl Project {
         let root_file = self.root_file();
         let (document_files, document_files_complete) = match &root_file {
             Some(root) => {
-                let graph = preamble_includes::build_graph(&self.root_dir, root);
+                let graph = abstract_tex_includes::build_graph(&self.root_dir, root);
                 // `is_complete` first: `into_iter()` below moves `graph.nodes` out of `graph`,
                 // and calling it after would be a partial-move error (a method on `graph` used
                 // once one of its fields has already been moved out).
@@ -229,7 +246,10 @@ impl Project {
 }
 
 fn load_config(root_dir: &Path) -> Result<ProjectConfig> {
-    let path = root_dir.join(CONFIG_FILE);
+    let mut path = root_dir.join(CONFIG_FILE);
+    if !path.exists() {
+        path = root_dir.join(LEGACY_CONFIG_FILE);
+    }
     if !path.exists() {
         return Ok(ProjectConfig::default());
     }
@@ -296,9 +316,9 @@ fn collect_documentclass_files(
         // a document's root is overwhelmingly at the top level in practice — the `main.tex` fast
         // path above already covers the common case where it is not this file doing the
         // including. `build_graph` re-resolves properly once a root is actually chosen.
-        for directive in preamble_includes::scan_includes(&text) {
-            if let preamble_includes::Directive::Include { argument, .. } = directive {
-                if let Some(target) = preamble_includes::resolve_include_argument(root, Path::new(""), &argument) {
+        for directive in abstract_tex_includes::scan_includes(&text) {
+            if let abstract_tex_includes::Directive::Include { argument, .. } = directive {
+                if let Some(target) = abstract_tex_includes::resolve_include_argument(root, Path::new(""), &argument) {
                     included.insert(target);
                 }
             }
@@ -354,7 +374,7 @@ fn is_ignored_dir(name: &str) -> bool {
 }
 
 fn is_junk_file(name: &str) -> bool {
-    if name.ends_with(".synctex.gz") || name.ends_with(".run.xml") || name.ends_with(".preamble-tmp") {
+    if name.ends_with(".synctex.gz") || name.ends_with(".run.xml") || name.ends_with(".abstract-tex-tmp") {
         return true;
     }
     Path::new(name)
@@ -362,7 +382,7 @@ fn is_junk_file(name: &str) -> bool {
         .is_some_and(|ext| JUNK_EXTENSIONS.contains(&ext.to_string_lossy().as_ref()))
 }
 
-/// Windows paths use `\`; the frontend and `preamble.toml` always use `/`.
+/// Windows paths use `\`; the frontend and `abstract-tex.toml` always use `/`.
 pub fn to_forward_slashes(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
@@ -372,7 +392,7 @@ pub fn to_forward_slashes(path: &Path) -> String {
 /// atomic on every filesystem we care about (DESIGN.md §9, first row).
 pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
     let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let temp = path.with_file_name(format!("{file_name}.preamble-tmp"));
+    let temp = path.with_file_name(format!("{file_name}.abstract-tex-tmp"));
     fs::write(&temp, contents)?;
     // `rename` replaces an existing destination on Windows too (MoveFileEx with REPLACE_EXISTING).
     fs::rename(&temp, path).inspect_err(|_| {
@@ -442,7 +462,7 @@ mod tests {
             ("main.aux", ""),
             ("main.synctex.gz", ""),
             (".git/HEAD", ""),
-            (".preamble/build/main.pdf", ""),
+            (".abstract-tex/build/main.pdf", ""),
             ("sections/b.tex", ""),
             ("sections/A.tex", ""),
             ("refs.bib", ""),
@@ -459,17 +479,17 @@ mod tests {
 
     #[test]
     fn open_creates_state_dir_and_reads_config() {
-        let dir = scaffold(&[("paper.tex", "\\documentclass{article}"), ("preamble.toml", "[project]\nroot = \"paper.tex\"\n")]);
+        let dir = scaffold(&[("paper.tex", "\\documentclass{article}"), ("abstract-tex.toml", "[project]\nroot = \"paper.tex\"\n")]);
         let project = Project::open(dir.path()).unwrap();
         assert!(project.build_dir().is_dir());
-        assert!(dir.path().join(".preamble/.gitignore").is_file());
+        assert!(dir.path().join(".abstract-tex/.gitignore").is_file());
         assert_eq!(project.config.project.root.as_deref(), Some("paper.tex"));
         assert_eq!(project.root_file(), Some(PathBuf::from("paper.tex")));
     }
 
     #[test]
     fn missing_configured_root_falls_back_to_detection() {
-        let dir = scaffold(&[("main.tex", ""), ("preamble.toml", "[project]\nroot = \"gone.tex\"\n")]);
+        let dir = scaffold(&[("main.tex", ""), ("abstract-tex.toml", "[project]\nroot = \"gone.tex\"\n")]);
         let project = Project::open(dir.path()).unwrap();
         assert_eq!(project.root_file(), Some(PathBuf::from("main.tex")));
     }
@@ -546,11 +566,34 @@ mod tests {
     }
 
     #[test]
-    fn unlinking_a_path_that_is_not_linked_does_not_touch_preamble_toml() {
+    fn unlinking_a_path_that_is_not_linked_does_not_touch_the_config_file() {
         let dir = scaffold(&[("main.tex", "")]);
         let mut project = Project::open(dir.path()).unwrap();
         project.remove_extra_bib_file("zotero/never-linked.bib").unwrap();
         assert!(!dir.path().join(CONFIG_FILE).exists());
+    }
+
+    #[test]
+    fn a_pre_rename_config_is_read_then_moved_to_the_new_name_on_save() {
+        let dir = scaffold(&[
+            ("paper.tex", "\\documentclass{article}"),
+            (LEGACY_CONFIG_FILE, "[project]\nroot = \"paper.tex\"\n"),
+        ]);
+        let mut project = Project::open(dir.path()).unwrap();
+        assert_eq!(project.root_file(), Some(PathBuf::from("paper.tex")));
+
+        project.add_extra_bib_file("zotero/Thesis.bib").unwrap();
+        assert!(dir.path().join(CONFIG_FILE).is_file());
+        assert!(!dir.path().join(LEGACY_CONFIG_FILE).exists());
+        // Nothing was lost in the move: the root survives alongside the new setting.
+        let reopened = Project::open(dir.path()).unwrap();
+        assert_eq!(reopened.root_file(), Some(PathBuf::from("paper.tex")));
+        assert_eq!(reopened.config.project.extra_bib_files, vec!["zotero/Thesis.bib"]);
+    }
+
+    #[test]
+    fn the_pre_rename_state_folder_is_not_listed() {
+        assert!(is_ignored_dir(LEGACY_STATE_DIR));
     }
 
     #[test]

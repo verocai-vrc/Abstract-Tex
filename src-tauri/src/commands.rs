@@ -7,8 +7,8 @@
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
-use preamble_engine::{BuildJob, EngineInfo};
-use preamble_reconcile::TextOp;
+use abstract_tex_engine::{BuildJob, EngineInfo};
+use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::bibliography::{self, BibliographyIndex, Finding};
@@ -21,7 +21,7 @@ use crate::AppState;
 
 /// Tauri needs command errors to be serialisable. A `String` is the simplest thing that is, and
 /// every error here is destined for a person anyway, so we flatten `anyhow`/`thiserror` errors
-/// to their message at this edge (see the note in `preamble_engine`).
+/// to their message at this edge (see the note in `abstract_tex_engine`).
 type CommandResult<T> = Result<T, String>;
 
 fn to_message(error: impl Display) -> String {
@@ -35,20 +35,20 @@ fn with_project<T>(state: &AppState, f: impl FnOnce(&mut Project) -> anyhow::Res
     f(project).map_err(to_message)
 }
 
-/// A folder to open at launch: the first command-line argument, or `PREAMBLE_OPEN`.
-/// `preamble C:\thesis` is how a desktop app is expected to behave; the environment variable
+/// A folder to open at launch: the first command-line argument, or `ABSTRACT_TEX_OPEN`.
+/// `abstract-tex C:\thesis` is how a desktop app is expected to behave; the environment variable
 /// is for smoke tests and CI, where passing arguments through `tauri dev` is awkward.
 #[tauri::command]
 pub fn initial_project() -> Option<String> {
     folder_from_args(std::env::args().skip(1))
-        .or_else(|| std::env::var("PREAMBLE_OPEN").ok().filter(|p| Path::new(p).is_dir()))
+        .or_else(|| std::env::var("ABSTRACT_TEX_OPEN").ok().filter(|p| Path::new(p).is_dir()))
 }
 
 /// The folder named by the command line, if it names one.
 ///
 /// Takes the arguments rather than reading them, so it can be tested.
 ///
-/// A path with spaces is the case worth the extra code. `preamble C:\My Thesis` reaches us as
+/// A path with spaces is the case worth the extra code. `abstract-tex C:\My Thesis` reaches us as
 /// one argument when it was quoted, but as `["C:\My", "Thesis"]` when it was not — and this
 /// repository's own path contains spaces, so the unquoted form is not a corner case. We try the
 /// whole tail joined first, then the first argument alone; whichever is a directory wins. The
@@ -211,7 +211,7 @@ pub fn read_log(state: State<'_, AppState>) -> CommandResult<String> {
 /// UTF-16 conversion is the kind of detail we want in one tested place.
 #[tauri::command]
 pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
-    preamble_reconcile::diff_ops(&old, &new)
+    abstract_tex_reconcile::diff_ops(&old, &new)
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +338,7 @@ pub async fn list_zotero_libraries() -> CommandResult<Vec<texbib::acquire::zoter
 
 /// Link a Zotero collection (S8.2): ask Better BibTeX to keep `output_path` (project-relative,
 /// under the project so the bibliography watcher can see it) auto-exported from `collection_path`
-/// in BibTeX format, then record `output_path` in `preamble.toml`'s `extra_bib_files` so the next
+/// in BibTeX format, then record `output_path` in `abstract-tex.toml`'s `extra_bib_files` so the next
 /// index build reads it. The two steps are not one transaction — if Better BibTeX accepts the
 /// auto-export but saving the config fails, the author sees the config error and the auto-export
 /// is registered but unused, which `add_extra_bib_file`'s idempotence lets a retry fix without a
@@ -364,7 +364,7 @@ pub async fn link_zotero_collection(
     Ok(())
 }
 
-/// Unlink a collection (S8.7): drop `path` from `preamble.toml`'s `extra_bib_files` and re-index.
+/// Unlink a collection (S8.7): drop `path` from `abstract-tex.toml`'s `extra_bib_files` and re-index.
 /// No request to Zotero and no file deleted — see `Project::remove_extra_bib_file` for why — so,
 /// unlike linking, this works whether or not Zotero is running, which is exactly when an author
 /// most needs it: a linked export that will never appear because Zotero is gone.
@@ -426,7 +426,7 @@ pub fn synctex_inverse(state: State<'_, AppState>, query: InverseQuery) -> Comma
     with_project(&state, |project| {
         let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
         let table = synctex::open(&project.build_dir(), &root_file).map_err(|e| anyhow::anyhow!(e))?;
-        let position = preamble_synctex::PdfPosition { page: query.page, x: query.x, y: query.y };
+        let position = abstract_tex_synctex::PdfPosition { page: query.page, x: query.x, y: query.y };
         let hit = table
             .inverse_search(position)
             .ok_or_else(|| anyhow::anyhow!("Nothing on page {} of the last build near that point.", query.page))?;
@@ -436,7 +436,7 @@ pub fn synctex_inverse(state: State<'_, AppState>, query: InverseQuery) -> Comma
 
 // ---------------------------------------------------------------------------
 // Language server (S3.2). Thin, like everything else here: the session owns the
-// process, `preamble-lsp` owns the protocol, and these four functions only pass
+// process, `abstract-tex-lsp` owns the protocol, and these four functions only pass
 // messages between the frontend and the bridge.
 // ---------------------------------------------------------------------------
 

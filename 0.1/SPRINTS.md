@@ -1,6 +1,12 @@
-# Preamble — Sprint Plan and Agent Development Loops
+# Abstract-Tex — Sprint Plan and Agent Development Loops
 
 **Rev A · 9 September 2026 · Companion to [`DESIGN.md`](DESIGN.md)**
+
+> **Renamed 28 September 2026.** The app was called *Preamble* until then. Dated outcome
+> paragraphs below are a record and keep the names they were written with; read `preamble-*`
+> crates as `abstract-tex-*`, the app crate `preamble` as `abstract-tex`, `preamble.toml` as
+> `abstract-tex.toml`, `.preamble/` as `.abstract-tex/` and `PREAMBLE_*` as `ABSTRACT_TEX_*`.
+> Everything forward-looking (cards not yet run, §4, §5) uses the new names.
 
 `DESIGN.md` says *what* and *why*. This file says *in which order, in what size pieces, and how
 each piece proves itself*. It is written to be executed by an AI coding agent working with a
@@ -2867,7 +2873,7 @@ per-project engine switching · S9.5 CI performance gate that fails the build.
 ### Sprint 10–11 — v0.6 sync
 
 S10.1 snapshot-on-compile to a hidden ref (**first three days, before anything else**) · S10.2
-`preamble-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
+`abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo · S10.3 activity bar and Source Control view, 1:1 VS Code · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
 confirmation · S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`) · S11.2 conflicts
@@ -2892,7 +2898,7 @@ start):
 - *Writer additions, not in VS Code:* commit box pre-filled from outline + diff
   (*"Revised §3.2 Methods, +240 words"*), computed without a model — rule 6 · word-count delta
   on every graph row · `.tex` diff opens a CodeMirror merge view · two graph rows → `latexdiff`
-  PDF in the preview pane (S11.4) · `.preamble/` and build junk in `.gitignore` on init.
+  PDF in the preview pane (S11.4) · `.abstract-tex/` and build junk in `.gitignore` on init.
 - *Plumbing.* Status refresh is event-driven: the existing watcher debounces into a
   `git:status-changed` event; the frontend never polls. Graph v1 is a single-lane list of the
   first 200 commits with lazy loading; lane drawing for branches is a later loop if wanted.
@@ -2932,10 +2938,10 @@ open. Change them here and in `DESIGN.md` before changing code.
 |---|---|---|
 | Frontend framework | **Svelte 5** (runes) | The design's recommendation; it does not compete with CodeMirror or pdf.js for DOM ownership. |
 | Licence | **AGPL-3.0-only** for the app; `texlog` and `bib` crates **MIT** when extracted | As proposed in §10. `LICENSE` at the root; per-crate `license` fields. |
-| Repository layout | Cargo workspace at the root: `src-tauri/` (app crate `preamble`), `crates/preamble-engine`, `crates/preamble-reconcile`, `crates/texlog` | Library crates test without a GUI, which is what makes agent loops fast; `texlog` starts as a crate so extraction at S6.5 is a rename, not a refactor. |
+| Repository layout | Cargo workspace at the root: `src-tauri/` (app crate `abstract-tex`), `crates/abstract-tex-engine`, `crates/abstract-tex-reconcile`, `crates/texlog` (renamed from `preamble-*`, 28 September 2026) | Library crates test without a GUI, which is what makes agent loops fast; `texlog` starts as a crate so extraction at S6.5 is a rename, not a refactor. |
 | Engine invocation | Subprocess, never the Tectonic crate | `DESIGN.md` §4.1 note 2. Cancel is `kill`. |
 | Engine binary | Tauri `externalBin` sidecar, fetched by script, gitignored | A 30 MB binary does not belong in Git. CI fetches it. |
-| PDF transport | Tauri asset protocol, scope widened at runtime to `.preamble/build` | `DESIGN.md` §4.1 note 1. |
+| PDF transport | Tauri asset protocol, scope widened at runtime to `.abstract-tex/build` | `DESIGN.md` §4.1 note 1. |
 | CRDT op indices | UTF-16 code units | Y.Text and JavaScript strings count in UTF-16; Rust strings do not. The reconciler converts so the frontend never has to. |
 | File writes | Atomic: write `name.tex.tmp`, then rename | A crash mid-write can never leave a truncated manuscript (`DESIGN.md` §9, row 1). |
 | Self-echo suppression | Content hash of the last write, not a time window | A time window races with slow disks; a hash cannot. |
@@ -2950,8 +2956,8 @@ open. Change them here and in `DESIGN.md` before changing code.
 Copied from `DESIGN.md` so it is in the file agents read first.
 
 - Never show a raw log as the default. Show a sentence; keep the log one click away.
-- Never write anything but plain `.tex`/`.bib`/`preamble.toml` into the source tree. Everything
-  else goes under `.preamble/`.
+- Never write anything but plain `.tex`/`.bib`/`abstract-tex.toml` into the source tree. Everything
+  else goes under `.abstract-tex/`.
 - Never merge a dirty buffer with a changed file. Ask.
 - Never add WYSIWYG rendering, a hosted service, a filestore, or a mobile layout. §1.3.
 - Never make a feature depend on an API key or the network. Every AI path has a non-AI path.

@@ -9,12 +9,12 @@
 resolver = "2"
 members = [
     "src-tauri",
-    "crates/preamble-sidecar",
-    "crates/preamble-engine",
-    "crates/preamble-includes",
-    "crates/preamble-lsp",
-    "crates/preamble-reconcile",
-    "crates/preamble-synctex",
+    "crates/abstract-tex-sidecar",
+    "crates/abstract-tex-engine",
+    "crates/abstract-tex-includes",
+    "crates/abstract-tex-lsp",
+    "crates/abstract-tex-reconcile",
+    "crates/abstract-tex-synctex",
     "crates/texbib",
     "crates/texlog",
 ]
@@ -23,14 +23,14 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "AGPL-3.0-only"
-repository = "https://github.com/verocai-vrc/preamble"
+repository = "https://github.com/verocai-vrc/Abstract-Tex"
 rust-version = "1.80"
 
 [workspace.dependencies]
 # Async runtime. Tauri already depends on it, so the app pays nothing extra.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time", "fs", "io-util"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-# Serialisation for IPC payloads and preamble.toml.
+# Serialisation for IPC payloads and abstract-tex.toml.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
@@ -49,9 +49,9 @@ tempfile = "3"
 # File watching.
 notify = "8"
 notify-debouncer-mini = "0.7"
-# Trait objects with async methods (explained in crates/preamble-engine/src/lib.rs).
+# Trait objects with async methods (explained in crates/abstract-tex-engine/src/lib.rs).
 async-trait = "0.1"
-# Gzip decompression, for reading .synctex.gz (crates/preamble-synctex). Widely used, actively
+# Gzip decompression, for reading .synctex.gz (crates/abstract-tex-synctex). Widely used, actively
 # maintained, part of the rust-lang-adjacent ecosystem — not a niche one-person crate.
 flate2 = "1"
 # HTTP client for the acquisition features (DESIGN.md §5.4: DOI, arXiv, ISBN, and later Zotero).

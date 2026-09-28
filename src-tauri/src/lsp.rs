@@ -1,6 +1,6 @@
 //! The language server session: one TexLab per open project, and the events it produces.
 //!
-//! `preamble-lsp` owns the process and the JSON-RPC correlation and knows nothing about Tauri
+//! `abstract-tex-lsp` owns the process and the JSON-RPC correlation and knows nothing about Tauri
 //! (S3.2). This module is the other side of that seam: it starts a bridge when a project opens,
 //! keeps it for as long as that project is open, and turns everything the server says on its own
 //! initiative into a window event the frontend can listen to.
@@ -12,7 +12,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use preamble_lsp::{Bridge, Incoming, LspError, TexLab};
+use abstract_tex_lsp::{Bridge, Incoming, LspError, TexLab};
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -72,7 +72,7 @@ impl LspSession {
 
     /// Start TexLab for `root` and forward its events through `on_event`.
     ///
-    /// `build_dir` is the project's `.preamble/build` (S3.6): TexLab is told about it through
+    /// `build_dir` is the project's `.abstract-tex/build` (S3.6): TexLab is told about it through
     /// `initializationOptions` so it writes and finds `.aux`/`.pdf`/`.log` where our own build
     /// actually puts them, instead of guessing the project root and finding nothing there.
     ///
@@ -87,7 +87,7 @@ impl LspSession {
 
         let texlab = TexLab::locate().map_err(|error| match error {
             LspError::NotFound => {
-                "No TexLab binary found. Run `pnpm fetch-lsp`, or set PREAMBLE_TEXLAB.".to_string()
+                "No TexLab binary found. Run `pnpm fetch-lsp`, or set ABSTRACT_TEX_TEXLAB.".to_string()
             }
             other => other.to_string(),
         })?;
@@ -171,7 +171,7 @@ fn texlab_settings(root_dir: &Path, build_dir: &Path) -> Option<Value> {
 
 /// `build_dir` relative to `root_dir`, forward slashes. Both are always absolute here (`Project`
 /// only ever hands out absolute paths), so a plain `strip_prefix` covers this application's one
-/// real layout — `.preamble/build` under the project root, which is always an ancestor of
+/// real layout — `.abstract-tex/build` under the project root, which is always an ancestor of
 /// `root_dir` even when the root `.tex` sits in a subfolder. A build directory that is *not*
 /// under the project at all cannot happen through this app's own `Project::build_dir`, so `None`
 /// in that case is a signal something upstream changed, not a path this function needs to solve.
@@ -204,17 +204,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn texlab_settings_points_the_three_build_directories_at_the_preamble_build_folder() {
-        let options = texlab_settings(Path::new("/proj"), Path::new("/proj/.preamble/build")).unwrap();
+    fn texlab_settings_points_the_three_build_directories_at_the_state_build_folder() {
+        let options = texlab_settings(Path::new("/proj"), Path::new("/proj/.abstract-tex/build")).unwrap();
         let build = &options["texlab"]["build"];
-        assert_eq!(build["auxDirectory"], ".preamble/build");
-        assert_eq!(build["logDirectory"], ".preamble/build");
-        assert_eq!(build["pdfDirectory"], ".preamble/build");
+        assert_eq!(build["auxDirectory"], ".abstract-tex/build");
+        assert_eq!(build["logDirectory"], ".abstract-tex/build");
+        assert_eq!(build["pdfDirectory"], ".abstract-tex/build");
     }
 
     #[test]
     fn texlab_settings_uses_forward_slashes_even_on_windows() {
-        let options = texlab_settings(Path::new("/proj"), Path::new("/proj/.preamble/build")).unwrap();
+        let options = texlab_settings(Path::new("/proj"), Path::new("/proj/.abstract-tex/build")).unwrap();
         let aux = options["texlab"]["build"]["auxDirectory"].as_str().unwrap();
         assert!(!aux.contains('\\'), "expected forward slashes, got {aux}");
     }
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn pathdiff_handles_a_build_dir_nested_several_levels_deep() {
-        let relative = pathdiff(Path::new("/a/b/.preamble/build"), Path::new("/a/b")).unwrap();
-        assert_eq!(relative, ".preamble/build");
+        let relative = pathdiff(Path::new("/a/b/.abstract-tex/build"), Path::new("/a/b")).unwrap();
+        assert_eq!(relative, ".abstract-tex/build");
     }
 }

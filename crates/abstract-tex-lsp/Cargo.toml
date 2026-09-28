@@ -1,6 +1,6 @@
 [package]
-name = "preamble-lsp"
-description = "Owns the TexLab language server process for Preamble: find it, spawn it, frame its stdio, and speak JSON-RPC over it with response correlation and restart-on-crash."
+name = "abstract-tex-lsp"
+description = "Owns the TexLab language server process for Abstract-Tex: find it, spawn it, frame its stdio, and speak JSON-RPC over it with response correlation and restart-on-crash."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-preamble-sidecar = { path = "../preamble-sidecar" }
+abstract-tex-sidecar = { path = "../abstract-tex-sidecar" }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

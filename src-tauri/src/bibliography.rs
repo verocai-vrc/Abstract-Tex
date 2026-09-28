@@ -5,7 +5,7 @@
 //!
 //! 1. The list of `.bib` files the document names — `\bibliography{a,b}` (BibTeX, `.bib`
 //!    implied) and `\addbibresource{a.bib}` (BibLaTeX, extension written out) — found by
-//!    scanning every `.tex` file in the include graph (`preamble-includes`, S4.1). A file the
+//!    scanning every `.tex` file in the include graph (`abstract-tex-includes`, S4.1). A file the
 //!    document names but that is not on disk is still listed, with `exists: false`, so the UI
 //!    can say so; a silently dropped file would look like a bibliography with no entries.
 //! 2. One [`EntrySummary`] per entry in those files — type, author, year, title, which file,
@@ -35,7 +35,7 @@
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
-use preamble_includes::build_graph;
+use abstract_tex_includes::build_graph;
 use serde::Serialize;
 use texbib::{Bibliography, Entry, Span};
 
@@ -317,7 +317,7 @@ pub enum BibOrigin {
     /// The same, but the argument resolves outside the project folder, which this app never
     /// reads (the rule `Project::resolve` applies to every path).
     Outside { file: String, line: u32 },
-    /// `preamble.toml`'s `extra_bib_files` lists it — a linked Zotero collection's export (S8.2).
+    /// `abstract-tex.toml`'s `extra_bib_files` lists it — a linked Zotero collection's export (S8.2).
     Linked,
 }
 
@@ -384,7 +384,7 @@ pub fn affects_index(path: &Path) -> bool {
 }
 
 /// Build the index for the document rooted at `root_file` (project-relative) in `project_dir`,
-/// plus whatever `extra_bib_files` names (S8.2: `preamble.toml`'s `extra_bib_files`, most often a
+/// plus whatever `extra_bib_files` names (S8.2: `abstract-tex.toml`'s `extra_bib_files`, most often a
 /// linked Zotero collection's auto-export path) — a `.bib` the document's own `\bibliography`/
 /// `\addbibresource` commands never mention, but the author still wants indexed.
 ///
@@ -424,7 +424,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
         has_nocite_star |= scan_has_nocite_star(&text);
     }
 
-    // Already project-relative (that is what `preamble.toml` stores), so no `resolve_bib_argument`
+    // Already project-relative (that is what `abstract-tex.toml` stores), so no `resolve_bib_argument`
     // step: a linked collection's export path is not written relative to the root file's folder.
     for extra in extra_bib_files {
         if files.iter().any(|file| &file.path == extra) {
@@ -553,7 +553,7 @@ fn year_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
 
 // ---------------------------------------------------------------------------
 // Scanning `.tex` text. Pure — string in, data out — so every case below is a unit test with a
-// literal, the same split `preamble-includes` makes between `scan` and `graph`.
+// literal, the same split `abstract-tex-includes` makes between `scan` and `graph`.
 // ---------------------------------------------------------------------------
 
 /// Commands that name a `.bib` file. `\bibliography{a,b}` is BibTeX's and takes a comma list of
@@ -726,7 +726,7 @@ fn matching_close(bytes: &[u8], open_at: usize, open: u8, close: u8) -> Option<u
 
 /// `%` starts a comment that runs to the end of the line, except `\%`, which is a literal
 /// percent sign. Line breaks are kept so line numbers stay right. The same rule, and nearly the
-/// same code, as `preamble_includes::scan`'s private helper: ten lines are cheaper to repeat
+/// same code, as `abstract_tex_includes::scan`'s private helper: ten lines are cheaper to repeat
 /// than a public API for them would be to explain.
 fn strip_line_comments(source: &str) -> String {
     let mut cleaned = String::with_capacity(source.len());

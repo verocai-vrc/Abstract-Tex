@@ -1,5 +1,5 @@
 [package]
-name = "preamble"
+name = "abstract-tex"
 description = "A local-first LaTeX editor for people who write papers, not servers."
 version.workspace = true
 edition.workspace = true
@@ -10,7 +10,7 @@ rust-version.workspace = true
 # Tauri wants the app as a library plus a thin binary (main.rs) so that mobile targets and
 # tests can link the same code. We have no mobile target (DESIGN.md §1.3) but keep the shape.
 [lib]
-name = "preamble_lib"
+name = "abstract_tex_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -22,11 +22,11 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 
-preamble-engine = { path = "../crates/preamble-engine" }
-preamble-includes = { path = "../crates/preamble-includes" }
-preamble-lsp = { path = "../crates/preamble-lsp" }
-preamble-reconcile = { path = "../crates/preamble-reconcile" }
-preamble-synctex = { path = "../crates/preamble-synctex" }
+abstract-tex-engine = { path = "../crates/abstract-tex-engine" }
+abstract-tex-includes = { path = "../crates/abstract-tex-includes" }
+abstract-tex-lsp = { path = "../crates/abstract-tex-lsp" }
+abstract-tex-reconcile = { path = "../crates/abstract-tex-reconcile" }
+abstract-tex-synctex = { path = "../crates/abstract-tex-synctex" }
 texbib = { path = "../crates/texbib", features = ["acquire"] }
 texlog = { path = "../crates/texlog" }
 

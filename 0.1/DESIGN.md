@@ -1,4 +1,4 @@
-# Preamble — Design Document
+# Abstract-Tex — Design Document
 
 **Rev A · 8 September 2026 · Pre-sprint 1**
 
@@ -150,7 +150,7 @@ Git-clean. The dashed edge is what makes `git checkout` in another terminal safe
 
 ### 3.1 Why this beats a hosted compiler, in units
 
-| Stage | Hosted | Preamble (local, warm) |
+| Stage | Hosted | Abstract-Tex (local, warm) |
 |---|---:|---:|
 | sync / debounce | 0.3 s | 0.7 s *(keyboard idle)* |
 | **queue wait** | **1.5 s** | **—** |
@@ -205,7 +205,7 @@ touches the DOM is TypeScript.
 | File watching | `notify` | Cross-platform, debounced; the standard choice. |
 | HTTP | `reqwest` (Rust side) | DOI, arXiv, OpenLibrary and GitHub calls belong in the core, not the webview — no CORS, no CSP fights, and the API token never enters JS. |
 | Credentials | `keyring` | OS keychain — Credential Manager, Keychain, Secret Service. Never a config file. |
-| Config | `toml` + serde | `preamble.toml` is human-editable and diff-friendly. |
+| Config | `toml` + serde | `abstract-tex.toml` is human-editable and diff-friendly. |
 | Diffing | `similar` | For the external-change reconciler in §5.6. |
 | Errors / logging | `thiserror`, `anyhow`, `tracing` | Structured logs; `tracing` spans make the compile pipeline debuggable. |
 | Maths preview | KaTeX | Synchronous, fast, no layout thrash. Only used for hover popovers. |
@@ -315,7 +315,7 @@ l.87 The sample size n_
 Technically accurate. Names a character you did not type, at a position that is not where you
 made the mistake, in a mode you did not know you were in.
 
-*What Preamble shows you:*
+*What Abstract-Tex shows you:*
 
 > **Underscore used outside maths** — `sections/results.tex:87`
 >
@@ -514,17 +514,17 @@ thesis/
 │   └── results.tex
 ├── figures/
 ├── refs.bib
-├── preamble.toml       # engine, root file, output dir, bib source, AI opt-in
-├── .gitignore          # written on init; excludes .preamble/ and build junk
+├── abstract-tex.toml       # engine, root file, output dir, bib source, AI opt-in
+├── .gitignore          # written on init; excludes .abstract-tex/ and build junk
 ├── .git/               # the storage layer — remote is your GitHub repo
-└── .preamble/          # gitignored, disposable, never in the source tree
+└── .abstract-tex/          # gitignored, disposable, never in the source tree
     ├── build/          # .aux .bbl .pdf .synctex.gz
     ├── formats/        # precompiled preamble dumps, keyed by hash
     ├── crdt/           # Yjs update log, comment anchors
     └── cache/          # diagnostics, bib index, model responses
 ```
 
-Deleting `.preamble/` costs one slow compile and nothing else. That is the test for whether
+Deleting `.abstract-tex/` costs one slow compile and nothing else. That is the test for whether
 anything has crept into it that does not belong.
 
 ---
@@ -562,7 +562,7 @@ programmer: the commit-message box is pre-filled with a summary built from the o
 diff — *"Revised §3.2 Methods, +240 words"* — with no model involved (the assistant may rewrite
 it later, per rule 6); each graph row carries its word-count delta, so the graph doubles as a
 progress log; a diff on a `.tex` file opens a CodeMirror merge view, and any two graph rows can
-render a `latexdiff` PDF into the preview pane; and `.preamble/` and build junk are ignored on
+render a `latexdiff` PDF into the preview pane; and `.abstract-tex/` and build junk are ignored on
 init so *Changes* never fills with `.aux` files.
 
 | Flow | Trigger | What should happen |
@@ -602,7 +602,7 @@ is the part worth protecting the pace for.*
 
 - Tauri shell, open-folder, file tree, project state
 - CodeMirror 6 with LaTeX highlighting; Yjs document wired from day one
-- Tectonic bundled and invoked from the Rust core; artifacts into `.preamble/build/`
+- Tectonic bundled and invoked from the Rust core; artifacts into `.abstract-tex/build/`
 - pdf.js preview pane, reload on new artifact
 
 **Exit:** Open a real single-file paper, edit a sentence, see the PDF update — on a machine with
@@ -762,7 +762,7 @@ each.
 |---|---|---|
 | **Licence** | Sprint 1 | AGPL-3.0 for the application — it prevents a proprietary hosted fork, which is the specific threat here. Publish the log parser and bibliography libraries separately under MIT so the wider TeX ecosystem can use the most valuable work. |
 | **Frontend framework** | Sprint 1 | Svelte 5 is the recommendation (§4.1): compile-time, no VDOM, small output, and it will not fight CodeMirror for DOM ownership. SolidJS is a defensible substitute. The decision is cheap now and expensive at sprint 8. |
-| **Name** | Sprint 2 | *Preamble* is a working name: the part of a LaTeX document everyone dreads, which this editor makes painless. Alternatives worth a conflict check: *Quire*, *Colophon*, *Recto*. |
+| **Name** | Sprint 2 — **settled 28 September 2026** | ***Abstract-Tex***, after the repository. *Preamble* was the working name until then; it is dropped everywhere except where the word means a LaTeX document's preamble. Projects written by the old build (`preamble.toml`, `.preamble/`) still open: the config is read and moved to `abstract-tex.toml` on first save (`src-tauri/src/project.rs`). |
 | **Git remote scope** | Sprint 10 | Any Git remote works from day one, since the layer underneath is only ever libgit2. GitHub alone gets the convenience wrapper — device-flow sign-in, repository creation, pull-request review — because that is where the accounts already are. Revisit GitLab-specific support only if asked for; the generic path already works. |
 | **Large figures** | Sprint 10 | Git LFS on prompt, above a threshold set by measurement against the golden corpus (§8). Open sub-question: whether to offer keeping `figures/` out of Git entirely for authors generating hundred-megabyte plots. Probably not — it breaks the "clone and it works" guarantee. |
 | **Code signing** | Sprint 14 | Required for v0.9's exit criterion to be honest. Apple Developer ~$99/yr; Azure Trusted Signing is the cheap Windows route. Budget it or accept SmartScreen warnings on every download. |

@@ -5,7 +5,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use preamble_lsp::{Bridge, CallError, Incoming, TexLab};
+use abstract_tex_lsp::{Bridge, CallError, Incoming, TexLab};
 use serde_json::{json, Value};
 
 fn rpc_server() -> TexLab {
@@ -121,7 +121,7 @@ async fn the_real_texlab_initializes_and_completes_through_the_bridge() {
         Ok(t) => t,
         Err(_) => {
             let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            TexLab::at(preamble_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp`"))
+            TexLab::at(abstract_tex_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp`"))
         }
     };
     let root = tempfile::tempdir().unwrap();
@@ -149,7 +149,7 @@ async fn the_real_texlab_completes_an_environment_name() {
         Ok(t) => t,
         Err(_) => {
             let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            TexLab::at(preamble_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp`"))
+            TexLab::at(abstract_tex_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp`"))
         }
     };
     let root = tempfile::tempdir().unwrap();
@@ -162,7 +162,7 @@ async fn the_real_texlab_completes_an_environment_name() {
     let (bridge, _incoming) = Bridge::start(texlab, root.path()).await.unwrap();
     bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}}), None).await.unwrap();
 
-    let uri = preamble_lsp::bridge::path_to_uri(&file);
+    let uri = abstract_tex_lsp::bridge::path_to_uri(&file);
     bridge
         .notify(
             "textDocument/didOpen",

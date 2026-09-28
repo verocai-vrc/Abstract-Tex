@@ -1,5 +1,5 @@
 [package]
-name = "preamble-reconcile"
+name = "abstract-tex-reconcile"
 description = "Turns a text change on disk into the minimal edit operations for a CRDT document."
 version.workspace = true
 edition.workspace = true

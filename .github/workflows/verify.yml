@@ -75,8 +75,8 @@ jobs:
 
       # Rung 3: a real build of fixtures/minimal with the engine just fetched.
       - name: Real engine build of a fixture
-        run: cargo test -p preamble-engine -- --ignored
+        run: cargo test -p abstract-tex-engine -- --ignored
 
       # The one thing `cargo test --workspace` does not prove: the app crate links as an app,
       # sidecar and all, on this OS.
-      - run: cargo build -p preamble
+      - run: cargo build -p abstract-tex

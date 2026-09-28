@@ -1,4 +1,4 @@
-//! Engine abstraction: everything Preamble needs to know about a TeX engine, and nothing else.
+//! Engine abstraction: everything Abstract-Tex needs to know about a TeX engine, and nothing else.
 //!
 //! This crate owns:
 //! - the [`Engine`] trait every engine implements (`probe`, `build`),
@@ -53,7 +53,7 @@ pub struct BuildJob {
     pub project_dir: PathBuf,
     /// The root `.tex` file, relative to `project_dir`.
     pub root_file: PathBuf,
-    /// Where artifacts go: `.preamble/build/` by convention (DESIGN.md §5.8). Never the source
+    /// Where artifacts go: `.abstract-tex/build/` by convention (DESIGN.md §5.8). Never the source
     /// tree. Never cleaned between builds, because `.aux` files are the warm cache.
     pub out_dir: PathBuf,
     /// Emit a `.synctex.gz` so the PDF pane can map clicks back to source lines (sprint 3).

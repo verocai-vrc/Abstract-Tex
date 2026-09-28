@@ -315,7 +315,7 @@ const CATALOG: &[&dyn Rule] = &[
     &FnRule {
         id: "font-not-found",
         severity: Severity::Error,
-        // fontspec is XeTeX/LuaTeX-only, but this project's bundled engine (`preamble-engine`,
+        // fontspec is XeTeX/LuaTeX-only, but this project's bundled engine (`abstract-tex-engine`,
         // DESIGN.md §4.1) is XeTeX, so this is a real, reachable failure here, not a hypothetical.
         matches: |e| e.message.starts_with("Package fontspec Error: The font "),
         explain: explain_font_not_found,
@@ -601,7 +601,7 @@ pub fn explain(error: &QuickError) -> Diagnostic {
     Diagnostic {
         title: "TeX reported an error".to_string(),
         explanation: format!(
-            "Preamble does not have an explanation for this one yet. TeX said: \"{}\". \
+            "There is no explanation for this one yet. TeX said: \"{}\". \
              The raw log has the surrounding output.",
             error.message.trim_end_matches('.')
         ),
@@ -783,7 +783,7 @@ fn explain_file_not_found(error: &QuickError) -> (String, String) {
     let explanation = if is_package {
         format!(
             "This document asks for `{name}`, and the engine could not find it. If it is a \
-             package, check the name for a typo; Preamble's bundled engine downloads packages \
+             package, check the name for a typo; an engine like Tectonic downloads packages \
              on demand, so a correctly spelled one will be fetched the next time you build with \
              a network connection."
         )
@@ -1987,7 +1987,7 @@ mod tests {
         assert_eq!(found[0].line, Some(30));
         // Never silently dropped, and never presented as if we understood it.
         assert!(found[0].explanation.contains("Dimension too large"), "{}", found[0].explanation);
-        assert!(found[0].explanation.contains("does not have an explanation"), "{}", found[0].explanation);
+        assert!(found[0].explanation.contains("no explanation for this one yet"), "{}", found[0].explanation);
     }
 
     #[test]

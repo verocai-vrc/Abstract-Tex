@@ -5,7 +5,7 @@
 //!
 //! Must never read a file or make a network request (see `lib.rs`); `append_entry` takes the
 //! file's current text as a `&str` and returns new text, the same "text in, data out" shape
-//! `preamble-reconcile::diff_ops` uses so a caller can turn the result into a normal buffer edit
+//! `abstract-tex-reconcile::diff_ops` uses so a caller can turn the result into a normal buffer edit
 //! rather than a raw filesystem write.
 
 use crate::{Entry, Value, ValuePart};

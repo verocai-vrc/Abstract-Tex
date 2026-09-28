@@ -3,7 +3,7 @@
 Rung 4 of the verification ladder (`0.1/SPRINTS.md` §1), and the v0.3 exit demo
 (`DESIGN.md` §7): a purpose-built twenty-error torture document, every error resolving to the
 correct file and line with a plain-language explanation, and no raw log shown by default
-anywhere. `crates/preamble-engine/tests/torture.rs` is this same walk, automated, against the
+anywhere. `crates/abstract-tex-engine/tests/torture.rs` is this same walk, automated, against the
 real engine; `captures/` are its recorded logs. This script is the walk by hand, in the app,
 where the criterion is finally about what an author *sees*.
 
@@ -11,7 +11,7 @@ Launch:
 
 ```
 pnpm tauri dev                          # then Ctrl+O and pick fixtures/torture
-PREAMBLE_OPEN=fixtures/torture pnpm tauri dev
+ABSTRACT_TEX_OPEN=fixtures/torture pnpm tauri dev
 ```
 
 The engine halts at the first `!` error (`crates/texlog/fixtures/README.md`), so the twenty

@@ -5,7 +5,7 @@
 //! that does: it assigns request ids, hands each caller back exactly its own response, routes
 //! everything the server says on its own initiative to one place, and restarts the process when
 //! it crashes. Above it sits Tauri (events to TypeScript); below it, the pipe. It depends on
-//! neither the editor nor Tauri, so `cargo test -p preamble-lsp` still runs with no window.
+//! neither the editor nor Tauri, so `cargo test -p abstract-tex-lsp` still runs with no window.
 //!
 //! It must never interpret a method's *meaning*. `textDocument/completion` is a string here and
 //! nothing more — turning it into CodeMirror behaviour is the frontend's job (DESIGN.md §4.1,
@@ -169,7 +169,7 @@ impl Bridge {
     /// Returns the server's capabilities, which the frontend needs to know what it may ask for.
     ///
     /// `initialization_options` is server-specific by design (the LSP spec calls it "any", left
-    /// for each server to define its own shape) — for TexLab this is where `preamble` passes the
+    /// for each server to define its own shape) — for TexLab this is where this app passes the
     /// project's build directory (S3.6). `None` omits the field entirely rather than sending
     /// `null`, so a server with no options to offer sees exactly what it would from a client that
     /// never learned about this parameter.

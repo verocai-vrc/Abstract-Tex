@@ -69,7 +69,7 @@ describe('diagnosticTarget', () => {
     expect(diagnosticTarget(emergencyStop, null)).toBeNull();
   });
 
-  // The torture walk's first step (S6.4, `crates/preamble-engine/tests/torture.rs`): this engine
+  // The torture walk's first step (S6.4, `crates/abstract-tex-engine/tests/torture.rs`): this engine
   // echoes `\input{sections/01-undefined-control-sequence}` with no `.tex`, exactly as written,
   // so `Diagnostic.file` never equalled the tab path and nothing matched. `resolver.rs` names
   // this as the case only a caller with the file tree can settle; the include graph is that tree.

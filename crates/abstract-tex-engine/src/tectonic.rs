@@ -1,7 +1,7 @@
 //! Tectonic as a subprocess.
 //!
 //! Finds the binary (environment variable, then the sidecar next to our own executable, then
-//! `PATH`), runs it with the flags Preamble needs, and kills it on cancellation.
+//! `PATH`), runs it with the flags Abstract-Tex needs, and kills it on cancellation.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -14,8 +14,8 @@ use tracing::{debug, info};
 
 use crate::{BuildJob, BuildOutcome, Engine, EngineError, EngineInfo, ProgressSink};
 
-/// Set this to point Preamble at a specific Tectonic binary. Useful for testing a new release.
-pub const ENV_OVERRIDE: &str = "PREAMBLE_TECTONIC";
+/// Set this to point Abstract-Tex at a specific Tectonic binary. Useful for testing a new release.
+pub const ENV_OVERRIDE: &str = "ABSTRACT_TEX_TECTONIC";
 
 /// The Tectonic engine. Holds only the path it resolved; every build spawns a fresh process.
 #[derive(Debug, Clone)]
@@ -25,10 +25,10 @@ pub struct Tectonic {
 
 impl Tectonic {
     /// Locate a Tectonic binary, or return `EngineError::NotFound`. The search order — an
-    /// explicit `PREAMBLE_TECTONIC`, then the bundled sidecar, then `PATH` — lives in
-    /// `preamble-sidecar`, shared with the language server (S3.1).
+    /// explicit `ABSTRACT_TEX_TECTONIC`, then the bundled sidecar, then `PATH` — lives in
+    /// `abstract-tex-sidecar`, shared with the language server (S3.1).
     pub fn locate() -> Result<Self, EngineError> {
-        match preamble_sidecar::locate("tectonic", ENV_OVERRIDE) {
+        match abstract_tex_sidecar::locate("tectonic", ENV_OVERRIDE) {
             Some(found) => Ok(Self { binary: found.path }),
             None => Err(EngineError::NotFound),
         }
@@ -49,7 +49,7 @@ impl Tectonic {
         let mut args = vec![
             // Tectonic's "V1" interface: `tectonic <file>` with options. We do not use the newer
             // `tectonic -X build` workspace mode because it wants its own Tectonic.toml, and the
-            // project's `preamble.toml` is the one configuration file we allow (DESIGN.md §5.8).
+            // project's `abstract-tex.toml` is the one configuration file we allow (DESIGN.md §5.8).
             "--outdir".to_string(),
             job.out_dir.to_string_lossy().into_owned(),
             // Keep the .log on success too; texlog reads warnings from it.
@@ -222,14 +222,14 @@ fn hide_console_window(cmd: &mut Command) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use preamble_sidecar::find_on_path;
+    use abstract_tex_sidecar::find_on_path;
     use std::time::Duration;
 
     fn job(dir: &Path) -> BuildJob {
         BuildJob {
             project_dir: dir.to_path_buf(),
             root_file: PathBuf::from("main.tex"),
-            out_dir: dir.join(".preamble").join("build"),
+            out_dir: dir.join(".abstract-tex").join("build"),
             synctex: true,
         }
     }
@@ -276,7 +276,7 @@ mod tests {
                 // Tests run from target/debug/deps, so the sidecar is not beside us. Fall back
                 // to the repo's binaries/ folder before giving up.
                 let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-                let found = preamble_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine` first");
+                let found = abstract_tex_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine` first");
                 Tectonic::at(found)
             }
             Err(e) => panic!("{e}"),

@@ -97,6 +97,6 @@ JabRef, doi.org's content negotiation, a hand-typed file, a deliberately broken 
 
 ## Licence
 
-MIT. Extracted from [Preamble](https://github.com/verocai-vrc/preamble), a local-first LaTeX
+MIT. Extracted from [Abstract-Tex](https://github.com/verocai-vrc/Abstract-Tex), a local-first LaTeX
 editor whose application code is AGPL; this crate and its sibling `texlog` are published
 separately so the wider TeX ecosystem can use them.

@@ -1,11 +1,11 @@
-//! The Preamble application crate: wires the Rust core to the Tauri window.
+//! The Abstract-Tex application crate: wires the Rust core to the Tauri window.
 //!
 //! Module map (each module's own doc comment says what it owns and must never do):
-//! - [`project`]  — a folder on disk: file tree, root `.tex` detection, `preamble.toml`.
+//! - [`project`]  — a folder on disk: file tree, root `.tex` detection, `abstract-tex.toml`.
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
-//! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `preamble-synctex`.
+//! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `abstract-tex-synctex`.
 //! - [`bibliography`] — the `.bib` index: files, entries, citations, rebuilt from disk on change.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
 //!
@@ -23,8 +23,8 @@ pub mod watcher;
 
 use std::sync::{Arc, Mutex};
 
-use preamble_engine::tectonic::Tectonic;
-use preamble_engine::Engine;
+use abstract_tex_engine::tectonic::Tectonic;
+use abstract_tex_engine::Engine;
 use tracing_subscriber::EnvFilter;
 
 use crate::compile::Orchestrator;
@@ -73,9 +73,9 @@ impl AppState {
 
 /// Entry point called by `main.rs`.
 pub fn run() {
-    // `RUST_LOG=preamble=debug pnpm tauri dev` turns on verbose output; default is info.
+    // `RUST_LOG=abstract_tex=debug pnpm tauri dev` turns on verbose output; default is info.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,preamble=debug")))
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,abstract_tex=debug")))
         .init();
 
     tauri::Builder::default()
@@ -110,5 +110,5 @@ pub fn run() {
             commands::unlink_bib_file,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running the Preamble window");
+        .expect("error while running the Abstract-Tex window");
 }

@@ -9,7 +9,7 @@
 //!
 //! It must never:
 //! - know about Tauri, a project folder layout, or how the frontend renders a highlight — this
-//!   is bytes in, a position out, same as `preamble-reconcile`'s diffing is text in, ops out.
+//!   is bytes in, a position out, same as `abstract-tex-reconcile`'s diffing is text in, ops out.
 //! - shell out to the `synctex` command-line tool. The format is simple enough to parse directly
 //!   (about 150 lines, per the loop card), and a subprocess would cost a dependency on a tool we
 //!   do not otherwise need.
@@ -42,7 +42,7 @@ const SCALED_POINTS_PER_PDF_POINT: f64 = 65_781.76;
 
 /// Everything that can go wrong turning a `.synctex.gz` into answerable data.
 ///
-/// `thiserror` per the workspace's error-handling split (see `preamble-engine`'s lib.rs for the
+/// `thiserror` per the workspace's error-handling split (see `abstract-tex-engine`'s lib.rs for the
 /// full rationale): a library crate gets a typed enum a caller can match on, rather than an
 /// opaque string.
 #[derive(Debug, thiserror::Error)]
@@ -453,7 +453,7 @@ Count:5\n";
 
     /// Regenerates `fixtures/multi.synctex.gz` from `fixtures/multi.tex` with the real, bundled
     /// Tectonic and re-runs the check above against the fresh output. `#[ignore]`d like
-    /// `preamble-engine`'s equivalent test: it needs the sidecar fetched (`pnpm fetch-engine`)
+    /// `abstract-tex-engine`'s equivalent test: it needs the sidecar fetched (`pnpm fetch-engine`)
     /// and is not part of the fast unit-test loop. Its purpose is not redundancy with the test
     /// above — it is the guard against the *committed* `.gz` going stale relative to this crate's
     /// parser, or against a future Tectonic release changing the format underneath us.
@@ -461,7 +461,7 @@ Count:5\n";
     #[ignore]
     fn a_fresh_real_build_parses_the_same_way() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let tectonic = preamble_sidecar_for_test(&repo);
+        let tectonic = abstract_tex_sidecar_for_test(&repo);
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/multi.tex");
 
         let tmp = tempfile::tempdir().unwrap();
@@ -486,13 +486,13 @@ Count:5\n";
         assert_eq!(forward_p2.page, 2);
     }
 
-    /// Same binary-discovery fallback `preamble-engine`'s own `--ignored` test uses: tests run
+    /// Same binary-discovery fallback `abstract-tex-engine`'s own `--ignored` test uses: tests run
     /// from `target/debug/deps`, not the repo root, so the sidecar has to be found relative to
     /// the workspace rather than the current directory.
-    fn preamble_sidecar_for_test(repo: &Path) -> PathBuf {
-        preamble_sidecar::locate("tectonic", "PREAMBLE_TECTONIC")
+    fn abstract_tex_sidecar_for_test(repo: &Path) -> PathBuf {
+        abstract_tex_sidecar::locate("tectonic", "ABSTRACT_TEX_TECTONIC")
             .map(|found| found.path)
-            .or_else(|| preamble_sidecar::in_repo_binaries("tectonic", repo))
+            .or_else(|| abstract_tex_sidecar::in_repo_binaries("tectonic", repo))
             .expect("run `pnpm fetch-engine` first")
     }
 }

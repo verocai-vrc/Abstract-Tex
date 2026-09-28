@@ -68,6 +68,6 @@ existed. `fixtures/README.md` records what each capture taught.
 
 ## Licence
 
-MIT. Extracted from [Preamble](https://github.com/verocai-vrc/preamble), a local-first LaTeX
+MIT. Extracted from [Abstract-Tex](https://github.com/verocai-vrc/Abstract-Tex), a local-first LaTeX
 editor whose application code is AGPL; this crate is published separately so the wider TeX
 ecosystem can use the part most worth sharing.
