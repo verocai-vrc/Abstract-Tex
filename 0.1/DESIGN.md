@@ -166,10 +166,12 @@ bold ones simply cease to exist.
 
 *The local compile row is measured (S9.2, `target/corpus-report.json`): the median warm build of
 the corpus's two-column paper after a one-line edit, one TeX pass reading the previous `.aux`
-and `.bbl`, on the maintainer's Windows machine. The same harness puts the sixty-page thesis at
-3.3 s, a single page behind a pathological preamble at 2.5 s, and the TikZ figure paper at 3.4 s —
-the preamble and the drawings, not the pass count, are what remains (§5.1 rungs 3–4). The hosted
-column and the other local rows are still illustrative.*
+and `.bbl`, then the PDF — 0.69 s on the maintainer's Windows machine, 0.62 s on a Linux one.
+S9.2's first figures left out that last step: its single pass never wrote the PDF (fixed at S9.7,
+ledger), and the corrected Linux run puts the sixty-page thesis at 3.4 s, a single page behind a
+pathological preamble at 2.6 s, and the TikZ figure paper at 3.8 s — the preamble and the
+drawings, not the pass count, are what remains (§5.1 rungs 3–4). The hosted column and the other
+local rows are still illustrative.*
 
 ---
 

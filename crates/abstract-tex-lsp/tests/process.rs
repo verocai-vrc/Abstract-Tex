@@ -25,11 +25,17 @@ async fn frames_keep_their_boundaries_under_load() {
     // Bodies of wildly different sizes, sent without waiting for replies, must come back one
     // frame each and in order. A framing bug shows up here as a merged or torn message.
     let bodies: Vec<Vec<u8>> = (0..50).map(|i| vec![b'a' + (i % 26) as u8; 1 + (i * 397) % 5000]).collect();
-    for body in &bodies {
-        server.send(body).await.unwrap();
-    }
-    for body in &bodies {
-        assert_eq!(&server.recv().await.unwrap(), body);
+    // Ten at a time, not all fifty: `send` and `recv` both borrow the server mutably, so nothing
+    // reads while we write. All fifty (~125 KB) overflow a Linux pipe's 64 KB twice over — the
+    // echo blocks writing replies nobody reads, stops reading, and `send` waits forever (ledger).
+    // Ten bodies stay under one pipe's worth and still put several frames in flight at once.
+    for window in bodies.chunks(10) {
+        for body in window {
+            server.send(body).await.unwrap();
+        }
+        for body in window {
+            assert_eq!(&server.recv().await.unwrap(), body);
+        }
     }
     server.kill().await.unwrap();
 }

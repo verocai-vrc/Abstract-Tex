@@ -45,7 +45,7 @@ impl Tectonic {
     }
 
     /// The command line for one job. Split out so a unit test can check it without running
-    /// anything. `single_pass` is S9.2's warm step: one TeX pass, no BibTeX, reading the previous
+    /// anything. `single_pass` is S9.2's warm step: one TeX pass and its PDF, reading the previous
     /// build's `.aux`/`.bbl` back from the build folder (see `incremental.rs`).
     fn arguments(job: &BuildJob, single_pass: bool) -> Vec<String> {
         let mut args = vec![
@@ -66,8 +66,12 @@ impl Tectonic {
             args.push("--synctex".to_string());
         }
         if single_pass {
-            args.push("--pass".to_string());
-            args.push("tex".to_string());
+            // One TeX pass, then the PDF. Not `--pass tex`: that runs TeX and stops, leaving a
+            // `.xdv` and the *previous* build's PDF on screen (ledger, S9.7 spike). The default
+            // pass with no reruns is one TeX pass, BibTeX only if the `.aux` names a database
+            // (it rewrites the `.bbl`, which `incremental.rs` then notices), and `xdvipdfmx`.
+            args.push("--reruns".to_string());
+            args.push("0".to_string());
             // Tectonic reads inputs from the project, not from `--outdir`; without this the pass
             // would start with no `.aux` or `.bbl` and print every reference as `??`. `-Z` marks
             // an unstable option: the bundled engine is pinned (0.17), and the corpus test is what
@@ -230,10 +234,11 @@ mod tests {
     }
 
     #[test]
-    fn a_single_pass_runs_tex_only_and_searches_the_build_folder() {
+    fn a_single_pass_runs_tex_once_and_searches_the_build_folder() {
         let args = Tectonic::arguments(&job(Path::new("proj")), true);
-        let pass = args.iter().position(|a| a == "--pass").unwrap();
-        assert_eq!(args[pass + 1], "tex");
+        let reruns = args.iter().position(|a| a == "--reruns").unwrap();
+        assert_eq!(args[reruns + 1], "0");
+        assert!(!args.contains(&"--pass".to_string()), "`--pass tex` never writes the PDF");
         let search = args.iter().position(|a| a == "-Z").unwrap();
         assert!(args[search + 1].starts_with("search-path=") && args[search + 1].ends_with("build"));
         assert_eq!(args.last().map(String::as_str), Some("main.tex"), "the root file stays last");
@@ -262,15 +267,20 @@ mod tests {
             text.matches("undefined").count()
         };
 
+        let modified = |path: &Option<PathBuf>| std::fs::metadata(path.as_ref().unwrap()).unwrap().modified().unwrap();
+
         let cold = engine.build(&j, CancellationToken::new(), None).await.unwrap();
         assert!(cold.success, "{}", cold.stderr);
         assert_eq!(cold.steps, BuildSteps { single_passes: 0, full: true });
+        // Read now: the warm build writes to the same paths.
+        let cold_pdf_written = modified(&cold.pdf);
 
         std::fs::write(tmp.path().join("main.tex"), body(" A new sentence.")).unwrap();
         let warm = engine.build(&j, CancellationToken::new(), None).await.unwrap();
         assert!(warm.success, "{}", warm.stderr);
         assert_eq!(warm.steps, BuildSteps { single_passes: 1, full: false });
         assert_eq!(undefined(&warm.log), 0, "a single pass must still see the last build's .aux and .bbl");
+        assert!(modified(&warm.pdf) > cold_pdf_written, "a single pass must write a new PDF, not leave the last one");
 
         std::fs::write(tmp.path().join("main.tex"), body(" And \\cite{lamport}.")).unwrap();
         let cited = engine.build(&j, CancellationToken::new(), None).await.unwrap();

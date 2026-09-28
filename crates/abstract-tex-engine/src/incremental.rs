@@ -3,7 +3,7 @@
 //! Tectonic's default build reruns BibTeX, and TeX after it, on every build — even one where
 //! nothing changed — because it starts each run with no memory of the last one. On the corpus
 //! thesis that is four TeX passes and seven BibTeX runs, about 20 s, for a one-word edit. It can
-//! instead run a single TeX pass (`--pass tex`) that reads the previous build's `.aux` and `.bbl`
+//! instead run a single TeX pass (`--reruns 0`) that reads the previous build's `.aux` and `.bbl`
 //! back from the build folder (`-Z search-path`). This module decides when that is safe and
 //! when it has converged; `tectonic.rs` runs the processes.
 //!

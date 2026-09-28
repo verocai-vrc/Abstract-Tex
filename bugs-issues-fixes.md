@@ -15,6 +15,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Latent: the LSP bridge does not read while it writes.** (found with the entry below, 28 Sep
+  2026) `bridge::supervise` is one `select!` loop, and inside its outbound branch it awaits
+  `running.send(&body)` to completion, so nothing drains TexLab's stdout during a write. That can
+  only deadlock if TexLab, blocked writing to a full stdout, also stops reading its stdin while a
+  message larger than the pipe (64 KB on Linux) is being sent to it — a whole-file `didOpen` or
+  `didChange` on a long chapter. Not observed; whether TexLab 5.26's I/O threads can block that
+  way is unconfirmed. Recorded so it is checked, not rediscovered: the fix would be separate
+  reader and writer tasks, as TexLab itself has.
+
 - **A linked Zotero collection's entries are indexed but never reach the PDF: the compile does
   not know about `extra_bib_files`.** (S8.4 preparation, builder, 28 Sep 2026, found writing the
   exit demo's script) S8.2 records the export path in `preamble.toml`'s `extra_bib_files`, and
@@ -486,6 +495,31 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cosmetic.
 
 ## Fixed
+
+- **A warm single pass never wrote a PDF: `--pass tex` stops at the `.xdv`.** (S9.7 spike,
+  28 Sep 2026, found timing the thesis on Linux) S9.2's warm step runs Tectonic with `--pass tex`,
+  which runs the TeX engine and nothing after it — no `xdvipdfmx` — so it leaves `main.xdv` in
+  the build folder and the *previous* build's `main.pdf` untouched. `Tectonic::build` then
+  reports success with that stale PDF, and the preview pane shows the last full build's pages
+  for every warm edit after it: the one outcome the compile loop exists to prevent. Checked by
+  timestamp: after three warm passes on the corpus thesis, `main.pdf` was still the cold build's
+  and `main.xdv` the latest pass's. `--outfmt pdf` beside `--pass tex` changes nothing, and
+  Tectonic refuses an `.xdv` as input, so the conversion cannot be run on its own. Nothing
+  tested for it: the real-engine warm test counted `undefined` in the log, which a TeX pass
+  alone gets right, and S9.2's timings (3.3 s thesis, 0.69 s paper) therefore never included
+  making the PDF. Fixed by running the warm pass as Tectonic's default pass with `--reruns 0` — one TeX
+  pass, BibTeX only if the `.aux` names a database, then `xdvipdfmx` — and by asserting in the
+  real-engine warm test that the PDF is rewritten (checked to fail on `--pass tex`). Cost of the
+  PDF, now counted: thesis 3.2 → 3.4 s, conference paper 0.62 s, every corpus edit still one pass.
+
+- **`frames_keep_their_boundaries_under_load` hung forever on Linux.** (28 Sep 2026, first
+  `pnpm verify` on a Linux machine that can link everything) The test sent fifty frames (~125 KB)
+  before reading any reply. The single-threaded echo stand-in writes each reply as it reads, so
+  once its stdout pipe (64 KB on Linux) was full it blocked, stopped reading stdin, that pipe
+  filled too, and the test's `send` never returned — a classic two-pipe deadlock that Windows'
+  pipe buffering hid. A test bug, not a transport bug: fixed by sending and draining ten frames
+  at a time, which stays under one pipe's worth and still has several frames in flight. The
+  bridge's own version of the pattern is the latent entry under Open.
 
 - **A diagnostic inside an extensionless `\input{sections/foo}` matched no tab: the click, the
   one-click fix and the gutter all missed it.** (S6.4, builder, 17 Sep 2026) `\include` always
