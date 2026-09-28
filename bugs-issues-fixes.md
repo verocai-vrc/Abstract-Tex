@@ -441,12 +441,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `PREAMBLE_OPEN=fixtures/paper pnpm tauri dev` therefore opens no project at all, silently.
   An absolute path works. Found: 12 Sep 2026. Not yet fixed — small, but it is in the script
   handed to a new contributor.
+  Still open (28 Sep 2026, now `ABSTRACT_TEX_OPEN` after the rename): `README.md` and
+  `DEVELOPMENT.md` give the absolute-path form and say why; every `fixtures/*/SMOKE.md` still
+  gives the relative one that opens nothing.
 
 - **`cargo build --release` is not the release path.**
   `tauri.conf.json` sets `devUrl` unconditionally, so even a release binary loads
   `localhost:1420` and shows a "can't reach this page" error without Vite running.
   `pnpm tauri build` is the supported route (S2.9). Documentation debt more than a code bug;
   worth a README note before anyone tests a release binary the quick way.
+  **Fixed** (28 Sep 2026) as the documentation debt it was: `DEVELOPMENT.md`'s *Building and
+  testing* names the trap and the supported route. The `devUrl` behaviour itself is unchanged.
 
 - **No `rustfmt.toml`.** House style runs to ~110 columns; rustfmt defaults to 100. Nothing
   fails today because `pnpm verify` does not run `cargo fmt --check`, but the next
@@ -495,6 +500,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cosmetic.
 
 ## Fixed
+
+- **The README had gone stale since sprint 1, and two of its instructions did not work.**
+  (28 Sep 2026, found rewriting it as a public project page) It still said "Status: sprint 1";
+  its *Building* section ran `pnpm fetch-engine` alone, which leaves TexLab out of
+  `src-tauri/binaries/`, so `tauri_build` fails on a fresh clone (CI runs `pnpm fetch-sidecars`,
+  which is why CI never noticed); it gave `ABSTRACT_TEX_OPEN=fixtures/paper`, the relative form
+  the `PREAMBLE_OPEN` entry under *Open* shows opens nothing; it said `texlog` "is the `texlog`
+  crate on crates.io", which it is not yet (S6.5 `[~]`); and it described the v0.7 assistant as
+  if it existed. **Fixed** (28 Sep 2026): `README.md` rewritten from what the code and
+  `0.1/SPRINTS.md` show today, with `pnpm fetch-sidecars`, an absolute launch path, the crates
+  described as ready but unpublished, and planned work only in its *Versions* table. The
+  development plan, stack rationale and build traps moved to `DEVELOPMENT.md`.
 
 - **A warm single pass never wrote a PDF: `--pass tex` stops at the `.xdv`.** (S9.7 spike,
   28 Sep 2026, found timing the thesis on Linux) S9.2's warm step runs Tectonic with `--pass tex`,

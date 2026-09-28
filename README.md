@@ -1,94 +1,82 @@
 # Abstract-Tex
 
-*(working name — see [`0.1/DESIGN.md`](0.1/DESIGN.md) §10)*
+[![verify](https://github.com/verocai-vrc/Abstract-Tex/actions/workflows/verify.yml/badge.svg)](https://github.com/verocai-vrc/Abstract-Tex/actions/workflows/verify.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange.svg)
+![Platforms: Windows | macOS | Linux](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
 **A local-first LaTeX editor for people who write papers, not servers.**
 
-Abstract-Tex is an open-source desktop LaTeX editor built on one idea: **compilation belongs on
-the machine the author is already sitting at**, not on a shared queue somewhere else. Once that
-is true, most of what makes hosted LaTeX painful — the queue wait, the compile-time cap, the
-timeout on your thesis, the manuscript living in a database you do not administer — simply stops
-existing. Everything else in the project is a consequence of that choice.
+Abstract-Tex is an open-source desktop LaTeX editor. It compiles on your own machine with a
+bundled engine, so there is no TeX distribution to install, no compile queue and no timeout:
+edit the source, pause, and the PDF beside it updates. When a build fails, you get a sentence
+about *your* document that points at the right file and line, not a raw TeX log.
 
-> **Status: sprint 1 (v0.1 in progress).** The skeleton exists and compiles a real paper on a
-> machine with no TeX installation: open a folder, edit, see the PDF update. There is no
-> installer yet; see *Building* below to run it from source. The full architecture, stack
-> rationale and 16-sprint roadmap live in [`0.1/DESIGN.md`](0.1/DESIGN.md); the sprint plan and
-> agent loops in [`0.1/SPRINTS.md`](0.1/SPRINTS.md); this README is the short version.
+Your project stays a plain folder of `.tex` and `.bib` files. Abstract-Tex adds nothing to your
+sources that another editor would not understand, and you can stop using it at any time without
+converting anything.
 
----
-
-## Why this exists
-
-Overleaf is really three products fused together — an editor, a compiler, and a filestore — and
-you cannot take one without the other two. Abstract-Tex unbundles them:
-
-- **The compiler is local.** A bundled [Tectonic](https://tectonic-typesetting.github.io/)
-  engine compiles on your machine, with no TeX Live install to sit through first.
-- **The editor is local.** A real writing environment, not a browser textarea with syntax
-  colouring.
-- **The filestore is a Git remote you already own.** GitHub, GitLab, Codeberg, a departmental
-  server — anything that speaks Git. Backup, cross-device sync, history and async coauthoring all
-  fall out of that one mechanism. We store nothing.
-
-### The numbers behind "local"
-
-| Stage            | Hosted    | Abstract-Tex (local, warm) |
-| ---------------- | --------: | ---------------------: |
-| sync / debounce  | 0.3 s     | 0.7 s *(keyboard idle)* |
-| **queue wait**   | **1.5 s** | **—**                 |
-| **container start** | **2.0 s** | **—**              |
-| compile          | 6.0 s     | 0.8 s *(warm cache)*  |
-| transfer / render | 0.7 s    | 0.06 s                |
-| **Total**        | **~10.5 s** | **~1.6 s**          |
-
-The bold rows are the whole argument: they are not inefficiencies a hosted service can engineer
-away, they are what sharing a compile server costs. *(Figures are illustrative, to be replaced
-with benchmark-corpus measurements once that exists.)*
+> **Pre-release.** Abstract-Tex is under active development. There are no installers or tagged
+> releases yet; to try it, build it from source as described in [Quick start](#quick-start).
 
 ---
 
-## What makes it different
+## Features
 
-Once latency is solved, the editor still has to be worth using. Abstract-Tex spends its entire
-remaining budget on three subsystems that serious LaTeX users currently work around with a pile
-of external tools:
+### Compile without installing TeX
 
-- **Errors are explained, not shown.** `! Missing $ inserted.` is a true statement that tells a
-  first-time author nothing. Abstract-Tex resolves every diagnostic to a real `file:line` and
-  rewrites it as a sentence about *your* document, with a one-click fix where the correction is
-  unambiguous. The raw log stays one click away, forever — but it is never the default.
-- **Citations without the browser.** Paste a DOI, arXiv ID or ISBN and the BibTeX entry appears,
-  deduplicated against what you already have. Detect a running Zotero and link a collection.
-  `\cite` completion shows author, year and title, not a bare key.
-- **A prose assistant that edits in place.** Select a paragraph, choose an action (tighten,
-  clarify, make consistent, explain this reviewer comment), get a diff, accept or reject it hunk
-  by hunk. Bring your own API key. **The assistant can never introduce a citation that is not
-  already in your `.bib`** — fabricated references are checked for and blocked before they reach
-  the buffer.
+- A bundled [Tectonic](https://tectonic-typesetting.github.io/) engine builds your document. The
+  LaTeX packages a document needs are downloaded on its first build and cached after that.
+- The PDF rebuilds after 700 ms without typing and keeps your scroll position. A new edit
+  cancels a build in progress instead of waiting behind it.
+- Warm rebuilds run a single TeX pass and rerun BibTeX only when a citation changes: about 0.7 s
+  for a two-column conference paper and 3.4 s for a sixty-page thesis on the maintainer's
+  machines.
+- Already have TeX Live or MiKTeX? A project can build with `pdflatex`, `xelatex` or `lualatex`
+  instead (see [Project settings](#project-settings)).
 
-Every AI feature has a non-AI path. With no API key and no network, the application is still
-fully useful.
+### Errors you can act on
+
+- Every error and warning is traced to the file and line that caused it, across multi-file
+  projects, and explained in plain language.
+- One-click fixes where the correction is unambiguous, applied as ordinary, undoable edits.
+- Gutter markers and a diagnostics drawer you can group and filter. The raw log is always one
+  click away, but never the default.
+
+### Editing and navigation
+
+- A CodeMirror 6 editor with LaTeX highlighting and tabs for open files.
+- Completion, hover and go-to-definition from the bundled
+  [TexLab](https://github.com/latex-lsp/texlab) language server.
+- SyncTeX in both directions: jump from the cursor to its place in the PDF, or double-click the
+  PDF to land on the source line.
+- Multi-file projects: the root document is detected and `\input`/`\include` are followed.
+- A document map of sections, figures, tables, labels and TODOs; a command palette; quick file
+  open.
+- Maths preview on hover, and focus and typewriter modes.
+- Files changed by another program (another editor, a `git pull`) are picked up. If you have
+  unsaved edits to the same file, you are asked; nothing is merged silently.
+
+### Citations
+
+- `\cite` completion shows author, year and title, not only the key.
+- Paste a DOI, arXiv ID or ISBN into the editor to get a `\cite` and a new BibTeX entry,
+  checked against the entries you already have so nothing is duplicated.
+- Zotero: a running Zotero with [Better BibTeX](https://retorque.re/zotero-better-bibtex/) is
+  detected, and a collection's auto-exported `.bib` can be linked to the project.
+- Continuous bibliography checks: undefined citations, entries never cited, duplicate DOIs,
+  missing required fields, the wrong dash in a page range.
+
+### Yours, on your machine
+
+- No account and no telemetry. After a document's packages are cached, writing and compiling
+  work offline; only looking up a pasted DOI, arXiv ID or ISBN needs the network.
+- Build output goes to a hidden `.abstract-tex/` folder inside the project. Settings, if you
+  need any, go in one small `abstract-tex.toml`.
 
 ---
 
-## What Abstract-Tex is *not*
-
-These are stated non-goals, not missing features:
-
-- **Not WYSIWYG.** Source on one side, PDF on the other. Rendering-as-you-type against real TeX
-  semantics is a decade-long research problem, and it is not this project.
-- **Not a TeX distribution.** We bundle an engine and detect existing ones. No package archives,
-  no `tlmgr` competitor.
-- **Not a cloud service.** Remote copies live in *your* Git remote, under your account, revocable
-  by you.
-- **Not a Zotero or Git replacement.** Both are excellent and entrenched. We integrate and
-  reimplement nothing.
-- **Not mobile.** Nobody writes a methods section on a phone.
-
----
-
-## The compile loop
+## How it works
 
 The whole application is one loop that runs a few times a minute for as long as you are writing.
 Everything else is a panel attached to it.
@@ -108,91 +96,165 @@ flowchart LR
     F -.->|"external change → diff → CRDT transaction"| Y
 ```
 
-A `.tex` file on disk is always the authoritative state — the CRDT is a session model, never a
-storage format, which is what keeps the file plain and Git-clean. Uninstalling Abstract-Tex leaves
-your paper completely intact and completely normal.
+The `.tex` file on disk is always the authoritative copy. The in-memory document model exists
+only while the app is open and is never a storage format, which is what keeps your files plain
+and friendly to Git.
+
+Abstract-Tex is built with [Tauri 2](https://v2.tauri.app/) and Rust for the core, and Svelte 5,
+CodeMirror 6, Yjs and pdf.js for the interface.
 
 ---
 
-## Stack
+## Versions
 
-| Layer            | Choice                        | Why                                                                 |
-| ---------------- | ----------------------------- | ------------------------------------------------------------------- |
-| Shell            | Tauri 2                       | Rust core, system WebView; ~10 MB bundle vs Electron's ~150 MB      |
-| Core language    | Rust                          | Process orchestration, filesystem, log/bib parsing, Git            |
-| Interface        | TypeScript + Svelte 5 *(open)* | Compile-time, no VDOM; must not fight CodeMirror for the DOM        |
-| Editor           | CodeMirror 6                  | Holds a 400-page thesis without stutter; transactional state        |
-| Language intel   | TexLab (LSP)                  | Mature LaTeX language server in Rust                                |
-| Engine           | Tectonic, bundled             | Self-contained; makes "zero setup to first PDF" achievable          |
-| Document model   | Yjs + y-codemirror.next       | A CRDT from sprint 1; cannot be retrofitted cheaply at v0.8         |
-| PDF view         | pdf.js                        | Text layer gives search, selection and SyncTeX coordinate mapping   |
-| Storage & history | libgit2 + GitHub API         | Real Git; the remote doubles as the filestore                       |
-| AI               | Bring-your-own key            | Anthropic Messages API or any OpenAI-compatible endpoint            |
+The current version is **0.1.0**, unreleased: no version has been tagged yet, and `main` is the
+development line. Work is organised in milestones, each ending in something usable.
 
-Full rationale, including what was rejected and why, is in [`0.1/DESIGN.md`](0.1/DESIGN.md) §4.
+| Milestone | Theme | Status |
+| --- | --- | --- |
+| v0.1 | **It compiles**: edit a paper and see the PDF update, with no TeX installed | Implemented, in pre-release testing |
+| v0.2 | **It navigates**: language server, SyncTeX, multi-file projects, command palette | Implemented, in pre-release testing |
+| v0.3 | **It explains itself**: every error traced to its file and line and explained in plain language | Implemented, in pre-release testing |
+| v0.4 | **It cites**: citation completion, paste-to-cite, Zotero, bibliography checks | Implemented, in pre-release testing |
+| v0.5 | **It's fast**: single-pass warm builds, system TeX engines, a performance gate in CI | In progress |
+| v0.6 | **It syncs**: history and sync through any Git remote, conflicts shown as plain paragraphs | Planned |
+| v0.7 | **It assists**: an optional prose assistant using your own API key, unable to invent citations | Planned |
+| v0.8 | **It shares, live**: real-time co-editing through a self-hostable relay | Planned |
+| v0.9 | **It ships**: signed installers and auto-update | Planned |
+| v1.0 | Public release | Planned |
 
----
-
-## Roadmap
-
-Sixteen two-week sprints, each ending in something usable. **v0.3 is the release where this
-stops being a hobby editor.**
-
-| Version | Theme                              | Exit criterion (short)                                             |
-| ------- | ---------------------------------- | ----------------------------------------------------------------- |
-| v0.1    | It compiles                        | Edit a real paper, see the PDF update, on a machine with no TeX   |
-| v0.2    | It navigates                       | Keyboard-drive a six-file thesis; click PDF → land on the source  |
-| v0.3    | **It explains itself** *(the differentiator)* | A 20-error torture doc: every error → correct file, line and a plain-language explanation |
-| v0.4    | It cites                           | Assemble a 40-reference paper without opening a browser           |
-| v0.5    | It's fast                          | p95 warm recompile < 1.2 s on a 60-page TikZ/biblatex thesis, gated in CI |
-| v0.6    | It syncs *(storage before convenience)* | Write on one machine, sync, clone on a second, lose nothing  |
-| v0.7    | It assists                         | No fabricated citation can reach the buffer under adversarial prompting |
-| v0.8    | It shares, live                    | Two authors edit one paragraph across a network; one goes offline and loses nothing |
-| v0.9    | It ships                           | A stranger installs it on a clean machine and compiles their paper without reading anything |
-| v1.0    | Public release                     | Announced                                                          |
-
-Solo and part-time, plan for roughly double the ~7.5-month full-time estimate — and this project
-doubles as how its maintainer is learning Rust, so v0.1–v0.2 in particular will run slower than
-the baseline. That is expected.
+Bundled components: Tectonic 0.17.0 (TeX engine) and TexLab 5.26.0 (language server).
 
 ---
 
-## Building
+## Quick start
 
-Prerequisites: Rust stable (via [rustup](https://rustup.rs)), Node 22+ and pnpm, plus the
-[Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform (on
-Windows that is the MSVC Build Tools and WebView2, which Windows 11 already has; on Linux,
-WebKitGTK 4.1).
+There are no installers yet, so Abstract-Tex runs from source.
 
-```
-pnpm install          # frontend dependencies
-pnpm fetch-engine     # downloads Tectonic 0.17.0 for this machine into src-tauri/binaries/
-pnpm tauri dev        # builds the Rust core, starts Vite, opens the window
+**Prerequisites**
+
+- [Rust](https://rustup.rs), stable (the repository pins the channel in `rust-toolchain.toml`)
+- [Node.js](https://nodejs.org) 22 or newer, and [pnpm](https://pnpm.io)
+- The [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform: on
+  Windows, the MSVC Build Tools and WebView2 (Windows 11 already has it); on macOS, the Xcode
+  Command Line Tools; on Linux, WebKitGTK 4.1 and its development packages
+
+You do **not** need a TeX distribution.
+
+```sh
+git clone https://github.com/verocai-vrc/Abstract-Tex.git
+cd Abstract-Tex
+pnpm install
+pnpm fetch-sidecars   # downloads Tectonic and TexLab for this machine into src-tauri/binaries/
+pnpm tauri dev        # compiles the app and opens its window
 ```
 
-Then `Ctrl O` and pick a folder with a `.tex` file in it — `fixtures/paper` is a good first one.
-To open a folder on launch: `ABSTRACT_TEX_OPEN=fixtures/paper pnpm tauri dev`.
+The first `pnpm tauri dev` compiles the Rust core, which takes a few minutes. Then:
 
-`pnpm verify` runs everything CI runs: Rust tests and clippy, `svelte-check`, Vitest.
-`cargo test -p abstract-tex-engine -- --ignored` compiles a fixture with the real engine.
-[`.github/workflows/verify.yml`](.github/workflows/verify.yml) does all of that on Linux,
-Windows and macOS for every push, and builds the app crate on each — run `pnpm build` first if
-you want `cargo build -p abstract-tex` to work locally, since the app embeds `dist/`.
+1. Press `Ctrl+O` (`⌘O` on macOS) and choose a folder containing a `.tex` file.
+   [`fixtures/paper`](fixtures/paper) in this repository is a good first one.
+2. The PDF appears on the right. The first build of a document downloads the LaTeX packages it
+   uses, so it needs a network connection and takes longer than the builds after it.
+3. Edit some text, pause, and watch the PDF update. `Ctrl+B` or `F5` builds straight away.
 
-Repository layout: `src-tauri/` is the Tauri app crate, `crates/` holds the engine wrapper,
-the CRDT reconciler and the log parser as standalone crates, `src/` is the Svelte frontend,
-`fixtures/` holds real documents for tests and manual smoke scripts. `CLAUDE.md` records the
-conventions an agent (or a person) follows when working here.
+To open a folder at launch, give its **absolute** path:
+
+```sh
+ABSTRACT_TEX_OPEN="$PWD/fixtures/paper" pnpm tauri dev
+```
 
 ---
 
-## Licence
+## Usage
 
-**AGPL-3.0** for the application — it prevents a proprietary hosted fork, which is the specific
-threat here. The reusable libraries are published separately under **MIT** so the wider TeX
-ecosystem can use them: `crates/texlog` (the log parser) carries its own `LICENSE` and is the
-`texlog` crate on crates.io; the bibliography library will follow the same route at v0.4.
+### Keyboard shortcuts
 
-## Platforms
+`Mod` is `Ctrl` on Windows and Linux and `⌘` on macOS.
 
-Windows · macOS · Linux. No mobile, by design.
+| Shortcut | Action |
+| --- | --- |
+| `Mod+S` | Save |
+| `Mod+B` or `F5` | Build now |
+| `Mod+O` | Open folder |
+| `Mod+P` | Go to file |
+| `Mod+K` | Command palette: every action, file and section |
+| `Ctrl+Alt+J` | Show the cursor's position in the PDF |
+| `Alt+F12` | Go to definition |
+| Double-click in the PDF | Jump to that line in the source |
+| `Ctrl` + mouse wheel over the PDF | Zoom |
+
+### Project settings
+
+Most projects need no configuration. The root document is found automatically: `main.tex` if
+there is one, otherwise the `.tex` file with a `\documentclass` that no other file includes.
+Double-clicking a `.tex` file in the file tree makes it the root.
+
+When a project does need settings, they live in `abstract-tex.toml` in the project folder:
+
+```toml
+[project]
+root = "thesis.tex"     # the document to build, relative to this folder
+engine = "xelatex"      # "tectonic" (the default, bundled), "pdflatex", "xelatex" or "lualatex"
+extra_bib_files = ["zotero/my-collection.bib"]   # written for you when you link a Zotero collection
+```
+
+`pdflatex`, `xelatex` and `lualatex` run through `latexmk` from a TeX Live or MiKTeX installation
+on your `PATH`, which also brings Biber. If none is found, Abstract-Tex says so and builds with
+the bundled engine instead.
+
+### Known limitations
+
+- The bundled engine does not include Biber. Use `biblatex` with `backend=bibtex`, or switch the
+  project to a system engine.
+- Shell escape is disabled, so packages that run external programs, such as `minted`, do not
+  build yet.
+- With the bundled engine, `fontspec` finds fonts by file name (`\setmainfont{FreeSerif.otf}`),
+  not by family name (`\setmainfont{DejaVu Serif}`).
+- There are no installers, and Git sync, the assistant and live collaboration are not built yet
+  (see [Versions](#versions)).
+
+---
+
+## What Abstract-Tex is not
+
+These are deliberate choices, not missing features:
+
+- **Not WYSIWYG.** Source on one side, PDF on the other.
+- **Not a TeX distribution.** It bundles one engine and uses the ones you already have; it does
+  not manage packages.
+- **Not a cloud service.** Nothing is stored anywhere but your machine and, later, a Git remote
+  you choose.
+- **Not a replacement for Zotero or Git.** It works with both.
+- **Not for mobile.**
+
+---
+
+## Libraries
+
+Two parts of Abstract-Tex are standalone Rust crates under the MIT licence, so other TeX tools
+can use them:
+
+- [`texlog`](crates/texlog): parses a TeX `.log` into diagnostics with a file, a line, a
+  plain-language explanation and, when the correction cannot be wrong, a fix.
+- [`texbib`](crates/texbib): parses BibTeX and BibLaTeX files without losing anything as written,
+  with bibliography checks and optional DOI, arXiv and ISBN lookup.
+
+Both are ready for crates.io but not yet published there.
+
+---
+
+## Development
+
+`pnpm verify` runs the full test gate: Rust tests and clippy, `svelte-check`, and Vitest. CI runs
+it on Linux, Windows and macOS for every push. Build details, the repository layout, the
+architecture and the development plan are in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+Bug reports and suggestions are welcome as
+[GitHub issues](https://github.com/verocai-vrc/Abstract-Tex/issues).
+
+---
+
+## License
+
+Abstract-Tex is licensed under the [GNU Affero General Public License v3.0](LICENSE). The
+`texlog` and `texbib` crates are licensed under MIT; see the `LICENSE` file in each crate.
