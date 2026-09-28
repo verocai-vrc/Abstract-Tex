@@ -7,7 +7,7 @@
   // mean inventing a raw view for something that never had one.
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
-  import { jumpToFinding } from '../lib/controller.svelte';
+  import { jumpToFinding, unlinkBibFile } from '../lib/controller.svelte';
   import type { Finding } from '../lib/ipc';
 
   function close() {
@@ -42,10 +42,13 @@
               <h3>{file}</h3>
               {#each findings as finding, i (i)}
                 {#if finding.jump.kind === 'missingFile'}
-                  <!-- Nothing to open for a file that is not on disk (S8.6), so not a button. -->
+                  <!-- Nothing to open for a file that is not on disk (S8.6), so not a button —
+                       but an export that will never appear can be unlinked from here (S8.7),
+                       which is the one place that works with Zotero closed. -->
                   <div class="finding static" class:warning={finding.severity === 'warning'}>
                     <span class="severity">{finding.severity}</span>
                     <span class="message">{finding.message}</span>
+                    <button class="ghost unlink" onclick={() => void unlinkBibFile(finding.jump.file)}>Unlink</button>
                   </div>
                 {:else}
                   <div
@@ -125,6 +128,10 @@
   }
   .finding.static {
     cursor: default;
+  }
+  .unlink {
+    flex: none;
+    margin-left: auto;
   }
   .finding.static:hover {
     background: none;

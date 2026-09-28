@@ -301,6 +301,9 @@ export const ipc = {
    * should live; Better BibTeX keeps it current from then on, and this app only ever reads it. */
   linkZoteroCollection: (collectionPath: string, outputPath: string) =>
     invoke<void>('link_zotero_collection', { collectionPath, outputPath }),
+  /** Unlink (S8.7): drop `path` from `preamble.toml`'s linked `.bib` files. Leaves the file on
+   * disk and Zotero untouched, so it works with Zotero closed. */
+  unlinkBibFile: (path: string) => invoke<void>('unlink_bib_file', { path }),
 
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {

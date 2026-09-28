@@ -5,7 +5,7 @@
   // picker does not offer linking as a unit, only real collections) with nesting shown by indent.
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
-  import { linkZoteroCollection, listZoteroLibraries } from '../lib/controller.svelte';
+  import { linkZoteroCollection, listZoteroLibraries, unlinkBibFile } from '../lib/controller.svelte';
   import type { ZoteroCollection, ZoteroLibrary } from '../lib/ipc';
 
   let linking = $state<string | null>(null);
@@ -45,6 +45,19 @@
         <span>Link a Zotero collection</span>
         <button class="ghost" onclick={close} aria-label="Close">✕</button>
       </header>
+
+      {#if bibliography.linkedFiles.length > 0}
+        <!-- S8.7: what is already linked, each with a way back out. -->
+        <ul class="linked">
+          <li class="library-name">Linked to this project</li>
+          {#each bibliography.linkedFiles as path (path)}
+            <li class="linked-row">
+              <span>{path}</span>
+              <button class="ghost" onclick={() => void unlinkBibFile(path)}>Unlink</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
 
       {#if bibliography.zoteroLibraries === null}
         <p class="muted">Asking Zotero…</p>
@@ -111,6 +124,17 @@
     margin: 0;
     padding: 4px 0;
     overflow-y: auto;
+  }
+  .linked {
+    flex: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .linked-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 12px;
+    font-size: 13px;
   }
   .library-name {
     padding: 6px 12px 2px;

@@ -107,6 +107,7 @@ pub fn run() {
             commands::detect_zotero,
             commands::list_zotero_libraries,
             commands::link_zotero_collection,
+            commands::unlink_bib_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Preamble window");

@@ -70,6 +70,13 @@ export function findingsByFile(findings: Finding[]): FindingGroup[] {
   return groups;
 }
 
+/** The linked `.bib` files (S8.7: what "Unlink" can offer) — those listed because
+ * `preamble.toml` links them, not because the document names them. A file the document also names
+ * is `named`, and unlinking it would change nothing the author could see, so it is not offered. */
+export function linkedFiles(index: BibliographyIndex | null): string[] {
+  return (index?.files ?? []).filter((file) => file.origin.kind === 'linked').map((file) => file.path);
+}
+
 class BibliographyState {
   /** `null` until the first index arrives after a folder opens. `$state.raw` because the index
    * is replaced whole on every change and never edited in place — deep reactivity over a few
@@ -81,6 +88,7 @@ class BibliographyState {
   /** Files the document names that are not on disk — the first thing worth telling the author
    * about a bibliography, and the reason a missing file is still listed by path. */
   missingFiles = $derived((this.index?.files ?? []).filter((file) => !file.exists).map((file) => file.path));
+  linkedFiles = $derived(linkedFiles(this.index));
 
   /** The five health checks (S8.3), refreshed alongside `index` (same trigger, separate backend
    * call — `bibliography_health` reparses rather than deriving from the index the frontend

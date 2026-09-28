@@ -2,7 +2,7 @@
 // exercised end to end in `controller.test.ts`; these are the pure helpers with a literal index.
 
 import { describe, expect, it } from 'vitest';
-import { citationsByKey, entriesByKey, findingsByFile, lineAtByteOffset } from './bibliography.svelte';
+import { citationsByKey, entriesByKey, findingsByFile, lineAtByteOffset, linkedFiles } from './bibliography.svelte';
 import type { BibEntrySummary, BibliographyIndex, Finding } from './ipc';
 
 function entry(key: string, file = 'refs.bib'): BibEntrySummary {
@@ -88,5 +88,25 @@ describe('findingsByFile (S8.3)', () => {
     };
     const groups = findingsByFile([finding('refs.bib', '1'), missing]);
     expect(groups.map((g) => g.file)).toEqual(['refs.bib', 'zotero/Thesis.bib']);
+  });
+});
+
+describe('linkedFiles (S8.7)', () => {
+  it('offers only files preamble.toml links, not ones the document names', () => {
+    const index: BibliographyIndex = {
+      files: [
+        { path: 'refs.bib', exists: true, entryCount: 1, problems: [], origin: { kind: 'named', file: 'main.tex', line: 9 } },
+        { path: 'zotero/Thesis.bib', exists: false, entryCount: 0, problems: [], origin: { kind: 'linked' } },
+        { path: '../shared.bib', exists: false, entryCount: 0, problems: [], origin: { kind: 'outside', file: 'main.tex', line: 10 } },
+      ],
+      entries: [],
+      citations: [],
+      hasNociteStar: false,
+    };
+    expect(linkedFiles(index)).toEqual(['zotero/Thesis.bib']);
+  });
+
+  it('is empty before any index arrives', () => {
+    expect(linkedFiles(null)).toEqual([]);
   });
 });

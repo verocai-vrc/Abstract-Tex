@@ -364,6 +364,17 @@ pub async fn link_zotero_collection(
     Ok(())
 }
 
+/// Unlink a collection (S8.7): drop `path` from `preamble.toml`'s `extra_bib_files` and re-index.
+/// No request to Zotero and no file deleted — see `Project::remove_extra_bib_file` for why — so,
+/// unlike linking, this works whether or not Zotero is running, which is exactly when an author
+/// most needs it: a linked export that will never appear because Zotero is gone.
+#[tauri::command]
+pub fn unlink_bib_file(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<()> {
+    with_project(&state, |project| project.remove_extra_bib_file(&path))?;
+    emit_bibliography(&app);
+    Ok(())
+}
+
 /// Rebuild the index and emit it as `bibliography:changed`. Called from the watcher thread and
 /// from `write_file`; both take the project lock only long enough to copy two paths out.
 fn emit_bibliography(app: &AppHandle) {

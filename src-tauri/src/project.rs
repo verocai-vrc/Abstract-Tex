@@ -153,6 +153,21 @@ impl Project {
         self.save_config()
     }
 
+    /// Remove a `.bib` file from `extra_bib_files` (S8.7's "unlink a collection") and save.
+    /// Only the list entry goes: the `.bib` on disk is the author's and stays, and Better BibTeX's
+    /// auto-export in Zotero is left as it is, since removing it would be a second write to Zotero
+    /// that DESIGN.md §5.4 does not allow. Unlinking a path that is not listed changes nothing and
+    /// does not rewrite `preamble.toml`.
+    pub fn remove_extra_bib_file(&mut self, relative: &str) -> Result<()> {
+        let normalised = relative.replace('\\', "/");
+        let before = self.config.project.extra_bib_files.len();
+        self.config.project.extra_bib_files.retain(|existing| existing != &normalised);
+        if self.config.project.extra_bib_files.len() == before {
+            return Ok(());
+        }
+        self.save_config()
+    }
+
     pub fn save_config(&self) -> Result<()> {
         let text = toml::to_string_pretty(&self.config).context("could not serialise preamble.toml")?;
         let header = "# Preamble project configuration. Safe to edit by hand; safe to commit.\n\n";
@@ -514,6 +529,28 @@ mod tests {
         assert!(project.resolve("sections/../../x").is_err());
         assert!(project.resolve("C:/Windows/x").is_err() || !cfg!(windows));
         assert!(project.resolve("sections/intro.tex").is_ok());
+    }
+
+    #[test]
+    fn linking_twice_lists_once_and_unlinking_removes_it_and_survives_a_reopen() {
+        let dir = scaffold(&[("main.tex", "")]);
+        let mut project = Project::open(dir.path()).unwrap();
+        project.add_extra_bib_file("zotero\\Thesis.bib").unwrap();
+        project.add_extra_bib_file("zotero/Thesis.bib").unwrap();
+        assert_eq!(project.config.project.extra_bib_files, vec!["zotero/Thesis.bib"]);
+
+        project.remove_extra_bib_file("zotero/Thesis.bib").unwrap();
+        assert!(project.config.project.extra_bib_files.is_empty());
+        // Saved, not only changed in memory: a fresh open reads the same empty list back.
+        assert!(Project::open(dir.path()).unwrap().config.project.extra_bib_files.is_empty());
+    }
+
+    #[test]
+    fn unlinking_a_path_that_is_not_linked_does_not_touch_preamble_toml() {
+        let dir = scaffold(&[("main.tex", "")]);
+        let mut project = Project::open(dir.path()).unwrap();
+        project.remove_extra_bib_file("zotero/never-linked.bib").unwrap();
+        assert!(!dir.path().join(CONFIG_FILE).exists());
     }
 
     #[test]

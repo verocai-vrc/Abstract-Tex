@@ -240,6 +240,19 @@ export async function linkZoteroCollection(collection: { path: string; name: str
 }
 
 /**
+ * Unlink a linked `.bib` (S8.7). The backend re-indexes and emits `bibliography:changed`, which is
+ * what updates every list showing it; a failure (say, `preamble.toml` not writable) becomes the
+ * notice, the same way `linkZoteroCollection` reports one.
+ */
+export async function unlinkBibFile(path: string): Promise<void> {
+  try {
+    await ipc.unlinkBibFile(path);
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
+/**
  * The document's symbol tree, flattened, for whatever first wants one (S4.2's Document map
  * panel, most likely). No UI reads this today; it exists so that loop starts from a request that
  * already works rather than from nothing, the same "plumbing before the visual layer" shape

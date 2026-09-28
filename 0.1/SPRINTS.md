@@ -1908,7 +1908,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 | [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
 | [~] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
 | [x] | S8.6 A `.bib` the index cannot read is a health finding: named but absent, outside the project, or a linked export not yet written | S | S8.2, S8.3 |
-| [ ] | S8.7 Unlink a Zotero collection: remove its export path from `preamble.toml`'s `extra_bib_files` | S | S8.2 |
+| [x] | S8.7 Unlink a Zotero collection: remove its export path from `preamble.toml`'s `extra_bib_files` | S | S8.2 |
 
 ```
 Loop      S8.1 · Zotero detection on port 23119 · S
@@ -2275,6 +2275,40 @@ reader should take from the diff:
 3. **A third `Jump` variant rather than an optional one.** `MissingFile { file }` keeps S8.3's
    rule that a caller must match on the variant; the panel renders it as a plain row rather than
    a button, since there is nothing to open, and still groups it under the file's path.
+
+```
+Loop      S8.7 · Unlink a Zotero collection · S
+Reads     S8.2's outcome ("any UI for removing a linked collection… the picker only adds");
+          DESIGN.md §5.4 (the one write to Zotero this app allows is `autoexport.add`)
+Depends   S8.2
+Files     src-tauri/src/project.rs, src-tauri/src/commands.rs, src/lib/ipc.ts,
+          src/lib/controller.svelte.ts, src/lib/bibliography.svelte.ts,
+          src/components/ZoteroLink.svelte, src/components/BibliographyHealth.svelte
+Build     `Project::remove_extra_bib_file` and an `unlink_bib_file` command: drop the path from
+          `preamble.toml`, re-index, nothing else — no request to Zotero, no file deleted.
+          Offered from the link dialog and from S8.6's "export not on disk yet" finding.
+Verify    cargo test -p preamble -- project; pnpm vitest run; pnpm check
+Done when unlinking removes the path from `preamble.toml` on disk, unlinking an unlisted path
+          does not rewrite the file, and only linked (not document-named) files are offered.
+```
+
+**S8.7 (28 September 2026).** `[x]`: rungs 1–2 green — `cargo test --workspace` 417 passed / 0
+failed (2 new, in `project.rs`, which also gives S8.2's `add_extra_bib_file` its first test),
+clippy clean, `pnpm check` 443 / 0, Vitest 402/402 (2 new, `linkedFiles`). No rung 4. What a reader
+should take from the diff:
+
+1. **Unlinking writes to one file and asks nobody.** The `.bib` stays (it is the author's, and
+   may be cited elsewhere) and Better BibTeX's auto-export stays configured (removing it would be
+   a second write to Zotero, which DESIGN.md §5.4 does not allow). So unlink works with Zotero
+   closed — the case where an export will never appear and the author most wants it gone.
+2. **Two places to unlink, one function.** The link dialog lists linked files above the picker,
+   but it opens only when Zotero is `ready`; S8.6's missing-export finding carries an Unlink
+   button too, which is what covers Zotero being gone. An existing linked file with Zotero closed
+   has no button — it still works as a `.bib`, and `preamble.toml` says "safe to edit by hand".
+3. **"Linked" comes from `BibOrigin`, not from a second copy of `preamble.toml`.** S8.6 made the
+   index record why each file is there, so the frontend needed no new state: `linkedFiles` is a
+   filter over the index it already has. A file both linked and named is `named`, so it is not
+   offered — unlinking it would change nothing visible, since the document still names it.
 
 **S8.5 (28 September 2026).** `[~]`: everything short of the upload is done and proven, the same
 place S6.5 stopped — `cargo package -p texbib` with and without `--features acquire` (42 files,
