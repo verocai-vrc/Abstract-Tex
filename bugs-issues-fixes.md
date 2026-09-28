@@ -274,6 +274,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   update, S3.3b; `Project::info()` re-reading every file per refresh, S4.1), so worth the same
   "memoize if it ever measures otherwise" note rather than assuming it is fine forever. Not
   required; no sprint-4 card owns performance work.
+  **Fixed** (S9.6, 28 Sep 2026): focus mode is a `StateField` now. A cursor move inside the lit
+  paragraph returns the same state; typing inside it shifts the existing dimming with the text;
+  only a paragraph change or an edit elsewhere rebuilds. It also stopped copying the whole
+  document into a string per keystroke (`currentParagraphRange` reads CodeMirror's `Text`).
+  `focus.test.ts` counts rebuilds: zero across nine typed characters.
 
 - **`detect_root`'s "no other file includes it" exclusion has no fallback and ignores depth.**
   (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:220-233` removes every candidate that
@@ -366,6 +371,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   UI thread during typing, though `refresh_tree` is not on that path today. The architect's own
   risk note on this loop's card already flagged this as "trivial at thesis size, worth a note for
   sprint 9" — this entry is that note, with a measurement attached.
+  **Fixed** (S9.6, 28 Sep 2026): `Project::info` keeps the graph and a stamp (exists, size,
+  modified time) of every file it walked, missing ones included, and walks again only when a
+  stamp differs — one `metadata` call per document file instead of a read. `info` takes
+  `&mut self` for it. Tested by counting walks: unchanged, and a non-document file changed,
+  cost none; a chapter gaining an include, and a missing file appearing, cost one each.
 
 - **`frames_keep_their_boundaries_under_load` deadlocks on Linux's 64 KB pipe buffer.**
   `crates/preamble-lsp/tests/process.rs` sends all 50 test frames (~125 KB total) before
@@ -410,6 +420,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   not blocking — logged as the one place in this diff that allocates per key, for a future
   loop to memoize on the two field values (`markers`, `lspMarkers`) instead of the view
   update. Found by the reviewer, S3.3b, 13 Sep 2026.
+  **Fixed** (S9.6, 28 Sep 2026): `mergedMarkers`, a `StateField` that merges only when either
+  source is replaced and otherwise shifts with the text; a cursor move returns the identical
+  set (tested by reference). A deleted line break that lands two markers on one line re-merges,
+  the one case shifting alone would get wrong — also tested.
 
 - **`PREAMBLE_OPEN` env var resolves relative to the wrong directory.**
   `src-tauri/src/commands.rs:42` filters `PREAMBLE_OPEN` through `Path::new(p).is_dir()`,

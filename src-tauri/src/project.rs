@@ -102,6 +102,36 @@ pub struct ProjectInfo {
 pub struct Project {
     pub root_dir: PathBuf,
     pub config: ProjectConfig,
+    /// The include graph from the last `info()`, reused while none of its files changed (S9.6).
+    graph_cache: Option<GraphCache>,
+    /// How many times `info()` actually walked the graph: what the cache is tested by.
+    graph_builds: usize,
+}
+
+/// The document files `info()` found, and what each one looked like when it did.
+#[derive(Debug)]
+struct GraphCache {
+    root: PathBuf,
+    stamps: Vec<FileStamp>,
+    document_files: Vec<String>,
+    complete: bool,
+}
+
+/// Enough to tell that a file changed without reading it: whether it exists, its size, and
+/// when it was last written. A file named by the document but missing is stamped too, so the
+/// moment it appears the graph is walked again.
+#[derive(Debug, PartialEq, Eq)]
+struct FileStamp {
+    exists: bool,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+fn stamp(path: &Path) -> FileStamp {
+    match fs::metadata(path) {
+        Ok(meta) => FileStamp { exists: true, len: meta.len(), modified: meta.modified().ok() },
+        Err(_) => FileStamp { exists: false, len: 0, modified: None },
+    }
 }
 
 impl Project {
@@ -127,7 +157,7 @@ impl Project {
             fs::write(&keep_out, "*\n")?;
         }
 
-        Ok(Self { root_dir, config })
+        Ok(Self { root_dir, config, graph_cache: None, graph_builds: 0 })
     }
 
     pub fn build_dir(&self) -> PathBuf {
@@ -220,20 +250,17 @@ impl Project {
         Some(to_forward_slashes(rel))
     }
 
-    pub fn info(&self) -> ProjectInfo {
+    /// Everything the frontend shows about the project. `&mut self` because it keeps the include
+    /// graph between calls (S9.6): this runs on every debounced tree refresh — after *any* file
+    /// change — and walking the graph reads every document file. Now it reads them only when one
+    /// of them changed, and otherwise costs one `metadata` call per file.
+    pub fn info(&mut self) -> ProjectInfo {
         // Borrowed to build the graph, then moved into the response below: the borrow checker
         // allows this because the borrow (inside the `match`) ends before the `.map()` that
         // consumes `root_file` runs.
         let root_file = self.root_file();
         let (document_files, document_files_complete) = match &root_file {
-            Some(root) => {
-                let graph = abstract_tex_includes::build_graph(&self.root_dir, root);
-                // `is_complete` first: `into_iter()` below moves `graph.nodes` out of `graph`,
-                // and calling it after would be a partial-move error (a method on `graph` used
-                // once one of its fields has already been moved out).
-                let complete = graph.is_complete();
-                (graph.nodes.into_iter().map(|node| node.path).collect(), complete)
-            }
+            Some(root) => self.document_graph(root),
             // No root at all: there is no document to walk, and nothing to be incomplete about.
             None => (Vec::new(), true),
         };
@@ -247,6 +274,29 @@ impl Project {
             document_files_complete,
             engine_notice: None,
         }
+    }
+
+    /// The document's files and whether the graph is complete: from the cache while every file
+    /// it walked still looks the same, from a fresh walk otherwise.
+    fn document_graph(&mut self, root: &Path) -> (Vec<String>, bool) {
+        if let Some(cache) = &self.graph_cache {
+            let unchanged = cache.root == root
+                && cache.document_files.iter().zip(&cache.stamps).all(|(file, then)| stamp(&self.root_dir.join(file)) == *then);
+            if unchanged {
+                return (cache.document_files.clone(), cache.complete);
+            }
+        }
+
+        self.graph_builds += 1;
+        let graph = abstract_tex_includes::build_graph(&self.root_dir, root);
+        // `is_complete` first: `into_iter()` below moves `graph.nodes` out of `graph`, and
+        // calling it after would be a partial-move error (a method on `graph` used once one of
+        // its fields has already been moved out).
+        let complete = graph.is_complete();
+        let document_files: Vec<String> = graph.nodes.into_iter().map(|node| node.path).collect();
+        let stamps = document_files.iter().map(|file| stamp(&self.root_dir.join(file))).collect();
+        self.graph_cache = Some(GraphCache { root: root.to_path_buf(), stamps, document_files: document_files.clone(), complete });
+        (document_files, complete)
     }
 }
 
@@ -518,7 +568,7 @@ mod tests {
             ("sections/fig.tex", ""),
             ("figures/plot.tex", "\\documentclass{standalone}\n"),
         ]);
-        let project = Project::open(dir.path()).unwrap();
+        let mut project = Project::open(dir.path()).unwrap();
         let info = project.info();
         assert_eq!(info.root_file.as_deref(), Some("main.tex"));
         assert_eq!(
@@ -531,7 +581,7 @@ mod tests {
     #[test]
     fn an_unresolved_include_marks_document_files_incomplete() {
         let dir = scaffold(&[("main.tex", "\\input{\\chapdir/x}\n")]);
-        let project = Project::open(dir.path()).unwrap();
+        let mut project = Project::open(dir.path()).unwrap();
         let info = project.info();
         assert!(!info.document_files_complete);
     }
@@ -539,7 +589,7 @@ mod tests {
     #[test]
     fn no_root_file_means_an_empty_but_complete_document() {
         let dir = scaffold(&[("readme.md", "hi")]);
-        let project = Project::open(dir.path()).unwrap();
+        let mut project = Project::open(dir.path()).unwrap();
         let info = project.info();
         assert_eq!(info.root_file, None);
         assert!(info.document_files.is_empty());
@@ -599,6 +649,33 @@ mod tests {
     #[test]
     fn the_pre_rename_state_folder_is_not_listed() {
         assert!(is_ignored_dir(LEGACY_STATE_DIR));
+    }
+
+    #[test]
+    fn info_walks_the_include_graph_again_only_when_a_document_file_changed() {
+        let dir = scaffold(&[("main.tex", "\\input{intro}\n"), ("intro.tex", "Hello."), ("notes.txt", "")]);
+        let mut project = Project::open(dir.path()).unwrap();
+        assert_eq!(project.info().document_files, vec!["main.tex", "intro.tex"]);
+        assert_eq!(project.graph_builds, 1);
+
+        // A refresh with nothing changed, and one after a file outside the document changed.
+        project.info();
+        fs::write(dir.path().join("notes.txt"), "unrelated").unwrap();
+        project.info();
+        assert_eq!(project.graph_builds, 1, "nothing in the document changed");
+
+        // A chapter gains an include: its size changes, so the graph is walked again and sees it.
+        fs::write(dir.path().join("intro.tex"), "Hello.\\input{fig}\n").unwrap();
+        let info = project.info();
+        assert_eq!(project.graph_builds, 2);
+        assert_eq!(info.document_files, vec!["main.tex", "intro.tex", "fig.tex"], "named, though not on disk yet");
+
+        // The missing file appears, with an include of its own. It was stamped as missing, so its
+        // arrival is a change, and the new walk follows it one level further.
+        fs::write(dir.path().join("fig.tex"), "\\input{table}\n").unwrap();
+        let info = project.info();
+        assert_eq!(project.graph_builds, 3);
+        assert_eq!(info.document_files, vec!["main.tex", "intro.tex", "fig.tex", "table.tex"]);
     }
 
     #[test]

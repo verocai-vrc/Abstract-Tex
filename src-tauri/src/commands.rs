@@ -77,7 +77,7 @@ pub async fn engine_info(state: State<'_, AppState>) -> CommandResult<Option<Eng
 /// Open a folder: load config, start watching, allow the PDF pane to read the build folder.
 #[tauri::command]
 pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<ProjectInfo> {
-    let project = Project::open(Path::new(&path)).map_err(to_message)?;
+    let mut project = Project::open(Path::new(&path)).map_err(to_message)?;
 
     // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope.
     app.asset_protocol_scope()

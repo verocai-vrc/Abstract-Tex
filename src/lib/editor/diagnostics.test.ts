@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { build, buildLsp, buildSquiggles, diagnosticAt, mergeMarkers } from './diagnostics';
+import { EditorSelection, EditorState } from '@codemirror/state';
+import { build, buildLsp, buildSquiggles, diagnosticAt, diagnosticGutter, mergeMarkers, mergedMarkers, setDiagnostics } from './diagnostics';
 import type { Diagnostic } from '../ipc';
 import type { EditorDiagnostic } from '../lsp-diagnostics';
 import type { Position } from '../lsp-protocol';
@@ -226,5 +227,55 @@ describe('diagnosticAt', () => {
   it('picks one diagnostic when two ranges overlap, rather than throwing', () => {
     const set = buildSquiggles([rangedDiag(0, 0, 10, 'warning', 'a'), rangedDiag(0, 4, 6, 'error', 'b')], toOffset);
     expect(diagnosticAt(set, 5)).not.toBeNull();
+  });
+});
+
+describe('mergedMarkers (S9.6)', () => {
+  const doc = 'line one\nline two\nline three\nline four';
+  const error = (line: number): Diagnostic => ({
+    title: 'Error',
+    explanation: 'An error.',
+    line,
+    file: 'main.tex',
+    severity: 'error',
+    rule: null,
+    rawMessage: 'x',
+    fix: null,
+  });
+
+  function withDiagnostics(lines: number[]): EditorState {
+    const state = EditorState.create({ doc, extensions: diagnosticGutter() });
+    return state.update({ effects: setDiagnostics.of(lines.map(error)) }).state;
+  }
+
+  function markerLines(state: EditorState): number[] {
+    const lines: number[] = [];
+    for (const cursor = state.field(mergedMarkers).iter(); cursor.value; cursor.next()) {
+      lines.push(state.doc.lineAt(cursor.from).number);
+    }
+    return lines;
+  }
+
+  it('merges when a source is replaced', () => {
+    expect(markerLines(withDiagnostics([2, 4]))).toEqual([2, 4]);
+  });
+
+  it('returns the very same set when only the cursor moves', () => {
+    const state = withDiagnostics([2]);
+    const moved = state.update({ selection: EditorSelection.cursor(5) }).state;
+    expect(moved.field(mergedMarkers)).toBe(state.field(mergedMarkers));
+  });
+
+  it('shifts with the text when a line is typed above a marker', () => {
+    const state = withDiagnostics([2]);
+    const typed = state.update({ changes: { from: 0, insert: 'new first line\n' } }).state;
+    expect(markerLines(typed)).toEqual([3]);
+  });
+
+  it('keeps one marker per line when a deleted line break joins two marked lines', () => {
+    const state = withDiagnostics([2, 3]);
+    const lineTwoEnd = state.doc.line(2).to;
+    const joined = state.update({ changes: { from: lineTwoEnd, to: lineTwoEnd + 1 } }).state;
+    expect(markerLines(joined)).toEqual([2]);
   });
 });

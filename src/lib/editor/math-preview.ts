@@ -6,6 +6,7 @@
 //! pointer stops is a preview, not a rendering of the document, and nothing here runs on a
 //! keystroke (§2 commitment 2).
 
+import type { Text } from '@codemirror/state';
 import { hoverTooltip, type EditorView, type Tooltip } from '@codemirror/view';
 import katex from 'katex';
 import { currentParagraphRange } from './focus';
@@ -77,7 +78,7 @@ function delimiterAt(text: string, index: number): Delimiter | null {
 }
 
 /**
- * The maths span containing `offset` in `docText`, or `null` when the offset is in prose, the
+ * The maths span containing `offset` in `doc`, or `null` when the offset is in prose, the
  * span is never closed within its paragraph, or the expression is too long to preview.
  *
  * Plain strings and numbers in, a span out, no CodeMirror types anywhere in the signature — the
@@ -89,9 +90,10 @@ function delimiterAt(text: string, index: number): Delimiter | null {
  * Not attempted: `%` comments and `verbatim`. A `$` inside a comment is an accepted false
  * positive at this size.
  */
-export function mathAtOffset(docText: string, offset: number): MathSpan | null {
-  const paragraph = currentParagraphRange(docText, offset);
-  const text = docText.slice(paragraph.from, paragraph.to);
+export function mathAtOffset(doc: Text, offset: number): MathSpan | null {
+  const paragraph = currentParagraphRange(doc, offset);
+  // Only the paragraph is copied out of the document, never the whole of it (S9.6).
+  const text = doc.sliceString(paragraph.from, paragraph.to);
   const localOffset = offset - paragraph.from;
 
   let scanFrom = 0;
@@ -195,7 +197,7 @@ export function renderMath(tex: string, display: boolean): RenderResult {
  * still produces a tooltip (the error line) rather than a blank box.
  */
 export function mathPreviewSource(view: EditorView, pos: number): Tooltip | null {
-  const span = mathAtOffset(view.state.doc.toString(), pos);
+  const span = mathAtOffset(view.state.doc, pos);
   if (span === null) return null;
 
   const rendered = renderMath(span.tex, span.display);

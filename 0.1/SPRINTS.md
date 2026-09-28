@@ -2924,7 +2924,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
 | [~] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "pdflatex" \| "xelatex" \| "lualatex"` in `abstract-tex.toml`) | M | S9.1 |
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
-| [ ] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
+| [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [ ] | S9.7 Scoped preview (DESIGN.md §5.1 rung 4): a temporary `\includeonly` build of the chapter under the cursor for an instant draft, with the full build behind it — the only rung left that shrinks the sixty pages themselves | L | S9.2, S9.3 |
 | [ ] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 
@@ -3141,6 +3141,32 @@ Build     Focus mode maps its decorations through changes and rebuilds only when
 Verify    pnpm vitest run; cargo test -p abstract-tex -- project
 Done when the three ledger entries are Fixed with the test that proves each.
 ```
+
+**S9.6 (28 September 2026).** `[x]`: rungs 1–2 green — `cargo test --workspace` 443 passed / 0
+failed (1 new), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors,
+Vitest 418/418 (11 new), `pnpm build` succeeds. All three ledger entries are Fixed, each with a
+test that counts the expensive call, since there is no webview here to time. What a reader
+should take from the diff:
+
+1. **Derived state belongs in a `StateField`, not in a per-update callback.** Both editor fixes
+   are the same move: focus mode (a `ViewPlugin`) and the gutter's merge (a `markers` callback)
+   recomputed from scratch on every view update. As fields they get a transaction, can see
+   whether the document or only the selection changed, and can return the *same* value when
+   nothing that matters did — which is also what makes them testable on an `EditorState` alone,
+   in the Node test environment that has no DOM for a view.
+2. **Shift, don't rebuild — except where shifting is wrong.** Both fields map their existing
+   decorations or markers through the edit instead of recomputing. Each names the case where
+   that would be wrong and handles it: focus mode rebuilds for any edit outside the lit
+   paragraph (a collaborator's, or a file change arriving through the CRDT); the gutter re-merges
+   when a deleted line break stacks two markers on one line.
+3. **A whole-document `toString()` per keystroke was the bigger waste.** The ledger entry was
+   about the decoration loop, but `focusModePlugin` also copied the entire document into a
+   string on every change to find the paragraph, and `mathAtOffset` did the same on every hover.
+   `currentParagraphRange` now reads CodeMirror's `Text` (a tree of lines) directly, so its cost is
+   the paragraph's length, not the document's.
+4. **`Project::info` caches by stamp, not by content.** `(exists, len, modified)` per walked file
+   is enough to know nothing changed without opening anything; stamping missing files too is
+   what makes a newly created chapter count as a change.
 
 ### Sprint 10–11 — v0.6 sync
 

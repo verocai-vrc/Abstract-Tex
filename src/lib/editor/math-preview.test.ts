@@ -6,28 +6,28 @@ import { mathAtOffset, mathPreviewSource, renderMath } from './math-preview';
 describe('mathAtOffset', () => {
   it('finds inline $n$ and strips the delimiters from tex', () => {
     const doc = 'Let $n$ be an integer.';
-    expect(mathAtOffset(doc, 5)).toEqual({ from: 4, to: 7, tex: 'n', display: false });
+    expect(mathAtOffset(Text.of(doc.split('\n')), 5)).toEqual({ from: 4, to: 7, tex: 'n', display: false });
   });
 
   it('finds \\(…\\) as inline maths', () => {
     const doc = 'and \\(x + y\\) here';
-    expect(mathAtOffset(doc, 7)).toEqual({ from: 4, to: 13, tex: 'x + y', display: false });
+    expect(mathAtOffset(Text.of(doc.split('\n')), 7)).toEqual({ from: 4, to: 13, tex: 'x + y', display: false });
   });
 
   it('finds \\[…\\] as display maths', () => {
     const doc = 'so\n\\[\n  a^2 + b^2 = c^2\n\\]\nand';
-    const span = mathAtOffset(doc, 8);
+    const span = mathAtOffset(Text.of(doc.split('\n')), 8);
     expect(span).toEqual({ from: 3, to: 26, tex: '\n  a^2 + b^2 = c^2\n', display: true });
   });
 
   it('finds $$…$$ as display maths, not two empty $…$ spans', () => {
     const doc = 'then $$E = mc^2$$ follows';
-    expect(mathAtOffset(doc, 9)).toEqual({ from: 5, to: 17, tex: 'E = mc^2', display: true });
+    expect(mathAtOffset(Text.of(doc.split('\n')), 9)).toEqual({ from: 5, to: 17, tex: 'E = mc^2', display: true });
   });
 
   it('keeps the \\begin/\\end wrapper for an align* environment', () => {
     const doc = 'We have\n\\begin{align*}\n  a &= b \\\\\n  c &= d\n\\end{align*}\nas claimed.';
-    const span = mathAtOffset(doc, 30);
+    const span = mathAtOffset(Text.of(doc.split('\n')), 30);
     expect(span).not.toBeNull();
     expect(span!.display).toBe(true);
     expect(span!.tex).toBe('\\begin{align*}\n  a &= b \\\\\n  c &= d\n\\end{align*}');
@@ -36,47 +36,47 @@ describe('mathAtOffset', () => {
 
   it('does not treat a non-maths environment as maths', () => {
     const doc = '\\begin{itemize}\n\\item one\n\\end{itemize}';
-    expect(mathAtOffset(doc, 20)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 20)).toBeNull();
   });
 
   it('ignores an escaped \\$ in prose', () => {
     const doc = 'It costs \\$5 and \\$7 today.';
-    expect(mathAtOffset(doc, 11)).toBeNull();
-    expect(mathAtOffset(doc, 19)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 11)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 19)).toBeNull();
   });
 
   it('is null for prose between two maths spans', () => {
     const doc = 'both $a$ and $b$ hold';
-    expect(mathAtOffset(doc, 10)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 10)).toBeNull();
   });
 
   it('is null for an unclosed $', () => {
     const doc = 'a lone $x with no closer';
-    expect(mathAtOffset(doc, 9)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 9)).toBeNull();
   });
 
   it('still finds a closed span that precedes an unclosed one', () => {
     const doc = 'good $a$ then bad $b';
-    expect(mathAtOffset(doc, 6)).toEqual({ from: 5, to: 8, tex: 'a', display: false });
-    expect(mathAtOffset(doc, 19)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 6)).toEqual({ from: 5, to: 8, tex: 'a', display: false });
+    expect(mathAtOffset(Text.of(doc.split('\n')), 19)).toBeNull();
   });
 
   it('counts an offset on either delimiter as inside', () => {
     const doc = 'x $ab$ y';
-    expect(mathAtOffset(doc, 2)!.tex).toBe('ab'); // on the opening $
-    expect(mathAtOffset(doc, 5)!.tex).toBe('ab'); // on the closing $
-    expect(mathAtOffset(doc, 1)).toBeNull(); // the space before it
-    expect(mathAtOffset(doc, 7)).toBeNull(); // the space after it
+    expect(mathAtOffset(Text.of(doc.split('\n')), 2)!.tex).toBe('ab'); // on the opening $
+    expect(mathAtOffset(Text.of(doc.split('\n')), 5)!.tex).toBe('ab'); // on the closing $
+    expect(mathAtOffset(Text.of(doc.split('\n')), 1)).toBeNull(); // the space before it
+    expect(mathAtOffset(Text.of(doc.split('\n')), 7)).toBeNull(); // the space after it
   });
 
   it('bounds the scan to the paragraph: a $ left open in one paragraph does not reach the next', () => {
     const doc = 'broken $x here\n\nnext $y$ fine';
-    expect(mathAtOffset(doc, 22)).toEqual({ from: 21, to: 24, tex: 'y', display: false });
+    expect(mathAtOffset(Text.of(doc.split('\n')), 22)).toEqual({ from: 21, to: 24, tex: 'y', display: false });
   });
 
   it('is null for an expression longer than 2000 characters', () => {
     const doc = `$${'x'.repeat(2001)}$`;
-    expect(mathAtOffset(doc, 10)).toBeNull();
+    expect(mathAtOffset(Text.of(doc.split('\n')), 10)).toBeNull();
   });
 });
 

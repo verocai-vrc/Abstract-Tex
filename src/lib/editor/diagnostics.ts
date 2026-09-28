@@ -52,13 +52,14 @@ class DiagnosticMarker extends GutterMarker {
   }
 }
 
-/** Replace the build's marker set. Dispatch with `applyDiagnostics`, not by hand. */
-const setDiagnostics = StateEffect.define<Diagnostic[]>();
+/** Replace the build's marker set. Dispatch with `applyDiagnostics`, not by hand (exported for
+ * the state-level tests, which have no view to dispatch through). */
+export const setDiagnostics = StateEffect.define<Diagnostic[]>();
 
 /** Replace the language server's marker set. Dispatch with `applyLspDiagnostics`. A second
  * effect rather than a flag on the first, so a publish and a build can never clear each other's
  * dots. */
-const setLspDiagnostics = StateEffect.define<EditorDiagnostic[]>();
+export const setLspDiagnostics = StateEffect.define<EditorDiagnostic[]>();
 
 const markers = StateField.define<RangeSet<DiagnosticMarker>>({
   create: () => RangeSet.empty,
@@ -78,6 +79,40 @@ const lspMarkers = StateField.define<RangeSet<DiagnosticMarker>>({
         return buildLsp(effect.value, transaction.state.doc.lines, (n) => transaction.state.doc.line(n).from);
     }
     return value.map(transaction.changes);
+  },
+});
+
+/** Whether two markers sit on the same line start — what an edit that deletes a line break can
+ * do to a set that was merged one-per-line. Walks the set once; it holds a marker per diagnostic,
+ * a handful, not a line per document line. */
+function hasCollision(set: RangeSet<DiagnosticMarker>): boolean {
+  let previous = -1;
+  for (const cursor = set.iter(); cursor.value; cursor.next()) {
+    if (cursor.from === previous) return true;
+    previous = cursor.from;
+  }
+  return false;
+}
+
+/**
+ * The gutter's one set of dots, merged from both sources (S9.6). It used to be merged inside the
+ * gutter's `markers` callback, which runs on every view update — a fresh `Map` and `RangeSet`
+ * per keystroke and per cursor move. Now the merge runs only when either source is replaced; a
+ * cursor move returns the very same set, and typing shifts it with the text the same way each
+ * source shifts itself. The one case shifting cannot get right — a deleted line break landing
+ * two markers on one line, where the merge would have kept only the more severe — falls back to
+ * merging again.
+ */
+export const mergedMarkers = StateField.define<RangeSet<DiagnosticMarker>>({
+  create: (state) => mergeMarkers(state.field(markers), state.field(lspMarkers)),
+  update(value, transaction) {
+    const sourceReplaced = transaction.effects.some((effect) => effect.is(setDiagnostics) || effect.is(setLspDiagnostics));
+    if (!sourceReplaced && !transaction.docChanged) return value;
+    if (!sourceReplaced) {
+      const shifted = value.map(transaction.changes);
+      if (!hasCollision(shifted)) return shifted;
+    }
+    return mergeMarkers(transaction.state.field(markers), transaction.state.field(lspMarkers));
   },
 });
 
@@ -267,10 +302,11 @@ export function diagnosticGutter() {
   return [
     markers,
     lspMarkers,
+    mergedMarkers,
     squiggles,
     gutter({
       class: 'cm-diag-gutter',
-      markers: (view) => mergeMarkers(view.state.field(markers), view.state.field(lspMarkers)),
+      markers: (view) => view.state.field(mergedMarkers),
     }),
     hoverTooltip(diagnosticHoverSource),
     theme,
