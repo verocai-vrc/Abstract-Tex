@@ -72,7 +72,7 @@ describe('findingsByFile (S8.3)', () => {
     const findings = [finding('a.bib', '1'), finding('b.bib', '2'), finding('a.bib', '3')];
     const groups = findingsByFile(findings);
     expect(groups.map((g) => g.file)).toEqual(['a.bib', 'b.bib']);
-    expect(groups[0].findings.map((f) => f.message)).toEqual(['1', '3']);
+    expect(groups[0]?.findings.map((f) => f.message)).toEqual(['1', '3']);
   });
 
   it('is empty for no findings', () => {

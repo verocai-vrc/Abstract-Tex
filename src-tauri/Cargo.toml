@@ -46,3 +46,5 @@ notify-debouncer-mini = { workspace = true }
 tempfile = { workspace = true }
 # The tests implement `Engine` with a fake, which needs the same macro the trait uses.
 async-trait = { workspace = true }
+# The SyncTeX test relocates the committed fixture to this checkout's path and re-gzips it.
+flate2 = { workspace = true }

@@ -1904,7 +1904,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 |---|---|---|---|
 | [x] | S8.1 Zotero detection on port 23119: is it running, is Better BibTeX installed, surfaced read-only in the UI | S | S7.5 |
 | [x] | S8.2 Better BibTeX collection linking: pick a collection, its `.bib` export path, watch it the way any other `.bib` is watched | M | S8.1, S7.2 |
-| [ ] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
+| [x] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
 | [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
 | [ ] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
 
@@ -2222,6 +2222,20 @@ may only be automatic when it cannot be wrong" applies at least as hard to a pag
 a texlog rule, but S6.2's fix-application machinery is scoped to `Diagnostic`, not `Finding` — a
 later loop's decision, not this one's). Also not done: any UI affordance to jump *from* the drawer
 or gutter to a bibliography finding, or the reverse — the two panels are fully separate today.
+
+**S8.3 follow-up (28 September 2026).** Three corrections to the outcome above, found by running
+the full gate before planning the rest of sprint 8. (a) The committed tree's numbers are
+`pnpm check` 443 files / **1 error** and Vitest **399**/399 (4 new, not 7), not 445 / 0 / 402: the
+outcome was written against a working tree that differs from what `8dfefd5` landed, and one test
+indexed `groups[0]` unguarded. Fixed; `pnpm check` is 443 / 0. (b) The table row above was still
+`[ ]`; now `[x]`. (c) The commit went in as `feat: …` instead of `S8.3: …` and carried ~520 lines
+of Rust, past the ~400 CLAUDE.md sets — the loop was one piece too large (the three
+index-level checks and the two `texbib::health` ones would have been two commits). Not rewritten,
+since it is pushed; recorded so the next loop does not take it as precedent. The same pass took
+`pnpm verify` fully green on this Windows checkout for the first time since S4.6: a fixture-scoped
+`.gitattributes` for the six `texbib` CRLF failures, and both SyncTeX real-fixture tests made
+independent of the checkout path (they were never a line-ending problem). `RUSTDOCFLAGS="-D
+warnings" cargo doc --workspace` is clean too. Details in `bugs-issues-fixes.md`.
 
 ```
 Loop      S7.1 · texbib parser crate · L

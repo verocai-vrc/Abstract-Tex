@@ -1,0 +1,10 @@
+# Fixture files are recorded byte for byte: an expected.json stores byte spans into the source
+# beside it, and a Windows checkout with core.autocrlf=true would otherwise add a \r before every
+# \n and shift every span after the first line ending. Keep them LF on every platform.
+fixtures/**            text eol=lf
+crates/*/fixtures/**   text eol=lf
+
+# Engine output and images are never text, whatever their extension suggests to Git.
+*.gz                   binary
+*.pdf                  binary
+*.png                  binary

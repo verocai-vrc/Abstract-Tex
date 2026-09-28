@@ -136,30 +136,48 @@ mod tests {
     /// three calls the Tauri command makes, minus the `State` plumbing `commands.rs` adds.
     #[test]
     fn inverse_search_end_to_end_against_the_real_fixture() {
-        // preamble-synctex's fixture directory doubles as this module's "build dir": the
-        // committed `.synctex.gz` is named after the `.tex` it was built from, exactly the
-        // `<stem>.synctex.gz` convention `synctex_path` implements.
-        //
-        // `std::path::absolute` (not `.join("../…")` left as-is) because `paths_match` in
-        // `preamble-synctex` compares paths as strings, and a literal `..` component never gets
-        // resolved by string comparison alone — the `.gz` itself records the fully-resolved path
-        // Tectonic saw when it built this fixture, so this side has to match that, not a
-        // string that merely *points to* the same file. Found by running this test, not guessed.
-        let fixtures =
-            std::path::absolute(Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/preamble-synctex/fixtures"))
-                .unwrap();
-        let table = open(&fixtures, Path::new("multi.tex")).expect("the committed fixture should open");
+        let project = tempfile::tempdir().unwrap();
+        relocate_fixture_into(project.path());
+        // The temp folder is both the project root and the build dir: the relocated `.gz` sits
+        // there named after its `.tex`, the `<stem>.synctex.gz` convention `synctex_path` uses.
+        let table = open(project.path(), Path::new("multi.tex")).expect("the relocated fixture should open");
 
         // Forward search first, to get a real point on page 1 to click "near" — the same
         // approach the crate's own real-fixture test uses, rather than guessing coordinates.
-        let source = fixtures.join("multi.tex");
+        let source = project.path().join("multi.tex");
         let forward = table.forward_search(&source, 3).expect("line 3 is on page 1");
 
         let position = preamble_synctex::PdfPosition { page: forward.page, x: forward.x, y: forward.y };
         let hit = table.inverse_search(position).expect("a record exists at this exact point");
-        let result = to_relative(&fixtures, hit);
+        let result = to_relative(project.path(), hit);
 
         assert_eq!(result.file.as_deref(), Some("multi.tex"));
         assert_eq!(result.line, 3);
+    }
+
+    /// Copy `preamble-synctex`'s committed fixture into `folder`, rewriting its `Input:1:` line to
+    /// `folder/multi.tex`. SyncTeX records the absolute path Tectonic saw when it built the file —
+    /// the original author's Windows folder — so the unmodified fixture only matched on that one
+    /// machine, and `to_relative`'s `strip_prefix` cannot split a Windows path on Linux or macOS
+    /// at all. Relocating it makes the chain below exercise this checkout's real paths, on every
+    /// OS CI runs.
+    fn relocate_fixture_into(folder: &Path) {
+        // `flate2` is gzip: SyncTeX's `.gz` is a text file compressed, nothing more.
+        use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+        use std::io::{Read, Write};
+
+        let committed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/preamble-synctex/fixtures/multi.synctex.gz");
+        let mut text = String::new();
+        GzDecoder::new(std::fs::File::open(committed).unwrap()).read_to_string(&mut text).unwrap();
+
+        let relocated_input = format!("Input:1:{}", folder.join("multi.tex").display());
+        let relocated: Vec<String> = text
+            .lines()
+            .map(|line| if line.starts_with("Input:1:") { relocated_input.clone() } else { line.to_string() })
+            .collect();
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(relocated.join("\n").as_bytes()).unwrap();
+        std::fs::write(folder.join("multi.synctex.gz"), encoder.finish().unwrap()).unwrap();
     }
 }

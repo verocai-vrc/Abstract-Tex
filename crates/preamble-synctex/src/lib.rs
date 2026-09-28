@@ -3,7 +3,7 @@
 //! ("this spot in the PDF came from this source line", S3.5).
 //!
 //! This crate owns:
-//! - decompressing and tokenising the SyncTeX text format (see [`parse`]),
+//! - decompressing and tokenising the SyncTeX text format (see `parse`),
 //! - a [`SyncTex`] value holding every record, ready to be searched in either direction,
 //! - the coordinate conversion from TeX's internal scaled points to PDF points.
 //!
@@ -421,7 +421,12 @@ Count:5\n";
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/multi.synctex.gz");
         let synctex = SyncTex::open(&path).unwrap();
 
-        let source_tex = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/multi.tex");
+        // The fixture's `Input:` line is the absolute path Tectonic saw on the machine that
+        // recorded it, not this checkout's path, so ask the fixture itself where `multi.tex` was
+        // rather than rebuilding the path from `CARGO_MANIFEST_DIR` — the latter only ever
+        // matched on the original author's machine. `multi.tex` is the only input with typeset
+        // material, so the record nearest any point on page 1 names it.
+        let source_tex = recorded_multi_tex(&synctex);
         // Line 3 is "Line one of the introduction..." on page 1.
         let forward = synctex.forward_search(&source_tex, 3).expect("line 3 should be on page 1");
         assert_eq!(forward.page, 1);
@@ -434,6 +439,16 @@ Count:5\n";
         // Inverse search from exactly where forward search says line 3 lands must return line 3.
         let back = synctex.inverse_search(forward).expect("a record exists at this exact point");
         assert_eq!(back.line, 3);
+    }
+
+    /// Where the committed fixture recorded `multi.tex`, whatever machine it was built on.
+    fn recorded_multi_tex(synctex: &SyncTex) -> PathBuf {
+        let top_left = PdfPosition { page: 1, x: 0.0, y: 0.0 };
+        let hit = synctex.inverse_search(top_left).expect("page 1 has records");
+        // A string check, not `Path::ends_with`: on Linux a recorded Windows path is one single
+        // component, so a component-wise comparison would never match.
+        assert!(normalise(&hit.file).ends_with("/multi.tex"), "unexpected input {:?}", hit.file);
+        hit.file
     }
 
     /// Regenerates `fixtures/multi.synctex.gz` from `fixtures/multi.tex` with the real, bundled

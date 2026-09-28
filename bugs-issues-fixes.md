@@ -15,6 +15,22 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`pnpm check` fails on `main`: `src/lib/bibliography.test.ts:75` indexes `groups[0]` without a
+  guard, and `svelte-check` reports "Object is possibly 'undefined'".** (planning review, 28 Sep
+  2026, found running the full verify gate before planning sprint 8's remainder) Introduced by
+  `8dfefd5` (S8.3's work, committed as `feat: add bibliography health checks…` rather than
+  `S8.3: …`). S8.3's outcome paragraph in `SPRINTS.md` records `pnpm check` 445 files / 0 errors
+  and Vitest 402/402; the tree as committed gives 443 files / 1 error and 399/399, so the recorded
+  numbers came from a working tree that differs from what landed. Vitest itself passes — the
+  test runs fine, only the type check rejects it — but `pnpm verify` is red, so every loop from
+  here would start from a failing gate. Likely fix: `groups[0]?.findings` or an
+  `expect(groups).toHaveLength(2)` followed by a non-null assertion. Also worth checking in the
+  same pass: the S8.3 row in `SPRINTS.md`'s sprint 8 table still reads `[ ]` although its outcome
+  says `[x]`.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): `groups[0]?.findings` — a missing group now fails the
+  `toEqual` rather than the type check. `pnpm check` 443 files / 0 errors; the S8.3 table row is
+  ticked and its outcome's counts corrected.
+
 - **`cargo test -p texbib --features acquire --test fixtures` fails all six real-fixture cases on
   this machine, purely from CRLF byte-offset drift.** (S8.2, builder, 23 Sep 2026, found running
   the full `texbib` test suite as this loop's own verification step) Every failure is the same
@@ -29,6 +45,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   than two separate ones. Does not block this loop: the card's `Verify` line does not run the
   `fixtures` integration test, and all unit tests (including this loop's new `zotero.rs` and
   `bibliography.rs` ones) are green.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026) together with the S7.3 entry below: same root cause, a
+  `.gitattributes` fix. The synctex failures turned out *not* to share it (see their own entries).
 
 - **S8.1's `zotero.rs` probed a JSON-RPC method, `item.libraries`, that does not exist in Better
   BibTeX's real API.** (S8.2, builder, 23 Sep 2026, found checking the real JSON-RPC method list
@@ -57,6 +75,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `crates/texbib/src/acquire/arxiv.rs`'s own `zero_span` doc comment already uses for the same
   reason, after S7.5 hit an identical class of error), or `#[allow(rustdoc::private_intra_doc_links)]`
   if the module doc is meant to describe internals a reader is expected to open the source for.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): plain backticks for `parse`, the first option above.
+  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` is clean.
 
 - **`reqwest` cannot resolve DNS from inside a Rust-compiled process on this machine, though
   `curl.exe` resolves the identical hostname instantly in the same shell.** (S7.5, builder, 21
@@ -107,6 +127,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   (and any other fixture depending on an exact byte layout) `-text` or `eol=lf`, so a fresh
   checkout matches what `expected.json` was computed against regardless of the checking-out
   machine's global `autocrlf` setting.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): a root `.gitattributes` marks `fixtures/**` and
+  `crates/*/fixtures/**` `text eol=lf` (and `*.gz`/`*.pdf`/`*.png` binary), and the fixture files
+  were re-checked-out so this machine's working copy is LF. Scoped to fixtures on purpose — a
+  repo-wide `eol=lf` would have been a whole-tree rewrite for no failing test. All seven
+  `texbib` fixture tests pass under `core.autocrlf=true`.
 
 - **`src-tauri/src/synctex.rs`'s own real-fixture test fails on any checkout path other than the
   original author's, the same way the already-logged `preamble-synctex` one does.** (S7.3,
@@ -122,6 +147,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   anything in S7.3 (which touched only `src/lib/editor/cite.ts`, its test, and two files wiring it in —
   no Rust). Same fix candidates apply: look the tag up by the fixture's own recorded `Input:` path, or
   compare by trailing path components in the test rather than the full resolved path.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): not a line-ending problem, as the S8.2 entry above
+  guessed, but the recorded absolute path. The test now copies the fixture into a temp folder,
+  rewrites its `Input:1:` line to that folder, re-gzips it (`flate2` added as a dev-dependency)
+  and runs `open` → forward → inverse → `to_relative` against the temp folder as project root —
+  the whole chain on real paths, on every OS. Asking the fixture for its recorded folder instead
+  would have passed on Windows only: `strip_prefix` cannot split a Windows path on Linux/macOS,
+  where CI also runs this test.
 
 - **`fragile-command-in-moving-argument`'s one-click fix is only offered when the offending line
   is short: TeX truncates the `l.NN` context from the left, and the command name goes with it.**
@@ -354,6 +386,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   fails today because `pnpm verify` does not run `cargo fmt --check`, but the next
   `cargo fmt` invocation reformats every Rust file in the repo. One-line fix whenever
   someone owns the style decision.
+  Still open (28 Sep 2026): measured before adding one — `cargo fmt --check` with
+  `max_width = 110` still reports 382 diffs, so a one-line config does not match the house style
+  either. The choice is between a one-off whole-repo `cargo fmt` commit (and adding
+  `cargo fmt --check` to `pnpm verify`) or no formatter; the maintainer's call.
 
 - **`the_real_fixture_parses_and_both_searches_answer` fails on any checkout that is not the
   original author's Windows path.** (S4.6, builder, 16 Sep 2026) `crates/preamble-synctex/
@@ -371,6 +407,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `CARGO_MANIFEST_DIR`, or compare by trailing components (`fixtures/multi.tex`) in the test
   only — `paths_match` itself should stay exact, since a real project can have two files with
   the same tail. Found running `cargo test --workspace --exclude preamble` for S4.6's gate.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026) by the first candidate above: the test asks the fixture
+  where it recorded `multi.tex` (the input named by the record nearest page 1's top-left) and
+  searches with that path; the check that it *is* `multi.tex` compares normalised strings,
+  since `Path::ends_with` sees a Windows path on Linux as one component. `paths_match` untouched.
 
 - **Maths preview: a `$` inside a `%` comment shifts `$` pairing for the rest of the
   paragraph.** (S4.6, reviewer, 16 Sep 2026) `mathAtOffset` in
