@@ -265,7 +265,10 @@ the budget in §2 requires:
 3. **Precompiled preamble.** Dump the preamble to a TeX format file with `mylatexformat` and load
    that instead of re-reading forty package files every compile. On a heavy preamble — TikZ,
    biblatex, a journal class — this is the largest single win available. Invalidate on a hash of
-   the preamble bytes.
+   the preamble bytes. **Not available on the bundled engine** (S9.3, measured): Tectonic is
+   XeTeX, and XeTeX refuses to `\dump` once a native OpenType font is loaded — which LaTeX's own
+   default font is, the moment any document class sets its body size. It applies only to a
+   pdfLaTeX system engine (S9.4).
 4. **Scoped preview.** For multi-file projects, generate a temporary `\includeonly` wrapper
    limited to the section under the cursor. Draft-quality, instantly available, with a full build
    still running behind it.

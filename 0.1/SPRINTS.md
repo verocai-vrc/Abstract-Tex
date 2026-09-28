@@ -2921,7 +2921,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 |---|---|---|---|
 | [x] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
 | [x] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
-| [ ] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
+| [x] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
 | [ ] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "latexmk"` in `abstract-tex.toml`) | M | S9.1 |
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
 | [ ] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
@@ -3046,6 +3046,32 @@ Verify    cargo test -p abstract-tex-engine -- format; the S9.2 harness before a
 Done when the thesis's warm build is measurably faster with the format than without, the
           output PDF is the same, and editing the preamble invalidates the format.
 ```
+
+**S9.3 (28 September 2026).** `[x]`, closed on the card's own "if no" branch: a precompiled
+preamble cannot be built with the bundled engine, and no code ships. The spike, run against the
+corpus with a throwaway script (not committed — nothing of it survives into the app):
+
+1. **Dumping is reachable.** Tectonic's `latex` format is literally `\input xelatex.ini`, and
+   `latex.ltx` ends in a bare `\dump`. Saving the primitive, disarming it (`\let` `\dump` to
+   `\relax`), loading `xelatex.ini`, running the document's preamble and then the saved primitive
+   gets a real preamble — IEEEtran, TikZ, lipsum, expl3 — all the way to the dump, under
+   `tectonic --outfmt fmt`. A `\documentclass` redefined to skip to `\begin{document}` is the
+   other half (how the document body would reuse it).
+2. **XeTeX then refuses:** `Can't \dump a format with native fonts or font-mappings.` LaTeX's
+   default font under XeTeX is `TU/lmr`, an OpenType font, and every class loads it while setting
+   its body size — so the failure is not `fontspec`'s: the conference paper (no fontspec) and the
+   plain-`article` TikZ paper fail identically. Deferring font loads until after the dump would
+   mean faking `\selectfont` during class loading, which breaks every class that measures its
+   own fonts. That is a hack, not a feature.
+3. **Where rung 3 still lives:** a pdfLaTeX engine dumps Type 1 fonts happily (the classic
+   `mylatexformat` route), so it becomes an option for projects that switch to a system TeX in
+   S9.4. DESIGN.md §5.1 rung 3 now says so.
+
+Consequence for the exit criterion: of the thesis's 3.3 s single pass, the preamble share
+(~2.5 s, going by the one-page pathological document) cannot be cached on Tectonic. Sprint 9's
+remaining lever for the thesis is S9.7's scoped preview, which shrinks the pages rather than the
+preamble. The criterion itself — p95 under 1.2 s for a full sixty-page build — should be
+re-read with the maintainer against these numbers rather than quietly missed.
 
 ```
 Loop      S9.4 · System TeX detection and engine switching · M
