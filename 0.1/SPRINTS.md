@@ -1906,7 +1906,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 | [x] | S8.2 Better BibTeX collection linking: pick a collection, its `.bib` export path, watch it the way any other `.bib` is watched | M | S8.1, S7.2 |
 | [x] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
 | [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
-| [ ] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
+| [~] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
 
 ```
 Loop      S8.1 · Zotero detection on port 23119 · S
@@ -2236,6 +2236,39 @@ since it is pushed; recorded so the next loop does not take it as precedent. The
 `.gitattributes` for the six `texbib` CRLF failures, and both SyncTeX real-fixture tests made
 independent of the checkout path (they were never a line-ending problem). `RUSTDOCFLAGS="-D
 warnings" cargo doc --workspace` is clean too. Details in `bugs-issues-fixes.md`.
+
+**S8.5 (28 September 2026).** `[~]`: everything short of the upload is done and proven, the same
+place S6.5 stopped — `cargo package -p texbib` with and without `--features acquire` (42 files,
+248 KiB, 66 KiB compressed), all 57 default-feature and 117 `acquire` tests pass *from the
+packaged tarball*, `RUSTDOCFLAGS="-D warnings" cargo doc -p texbib --no-deps` clean with and
+without the feature, clippy clean with it, `cargo publish -p texbib --dry-run` reaches "aborting
+upload due to dry run", and `texbib` is still free on crates.io (404 from the registry API, as is
+`texlog`, which S6.5 left for the maintainer and is still unpublished). What a reader should take
+from the diff:
+
+1. **The README had gone stale in exactly the way S7.1 predicted it would not.** It said the
+   crate "never makes a request" — true of S7.1's crate, false since S7.4 added `acquire` — and
+   named none of what S7.6 and S8.1–S8.3 added (`render_entry`/`append_entry`, `unique_key`,
+   `health::check`, the Zotero client). It now separates the parser's rule from the opt-in
+   feature, says what the crate is not (no database, no citation formatting), and names the one
+   write `acquire::zotero` can make (`add_autoexport`, which configures an export and never edits
+   a library). `lib.rs`'s crate-level doc got the same pass and lost its sprint-loop references,
+   S6.5's split again: module docs keep them, the page a stranger lands on does not.
+2. **docs.rs would have published documentation without `acquire` at all.** It builds default
+   features only; `[package.metadata.docs.rs] features = ["acquire"]` fixes that. The module is
+   still named in a code span rather than linked from `lib.rs`, because `cargo doc` without the
+   feature must stay clean.
+3. **The README example is compiled and run, not just written** — against the packaged crate, on
+   `fixtures/broken-middle/main.bib`: three entries listed, both broken ones reported with their
+   sentence.
+
+`[~]`, not `[x]`, for two reasons, both the maintainer's: `cargo publish` is public and
+irreversible, and the workspace `repository` field (inherited by both crates, and linked from both
+READMEs) points at `github.com/verocai-vrc/preamble` while the repository is
+`verocai-vrc/Abstract-Tex` — logged in `bugs-issues-fixes.md`, tied to S2.9's name decision, and
+worth settling before either crate goes up, since a published version's metadata cannot be edited.
+Left for the maintainer, in order: settle the repository URL; `cargo publish -p texlog`;
+`cargo publish -p texbib`.
 
 ```
 Loop      S7.1 · texbib parser crate · L

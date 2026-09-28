@@ -2,8 +2,13 @@
 
 Parses a BibTeX or BibLaTeX `.bib` file into the items it is made of — entries, `@string`
 macros, `@preamble`, `@comment`, and the free text between them — with a byte span on every
-one. Text in, data out: it never reads a file, never makes a request, and knows nothing about
-any editor, so it fits behind a GUI, a script or a CI check alike.
+one. Text in, data out: the parser never reads a file, never makes a request, and knows
+nothing about any editor, so it fits behind a GUI, a script or a CI check alike. Network access
+exists only behind the opt-in `acquire` feature, described below.
+
+It is a parser and a few tools built on its output. It is not a bibliography manager: it keeps
+no database, does not deduplicate a library, and does not format citations — that is BibTeX's,
+Biber's or CSL's job.
 
 ```rust
 let source = std::fs::read_to_string("references.bib")?;
@@ -48,6 +53,40 @@ Same syntax, more entry types (`@online`, `@set`, `@xdata`) and field names (`da
 `journaltitle`); it all parses. What BibLaTeX *means* by `crossref`, `xdata` and `ids` —
 inheritance between entries — is not resolved here; the fields come through as written for
 whoever builds an index on top.
+
+## Built on the parser
+
+- `render_entry` / `append_entry` write an entry back as text, one aligned field per line the way
+  Better BibTeX does, and append it after a file's last item — the rest of the file is kept byte
+  for byte, which the round trip above is what guarantees.
+- `unique_key` makes a `surnameYEARfirstword` key, ASCII-folded, with `a`, `b`, … appended when it
+  collides with a key already in use.
+- `health::check` reports two problems a single `.bib` file can show on its own: a required field
+  missing for the entry's type (`@article` without `journal`), and a page range written with a
+  hyphen (`12-15`) where BibTeX wants an en-dash (`12--15`). Each finding is a sentence, a
+  severity, the entry's key and a span (the field's, or the whole entry's). Nothing is fixed automatically.
+
+## Optional: fetching entries (`acquire` feature)
+
+```toml
+texbib = { version = "0.1", features = ["acquire"] }
+```
+
+Adds `texbib::acquire`, which uses blocking `reqwest` and only the identifier's own public
+endpoint — no API key, no intermediary service:
+
+- `identify` says whether a pasted string is a DOI, an arXiv id or an ISBN, or none of them.
+- `doi::fetch_doi` asks `https://doi.org/<doi>` for `application/x-bibtex` and parses the reply
+  with this crate, so the entry is exactly what the publisher registered.
+- `arxiv::fetch_arxiv` (the arXiv Atom API) and `isbn::fetch_isbn` (OpenLibrary) build a BibLaTeX
+  entry from replies that are not BibTeX.
+- `zotero` talks to Better BibTeX's JSON-RPC endpoint on a local Zotero (`127.0.0.1:23119`):
+  `detect` says whether Zotero and Better BibTeX are running, `list_libraries` reads the collection
+  tree, and `add_autoexport` asks Better BibTeX to keep a collection exported to a `.bib` path.
+  That last call is the only write, and it configures an export; it never edits the library.
+
+Every call has a typed error that reads as a sentence. The tests use recorded replies, so
+`cargo test --features acquire` needs no network; the live checks are `#[ignore]`d.
 
 ## Fixtures are the tests
 

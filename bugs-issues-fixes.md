@@ -15,6 +15,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **The workspace `repository` field points at `github.com/verocai-vrc/preamble`, but the
+  repository is `github.com/verocai-vrc/Abstract-Tex`.** (S8.5, builder, 28 Sep 2026, found
+  preparing `texbib` for crates.io) `Cargo.toml`'s `[workspace.package] repository` is inherited
+  by `texlog` and `texbib`, and both READMEs link the same URL, so each crate's crates.io page
+  would link a repository that does not exist under that name. A published crate's metadata
+  cannot be corrected without a new release, so this blocks both `cargo publish` runs (S6.5,
+  S8.5) until settled. Tied to the still-open name decision (S2.9, `DESIGN.md` §10): either the
+  GitHub repository is renamed to `preamble` (GitHub redirects the old URL) or the field and both
+  READMEs change to `Abstract-Tex`. The maintainer's call, not an agent's.
+
 - **`pnpm check` fails on `main`: `src/lib/bibliography.test.ts:75` indexes `groups[0]` without a
   guard, and `svelte-check` reports "Object is possibly 'undefined'".** (planning review, 28 Sep
   2026, found running the full verify gate before planning sprint 8's remainder) Introduced by

@@ -10,14 +10,23 @@
 //! a number, a macro name, or several joined with `#`) and are resolved on request through
 //! [`Bibliography::resolve`].
 //!
-//! **This crate must never read a file, make a network request, or know about the editor.**
-//! Text in, data out, the same rule `texlog` follows, and for the same reason: it is published
-//! on its own under MIT (S8.5), and it must be usable from a script or a CI check as easily as
-//! from the app. The one exception is the `acquire` module (S7.4–S7.5: DOI, arXiv and ISBN
-//! lookups), gated behind the `acquire` Cargo feature — this doc comment does not link to it by
-//! name, since the module itself does not exist in a build with the feature off, and a broken
-//! intra-doc link would fail exactly the `cargo doc -p texbib` (no features) check this
-//! sentence is about.
+//! Around the parser, and built only on its output:
+//!
+//! - [`render_entry`] and [`append_entry`] write an entry back as text, one field per line, and
+//!   append it after a file's last item without touching any other byte;
+//! - [`unique_key`] makes an `authorYEARword` citation key that does not collide with a list of
+//!   existing ones;
+//! - [`health::check`] finds missing required fields and page ranges written with a hyphen
+//!   instead of an en-dash.
+//!
+//! **The parser must never read a file, make a network request, or know about an editor.** Text
+//! in, data out, the same rule the sibling crate `texlog` follows, so it is as usable from a
+//! script or a CI check as from a GUI. The one exception is opt-in: the `acquire` Cargo feature
+//! adds an `acquire` module that fetches an entry from a DOI (doi.org content negotiation), an
+//! arXiv id (the arXiv API) or an ISBN (OpenLibrary), says which of the three a pasted string is,
+//! and talks to a local Zotero through Better BibTeX's JSON-RPC endpoint. It is named in a plain
+//! code span, not linked, because the module does not exist in a build with the feature off and a
+//! broken intra-doc link would fail `cargo doc` for exactly that build.
 //!
 //! BibLaTeX is the same syntax as BibTeX with more entry types (`@online`, `@set`, `@xdata`)
 //! and field names (`date`, `journaltitle`), so it costs nothing here. What BibLaTeX *means*

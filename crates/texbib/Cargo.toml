@@ -14,6 +14,11 @@ repository.workspace = true
 rust-version.workspace = true
 include = ["/src", "/tests", "/fixtures", "/build.rs", "/README.md", "/LICENSE"]
 
+# docs.rs builds only the default features unless told otherwise; without this, the `acquire`
+# module would be missing from the published documentation entirely.
+[package.metadata.docs.rs]
+features = ["acquire"]
+
 [features]
 # Off by default: the parser itself has no dependencies beyond serde, and stays that way for
 # whoever pulls in just the crates.io crate (S8.5). Acquisition is opt-in.
