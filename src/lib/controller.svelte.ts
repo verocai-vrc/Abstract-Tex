@@ -742,6 +742,7 @@ export async function jumpToDiagnostic(diagnostic: Diagnostic): Promise<void> {
  */
 export async function jumpToFinding(finding: Finding): Promise<void> {
   const { jump } = finding;
+  if (jump.kind === 'missingFile') return; // S8.6: the file is not on disk; there is nothing to open
   if (jump.kind === 'texLine') {
     if (app.activePath !== jump.file) await openFile(jump.file);
     jumpToLine(jump.line);

@@ -132,7 +132,7 @@ fn collapse_and_lower(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bibliography::{BibFile, Problem};
+    use crate::bibliography::{BibFile, BibOrigin, Problem};
     use texbib::{Field, Span, Value, ValuePart};
 
     fn zero_span() -> Span {
@@ -164,7 +164,7 @@ mod tests {
 
     fn index_with(entries: Vec<EntrySummary>) -> BibliographyIndex {
         BibliographyIndex {
-            files: vec![BibFile { path: "refs.bib".to_string(), exists: true, entry_count: entries.len(), problems: Vec::<Problem>::new() }],
+            files: vec![BibFile { path: "refs.bib".to_string(), exists: true, entry_count: entries.len(), problems: Vec::<Problem>::new(), origin: BibOrigin::Named { file: "main.tex".to_string(), line: 1 } }],
             entries,
             citations: Vec::new(),
             has_nocite_star: false,

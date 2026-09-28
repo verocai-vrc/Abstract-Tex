@@ -78,4 +78,15 @@ describe('findingsByFile (S8.3)', () => {
   it('is empty for no findings', () => {
     expect(findingsByFile([])).toEqual([]);
   });
+
+  it('groups a missing linked export under its own path (S8.6)', () => {
+    const missing: Finding = {
+      rule: 'missing-bib-file',
+      severity: 'warning',
+      message: 'not on disk yet',
+      jump: { kind: 'missingFile', file: 'zotero/Thesis.bib' },
+    };
+    const groups = findingsByFile([finding('refs.bib', '1'), missing]);
+    expect(groups.map((g) => g.file)).toEqual(['refs.bib', 'zotero/Thesis.bib']);
+  });
 });

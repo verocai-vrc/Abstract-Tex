@@ -1,7 +1,7 @@
 <script lang="ts">
-  // The bibliography health panel (S8.3, DESIGN.md §5.4): five background checks — undefined
-  // citation, never cited, duplicate DOI, missing required field, wrong dash in a page range —
-  // each a sentence, never a raw anything (DESIGN.md §2 rule 3). Opened from the status bar's
+  // The bibliography health panel (S8.3, DESIGN.md §5.4): six background checks — a `.bib` that
+  // is not on disk (S8.6), undefined citation, never cited, duplicate DOI, missing required field,
+  // wrong dash in a page range — each a sentence, never a raw anything (DESIGN.md §2 rule 3). Opened from the status bar's
   // issue count; a separate panel from the compile Drawer on purpose, since a `Finding` here has
   // no `.log` line behind it the way a `Diagnostic` does, and forcing the two into one shape would
   // mean inventing a raw view for something that never had one.
@@ -41,17 +41,25 @@
             <section class="group">
               <h3>{file}</h3>
               {#each findings as finding, i (i)}
-                <div
-                  class="finding"
-                  class:warning={finding.severity === 'warning'}
-                  role="button"
-                  tabindex="0"
-                  onclick={() => void onClick(finding)}
-                  onkeydown={(e) => onKeydown(e, finding)}
-                >
-                  <span class="severity">{finding.severity}</span>
-                  <span class="message">{finding.message}</span>
-                </div>
+                {#if finding.jump.kind === 'missingFile'}
+                  <!-- Nothing to open for a file that is not on disk (S8.6), so not a button. -->
+                  <div class="finding static" class:warning={finding.severity === 'warning'}>
+                    <span class="severity">{finding.severity}</span>
+                    <span class="message">{finding.message}</span>
+                  </div>
+                {:else}
+                  <div
+                    class="finding"
+                    class:warning={finding.severity === 'warning'}
+                    role="button"
+                    tabindex="0"
+                    onclick={() => void onClick(finding)}
+                    onkeydown={(e) => onKeydown(e, finding)}
+                  >
+                    <span class="severity">{finding.severity}</span>
+                    <span class="message">{finding.message}</span>
+                  </div>
+                {/if}
               {/each}
             </section>
           {/each}
@@ -114,6 +122,12 @@
   }
   .finding:hover {
     background: var(--bg-selected);
+  }
+  .finding.static {
+    cursor: default;
+  }
+  .finding.static:hover {
+    background: none;
   }
   .severity {
     flex: none;

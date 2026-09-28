@@ -1907,6 +1907,8 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 | [x] | S8.3 Bibliography health checks: undefined citation, never-cited entry, duplicate DOI, missing required field, wrong dash in a page range | M | S7.2, S7.3 |
 | [ ] | S8.4 Forty-reference exit demo: a real paper assembled through paste-to-cite and Zotero linking, with the outcome recorded here | S | S8.1–S8.3 |
 | [~] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
+| [x] | S8.6 A `.bib` the index cannot read is a health finding: named but absent, outside the project, or a linked export not yet written | S | S8.2, S8.3 |
+| [ ] | S8.7 Unlink a Zotero collection: remove its export path from `preamble.toml`'s `extra_bib_files` | S | S8.2 |
 
 ```
 Loop      S8.1 · Zotero detection on port 23119 · S
@@ -2236,6 +2238,43 @@ since it is pushed; recorded so the next loop does not take it as precedent. The
 `.gitattributes` for the six `texbib` CRLF failures, and both SyncTeX real-fixture tests made
 independent of the checkout path (they were never a line-ending problem). `RUSTDOCFLAGS="-D
 warnings" cargo doc --workspace` is clean too. Details in `bugs-issues-fixes.md`.
+
+```
+Loop      S8.6 · Missing .bib files as health findings · S
+Reads     S8.2's outcome ("nothing yet reads back what Better BibTeX actually exported… worth a
+          health check"); S8.3's outcome (the `Finding`/`Jump` shape this extends)
+Depends   S8.2, S8.3
+Files     src-tauri/src/bibliography.rs, src/lib/ipc.ts, src/lib/controller.svelte.ts,
+          src/components/BibliographyHealth.svelte
+Build     Every `BibFile` with `exists: false` becomes one finding, worded for where it came from:
+          a document command naming a file that is absent (error, jump to that command's line),
+          one resolving outside the project (warning, same jump), or a linked export not on disk
+          (warning naming Better BibTeX, no line to jump to). Runs before the other five so the
+          cause is listed above the undefined citations it produces.
+Verify    cargo test -p preamble -- bibliography; pnpm vitest run; pnpm check
+Done when each of the three origins produces one finding with the right severity, sentence and
+          jump, and a file both named and linked is reported at the document's command.
+```
+
+**S8.6 (28 September 2026).** `[x]`: rungs 1–2 green — `cargo test --workspace` 415 passed / 0
+failed, `cargo test -p preamble -- bibliography paste` 37 passed (4 new), clippy clean, `pnpm
+check` 443 files / 0 errors, Vitest 400/400 (1 new). No rung 4, the panel needs the running app.
+Promoted from the two gaps S8.2's outcome named, ahead of S8.4 rather than out of it, because both
+were already known and the exit demo is a poor place to discover a known gap twice. What a
+reader should take from the diff:
+
+1. **`exists: false` was computed and then shown nowhere.** `bibliography.missingFiles` has
+   existed on the frontend since S7.2 and no component reads it, so a missing `.bib` looked like
+   an empty bibliography plus a column of undefined citations with no stated cause. The finding
+   is the cause, listed first; the undefined citations still follow, because they are still true.
+2. **`BibFile` learned where it came from (`BibOrigin`), not just whether it exists.** The same
+   `exists: false` means three different things with three different fixes, and only the index
+   builder knew which: `resolve_bib_argument` returning `None` (outside the project) used to be
+   folded into the same boolean as "not on disk". `scan_bib_resources` now returns each
+   resource's line, which `find_commands` was already computing and discarding.
+3. **A third `Jump` variant rather than an optional one.** `MissingFile { file }` keeps S8.3's
+   rule that a caller must match on the variant; the panel renders it as a plain row rather than
+   a button, since there is nothing to open, and still groups it under the file's path.
 
 **S8.5 (28 September 2026).** `[~]`: everything short of the upload is done and proven, the same
 place S6.5 stopped — `cargo package -p texbib` with and without `--features acquire` (42 files,

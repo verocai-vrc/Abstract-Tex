@@ -148,7 +148,15 @@ export interface BibFile {
   entryCount: number;
   /** One sentence per item `texbib` could not parse, with the byte offset it gave up at. */
   problems: Array<{ message: string; at: number }>;
+  /** Why the index lists it (S8.6): a `ibliography`-style command inside or outside the
+   * project, at that `.tex` file and line, or a linked Zotero export from `preamble.toml`. */
+  origin: BibOrigin;
 }
+
+export type BibOrigin =
+  | { kind: 'named'; file: string; line: number }
+  | { kind: 'outside'; file: string; line: number }
+  | { kind: 'linked' };
 
 /** What `\cite` completion (S7.3) shows: resolved field text, names not yet split. */
 export interface BibEntrySummary {
@@ -181,14 +189,18 @@ export interface Citation {
  * compile diagnostic. */
 export type HealthSeverity = 'error' | 'warning';
 
-/** Where a `Finding` points: a line in a `.tex` file, or a `.bib` entry's byte span. */
+/** Where a `Finding` points: a line in a `.tex` file, a `.bib` entry's byte span, or a file that
+ * is not on disk (S8.6: a linked export not yet written) — nothing to open, but still a path the
+ * panel can group by. */
 export type Jump =
   | { kind: 'texLine'; file: string; line: number }
-  | { kind: 'bibEntry'; file: string; span: { start: number; end: number } };
+  | { kind: 'bibEntry'; file: string; span: { start: number; end: number } }
+  | { kind: 'missingFile'; file: string };
 
 /** One bibliography health-check result (S8.3, DESIGN.md §5.4): a sentence, a severity, and a
  * place to click, never a raw anything (DESIGN.md §2 rule 3). `rule` is one of
- * `'undefined-citation' | 'never-cited' | 'duplicate-doi' | 'missing-field' | 'page-range-dash'`,
+ * `'missing-bib-file' | 'undefined-citation' | 'never-cited' | 'duplicate-doi' | 'missing-field' |
+ * 'page-range-dash'`,
  * left as `string` here since nothing on this side branches on it beyond display. */
 export interface Finding {
   rule: string;

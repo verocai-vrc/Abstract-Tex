@@ -25,6 +25,12 @@
 //! citation` and `never cited` compare `entries` against `citations` (a `.tex`-side scan,
 //! outside `texbib`'s remit), and `duplicate DOI` compares entries *across* every `.bib` file the
 //! project has open, not just one. [`BibliographyIndex::health`] runs all five and merges them.
+//!
+//! **S8.6: a sixth, ahead of the five.** A `.bib` the index lists with `exists: false` was
+//! computed but never shown anywhere, so a document naming a file that is not there — or a linked
+//! Zotero export Better BibTeX never wrote — looked like a bibliography with nothing in it, and
+//! every citation into it reported as undefined with no word about why. `missing_bib_files` says
+//! why, once per file, before the findings it causes.
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
@@ -60,12 +66,15 @@ impl BibliographyIndex {
         self.entries.iter().find(|entry| entry.key == key)
     }
 
-    /// All five health checks (DESIGN.md §5.4), in a fixed order: undefined citations, never
-    /// cited, duplicate DOIs — the three that need this whole index — then this module reparses
-    /// each existing file to run `texbib::health::check` on it (missing field, page-range dash).
-    /// A sentence per finding, never a raw anything, matching DESIGN.md §2 rule 3.
+    /// All six health checks, in a fixed order: missing `.bib` files first (S8.6: the cause of
+    /// any undefined citations that follow), then DESIGN.md §5.4's five — undefined citations,
+    /// never cited, duplicate DOIs, the three that need this whole index — then this module
+    /// reparses each existing file to run `texbib::health::check` on it (missing field,
+    /// page-range dash). A sentence per finding, never a raw anything, matching DESIGN.md §2
+    /// rule 3.
     pub fn health(&self, project_dir: &Path) -> Vec<Finding> {
         let mut findings = Vec::new();
+        findings.extend(missing_bib_files(self));
         findings.extend(undefined_citations(self));
         findings.extend(never_cited(self));
         findings.extend(duplicate_dois(self));
@@ -81,14 +90,15 @@ impl BibliographyIndex {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
-    /// Which check found this: `"undefined-citation"`, `"never-cited"`, `"duplicate-doi"`, or
-    /// one of `texbib::health`'s two rule ids.
+    /// Which check found this: `"missing-bib-file"`, `"undefined-citation"`, `"never-cited"`,
+    /// `"duplicate-doi"`, or one of `texbib::health`'s two rule ids.
     pub rule: &'static str,
     pub severity: HealthSeverity,
     /// One complete sentence.
     pub message: String,
-    /// Where to jump to: a `.tex` line for an undefined citation, a `.bib` entry's span
-    /// otherwise. Exactly one of the two is set, matching what the check found.
+    /// Where to jump to: a `.tex` line for an undefined citation or a missing named `.bib`, a
+    /// `.bib` entry's span for an entry-level finding, or only a file path for a linked export
+    /// that is not on disk.
     pub jump: Jump,
 }
 
@@ -111,16 +121,66 @@ impl From<texbib::health::Severity> for HealthSeverity {
     }
 }
 
-/// Where a [`Finding`] points: a line in a `.tex` file, or a byte span in a `.bib` file. Two
-/// variants rather than optional fields on `Finding` itself, so a caller cannot forget to check
-/// which one is set.
+/// Where a [`Finding`] points: a line in a `.tex` file, a byte span in a `.bib` file, or a file
+/// with nothing in it to land on. Variants rather than optional fields on `Finding` itself, so a
+/// caller cannot forget to check which one is set.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Jump {
-    /// A `\cite` command: project-relative `.tex` path and 1-based line.
+    /// A `\cite` or `\bibliography` command: project-relative `.tex` path and 1-based line.
     TexLine { file: String, line: u32 },
     /// A `.bib` entry: project-relative path and its byte span in that file.
     BibEntry { file: String, span: Span },
+    /// A file that is not on disk (S8.6): a linked export Better BibTeX has not written. There is
+    /// nothing to open, but the path still says which file the finding is about, and the panel
+    /// groups by it the way it groups every other finding.
+    MissingFile { file: String },
+}
+
+/// A `.bib` the index lists but cannot read — one finding per file, not per citation into it,
+/// since every one of those citations already shows up as undefined and the author needs to
+/// know the one cause, not count its symptoms. What to say depends on where the file came from:
+/// a file the document names and that is simply absent is an error (BibTeX will stop on it); one
+/// outside the project folder may compile fine, but this app never reads outside the project, so
+/// it is a warning that explains the undefined citations that follow; a linked export not yet on
+/// disk is a warning pointing at Better BibTeX, which is what writes it.
+fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
+    index
+        .files
+        .iter()
+        .filter(|file| !file.exists)
+        .map(|file| {
+            let path = &file.path;
+            match &file.origin {
+                BibOrigin::Named { file: tex_file, line } => Finding {
+                    rule: "missing-bib-file",
+                    severity: HealthSeverity::Error,
+                    message: format!("'{path}' is named here but is not in the project folder."),
+                    jump: Jump::TexLine { file: tex_file.clone(), line: *line },
+                },
+                BibOrigin::Outside { file: tex_file, line } => Finding {
+                    rule: "missing-bib-file",
+                    severity: HealthSeverity::Warning,
+                    // A `\` at the end of a string-literal line continues the string and skips the
+                    // next line's leading spaces, so a long sentence can wrap in the source only.
+                    message: format!(
+                        "'{path}' is outside the project folder, so its entries are not read \
+                         and citations to them show as undefined."
+                    ),
+                    jump: Jump::TexLine { file: tex_file.clone(), line: *line },
+                },
+                BibOrigin::Linked => Finding {
+                    rule: "missing-bib-file",
+                    severity: HealthSeverity::Warning,
+                    message: format!(
+                        "The linked collection export '{path}' is not on disk yet. Better BibTeX \
+                         writes it while Zotero is running with the collection's automatic export on."
+                    ),
+                    jump: Jump::MissingFile { file: path.clone() },
+                },
+            }
+        })
+        .collect()
 }
 
 /// A key cited somewhere but defined nowhere — one finding per *key*, not per citation, so
@@ -242,6 +302,23 @@ pub struct BibFile {
     pub entry_count: usize,
     /// One sentence per item `texbib` could not parse, with the byte offset it gave up at.
     pub problems: Vec<Problem>,
+    /// Why the index lists this file — which decides what a missing one's finding says (S8.6).
+    pub origin: BibOrigin,
+}
+
+/// Where a [`BibFile`] came from. A file named by the document *and* linked is `Named`: the
+/// document's own command is the more useful place to point at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BibOrigin {
+    /// A `\bibliography`/`\addbibresource` command inside the project folder names it, first at
+    /// this project-relative `.tex` file and 1-based line.
+    Named { file: String, line: u32 },
+    /// The same, but the argument resolves outside the project folder, which this app never
+    /// reads (the rule `Project::resolve` applies to every path).
+    Outside { file: String, line: u32 },
+    /// `preamble.toml`'s `extra_bib_files` lists it — a linked Zotero collection's export (S8.2).
+    Linked,
 }
 
 /// A malformed item in a `.bib` file, as `texbib` reported it.
@@ -328,16 +405,17 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
     for node in graph.nodes.iter().filter(|node| node.exists) {
         let Ok(text) = std::fs::read_to_string(project_dir.join(&node.path)) else { continue };
 
-        for resource in scan_bib_resources(&text) {
-            let (path, inside_project) = match resolve_bib_argument(&base_dir, &resource) {
-                Some(resolved) => (resolved, true),
-                None => (resource.clone(), false),
+        for (resource, line) in scan_bib_resources(&text) {
+            let named_at = node.path.clone();
+            let (path, origin) = match resolve_bib_argument(&base_dir, &resource) {
+                Some(resolved) => (resolved, BibOrigin::Named { file: named_at, line }),
+                None => (resource.clone(), BibOrigin::Outside { file: named_at, line }),
             };
             if files.iter().any(|file| file.path == path) {
                 continue;
             }
-            let exists = inside_project && project_dir.join(&path).is_file();
-            files.push(BibFile { path, exists, entry_count: 0, problems: Vec::new() });
+            let exists = matches!(origin, BibOrigin::Named { .. }) && project_dir.join(&path).is_file();
+            files.push(BibFile { path, exists, entry_count: 0, problems: Vec::new(), origin });
         }
 
         for (key, line) in scan_citations(&text) {
@@ -353,7 +431,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
             continue;
         }
         let exists = project_dir.join(extra).is_file();
-        files.push(BibFile { path: extra.clone(), exists, entry_count: 0, problems: Vec::new() });
+        files.push(BibFile { path: extra.clone(), exists, entry_count: 0, problems: Vec::new(), origin: BibOrigin::Linked });
     }
 
     let mut entries: Vec<EntrySummary> = Vec::new();
@@ -483,19 +561,21 @@ fn year_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
 const RESOURCE_COMMANDS: &[&str] = &["bibliography", "addbibresource", "addglobalbib", "addsectionbib"];
 
 /// Every `.bib` file the text names, as written in the source (stem or file name, comma lists
-/// split), in order. `\bibliography` is the one command whose argument is a stem, so `.bib` is
-/// appended to each of its parts here; the BibLaTeX commands are passed through as written.
-pub fn scan_bib_resources(source: &str) -> Vec<String> {
+/// split), in order, each with the 1-based line of the command that names it — the place a
+/// missing file's finding points at (S8.6). `\bibliography` is the one command whose argument is
+/// a stem, so `.bib` is appended to each of its parts here; the BibLaTeX commands are passed
+/// through as written.
+pub fn scan_bib_resources(source: &str) -> Vec<(String, u32)> {
     let cleaned = strip_line_comments(source);
     let mut resources = Vec::new();
-    for (command, arguments, _line) in find_commands(&cleaned, |name| RESOURCE_COMMANDS.contains(&name)) {
+    for (command, arguments, line) in find_commands(&cleaned, |name| RESOURCE_COMMANDS.contains(&name)) {
         // Every resource command takes exactly one braced argument; a second `{...}` is prose.
         let Some(argument) = arguments.first() else { continue };
         for part in argument.split(',').map(str::trim).filter(|part| !part.is_empty()) {
             if command == "bibliography" {
-                resources.push(format!("{part}.bib"));
+                resources.push((format!("{part}.bib"), line));
             } else {
-                resources.push(part.to_string());
+                resources.push((part.to_string(), line));
             }
         }
     }
@@ -840,6 +920,7 @@ mod tests {
             exists: true,
             entry_count: 1,
             problems: Vec::new(),
+            origin: BibOrigin::Linked,
         }]);
         assert!(index.entry("smith2019").is_some());
     }
@@ -932,6 +1013,51 @@ mod tests {
         assert!(index.health(dir.path()).is_empty(), "{:#?}", index.health(dir.path()));
     }
 
+    // ---- missing .bib files (S8.6) ----
+
+    #[test]
+    fn a_named_bib_that_is_not_on_disk_is_an_error_at_its_command_and_comes_first() {
+        let dir = scaffold(&[("main.tex", "Text~\\cite{a}.\n\n\\bibliography{refs}\n")]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let findings = index.health(dir.path());
+
+        // The cause before its symptom: the missing file, then the citation it leaves undefined.
+        let rules: Vec<&str> = findings.iter().map(|f| f.rule).collect();
+        assert_eq!(rules, vec!["missing-bib-file", "undefined-citation"]);
+        assert_eq!(findings[0].severity, HealthSeverity::Error);
+        assert_eq!(findings[0].message, "'refs.bib' is named here but is not in the project folder.");
+        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 3 });
+    }
+
+    #[test]
+    fn a_bib_outside_the_project_is_a_warning_that_explains_the_undefined_citations() {
+        let dir = scaffold(&[("main.tex", "\\addbibresource{../shared/refs.bib}\n")]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let findings = index.health(dir.path());
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert_eq!(findings[0].severity, HealthSeverity::Warning);
+        assert!(findings[0].message.starts_with("'../shared/refs.bib' is outside the project folder"));
+        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 1 });
+    }
+
+    #[test]
+    fn a_linked_export_not_yet_written_points_at_better_bibtex_and_names_the_file() {
+        let dir = scaffold(&[("main.tex", "")]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/Thesis.bib".to_string()]);
+        let findings = index.health(dir.path());
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert_eq!(findings[0].severity, HealthSeverity::Warning);
+        assert!(findings[0].message.contains("Better BibTeX"), "{}", findings[0].message);
+        assert_eq!(findings[0].jump, Jump::MissingFile { file: "zotero/Thesis.bib".to_string() });
+    }
+
+    #[test]
+    fn a_file_both_named_and_linked_is_reported_at_the_documents_command() {
+        let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n")]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &["refs.bib".to_string()]);
+        assert_eq!(index.files[0].origin, BibOrigin::Named { file: "main.tex".to_string(), line: 1 });
+    }
+
     #[test]
     fn duplicate_dois_name_each_other_and_ignore_entries_with_no_doi() {
         let dir = scaffold(&[
@@ -952,14 +1078,18 @@ mod tests {
     #[test]
     fn scan_bib_resources_reads_both_syntaxes() {
         let source = "\\bibliography{refs, more}\n\\addbibresource[datatype=bibtex]{lib.bib}\n\\addbibresource{noext}\n";
-        assert_eq!(scan_bib_resources(source), vec!["refs.bib", "more.bib", "lib.bib", "noext"]);
+        let expected: Vec<(String, u32)> = [("refs.bib", 1), ("more.bib", 1), ("lib.bib", 2), ("noext", 3)]
+            .into_iter()
+            .map(|(resource, line)| (resource.to_string(), line))
+            .collect();
+        assert_eq!(scan_bib_resources(source), expected);
         assert_eq!(resolve_bib_argument(Path::new(""), "noext"), Some("noext.bib".into()));
     }
 
     #[test]
     fn scan_bib_resources_ignores_comments_and_bibliographystyle() {
         let source = "% \\bibliography{old}\n\\bibliographystyle{plain}\n\\bibliography{refs} % trailing\n";
-        assert_eq!(scan_bib_resources(source), vec!["refs.bib"]);
+        assert_eq!(scan_bib_resources(source), vec![("refs.bib".to_string(), 3)]);
     }
 
     #[test]

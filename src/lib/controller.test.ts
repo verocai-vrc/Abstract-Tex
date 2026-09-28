@@ -1155,7 +1155,7 @@ describe('the bibliography index (S7.2)', () => {
 
   it('is fetched once when a folder opens, and cleared first', async () => {
     bibliographyOnDisk = {
-      files: [{ path: 'refs.bib', exists: true, entryCount: 1, problems: [] }],
+      files: [{ path: 'refs.bib', exists: true, entryCount: 1, problems: [], origin: { kind: 'named', file: 'main.tex', line: 9 } }],
       entries: [smith],
       citations: [{ key: 'smith2019', file: 'main.tex', line: 3 }],
       hasNociteStar: false,
@@ -1170,8 +1170,8 @@ describe('the bibliography index (S7.2)', () => {
     expect(bibliography.entries.size).toBe(0);
     bibliographyHandler({
       files: [
-        { path: 'refs.bib', exists: true, entryCount: 1, problems: [] },
-        { path: 'missing.bib', exists: false, entryCount: 0, problems: [] },
+        { path: 'refs.bib', exists: true, entryCount: 1, problems: [], origin: { kind: 'named', file: 'main.tex', line: 9 } },
+        { path: 'missing.bib', exists: false, entryCount: 0, problems: [], origin: { kind: 'linked' } },
       ],
       entries: [smith],
       citations: [],
