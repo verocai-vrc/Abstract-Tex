@@ -150,6 +150,90 @@ async fn every_corpus_document_builds_as_recorded() {
     }
 }
 
+/// The S9.2 harness: for every document that builds, one cold build and then `runs` warm builds
+/// after an edit, timed through the same `Engine::build` the app calls, with the steps each one
+/// took. Two kinds of edit: a comment appended to `main.tex` (moves nothing: the floor of a warm
+/// build), and — for the thesis, the document the exit criterion names — a sentence added to a
+/// chapter, which reflows pages the way real writing does. Writes `target/corpus-report.json`
+/// and prints a table; asserts nothing, because the gate is S9.5's job once the numbers are known.
+#[tokio::test]
+#[ignore]
+async fn warm_build_timings() {
+    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let runs: usize = std::env::var("ABSTRACT_TEX_BENCH_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(3);
+    let mut report = Vec::new();
+
+    for (name, expect) in &CORPUS {
+        if !matches!(expect, Expect::Builds { .. }) {
+            continue;
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        copy_dir(&corpus_dir().join(name), tmp.path());
+        let job = BuildJob {
+            project_dir: tmp.path().to_path_buf(),
+            root_file: PathBuf::from("main.tex"),
+            out_dir: tmp.path().join(".abstract-tex/build"),
+            synctex: true,
+        };
+
+        let cold = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+        assert!(cold.success, "{name}: cold build failed");
+        let mut edits: Vec<(&str, PathBuf, &str)> = vec![("comment", tmp.path().join("main.tex"), "\n% warm edit\n")];
+        if *name == "thesis" {
+            edits.push(("prose", tmp.path().join("chapters/03-method.tex"), "\nOne more sentence of method, written between builds.\n"));
+        }
+        for (kind, file, addition) in edits {
+            let mut millis = Vec::new();
+            let mut steps = Vec::new();
+            for _ in 0..runs {
+                let mut text = fs::read_to_string(&file).unwrap();
+                text.push_str(addition);
+                fs::write(&file, text).unwrap();
+                let warm = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+                assert!(warm.success, "{name}: warm build after a {kind} edit failed");
+                millis.push(warm.duration.as_millis() as u64);
+                steps.push(json!({ "singlePasses": warm.steps.single_passes, "full": warm.steps.full }));
+            }
+            let (median, p95) = (percentile(&millis, 50), percentile(&millis, 95));
+            // "1p" is one single pass; "2p+full" is two passes that then needed the full build.
+            let steps_text: Vec<String> = steps
+                .iter()
+                .map(|s| format!("{}p{}", s["singlePasses"], if s["full"] == true { "+full" } else { "" }))
+                .collect();
+            println!(
+                "{name:<22} cold {:>6} ms | {kind:<7} edit: median {median:>6} ms, p95 {p95:>6} ms, steps {}",
+                cold.duration.as_millis(),
+                steps_text.join(" ")
+            );
+            report.push(json!({
+                "document": name, "coldMs": cold.duration.as_millis() as u64, "edit": kind,
+                "warmMs": millis, "medianMs": median, "p95Ms": p95, "steps": steps,
+            }));
+        }
+    }
+    let path = repo_root().join("target/corpus-report.json");
+    fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+    println!("report: {}", path.display());
+}
+
+/// Nearest-rank percentile: the smallest sample with at least `p`% of samples at or below it.
+/// With the handful of runs a local harness makes, p95 is simply the slowest; S9.5's CI gate
+/// takes enough runs for it to mean more.
+fn percentile(samples: &[u64], p: usize) -> u64 {
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let rank = (p * sorted.len()).div_ceil(100).max(1);
+    sorted[rank - 1]
+}
+
+#[test]
+fn percentile_is_nearest_rank() {
+    let samples = [900, 100, 500, 300, 700];
+    assert_eq!(percentile(&samples, 50), 500);
+    assert_eq!(percentile(&samples, 95), 900);
+    assert_eq!(percentile(&[42], 95), 42);
+}
+
 /// Copies a corpus document's folder, subfolders included (the thesis has `chapters/`).
 fn copy_dir(from: &Path, to: &Path) {
     for entry in fs::read_dir(from).unwrap() {

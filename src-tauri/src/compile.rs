@@ -285,6 +285,7 @@ mod tests {
                 _ = tokio::time::sleep(self.delay) => Ok(BuildOutcome {
                     success: true, pdf: None, log: None, synctex: None,
                     stderr: String::new(), exit_code: Some(0), duration: self.delay,
+                    steps: Default::default(),
                 }),
                 _ = cancel.cancelled() => Err(EngineError::Cancelled),
             }
@@ -319,6 +320,7 @@ mod tests {
                 stderr: String::new(),
                 exit_code: Some(0),
                 duration: Duration::from_millis(1),
+                steps: Default::default(),
             })
         }
     }

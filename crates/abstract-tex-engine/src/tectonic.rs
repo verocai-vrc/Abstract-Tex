@@ -4,7 +4,7 @@
 //! `PATH`), runs it with the flags Abstract-Tex needs, and kills it on cancellation.
 
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::time::Instant;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -12,7 +12,8 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
 
-use crate::{BuildJob, BuildOutcome, Engine, EngineError, EngineInfo, ProgressSink};
+use crate::incremental::{self, AuxSnapshot};
+use crate::{BuildJob, BuildOutcome, BuildSteps, Engine, EngineError, EngineInfo, ProgressSink};
 
 /// Set this to point Abstract-Tex at a specific Tectonic binary. Useful for testing a new release.
 pub const ENV_OVERRIDE: &str = "ABSTRACT_TEX_TECTONIC";
@@ -44,8 +45,9 @@ impl Tectonic {
     }
 
     /// The command line for one job. Split out so a unit test can check it without running
-    /// anything.
-    fn arguments(job: &BuildJob) -> Vec<String> {
+    /// anything. `single_pass` is S9.2's warm step: one TeX pass, no BibTeX, reading the previous
+    /// build's `.aux`/`.bbl` back from the build folder (see `incremental.rs`).
+    fn arguments(job: &BuildJob, single_pass: bool) -> Vec<String> {
         let mut args = vec![
             // Tectonic's "V1" interface: `tectonic <file>` with options. We do not use the newer
             // `tectonic -X build` workspace mode because it wants its own Tectonic.toml, and the
@@ -63,41 +65,32 @@ impl Tectonic {
         if job.synctex {
             args.push("--synctex".to_string());
         }
+        if single_pass {
+            args.push("--pass".to_string());
+            args.push("tex".to_string());
+            // Tectonic reads inputs from the project, not from `--outdir`; without this the pass
+            // would start with no `.aux` or `.bbl` and print every reference as `??`. `-Z` marks
+            // an unstable option: the bundled engine is pinned (0.17), and the corpus test is what
+            // notices if a new release changes it.
+            args.push("-Z".to_string());
+            args.push(format!("search-path={}", job.out_dir.to_string_lossy()));
+        }
         args.push(job.root_file.to_string_lossy().into_owned());
         args
     }
-}
 
-#[async_trait::async_trait]
-impl Engine for Tectonic {
-    async fn probe(&self) -> Result<EngineInfo, EngineError> {
-        let mut cmd = Command::new(&self.binary);
-        cmd.arg("--version");
-        hide_console_window(&mut cmd);
-        let output = cmd.output().await.map_err(EngineError::Spawn)?;
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(EngineInfo {
-            name: "Tectonic".to_string(),
-            version,
-            path: self.binary.clone(),
-        })
-    }
-
-    async fn build(
+    /// Run Tectonic once with `args` and wait for it, or kill it if `cancel` fires first. Returns
+    /// the exit status and everything it printed to stderr.
+    async fn run_once(
         &self,
         job: &BuildJob,
-        cancel: CancellationToken,
+        args: &[String],
+        cancel: &CancellationToken,
         progress: Option<ProgressSink>,
-    ) -> Result<BuildOutcome, EngineError> {
-        // The output directory must exist; Tectonic will not create it.
-        tokio::fs::create_dir_all(&job.out_dir).await?;
-
-        let started = Instant::now();
-        let args = Self::arguments(job);
+    ) -> Result<(ExitStatus, String), EngineError> {
         debug!(binary = ?self.binary, ?args, "spawning tectonic");
-
         let mut cmd = Command::new(&self.binary);
-        cmd.args(&args)
+        cmd.args(args)
             .current_dir(&job.project_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -124,9 +117,34 @@ impl Engine for Tectonic {
                 return Err(EngineError::Cancelled);
             }
         };
+        Ok((status, stderr_task.await.unwrap_or_default()))
+    }
+}
 
-        let stderr = stderr_task.await.unwrap_or_default();
-        let duration = started.elapsed();
+#[async_trait::async_trait]
+impl Engine for Tectonic {
+    async fn probe(&self) -> Result<EngineInfo, EngineError> {
+        let mut cmd = Command::new(&self.binary);
+        cmd.arg("--version");
+        hide_console_window(&mut cmd);
+        let output = cmd.output().await.map_err(EngineError::Spawn)?;
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(EngineInfo {
+            name: "Tectonic".to_string(),
+            version,
+            path: self.binary.clone(),
+        })
+    }
+
+    async fn build(
+        &self,
+        job: &BuildJob,
+        cancel: CancellationToken,
+        progress: Option<ProgressSink>,
+    ) -> Result<BuildOutcome, EngineError> {
+        // The output directory must exist; Tectonic will not create it.
+        tokio::fs::create_dir_all(&job.out_dir).await?;
+        let started = Instant::now();
 
         // Artifacts are named after the root file's stem: main.tex → main.pdf, main.log.
         let stem = job
@@ -134,6 +152,58 @@ impl Engine for Tectonic {
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "main".to_string());
+
+        // S9.2: decide on a warm start, then remove the marker before anything runs, so this
+        // build must succeed to earn the next one a warm start (`incremental::WARM_MARKER`).
+        let marker = job.out_dir.join(incremental::WARM_MARKER);
+        let warm = incremental::can_start_warm(&job.out_dir, &stem);
+        let _ = tokio::fs::remove_file(&marker).await;
+
+        let mut steps = BuildSteps::default();
+        let mut stderr = String::new();
+        // `Some` once a single pass settles the build; `None` means a full build must run.
+        let mut settled: Option<ExitStatus> = None;
+        if warm {
+            let mut before = AuxSnapshot::read(&job.out_dir);
+            loop {
+                let args = Self::arguments(job, true);
+                let (status, pass_stderr) = self.run_once(job, &args, &cancel, progress.clone()).await?;
+                steps.single_passes += 1;
+                stderr.push_str(&pass_stderr);
+                // A failed pass goes to the full build rather than being reported: the pass read
+                // the last build's `.aux`, and a stale one (a package removed since, whose macros
+                // it still calls) fails on its own. The full build starts clean, so an error it
+                // reports is the document's, and its log is the one the drawer explains.
+                if !status.success() {
+                    break;
+                }
+                let after = AuxSnapshot::read(&job.out_dir);
+                // Unchanged: nothing moved, so the build is done in this many passes.
+                if after == before {
+                    settled = Some(status);
+                    break;
+                }
+                if after.bibliography_changed(&before) || steps.single_passes >= incremental::MAX_SINGLE_PASSES {
+                    break;
+                }
+                before = after;
+            }
+        }
+        let status = match settled {
+            Some(status) => status,
+            None => {
+                steps.full = true;
+                let args = Self::arguments(job, false);
+                let (status, full_stderr) = self.run_once(job, &args, &cancel, progress).await?;
+                stderr.push_str(&full_stderr);
+                status
+            }
+        };
+        if status.success() {
+            let _ = tokio::fs::write(&marker, b"").await;
+        }
+        let duration = started.elapsed();
+
         let artifact = |ext: &str| {
             let p = job.out_dir.join(format!("{stem}.{ext}"));
             p.is_file().then_some(p)
@@ -147,8 +217,9 @@ impl Engine for Tectonic {
             stderr,
             exit_code: status.code(),
             duration,
+            steps,
         };
-        info!(success = outcome.success, ms = duration.as_millis(), "tectonic finished");
+        info!(success = outcome.success, ms = duration.as_millis(), ?steps, "tectonic finished");
         Ok(outcome)
     }
 }
@@ -237,10 +308,11 @@ mod tests {
     #[test]
     fn arguments_put_the_root_file_last_and_request_synctex() {
         let dir = PathBuf::from("proj");
-        let args = Tectonic::arguments(&job(&dir));
+        let args = Tectonic::arguments(&job(&dir), false);
         assert_eq!(args.last().map(String::as_str), Some("main.tex"));
         assert!(args.contains(&"--synctex".to_string()));
         assert!(args.contains(&"--keep-intermediates".to_string()));
+        assert!(!args.contains(&"--pass".to_string()), "a full build lets the engine choose its passes");
         let outdir_pos = args.iter().position(|a| a == "--outdir").unwrap();
         assert!(args[outdir_pos + 1].ends_with("build"));
     }
@@ -249,7 +321,57 @@ mod tests {
     fn arguments_omit_synctex_when_not_requested() {
         let mut j = job(Path::new("proj"));
         j.synctex = false;
-        assert!(!Tectonic::arguments(&j).contains(&"--synctex".to_string()));
+        assert!(!Tectonic::arguments(&j, false).contains(&"--synctex".to_string()));
+    }
+
+    #[test]
+    fn a_single_pass_runs_tex_only_and_searches_the_build_folder() {
+        let args = Tectonic::arguments(&job(Path::new("proj")), true);
+        let pass = args.iter().position(|a| a == "--pass").unwrap();
+        assert_eq!(args[pass + 1], "tex");
+        let search = args.iter().position(|a| a == "-Z").unwrap();
+        assert!(args[search + 1].starts_with("search-path=") && args[search + 1].ends_with("build"));
+        assert_eq!(args.last().map(String::as_str), Some("main.tex"), "the root file stays last");
+    }
+
+    /// S9.2's warm path against the real engine, on a document small enough to build in a second:
+    /// a cold build is full; an edit that moves nothing is one single pass with every reference
+    /// still resolved; a new citation is a single pass and then a full build, BibTeX included.
+    #[tokio::test]
+    #[ignore]
+    async fn warm_builds_take_one_pass_until_the_bibliography_changes() {
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine`"));
+        let tmp = tempfile::tempdir().unwrap();
+        let body = |extra: &str| {
+            format!(
+                "\\documentclass{{article}}\n\\begin{{document}}\nSee Section~\\ref{{s:end}} and \\cite{{knuth}}.{extra}\n\
+                 \\section{{End}}\\label{{s:end}}\n\\bibliographystyle{{plain}}\n\\bibliography{{refs}}\n\\end{{document}}\n"
+            )
+        };
+        std::fs::write(tmp.path().join("refs.bib"), "@book{knuth, author={Knuth, D.}, title={T}, year=1984}\n@book{lamport, author={Lamport, L.}, title={L}, year=1994}\n").unwrap();
+        std::fs::write(tmp.path().join("main.tex"), body("")).unwrap();
+        let j = job(tmp.path());
+        let undefined = |log: &Option<PathBuf>| {
+            let text = std::fs::read_to_string(log.as_ref().unwrap()).unwrap();
+            text.matches("undefined").count()
+        };
+
+        let cold = engine.build(&j, CancellationToken::new(), None).await.unwrap();
+        assert!(cold.success, "{}", cold.stderr);
+        assert_eq!(cold.steps, BuildSteps { single_passes: 0, full: true });
+
+        std::fs::write(tmp.path().join("main.tex"), body(" A new sentence.")).unwrap();
+        let warm = engine.build(&j, CancellationToken::new(), None).await.unwrap();
+        assert!(warm.success, "{}", warm.stderr);
+        assert_eq!(warm.steps, BuildSteps { single_passes: 1, full: false });
+        assert_eq!(undefined(&warm.log), 0, "a single pass must still see the last build's .aux and .bbl");
+
+        std::fs::write(tmp.path().join("main.tex"), body(" And \\cite{lamport}.")).unwrap();
+        let cited = engine.build(&j, CancellationToken::new(), None).await.unwrap();
+        assert!(cited.success, "{}", cited.stderr);
+        assert_eq!(cited.steps, BuildSteps { single_passes: 1, full: true });
+        assert_eq!(undefined(&cited.log), 0, "the full build must have run BibTeX for the new key");
     }
 
     #[test]

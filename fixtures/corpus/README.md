@@ -47,4 +47,20 @@ On the maintainer's Windows machine the engine cannot resolve DNS by itself; run
 - **The thesis runs BibTeX once per chapter.** `\include` gives every chapter its own `.aux`,
   and Tectonic runs BibTeX on each (seven runs), then reruns TeX "because bibtex was run", on
   every build, even a warm one with nothing changed. A warm no-change rebuild took about 12 s
-  from the command line against a 1.2 s target. S9.2 measures this properly.
+  from the command line against a 1.2 s target (21–26 s with SyncTeX on, as the app runs it).
+  S9.2 fixed this: a warm build is now one `--pass tex` reading the previous `.aux`/`.bbl`, and
+  only a changed citation brings BibTeX back. The thesis's warm build is now a 3.3 s median.
+
+## Timings
+
+`cargo test -p abstract-tex-engine --test corpus -- --ignored --nocapture warm_build_timings`
+writes `target/corpus-report.json`. On the maintainer's Windows machine, five runs each, 28 Sep 2026:
+
+| Document | Cold | Warm (comment edit), median | Steps |
+|---|---:|---:|---|
+| conference | 2.3 s | 0.69 s | 1 pass |
+| thesis | 14.0 s | 3.36 s (prose edit: 3.29 s) | 1 pass |
+| beamer | 3.7 s | 1.72 s | 1 pass |
+| tikz-figures | 7.0 s | 3.42 s | 1 pass |
+| non-latin | 1.6 s | 0.76 s | 1 pass |
+| pathological-preamble | 5.2 s | 2.46 s | 1 pass |

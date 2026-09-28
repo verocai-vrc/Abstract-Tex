@@ -19,6 +19,7 @@
 //! errors only get shown to a person, uses `anyhow`, which erases the type and keeps a message.
 //! Typed on the inside, flattened at the edge.
 
+pub mod incremental;
 pub mod tectonic;
 
 use std::path::PathBuf;
@@ -74,6 +75,19 @@ pub struct BuildOutcome {
     pub stderr: String,
     pub exit_code: Option<i32>,
     pub duration: Duration,
+    /// How the engine got there (S9.2): what the speed work is measured by, and what a slow
+    /// build's log line explains.
+    pub steps: BuildSteps,
+}
+
+/// The work one build did. A cold build is `full` and nothing else; a warm build whose edit
+/// moved nothing is one single pass; one that added a citation is a single pass and then full.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct BuildSteps {
+    /// TeX passes run alone, reading the previous build's `.aux` and `.bbl` (`incremental.rs`).
+    pub single_passes: u32,
+    /// Whether the engine's own full build ran: every TeX pass it decides on, BibTeX included.
+    pub full: bool,
 }
 
 /// Why a build could not run at all. Contrast with `BuildOutcome { success: false }`, which

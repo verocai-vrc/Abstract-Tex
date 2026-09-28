@@ -155,7 +155,7 @@ Git-clean. The dashed edge is what makes `git checkout` in another terminal safe
 | sync / debounce | 0.3 s | 0.7 s *(keyboard idle)* |
 | **queue wait** | **1.5 s** | **—** |
 | **container start** | **2.0 s** | **—** |
-| compile | 6.0 s | 0.8 s *(cached preamble, warm aux)* |
+| compile | 6.0 s | 0.7 s *(measured: one warm pass, conference paper)* |
 | transfer / render | 0.7 s | 0.06 s |
 | **Total** | **~10.5 s** | **~1.6 s** |
 
@@ -164,8 +164,12 @@ service can engineer away; they are what sharing a compile server costs. The oth
 too — a warm local run reuses its `.aux` files and a precompiled preamble format (§5.1) — but the
 bold ones simply cease to exist.
 
-*Figures are illustrative and drawn from typical observed behaviour, not measurement. Replace
-them with numbers from the benchmark corpus in §8 as soon as it exists.*
+*The local compile row is measured (S9.2, `target/corpus-report.json`): the median warm build of
+the corpus's two-column paper after a one-line edit, one TeX pass reading the previous `.aux`
+and `.bbl`, on the maintainer's Windows machine. The same harness puts the sixty-page thesis at
+3.3 s, a single page behind a pathological preamble at 2.5 s, and the TikZ figure paper at 3.4 s —
+the preamble and the drawings, not the pass count, are what remains (§5.1 rungs 3–4). The hosted
+column and the other local rows are still illustrative.*
 
 ---
 

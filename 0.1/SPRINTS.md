@@ -2920,11 +2920,12 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
-| [ ] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
+| [x] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
 | [ ] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
 | [ ] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "latexmk"` in `abstract-tex.toml`) | M | S9.1 |
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
 | [ ] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
+| [ ] | S9.7 Scoped preview (DESIGN.md §5.1 rung 4): a temporary `\includeonly` build of the chapter under the cursor for an instant draft, with the full build behind it — the only rung left that shrinks the sixty pages themselves | L | S9.2, S9.3 |
 
 ```
 Loop      S9.1 · Benchmark corpus · L
@@ -2988,6 +2989,47 @@ Build     For each corpus document: one cold build (empty build dir), then N war
 Verify    cargo test -p abstract-tex-engine --test corpus -- --ignored --nocapture
 Done when the report exists for all buildable documents and §3.1 cites it.
 ```
+
+**S9.2 (28 September 2026).** `[x]`: rungs 1–3 green — `cargo test --workspace` 434 passed / 0
+failed (6 new in `incremental.rs`, 1 new in `tectonic.rs`, 1 in `corpus.rs`), clippy and
+`cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors, Vitest 405/405; rung 3: the
+new `warm_builds_take_one_pass_until_the_bibliography_changes` and the corpus test pass against
+the real engine, and the harness ran five warm builds per document. The card said "measure
+first", and the measurement changed the loop from a report into a fix:
+
+| | before (Tectonic's default, warm) | after |
+|---|---:|---:|
+| thesis, warm edit | 21–26 s: 4 TeX passes + 7 BibTeX runs | **3.3 s**, 1 pass |
+| conference paper | — | **0.69 s**, 1 pass |
+
+What a reader should take from the diff:
+
+1. **Tectonic forgets between runs.** Its default build starts with no `.aux`, so it always runs
+   BibTeX and then reruns TeX "because bibtex was run" — on the thesis, once per `\include`d
+   chapter. `--pass tex` alone is fast but prints every reference as `??` (44 undefined
+   citations, 54 undefined references): Tectonic reads inputs from the project, not from
+   `--outdir`. Adding `-Z search-path=<build folder>` is what lets one pass see the last build's
+   `.aux` and `.bbl` — found by trying it, and pinned by the real-engine test.
+2. **The rule is DESIGN.md §5.1 rung 2, with the one refinement real documents forced.**
+   `incremental.rs` compares every `.aux` (chapters included) before and after a pass: unchanged
+   means done; changed labels or pages mean another single pass (at most three); a changed
+   citation, database or style — the only lines BibTeX reads — means the full build. Page
+   records (`\abx@aux@page`) are excluded on purpose: they move with every reflow and never
+   change the `.bbl`, and counting them would have sent most thesis edits to the 20 s path.
+3. **Safety comes from a marker file, not from trust.** A warm start needs `.abstract-tex-warm`,
+   written only after a successful build and removed before every build starts, so a failed,
+   crashed or cancelled build always makes the next one full. A single pass that *fails* also
+   falls through to the full build: the pass read the old `.aux`, and a stale one (a package
+   removed since) can fail on its own; the full build starts clean, so whatever it reports is
+   the document's.
+4. **`BuildOutcome.steps`** says what a build did (`single_passes`, `full`); the harness reports
+   it, and the app's log line carries it.
+
+Where this leaves the exit criterion: every warm edit in the corpus now costs exactly one pass,
+so what remains is the cost *of* a pass. The thesis's 3.3 s against 1.2 s is preamble loading
+(the one-page pathological document still takes 2.5 s) plus sixty pages of typesetting. S9.3's
+precompiled preamble attacks the first; the second needs §5.1 rung 4 (an `\includeonly` scoped
+preview of the chapter under the cursor), which sprint 9 has no card for yet — added as S9.7.
 
 ```
 Loop      S9.3 · Precompiled preamble · L
