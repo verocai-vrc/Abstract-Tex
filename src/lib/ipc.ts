@@ -148,7 +148,7 @@ export interface BibFile {
   entryCount: number;
   /** One sentence per item `texbib` could not parse, with the byte offset it gave up at. */
   problems: Array<{ message: string; at: number }>;
-  /** Why the index lists it (S8.6): a `ibliography`-style command inside or outside the
+  /** Why the index lists it (S8.6): a `\bibliography`-style command inside or outside the
    * project, at that `.tex` file and line, or a linked Zotero export from `preamble.toml`. */
   origin: BibOrigin;
 }

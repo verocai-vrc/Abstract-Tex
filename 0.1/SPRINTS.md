@@ -1909,6 +1909,7 @@ Sprint 8's cards, expanded at the start of the sprint (23 September 2026), per �
 | [~] | S8.5 `texbib` published to crates.io under MIT, `acquire` feature included | S | S7.1–S7.5 |
 | [x] | S8.6 A `.bib` the index cannot read is a health finding: named but absent, outside the project, or a linked export not yet written | S | S8.2, S8.3 |
 | [x] | S8.7 Unlink a Zotero collection: remove its export path from `preamble.toml`'s `extra_bib_files` | S | S8.2 |
+| [ ] | S8.8 A linked export the document does not name is a finding with a one-click fix that adds it to the document's own `\bibliography`/`\addbibresource` — today its entries are indexed but never reach the PDF (ledger, 28 Sep 2026); needs the maintainer's call on editing the author's `.tex` | S | S8.6, S6.2 |
 
 ```
 Loop      S8.1 · Zotero detection on port 23119 · S

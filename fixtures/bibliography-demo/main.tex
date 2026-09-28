@@ -1,0 +1,27 @@
+\documentclass[11pt,a4paper]{article}
+
+% The v0.4 exit demo's starting point (DESIGN.md §7, SPRINTS.md S8.4): a paper with no
+% references yet. Every reference arrives through the app — paste-to-cite or a linked Zotero
+% collection — never by typing an entry or opening a browser. See SMOKE.md beside this file.
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[numbers]{natbib}
+\usepackage[hidelinks]{hyperref}
+
+\title{Forty References Without a Browser}
+\author{A.~Author}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+Write the paper here, citing as you go.
+
+\bibliographystyle{plainnat}
+% Paste-to-cite appends to the first file named here. Add the linked Zotero export to this list
+% once it exists (SMOKE.md §2) — until S8.8, BibTeX reads only the files named in this command.
+\bibliography{references}
+
+\end{document}

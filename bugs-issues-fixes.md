@@ -15,6 +15,23 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **A linked Zotero collection's entries are indexed but never reach the PDF: the compile does
+  not know about `extra_bib_files`.** (S8.4 preparation, builder, 28 Sep 2026, found writing the
+  exit demo's script) S8.2 records the export path in `preamble.toml`'s `extra_bib_files`, and
+  `bibliography::build_index` indexes it, so `\cite` completion offers its keys and the
+  undefined-citation health check (S8.3) counts them as defined. But BibTeX/Biber read only the
+  files the document itself names (`\bibliography{…}`/`\addbibresource{…}`), and nothing in
+  `compile.rs` or `preamble-engine` reads `extra_bib_files` (grep: only `bibliography.rs`,
+  `commands.rs` and `project.rs` mention it). Result: cite a key from a linked collection and the
+  panel says nothing is wrong while the PDF prints `[?]` — the health check and the engine
+  disagree, the one outcome a health check must not produce. Workaround until fixed: name the
+  export in the document too (`\bibliography{references,zotero/Thesis}`); S8.7's `BibOrigin`
+  then lists it as `named` and everything agrees. Fix is S8.8 in `SPRINTS.md`; it needs a
+  maintainer decision first, because the natural fixes either edit the author's `.tex` (offer to
+  add the export to the document's own command, as a one-click fix like S6.2's) or make the
+  build differ from what the document says (pass extra files to the engine), and DESIGN.md §2
+  rule 1 ("plain files are the truth") argues for the first.
+
 - **The workspace `repository` field points at `github.com/verocai-vrc/preamble`, but the
   repository is `github.com/verocai-vrc/Abstract-Tex`.** (S8.5, builder, 28 Sep 2026, found
   preparing `texbib` for crates.io) `Cargo.toml`'s `[workspace.package] repository` is inherited
