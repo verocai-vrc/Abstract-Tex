@@ -476,6 +476,10 @@ export async function openFolder(path?: string): Promise<void> {
     // server's first news of it. Failure is a status line, not a notice: the editor, the
     // compile loop and the PDF all work without it.
     await startLanguageServer();
+    // The project may have chosen a different engine (S9.4); the status bar names the one that
+    // will actually build, and a setting it could not honour says so.
+    app.engine = await ipc.engineInfo().catch(() => null);
+    if (info.engineNotice) app.notice = info.engineNotice;
     if (info.rootFile) {
       await openFile(info.rootFile);
       await triggerCompile();

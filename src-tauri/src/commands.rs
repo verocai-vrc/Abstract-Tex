@@ -97,7 +97,12 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
     })
     .map_err(to_message)?;
 
-    let info = project.info();
+    let mut info = project.info();
+    // Each project builds with the engine it asks for (S9.4); a running build of the previous
+    // project finishes on the engine it started with.
+    let (engine, engine_notice) = crate::compile::engine_for(project.config.project.engine.as_deref());
+    state.orchestrator.set_engine(engine);
+    info.engine_notice = engine_notice;
     // Replace the old watcher *after* the new one exists, so there is never a gap.
     *state.watcher.lock().unwrap() = Some(watcher);
     *state.project.lock().unwrap() = Some(project);

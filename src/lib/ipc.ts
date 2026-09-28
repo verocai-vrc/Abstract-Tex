@@ -27,6 +27,8 @@ export interface ProjectInfo {
    * (paths.ts) then treats every `.tex` file as part of the document rather than risk ignoring
    * one that actually is. */
   documentFilesComplete: boolean;
+  /** Set when the project's `engine` setting could not be honoured (S9.4), as a sentence. */
+  engineNotice: string | null;
 }
 
 export interface EngineInfo {

@@ -46,6 +46,7 @@ const project: ProjectInfo = {
   // expect, without every test needing to know about S4.1's include graph.
   documentFiles: ['main.tex'],
   documentFilesComplete: true,
+  engineNotice: null,
 };
 
 // `vi.mock` with a factory means the real ./ipc — and with it @tauri-apps/api — is never
@@ -199,6 +200,25 @@ beforeEach(async () => {
 });
 
 afterEach(() => vi.useRealTimers());
+
+describe('a project whose engine setting could not be honoured (S9.4)', () => {
+  afterEach(() => {
+    project.engineNotice = null;
+  });
+
+  it('says so as a notice, and still opens and builds', async () => {
+    project.engineNotice = 'This project asks for pdflatex, but no latexmk with pdflatex was found on this machine.';
+    await openFolder('/proj');
+    expect(app.notice).toBe(project.engineNotice);
+    expect(app.activePath).toBe('main.tex');
+    expect(calls.compiles).toBe(1);
+  });
+
+  it('shows no notice when the setting was honoured', async () => {
+    await openFolder('/proj');
+    expect(app.notice).toBeNull();
+  });
+});
 
 describe('an external change to the open file', () => {
   it('lands in the CRDT and rebuilds when the buffer has nothing to lose', async () => {

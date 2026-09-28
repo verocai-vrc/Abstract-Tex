@@ -2922,10 +2922,11 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
 | [x] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
 | [x] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
-| [ ] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "latexmk"` in `abstract-tex.toml`) | M | S9.1 |
+| [~] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "pdflatex" \| "xelatex" \| "lualatex"` in `abstract-tex.toml`) | M | S9.1 |
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
 | [ ] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [ ] | S9.7 Scoped preview (DESIGN.md §5.1 rung 4): a temporary `\includeonly` build of the chapter under the cursor for an instant draft, with the full build behind it — the only rung left that shrinks the sixty pages themselves | L | S9.2, S9.3 |
+| [ ] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 
 ```
 Loop      S9.1 · Benchmark corpus · L
@@ -3086,6 +3087,34 @@ Verify    cargo test -p abstract-tex-engine; the corpus test with a system TeX p
 Done when a project switched to `latexmk` builds the corpus's minted document where Tectonic
           could not, and a machine without a system TeX still builds everything else unchanged.
 ```
+
+**S9.4 (28 September 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 442 passed / 0
+failed (5 new in `latexmk.rs`, 4 in `compile.rs`), clippy and `cargo doc --workspace -D warnings`
+clean, `pnpm check` 0 errors, Vitest 407/407 (2 new). `[~]` because rung 3 cannot run here:
+this machine has no TeX Live or MiKTeX (`latexmk`, `pdflatex`, `xelatex`, `biber` all absent
+from `PATH`), so `builds_the_minimal_fixture_with_a_system_pdflatex` and the corpus under
+`latexmk` wait for a machine that has one — CI's Linux runner can `apt install latexmk
+texlive-latex-extra` in S9.5. What a reader should take from the diff:
+
+1. **`latexmk`, not our own pass loop, for system engines.** TeX Live and MiKTeX both ship it,
+   and it already knows when to rerun and when to call BibTeX *or Biber* — the latter being the
+   reason most people will switch (Tectonic has no Biber). S9.2's incremental logic stays
+   Tectonic's, because Tectonic is what forgets between runs; `latexmk` does not.
+2. **`process.rs` is the one place a process is spawned.** The spawn/stream/cancel code moved
+   out of `tectonic.rs` unchanged, so both engines share it; the engines differ only in their
+   command lines, which each tests without running anything.
+3. **The setting chooses, the machine may refuse, and the author is told.** `engine = "pdflatex"`
+   (or `xelatex`, `lualatex`) in `abstract-tex.toml` is read when the project opens;
+   `EngineChoice::parse` rejects a misspelling in a sentence, and a missing distribution falls back
+   to Tectonic with a notice — never to no engine, and never silently. The orchestrator's engine
+   is now behind a `Mutex` (`set_engine`); a build already running finishes on the engine it
+   started with. The status bar re-probes, so it names the engine that will actually run.
+4. **No shell-escape, deliberately — and the card's done-when changes because of it.** The card
+   asked for `minted` to build under `latexmk`; it cannot without `-shell-escape`, and
+   `abstract-tex.toml` is a file that arrives with a cloned repository, so letting it turn
+   shell-escape on would let any project run commands on the machine that opens it. A test pins
+   that no `latexmk` command line ever carries it. Consent that lives outside the project is new
+   card S9.8. The S1.4 placeholder value `"system"` is gone; it never reached any code.
 
 ```
 Loop      S9.5 · CI performance and golden-corpus gate · M

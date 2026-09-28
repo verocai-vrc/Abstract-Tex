@@ -20,6 +20,8 @@
 //! Typed on the inside, flattened at the edge.
 
 pub mod incremental;
+pub mod latexmk;
+mod process;
 pub mod tectonic;
 
 use std::path::PathBuf;

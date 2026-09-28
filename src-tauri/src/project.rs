@@ -52,7 +52,8 @@ pub struct ProjectSection {
     /// The root `.tex` file, relative to the project folder, with forward slashes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
-    /// `"tectonic"` (the default, bundled) or `"system"` (a detected TeX Live, from v0.5).
+    /// `"tectonic"` (the default, bundled), or `"pdflatex"`, `"xelatex"`, `"lualatex"` for a system
+    /// TeX's `latexmk` (S9.4; `abstract_tex_engine::latexmk::EngineChoice` reads it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub engine: Option<String>,
     /// `.bib` files the bibliography index reads in addition to whatever the document's own
@@ -91,6 +92,9 @@ pub struct ProjectInfo {
     /// back to recompiling on every `.tex` change while this is false: an include graph that
     /// might be missing a file is a worse mistake to compile around than an extra rebuild.
     pub document_files_complete: bool,
+    /// Set only when a project opens, and only when its `engine` setting could not be honoured
+    /// (S9.4): the sentence the frontend shows as a notice.
+    pub engine_notice: Option<String>,
 }
 
 /// An open project: an absolute folder path and its configuration.
@@ -241,6 +245,7 @@ impl Project {
             tree: list_tree(&self.root_dir),
             document_files,
             document_files_complete,
+            engine_notice: None,
         }
     }
 }

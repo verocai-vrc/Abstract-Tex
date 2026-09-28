@@ -12,6 +12,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use abstract_tex_engine::latexmk::{EngineChoice, Latexmk};
+use abstract_tex_engine::tectonic::Tectonic;
 use abstract_tex_engine::{BuildJob, Engine, EngineError};
 use serde::Serialize;
 use tokio::sync::mpsc;
@@ -70,11 +72,38 @@ pub enum CompileEvent {
 /// dropped frees it. We need it because each spawned build task must outlive the `&self` borrow
 /// of the command that started it.
 struct Inner {
-    engine: Option<Arc<dyn Engine>>,
+    /// Behind a `Mutex` since S9.4: opening a project chooses its engine, so the one set at
+    /// startup can be replaced. A running build keeps the `Arc` it cloned and finishes on the
+    /// engine it started with.
+    engine: Mutex<Option<Arc<dyn Engine>>>,
     /// The token for the build currently running, tagged with its generation.
     in_flight: Mutex<Option<(u64, CancellationToken)>>,
     /// Monotonic counter. `AtomicU64` gives us increment-and-read without a lock.
     generation: AtomicU64,
+}
+
+/// The engine a project's `engine` setting asks for (S9.4), and a sentence when it cannot have
+/// it. Falls back to the bundled Tectonic rather than to no engine: a project that asked for
+/// `pdflatex` on a machine without TeX Live should still build, and say why it built
+/// differently. `None` only when Tectonic itself is missing too.
+pub fn engine_for(setting: Option<&str>) -> (Option<Arc<dyn Engine>>, Option<String>) {
+    let tectonic = || Tectonic::locate().ok().map(|engine| Arc::new(engine) as Arc<dyn Engine>);
+    match EngineChoice::parse(setting) {
+        Ok(EngineChoice::Tectonic) => (tectonic(), None),
+        Ok(EngineChoice::System(program)) => match Latexmk::locate(program) {
+            Ok(engine) => (Some(Arc::new(engine)), None),
+            Err(_) => (
+                tectonic(),
+                Some(format!(
+                    "This project asks for {}, but no latexmk with {} was found on this machine; \
+                     building with the bundled Tectonic instead.",
+                    program.binary_name(),
+                    program.binary_name()
+                )),
+            ),
+        },
+        Err(sentence) => (tectonic(), Some(format!("{sentence} Building with the bundled Tectonic."))),
+    }
 }
 
 pub struct Orchestrator {
@@ -84,12 +113,17 @@ pub struct Orchestrator {
 impl Orchestrator {
     pub fn new(engine: Option<Arc<dyn Engine>>) -> Self {
         Self {
-            inner: Arc::new(Inner { engine, in_flight: Mutex::new(None), generation: AtomicU64::new(0) }),
+            inner: Arc::new(Inner { engine: Mutex::new(engine), in_flight: Mutex::new(None), generation: AtomicU64::new(0) }),
         }
     }
 
     pub fn engine(&self) -> Option<Arc<dyn Engine>> {
-        self.inner.engine.clone()
+        self.inner.engine.lock().unwrap().clone()
+    }
+
+    /// Replace the engine for every build from now on (S9.4: a project's `engine` setting).
+    pub fn set_engine(&self, engine: Option<Arc<dyn Engine>>) {
+        *self.inner.engine.lock().unwrap() = engine;
     }
 
     /// Start a build, cancelling whichever one was running. Returns the new generation number.
@@ -109,7 +143,7 @@ impl Orchestrator {
             old_token.cancel();
         }
 
-        let Some(engine) = self.inner.engine.clone() else {
+        let Some(engine) = self.engine() else {
             on_event(CompileEvent::Failed {
                 generation,
                 message: "No TeX engine is available. The bundled Tectonic binary was not found.".to_string(),
@@ -432,5 +466,43 @@ mod tests {
         });
         let event = rx.recv().await.unwrap();
         assert_eq!(status(&event).0, "failed");
+    }
+
+    // ---- choosing the engine (S9.4) ----
+
+    #[test]
+    fn the_default_setting_asks_for_nothing_and_says_nothing() {
+        let (_, notice) = engine_for(None);
+        assert_eq!(notice, None);
+        let (_, notice) = engine_for(Some("tectonic"));
+        assert_eq!(notice, None);
+    }
+
+    #[test]
+    fn a_setting_it_does_not_know_is_explained_not_ignored() {
+        let (_, notice) = engine_for(Some("pdftex"));
+        let notice = notice.expect("an unknown engine must be reported");
+        assert!(notice.contains("\"pdftex\"") && notice.contains("Tectonic"), "{notice}");
+    }
+
+    #[test]
+    fn a_system_engine_this_machine_lacks_falls_back_with_a_sentence() {
+        use abstract_tex_engine::latexmk::TexProgram;
+        // Only meaningful where there is no TeX Live: on a machine that has one, the engine is
+        // simply used and there is nothing to fall back from.
+        if Latexmk::locate(TexProgram::LuaLatex).is_ok() {
+            return;
+        }
+        let (_, notice) = engine_for(Some("lualatex"));
+        let notice = notice.expect("a missing system engine must be reported");
+        assert!(notice.contains("lualatex") && notice.contains("bundled Tectonic"), "{notice}");
+    }
+
+    #[test]
+    fn set_engine_replaces_the_engine_for_later_builds() {
+        let orchestrator = Orchestrator::new(None);
+        assert!(orchestrator.engine().is_none());
+        orchestrator.set_engine(Some(Arc::new(SleepyEngine { delay: Duration::from_millis(1) })));
+        assert!(orchestrator.engine().is_some());
     }
 }
