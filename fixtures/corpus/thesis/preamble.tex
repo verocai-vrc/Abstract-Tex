@@ -1,0 +1,54 @@
+% The heavy preamble the exit criterion names: TikZ with pgfplots, and biblatex. Biber is not
+% bundled with Tectonic, so biblatex runs on its BibTeX backend (SPRINTS.md, sprint 9 notes).
+\usepackage{fontspec}
+\usepackage[english]{babel}
+\usepackage[a4paper,margin=2.8cm]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{siunitx}
+\usepackage{booktabs,tabularx,multirow}
+\usepackage{graphicx}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,decorations.pathreplacing,patterns}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{caption,subcaption}
+\usepackage{enumitem}
+\usepackage{lipsum}
+\usepackage[backend=bibtex,style=authoryear,maxcitenames=2]{biblatex}
+\addbibresource{refs.bib}
+\usepackage{csquotes}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+
+\newtheorem{hypothesis}{Hypothesis}[chapter]
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[chapter]
+
+\newcommand{\latency}{\ensuremath{\ell}}
+\DeclareMathOperator{\pninetyfive}{p95}
+
+% One reusable figure so every chapter's TikZ costs what a real one would.
+\newcommand{\pipelinefigure}[1]{%
+  \begin{tikzpicture}[node distance=1.6cm, box/.style={draw, rounded corners, minimum width=2.1cm, minimum height=0.8cm, fill=#1!12}]
+    \node[box] (edit) {Editor};
+    \node[box, right=of edit] (disk) {File};
+    \node[box, right=of disk] (engine) {Engine};
+    \node[box, right=of engine] (pdf) {PDF};
+    \draw[-Stealth] (edit) -- node[above]{\small 700 ms} (disk);
+    \draw[-Stealth] (disk) -- (engine);
+    \draw[-Stealth] (engine) -- (pdf);
+    \draw[-Stealth, dashed] (pdf.south) to[bend left=20] node[below]{\small SyncTeX} (edit.south);
+  \end{tikzpicture}}
+
+\newcommand{\latencyplot}[2]{%
+  \begin{tikzpicture}
+    \begin{axis}[width=0.8\textwidth, height=5.5cm, xlabel={Edit number}, ylabel={Build time (s)},
+                 ymin=0, legend pos=north east, grid=major]
+      \addplot+[mark=none, thick, domain=1:60, samples=60] {#1 + 0.3*sin(deg(x/3))};
+      \addlegendentry{warm}
+      \addplot+[mark=none, thick, dashed, domain=1:60, samples=60] {#2 + 0.5*cos(deg(x/4))};
+      \addlegendentry{cold}
+    \end{axis}
+  \end{tikzpicture}}

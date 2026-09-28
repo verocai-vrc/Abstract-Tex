@@ -1,0 +1,26 @@
+[
+  {
+    "file": "main.tex",
+    "line": 17,
+    "rule": "undefined-control-sequence",
+    "severity": "error"
+  },
+  {
+    "file": "main.tex",
+    "line": 12,
+    "rule": "undefined-reference",
+    "severity": "warning"
+  },
+  {
+    "file": "main.tex",
+    "line": 12,
+    "rule": "undefined-citation",
+    "severity": "warning"
+  },
+  {
+    "file": "main.tex",
+    "line": 15,
+    "rule": "overfull-box",
+    "severity": "warning"
+  }
+]

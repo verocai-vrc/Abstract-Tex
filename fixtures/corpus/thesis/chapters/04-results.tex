@@ -1,0 +1,58 @@
+% Corpus thesis, chapter 4. Generated prose, real structure (see main.tex).
+\chapter{Results}\label{ch:results}
+
+\section{Cold builds}\label{sec:results-0}
+\lipsum[33-46]
+
+As \textcite{nielsen1993} observe, the latency \latency{} of a build is
+bounded below by the engine itself; see \cref{ch:results} and \cref{fig:results}
+for how this chapter measures it \parencite{tectonic2024}.
+
+\begin{figure}[t]
+  \centering
+  \latencyplot{0.9}{4.5}
+  \caption{The build pipeline as chapter 4 sees it.}\label{fig:results}
+\end{figure}
+
+\section{Warm builds}\label{sec:results-1}
+\lipsum[47-60]
+
+As \textcite{tectonic2024} observe, the latency \latency{} of a build is
+bounded below by the engine itself; see \cref{ch:results} and \cref{fig:results}
+for how this chapter measures it \parencite{kleppmann2019}.
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lSSS}
+    \toprule
+    Document & {Cold (s)} & {Warm (s)} & {Passes} \\
+    \midrule
+    paper & 7.1 & 0.60 & 1 \\
+    thesis & 8.1 & 0.80 & 2 \\
+    deck & 9.1 & 1.00 & 1 \\
+    figures & 10.1 & 1.20 & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Build times measured in chapter 4.}\label{tab:results}
+\end{table}
+
+\section{Preamble caching}\label{sec:results-2}
+\lipsum[61-74]
+
+As \textcite{kleppmann2019} observe, the latency \latency{} of a build is
+bounded below by the engine itself; see \cref{ch:results} and \cref{fig:results}
+for how this chapter measures it \parencite{lamport1994}.
+
+\begin{equation}\label{eq:results}
+  \pninetyfive(\latency) = \inf\left\{ t : P(\latency \le t) \ge 0.95 \right\}
+  \qquad \text{with} \qquad \latency = \sum_{i=1}^{k} \tau_i + \varepsilon
+\end{equation}
+Equation~\eqref{eq:results} is what \cref{tab:results} reports, measured in \si{\second}.
+
+\section{Pass counts}\label{sec:results-3}
+\lipsum[75-88]
+
+As \textcite{lamport1994} observe, the latency \latency{} of a build is
+bounded below by the engine itself; see \cref{ch:results} and \cref{fig:results}
+for how this chapter measures it \parencite{knuth1984}.
+

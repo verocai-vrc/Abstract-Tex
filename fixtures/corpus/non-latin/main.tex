@@ -1,0 +1,41 @@
+% Corpus document: a non-Latin-script paper (DESIGN.md §8). fontspec and polyglossia over
+% XeTeX, with Greek, Cyrillic and Hebrew (right to left) in one document: font loading and
+% script shaping are their own cost, and a font the bundle lacks is its own failure class.
+\documentclass[11pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{english}
+\setotherlanguages{greek,russian,hebrew}
+% Fonts in Tectonic's bundle are found by file name, not family name: `DejaVu Serif` is not
+% found, `FreeSerif.otf` is (fixtures/corpus/README.md). GNU FreeFont covers all three scripts.
+\setmainfont{FreeSerif.otf}[BoldFont=FreeSerifBold.otf, ItalicFont=FreeSerifItalic.otf]
+\setsansfont{FreeSans.otf}
+\newfontfamily\greekfont{FreeSerif.otf}
+\newfontfamily\cyrillicfont{FreeSerif.otf}
+\newfontfamily\hebrewfont{FreeSerif.otf}[Script=Hebrew]
+
+\begin{document}
+\section{Three scripts, one document}
+
+An English paragraph first, so the default language is exercised before the others.
+
+\begin{greek}
+Η τοπική μεταγλώττιση κάνει τον συντάκτη γρήγορο: κάθε αλλαγή φαίνεται στο PDF σε λιγότερο
+από ένα δευτερόλεπτο, χωρίς ουρά αναμονής και χωρίς διακομιστή.
+\end{greek}
+
+\begin{russian}
+Локальная компиляция делает редактор быстрым: каждое изменение появляется в PDF меньше чем
+за секунду, без очереди и без сервера.
+\end{russian}
+
+\begin{hebrew}
+הידור מקומי הופך את העורך למהיר: כל שינוי מופיע בקובץ תוך פחות משנייה, בלי תור ובלי שרת.
+\end{hebrew}
+
+\section{Mixed within a line}
+The word \textgreek{ταχύτητα} (speed), the word \textrussian{скорость}, and the word
+\texthebrew{מהירות} all mean the same thing.
+
+\end{document}

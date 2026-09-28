@@ -1,0 +1,25 @@
+% Corpus document: a sixty-page thesis (DESIGN.md §8), the one the v0.5 exit criterion times.
+% Real structure, generated prose: the chapters, floats, TikZ figures, tables and biblatex
+% citations are what a thesis build spends its time on; the words in between only need length.
+\documentclass[11pt,a4paper,oneside]{report}
+\input{preamble}
+
+\title{Local Compilation for Scientific Writing:\\ A Study in Latency}
+\author{A.~Candidate}
+\date{September 2026}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\listoffigures
+\listoftables
+
+\include{chapters/01-introduction}
+\include{chapters/02-background}
+\include{chapters/03-method}
+\include{chapters/04-results}
+\include{chapters/05-discussion}
+\include{chapters/06-conclusion}
+
+\printbibliography
+\end{document}

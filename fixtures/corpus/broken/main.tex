@@ -1,0 +1,19 @@
+% Corpus document: deliberately broken (DESIGN.md §8). "The broken one must produce exactly the
+% diagnostics it produced before": expected.json beside this file is what the corpus test
+% compares against (rule, file, line, severity — never TeX's wording, which the drawer never
+% shows). One error halts this engine, so the warnings before it are what make the set
+% interesting: an undefined reference, an undefined citation, and an overfull line.
+\documentclass[11pt]{article}
+\usepackage[margin=3cm]{geometry}
+
+\begin{document}
+\section{Introduction}\label{sec:intro}
+
+As Section~\ref{sec:missing} shows, and as \cite{nobody2020} argued, this sentence has two
+problems a reader would notice.
+
+\noindent\hbox{AVeryLongUnbreakableWordThatCannotPossiblyFitOnOneLineOfThisNarrowTextBlockAtAll}
+
+The first hard error: a command nobody defined, \undefinedcommand{here}.
+
+\end{document}

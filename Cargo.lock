@@ -39,6 +39,7 @@ dependencies = [
  "abstract-tex-sidecar",
  "async-trait",
  "serde",
+ "serde_json",
  "tempfile",
  "texlog",
  "thiserror 2.0.20",

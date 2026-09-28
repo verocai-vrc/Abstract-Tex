@@ -1,0 +1,41 @@
+% Corpus document: code listings with `minted` (DESIGN.md §8). minted shells out to Pygments,
+% so it needs shell-escape and a `pygmentize` on PATH — the known gap in a bundled engine that
+% DESIGN.md §9 names. This document is in the corpus to measure that gap, not to hide it.
+\documentclass[11pt]{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{minted}
+\usemintedstyle{friendly}
+
+\begin{document}
+\section*{Listings}
+
+The orchestrator's cancel-and-restart loop, in Rust:
+
+\begin{minted}[linenos, frame=lines]{rust}
+pub async fn build(&self, job: &BuildJob, cancel: CancellationToken) -> Result<BuildOutcome, EngineError> {
+    let mut child = self.command(job).spawn()?;
+    tokio::select! {
+        status = child.wait() => self.outcome(job, status?),
+        _ = cancel.cancelled() => {
+            child.kill().await?;
+            Err(EngineError::Cancelled)
+        }
+    }
+}
+\end{minted}
+
+The same idea, in Python:
+
+\begin{minted}[linenos, frame=lines]{python}
+async def build(job, cancel):
+    child = await asyncio.create_subprocess_exec(*command(job))
+    done, _ = await asyncio.wait({child.wait(), cancel.wait()}, return_when=FIRST_COMPLETED)
+    if cancel.is_set():
+        child.kill()
+        raise Cancelled()
+    return outcome(job, child.returncode)
+\end{minted}
+
+And inline: \mintinline{rust}{let debounce = Duration::from_millis(700);}.
+
+\end{document}

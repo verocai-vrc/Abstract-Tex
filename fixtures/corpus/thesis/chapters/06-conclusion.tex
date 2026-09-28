@@ -1,0 +1,38 @@
+% Corpus thesis, chapter 6. Generated prose, real structure (see main.tex).
+\chapter{Conclusion}\label{ch:conclusion}
+
+\section{Summary}\label{sec:conclusion-0}
+\lipsum[9-30]
+
+As \textcite{kleppmann2019} observe, the latency \latency{} of a build is
+bounded below by the engine itself; see \cref{ch:conclusion} and \cref{fig:conclusion}
+for how this chapter measures it \parencite{lamport1994}.
+
+\begin{figure}[t]
+  \centering
+  \latencyplot{1.1}{5.5}
+  \caption{The build pipeline as chapter 6 sees it.}\label{fig:conclusion}
+\end{figure}
+
+\section{Future work}\label{sec:conclusion-1}
+\lipsum[31-52]
+
+As \textcite{lamport1994} observe, the latency \latency{} of a build is
+bounded below by the engine itself; see \cref{ch:conclusion} and \cref{fig:conclusion}
+for how this chapter measures it \parencite{knuth1984}.
+
+\begin{table}[t]
+  \centering
+  \begin{tabular}{lSSS}
+    \toprule
+    Document & {Cold (s)} & {Warm (s)} & {Passes} \\
+    \midrule
+    paper & 9.1 & 0.60 & 1 \\
+    thesis & 10.1 & 0.80 & 2 \\
+    deck & 11.1 & 1.00 & 1 \\
+    figures & 12.1 & 1.20 & 2 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Build times measured in chapter 6.}\label{tab:conclusion}
+\end{table}
+

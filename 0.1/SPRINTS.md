@@ -2919,7 +2919,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [ ] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
+| [x] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
 | [ ] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
 | [ ] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
 | [ ] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "latexmk"` in `abstract-tex.toml`) | M | S9.1 |
@@ -2948,6 +2948,31 @@ Verify    cargo test -p abstract-tex-engine --test corpus -- --ignored
 Done when seven documents build and the broken one produces exactly its recorded diagnostics,
           or the README says which cannot build on the bundled engine and why.
 ```
+
+**S9.1 (28 September 2026).** `[x]`: rungs 1–3 green — `cargo test -p abstract-tex-engine` all
+passing (3 new in `tests/corpus.rs`, one of them `#[ignore]`d), clippy clean, and the rung-3 run
+`cargo test -p abstract-tex-engine --test corpus -- --ignored` passing against the real engine in
+35 s (through `scripts/dev-proxy.py`, the DNS workaround this machine needs). Seven documents
+build; `minted` is recorded as unsupported with its reason; `broken` produces exactly its four
+recorded diagnostics. What a reader should take from the diff:
+
+1. **The corpus is small in source and real in shape.** Generated `lipsum` prose where only
+   length matters (the thesis is 62 pages from six generated chapters), real preambles and real
+   structure everywhere else — floats, `\include`, biblatex, overlays, 3-D pgfplots, three
+   scripts. What a build spends time on is the preamble and the machinery, not the words.
+2. **The broken document is pinned twice, like the torture walk.** A committed capture of its
+   log is checked on every `cargo test` with no engine; the ignored real-engine test re-checks
+   it and re-records with `ABSTRACT_TEX_RECORD_CORPUS=1`. "Exactly the diagnostics" is rule,
+   file, line and severity — the explanation's wording is free to improve.
+3. **`Unsupported` is asserted, not skipped.** `minted` must *fail*; the day an engine change
+   makes it build, the test fails and says to update the corpus. A document dropped quietly
+   would hide DESIGN.md §9's risk instead of measuring it.
+4. **Four findings, in `fixtures/corpus/README.md`:** minted needs shell-escape (S9.4's
+   territory); fonts in the bundle resolve by file name only (`DejaVu Serif` fails,
+   `FreeSerif.otf` works) — a texlog rule candidate; `physics` and `siunitx` fight over
+   `\qty` — another; and the thesis runs BibTeX seven times and reruns TeX on every build, which
+   is why a warm, unchanged rebuild took ~12 s against the 1.2 s target. That last one is the
+   number S9.2 now has to explain.
 
 ```
 Loop      S9.2 · Timing harness and pass counting · M

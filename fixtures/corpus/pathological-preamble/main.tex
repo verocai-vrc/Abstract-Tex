@@ -1,0 +1,91 @@
+% Corpus document: a pathological preamble (DESIGN.md §8). Forty-odd packages with options,
+% heavy key-value processing (tcolorbox's `most`, pgfplots, siunitx), and dozens of definitions:
+% the preamble costs more than the one page of body, which is exactly the case a precompiled
+% preamble (S9.3) exists for.
+\documentclass[11pt,a4paper]{article}
+\usepackage{fontspec}
+\usepackage[english]{babel}
+\usepackage[margin=2.5cm,headheight=14pt]{geometry}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,amsthm,mathtools,bm}
+\usepackage{siunitx}
+\sisetup{per-mode=symbol, separate-uncertainty=true, round-mode=places, round-precision=2}
+\usepackage{booktabs,longtable,tabularx,multirow,array,makecell}
+\usepackage{graphicx}
+\usepackage[dvipsnames,svgnames,table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes,calc,matrix,decorations.pathmorphing,patterns,backgrounds,fit,shadows}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage[most]{tcolorbox}
+\usepackage{caption,subcaption,float}
+\usepackage[section]{placeins}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{tocloft}
+\usepackage{xparse,etoolbox,xspace}
+\usepackage{listings}
+\usepackage{csquotes}
+\usepackage{soul,ulem,cancel}
+\usepackage{physics}
+\usepackage{mdframed}
+\usepackage{fontawesome5}
+\usepackage[useregional]{datetime2}
+\usepackage{lipsum}
+\usepackage{todonotes}
+\usepackage[hidelinks]{hyperref}
+\usepackage{cleveref}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Corpus: pathological preamble}
+\fancyhead[R]{\thepage}
+\titleformat{\section}{\Large\bfseries\color{NavyBlue}}{\thesection}{1em}{}
+\setlist[itemize]{noitemsep, topsep=2pt}
+\lstset{basicstyle=\ttfamily\small, frame=single, columns=fullflexible}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+\DeclareMathOperator{\argmax}{arg\,max}
+\DeclareMathOperator{\argmin}{arg\,min}
+\DeclarePairedDelimiter{\ceil}{\lceil}{\rceil}
+\DeclarePairedDelimiter{\floor}{\lfloor}{\rfloor}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\vect}[1]{\bm{#1}}
+\newcommand{\app}{Abstract-Tex\xspace}
+% `physics` (loaded later) and `siunitx` both define \qty, and the later one wins: a real
+% clash worth keeping in a pathological preamble. \SI is siunitx's older, unambiguous name.
+\NewDocumentCommand{\measured}{O{s} m}{\SI{#2}{#1}}
+\NewDocumentEnvironment{note}{O{Note}}{\begin{tcolorbox}[enhanced, colback=yellow!8, colframe=Goldenrod, title=#1, drop shadow]}{\end{tcolorbox}}
+\newtcolorbox{result}[1][]{enhanced, colback=blue!5, colframe=NavyBlue, fonttitle=\bfseries, title=Result, breakable, #1}
+
+\AtBeginDocument{\renewcommand{\abstractname}{Summary}}
+
+\begin{document}
+\section{A body far lighter than its preamble}\label{sec:body}
+
+\app compiles this page on every edit; almost all of that time is spent before
+\verb|\begin{document}|. A measured build takes \measured{0.84} and the bound in
+\cref{sec:body} is $\ceil{\log_2 n} \le \argmax_{k \in \N} \E[\vect{x}_k]$.
+
+\begin{note}[Why this document exists]
+  To make the preamble dominate, so that caching it shows up in the numbers.
+\end{note}
+
+\begin{result}
+  \lipsum[1][1-4]
+\end{result}
+
+\begin{tabularx}{\textwidth}{lX}
+  \toprule
+  \faClock & \lipsum[2][1-2] \\
+  \bottomrule
+\end{tabularx}
+
+\end{document}
