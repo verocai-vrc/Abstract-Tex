@@ -3536,6 +3536,57 @@ Done when a `\write18` marker and minted's cache both land in the build folder u
           from the moved cwd.
 ```
 
+**S9.12 (29 September 2026).** `[~]`: rungs 1–3 green — `cargo test --workspace` 479 passed / 0
+failed (4 new: 3 in `latexmk.rs`, 1 in `compile.rs`), clippy and `cargo doc --workspace -D
+warnings` clean, `pnpm check` 0 errors, Vitest 427/427; rung 3: every ignored real-engine test
+passes, the three new ones in `tests/latexmk.rs` against this machine's TeX Live and the whole
+corpus suite (5 tests, 145 s, including S9.5's performance gate) unchanged against Tectonic. The
+new `shell_escape_writes_into_the_build_folder_and_never_the_source_tree` fails on the old
+behaviour — with the working folder put back to the project it reports "a shell command wrote
+into the source tree", which is the bug the ledger described. `[~]` because half of the card's
+done-when is about MiKTeX and there is still no MiKTeX machine here; there is no rung 4, nothing
+on screen changes. What a reader should take from the diff:
+
+1. **Only shell-escape builds move, and that is the decision, not an oversight.** `\write18` runs
+   in the process's own working directory and ignores `-outdir`, so the only lever `latexmk` gives
+   is where we stand the engine. Standing it in the build folder costs a log full of absolute
+   paths (point 3) — a price worth paying to stop a document writing into the manuscript, and not
+   worth paying on the builds that cannot run a command at all. `Latexmk::invocation` is the whole
+   decision in one function, which is also what made it testable without running anything.
+2. **Moving the folder takes away the `.` that kpathsea answered four different searches with, and
+   it takes three variables to give it back.** `TEXINPUTS` for `.tex` and `.sty` (and, through it,
+   `\includegraphics`), `BIBINPUTS` for `.bib`, `BSTINPUTS` for `.bst`. One variable would have
+   looked right and silently lost the bibliography. Each search path ends in a bare separator,
+   because to kpathsea an empty entry means "and the distribution's own defaults here" — without
+   it the build stops finding `article.cls`, which is how this was found. `fixtures/shell-escape/`
+   exists to reach for all four at once.
+3. **The log's file names were the one thing the card assumed would be unaffected, and they were
+   not.** `(./main.tex` becomes `(/home/…/main.tex`, because that is where kpathsea found it.
+   SyncTeX *is* unaffected — it writes absolute paths either way, measured on both. Making the log
+   project-relative again belongs in `compile.rs`, the first layer that knows where the project
+   is; `texlog` is chartered never to find out. Doing that turned up a bug older than this loop:
+   `pdflatex` writes `./main.tex` where Tectonic writes `main.tex`, so since S9.4 *every*
+   diagnostic from a system engine had been missing its tab in the drawer and the gutter. Both
+   spellings are now normalised in one place, and in the ledger.
+4. **The MiKTeX question was answered by reading, not by guessing or by waiting for a machine.**
+   The ledger had "MiKTeX may need a different mechanism than `TEXINPUTS`", taken from minted's
+   own error text naming `TEXMF_OUTPUT_DIRECTORY`. That text is generic: minted v3 uses
+   `latexrestricted`, whose `tex_openout_roots` (0.6.2, shipped with this TeX Live) reads the
+   variable with a plain `os.getenv` and has no distribution branch at all. It is every
+   distribution's name, it is set on shell-escape builds, and what remains genuinely unverified is
+   only whether a MiKTeX install behaves as its own package's source says it will.
+5. **minted could not be the probe, so the mechanism was.** `latexminted` 0.6.0 crashes on this
+   machine's Python 3.14 (`argparse`), so minted v3 cannot run here at all — and its failure wears
+   the same error text that sent S9.8 down the MiKTeX path. A plain `\immediate\write18{pwd >
+   marker}` proves the same thing with nothing installed, and a second command that reads a
+   project-relative path proves the price: it comes back empty. `\inputminted{python}{code/x.py}`
+   *is* that command, so this loop does not close it. It is now its own ledger entry, symmetric
+   across both engines, rather than a footnote on a bug that is fixed.
+
+Also logged, and not this project's: `cc` on this Linux machine is `zig cc`, which rejects the
+`x86_64-unknown-linux-gnu` triple `cc-rs` passes, so `ring` — and with it `src-tauri`, `cargo test
+--workspace` and `pnpm verify` — will not build until `CC` points at a wrapper that rewrites it.
+
 ### Sprint 10–11 — v0.6 sync
 
 S10.1 snapshot-on-compile to a hidden ref (**first three days, before anything else**) · S10.2

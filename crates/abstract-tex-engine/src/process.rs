@@ -1,9 +1,12 @@
-//! Running one engine process: spawn it in the project folder, stream its stderr, wait for it,
+//! Running one engine process: spawn it in a working folder, stream its stderr, wait for it,
 //! or kill it the moment the build is cancelled. Shared by every engine (`tectonic.rs`,
 //! `latexmk.rs`, S9.4), which differ only in the command line they build.
 //!
-//! It must never decide *what* to run — no engine flags, no knowledge of TeX — only how.
+//! It must never decide *what* to run — no engine flags, no knowledge of TeX — only how. That
+//! includes the working folder and the environment: both arrive already decided (S9.12, where
+//! `latexmk.rs` starts choosing between two working folders), and nothing here looks at them.
 
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 
@@ -14,19 +17,25 @@ use tracing::debug;
 
 use crate::{EngineError, ProgressSink};
 
-/// Run `binary` with `args` in `project_dir` and wait for it, or kill it if `cancel` fires first.
-/// Returns the exit status and everything it printed to stderr.
+/// Run `binary` with `args` in `working_dir` and wait for it, or kill it if `cancel` fires
+/// first. Returns the exit status and everything it printed to stderr.
+///
+/// `env` is added to this process's own environment rather than replacing it: a TeX engine needs
+/// `PATH`, `HOME` and the distribution's own variables to work at all, so an engine only ever
+/// names the handful it wants to set (S9.12's kpathsea search paths).
 pub async fn run(
     binary: &Path,
-    project_dir: &Path,
+    working_dir: &Path,
     args: &[String],
+    env: &[(&str, OsString)],
     cancel: &CancellationToken,
     progress: Option<ProgressSink>,
 ) -> Result<(ExitStatus, String), EngineError> {
-    debug!(?binary, ?args, "spawning engine");
+    debug!(?binary, ?args, ?working_dir, ?env, "spawning engine");
     let mut cmd = Command::new(binary);
     cmd.args(args)
-        .current_dir(project_dir)
+        .current_dir(working_dir)
+        .envs(env.iter().map(|(name, value)| (name, value)))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

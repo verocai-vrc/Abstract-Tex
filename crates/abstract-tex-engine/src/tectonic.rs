@@ -166,7 +166,9 @@ impl Tectonic {
         cancel: &CancellationToken,
         progress: Option<ProgressSink>,
     ) -> Result<(ExitStatus, String), EngineError> {
-        process::run(&self.binary, &job.project_dir, args, cancel, progress).await
+        // Tectonic always runs in the project folder: its `-Z shell-escape-cwd` (S9.8) moves the
+        // shell commands' folder on its own, so nothing here ever has to move (S9.12).
+        process::run(&self.binary, &job.project_dir, args, &[], cancel, progress).await
     }
 }
 

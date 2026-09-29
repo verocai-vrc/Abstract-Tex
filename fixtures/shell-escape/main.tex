@@ -1,0 +1,35 @@
+% S9.12. A project that reaches for everything a moved working folder could take away, and one
+% thing it does take away. Built by `crates/abstract-tex-engine/tests/latexmk.rs` under a real
+% TeX Live, with shell escape on and off.
+%
+% With shell escape on, `latexmk.rs` runs the engine in the build folder rather than here, so
+% that the two \write18 commands below cannot write into this folder. Everything else on this
+% page is a search kpathsea used to answer with `.` and now answers from TEXINPUTS, BIBINPUTS
+% or BSTINPUTS: an \input from a subfolder, an \include with its own .aux, a .sty sitting
+% beside the manuscript, a figure found through \graphicspath, and a .bib.
+\documentclass{report}
+\usepackage{graphicx}
+\usepackage{housestyle}
+\graphicspath{{figures/}}
+\begin{document}
+
+% Where the commands run. The whole loop is about this file landing in the build folder.
+\immediate\write18{pwd > where-commands-run.txt}
+% And the price of putting it there: a command handed a path relative to *this* folder now looks
+% in the build folder instead and finds nothing, leaving an empty file behind. `\inputminted` on
+% a relative path is the same command with a different name.
+\immediate\write18{cat code/hello.py > read-a-relative-path.txt}
+
+\housenote{a package that lives beside the manuscript, not in the distribution}
+
+\includegraphics[width=1cm]{dot}
+
+\input{sections/sub}
+
+Cited: \cite{knuth1984}.
+
+\include{chapters/one}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}

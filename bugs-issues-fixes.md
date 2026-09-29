@@ -15,27 +15,54 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
-- **Confirmed: under latexmk, `\write18` (what shell escape runs through) obeys the process's own
-  working directory, never `-output-directory`, so it writes into the source tree.** (29 Sep 2026,
-  S9.8; confirmed 29 Sep after the maintainer installed TeX Live) `latexmk.rs` runs every build
-  with the project folder as `cwd`, only telling `pdflatex` where to put its *outputs*
-  (`-outdir`). Reproduced directly, no minted needed: `\immediate\write18{pwd > marker}` under
-  `pdflatex -output-directory=<build> -shell-escape`, run from the project folder, writes `marker`
-  beside the `.tex`, not into the build folder. minted's own cache would land the same way.
-  Tectonic does not have this problem — `-Z shell-escape-cwd=<dir>` sets the shell commands'
-  directory independently of the engine's own cwd, which is what S9.8 relies on.
-  **A fix shape is tested and works for a plain TeX Live pdfTeX toolchain:** run the process with
-  `cwd` = the build folder instead of the project folder, and add the project folder to
-  `TEXINPUTS` (kpathsea does not search the main file's own folder automatically once cwd moves
-  away from it — confirmed separately: `\input{sections/sub}` failed to resolve, with or without
-  an absolute path to the root file, until `TEXINPUTS` named the project folder). Not applied to
-  `latexmk.rs` yet: this changes the working directory of *every* latexmk build, not only
-  shell-escape ones, and minted's own error text on this machine ("MiKTeX is being used with
-  `-aux-directory`... without setting a `TEXMF_OUTPUT_DIRECTORY` environment variable") suggests
-  MiKTeX may need a different mechanism than `TEXINPUTS` — unverified, no Windows/MiKTeX machine
-  here. Card S9.12 in SPRINTS.md picks this up properly, with both distributions and `\include`
-  covered, rather than merging a cwd change proven on one platform. `\inputminted` with a relative
-  path is the same root cause and closes with the same fix; still open on its own until then.
+- **A shell command handed a project-relative path finds nothing, on either engine.** (29 Sep
+  2026, S9.12; split out of the entry above, which had it as a footnote) Both engines run the
+  document's shell commands in the build folder — Tectonic through `-Z shell-escape-cwd` (S9.8),
+  `latexmk` through the process's own working directory (S9.12) — because that is the only way to
+  keep what they write out of the source tree. The cost is symmetric: `\write18{cat code/x.py}`,
+  and `\inputminted{python}{code/x.py}`, which is the same command with a friendlier name, now
+  resolve `code/x.py` against the build folder and find nothing. Pinned by
+  `a_shell_command_given_a_project_relative_path_finds_nothing` so it cannot change unnoticed.
+  Not fixed because there is no general fix: a shell command's arguments are opaque to us, and
+  neither engine offers a way to run the commands in one folder and resolve their arguments in
+  another. What would close it is minted-specific — minted v3 resolves input paths through
+  `latexrestricted`, whose readable roots include `TEXMF_OUTPUT_DIRECTORY` and the kpathsea
+  paths, so `\inputminted` may already work where a raw `\write18` does not. Unverified here:
+  minted v3 cannot run on this machine at all (next entry).
+
+- **`latexminted` 0.6.0, which minted v3 needs, crashes on this machine's Python 3.14.** (29 Sep
+  2026, S9.12) `latexminted --version` dies in `argparse` with `ArgParser.__init__() got an
+  unexpected keyword argument 'color'` — Python 3.14 changed `add_parser`'s signature. minted
+  then reports its generic "minted v3+ executable is not installed or is not added to PATH; or
+  MiKTeX is being used with -aux-directory or -output-directory without setting a
+  TEXMF_OUTPUT_DIRECTORY environment variable", which sent S9.8's investigation down the MiKTeX
+  path for an hour. Not ours to fix — upstream `latexminted`, or this machine's TeX Live — but
+  worth the entry twice over: it is why S9.12 verified the shell-escape fix with a plain
+  `\write18` fixture rather than with minted, and it is why the corpus's `minted` document
+  cannot be built here under `latexmk` even though the bundled Tectonic (whose bundle carries
+  minted v2, which shells straight out to `pygmentize`) builds it fine.
+
+- **Every diagnostic from a system engine missed its tab: the log says `./main.tex` where the
+  project says `main.tex`.** (29 Sep 2026, found in S9.12 while checking what the moved working
+  folder does to a log) `texlog` hands file names on exactly as TeX printed them, and
+  `diagnosticTarget` (`src/lib/drawer.ts`) matches them against the include graph's
+  project-relative paths. Tectonic writes `main.tex` and matches; `pdflatex` writes `./main.tex`
+  and never did, so since S9.4 every diagnostic from a `latexmk` build fell back to the root file
+  in the drawer and the gutter, with nothing to say it had. **Fixed** in the same loop:
+  `as_the_project_spells_it` in `compile.rs` — the first place that knows where the project is —
+  strips a leading `./` and, for shell-escape builds, the project folder's own absolute prefix. A
+  name outside the project (`/usr/share/texlive/…/report.cls`) is left exactly as the log had it.
+
+- **`cc` on this Linux machine is `zig cc`, which rejects the target triple `cc-rs` passes, so
+  `src-tauri` cannot build.** (29 Sep 2026, S9.12) `~/.local/bin/cc` execs `zig cc`, and
+  `--target=x86_64-unknown-linux-gnu` — which `cc-rs` adds to every compile — fails with `unable
+  to parse target query 'x86_64-unknown-linux-gnu': UnknownOperatingSystem`; zig spells it
+  `x86_64-linux-gnu`. This kills `ring`, and with it `cargo build -p abstract-tex`, `cargo test
+  --workspace` and `pnpm verify`. Not a bug in this project and nothing in the repo changed, so
+  it is here as a note for the next session rather than a fix: run the gate with `CC` pointing at
+  a wrapper that rewrites the triple. A real fix is to install a normal clang or gcc, or to put
+  `[target.x86_64-unknown-linux-gnu] linker`/`CC` in the environment properly; the maintainer's
+  other machine is unaffected.
 
 - **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
   costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes
@@ -564,6 +591,42 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cosmetic.
 
 ## Fixed
+
+- **Confirmed: under latexmk, `\write18` (what shell escape runs through) obeys the process's own
+  working directory, never `-output-directory`, so it writes into the source tree.** (29 Sep 2026,
+  S9.8; confirmed 29 Sep after the maintainer installed TeX Live) `latexmk.rs` runs every build
+  with the project folder as `cwd`, only telling `pdflatex` where to put its *outputs*
+  (`-outdir`). Reproduced directly, no minted needed: `\immediate\write18{pwd > marker}` under
+  `pdflatex -output-directory=<build> -shell-escape`, run from the project folder, writes `marker`
+  beside the `.tex`, not into the build folder. minted's own cache would land the same way.
+  Tectonic does not have this problem — `-Z shell-escape-cwd=<dir>` sets the shell commands'
+  directory independently of the engine's own cwd, which is what S9.8 relies on.
+  **A fix shape is tested and works for a plain TeX Live pdfTeX toolchain:** run the process with
+  `cwd` = the build folder instead of the project folder, and add the project folder to
+  `TEXINPUTS` (kpathsea does not search the main file's own folder automatically once cwd moves
+  away from it — confirmed separately: `\input{sections/sub}` failed to resolve, with or without
+  an absolute path to the root file, until `TEXINPUTS` named the project folder). Not applied to
+  `latexmk.rs` yet: this changes the working directory of *every* latexmk build, not only
+  shell-escape ones, and minted's own error text on this machine ("MiKTeX is being used with
+  `-aux-directory`... without setting a `TEXMF_OUTPUT_DIRECTORY` environment variable") suggests
+  MiKTeX may need a different mechanism than `TEXINPUTS` — unverified, no Windows/MiKTeX machine
+  here. Card S9.12 in SPRINTS.md picks this up properly, with both distributions and `\include`
+  covered, rather than merging a cwd change proven on one platform. `\inputminted` with a relative
+  path is the same root cause and closes with the same fix; still open on its own until then.
+  **Fixed** (29 Sep 2026, S9.12): with shell escape on, `latexmk.rs` runs the engine in the build
+  folder instead of the project, and puts the project folder in front of `TEXINPUTS`, `BIBINPUTS`
+  and `BSTINPUTS` — three variables, not one, because kpathsea has one per kind of file and a
+  missing one fails silently. `fixtures/shell-escape/` and `crates/abstract-tex-engine/tests/
+  latexmk.rs` pin it against the real TeX Live: the `\write18` marker lands in the build folder,
+  the source tree comes back byte-for-byte identical, and `\input`, `\include`, a `.sty` beside
+  the manuscript, `\includegraphics` through `\graphicspath` and BibTeX's `.bib` all still
+  resolve. Builds *without* shell escape do not move at all — there is nothing for them to buy.
+  Two things this entry guessed at, now settled: `TEXMF_OUTPUT_DIRECTORY` is **not** MiKTeX-only
+  (`latexrestricted` 0.6.2's `tex_openout_roots`, which is what minted v3 uses on every
+  distribution, reads it with a plain `os.getenv` and has no distribution branch), and it is set
+  on shell-escape builds; and `\inputminted` on a relative path is *not* closed by this fix — see
+  the next entry, which is now its own thing rather than a footnote to this one. MiKTeX itself
+  stays unverified: there is still no MiKTeX machine here.
 
 - **A draft's SyncTeX names its root `…/.abstract-tex/draft/../../main.tex`, so neither search
   direction would match the root file while a draft was on screen.** (29 Sep 2026, found in

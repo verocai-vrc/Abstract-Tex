@@ -283,7 +283,11 @@ impl Orchestrator {
                 *full_reported = true;
                 match result {
                     Ok(outcome) => {
-                        let diagnostics = outcome.log.as_deref().map(read_diagnostics).unwrap_or_default();
+                        let diagnostics = outcome
+                            .log
+                            .as_deref()
+                            .map(|log| read_diagnostics(log, &job.project_dir))
+                            .unwrap_or_default();
                         info!(generation, success = outcome.success, diagnostics = diagnostics.len(), "build finished");
                         on_event(CompileEvent::Finished {
                             generation,
@@ -340,17 +344,79 @@ fn lay_out_draft(job: &BuildJob, draft_job: DraftJob) -> Option<(String, draft::
     }
 }
 
-fn read_diagnostics(log_path: &Path) -> Vec<texlog::Diagnostic> {
+fn read_diagnostics(log_path: &Path, project_dir: &Path) -> Vec<texlog::Diagnostic> {
     match std::fs::read(log_path) {
         // TeX logs are not reliably UTF-8; lossy conversion keeps the parser simple.
-        Ok(bytes) => texlog::diagnostics(&String::from_utf8_lossy(&bytes)),
+        Ok(bytes) => {
+            let mut diagnostics = texlog::diagnostics(&String::from_utf8_lossy(&bytes));
+            for diagnostic in &mut diagnostics {
+                if let Some(file) = diagnostic.file.as_mut() {
+                    *file = as_the_project_spells_it(file, project_dir);
+                }
+            }
+            diagnostics
+        }
         Err(_) => Vec::new(),
     }
+}
+
+/// One file name from a log, spelled the way the project spells it: relative to the project
+/// folder, with no leading `./`.
+///
+/// `texlog` hands names on exactly as TeX printed them, and is chartered never to change that —
+/// it never reads a file and has no idea where the project is (`resolver.rs`). This is the first
+/// place that does know, and the drawer downstream needs it: `diagnosticTarget` in `drawer.ts`
+/// matches `Diagnostic.file` against the include graph's paths, which are project-relative, so a
+/// name spelled any other way silently matches no tab and the diagnostic loses its file.
+///
+/// Two spellings arrive that way, both from a system `latexmk` (S9.12), neither from the bundled
+/// Tectonic, which is why this is only being written now:
+///
+/// - **An absolute path**, from a build with shell escape on. That build runs in the build folder
+///   rather than the project (`latexmk.rs` says why), so kpathsea finds `sections/intro.tex`
+///   through `TEXINPUTS` and writes down where it found it.
+/// - **A `./` prefix**, from every `pdflatex` build. Tectonic writes `main.tex`; `pdflatex`
+///   writes `./main.tex`. Found while doing the above; logged separately, since it made every
+///   diagnostic from a system engine miss its tab, shell escape or not.
+///
+/// A name that is not inside the project is left exactly as it is — a package's own file under
+/// `/usr/share/texlive` stays absolute, which is what `drawer.ts` already expects of a name that
+/// is not one of the author's tabs.
+fn as_the_project_spells_it(file: &str, project_dir: &Path) -> String {
+    let path = Path::new(file);
+    let inside_project = path.strip_prefix(project_dir).ok();
+    let trimmed = inside_project.unwrap_or_else(|| path.strip_prefix(".").unwrap_or(path));
+    // `to_string_lossy` and not `display()`: the result is compared against paths the frontend
+    // sent us, and those went through the same conversion.
+    trimmed.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// S9.12. Whatever the engine called a file, the drawer is handed the project's own spelling,
+    /// because that is the only spelling `drawer.ts` can match against a tab.
+    #[test]
+    fn a_diagnostics_file_is_spelled_the_way_the_project_spells_it() {
+        let project = Path::new("/home/ada/thesis");
+
+        // A shell-escape latexmk build runs in the build folder, so kpathsea writes down where it
+        // found each file — in full.
+        assert_eq!(as_the_project_spells_it("/home/ada/thesis/sections/intro.tex", project), "sections/intro.tex");
+        // Every pdflatex build, shell escape or not, prefixes the root file with `./`.
+        assert_eq!(as_the_project_spells_it("./main.tex", project), "main.tex");
+        // Tectonic's spelling is already the project's, and must survive untouched.
+        assert_eq!(as_the_project_spells_it("sections/intro.tex", project), "sections/intro.tex");
+        // A file that is not the author's stays exactly as the log had it: `drawer.ts` expects a
+        // name it cannot match to a tab, and says so rather than guessing.
+        assert_eq!(
+            as_the_project_spells_it("/usr/share/texlive/texmf-dist/tex/latex/base/report.cls", project),
+            "/usr/share/texlive/texmf-dist/tex/latex/base/report.cls"
+        );
+        // Nor is a project whose name merely starts the same way the project itself.
+        assert_eq!(as_the_project_spells_it("/home/ada/thesis-old/main.tex", project), "/home/ada/thesis-old/main.tex");
+    }
 
     /// The frontend reads `event.pdfPath`; serde must spell it that way.
     ///

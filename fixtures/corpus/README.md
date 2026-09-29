@@ -40,7 +40,11 @@ On the maintainer's Windows machine the engine cannot resolve DNS by itself; run
   tree. `every_corpus_document_builds_as_recorded` still requires the build to *fail* without
   consent; `minted_builds_once_shell_escape_is_allowed` builds it with consent and checks the
   source tree is untouched. (Recorded 28 Sep 2026 as "cannot build on the bundled engine"; it
-  could, all along, with `-Z shell-escape` and Pygments installed.)
+  could, all along, with `-Z shell-escape` and Pygments installed.) Under a *system* engine the
+  same document cannot be built on this machine at all, for a reason that is nothing to do with
+  consent: TeX Live 2025 ships minted v3, whose `latexminted` helper crashes on this machine's
+  Python 3.14 (ledger, 29 Sep 2026). S9.12 checked `latexmk`'s own shell escape with
+  `fixtures/shell-escape/` instead, which needs nothing installed.
 - **Fonts in Tectonic's bundle are found by file name, not family name.**
   `\setmainfont{DejaVu Serif}` fails with "font cannot be found"; `\setmainfont{FreeSerif.otf}`
   works. An author following any fontspec tutorial hits this first. It's worth a texlog rule
