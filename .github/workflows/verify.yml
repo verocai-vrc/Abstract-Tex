@@ -77,6 +77,18 @@ jobs:
       - name: Real engine build of a fixture
         run: cargo test -p abstract-tex-engine -- --ignored
 
+      # S9.5: the golden corpus and its performance gate, Linux only — the corpus already builds
+      # on every OS through `pnpm verify` above with no engine; only this real-engine run needs
+      # its own step, and running it three times over would only triple the noise a p95 already
+      # exists to absorb. Fails the same way a broken document's diagnostics do: no warning, the
+      # build goes red. `THRESHOLD_MS` in `corpus.rs` documents how each ceiling was chosen and
+      # that the numbers are provisional until this step has actually gone green here once.
+      - name: Golden corpus and performance gate
+        if: runner.os == 'Linux'
+        env:
+          ABSTRACT_TEX_BENCH_RUNS: 5
+        run: cargo test -p abstract-tex-engine --test corpus -- --ignored --test-threads 1
+
       # The one thing `cargo test --workspace` does not prove: the app crate links as an app,
       # sidecar and all, on this OS.
       - run: cargo build -p abstract-tex

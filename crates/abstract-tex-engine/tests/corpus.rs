@@ -11,7 +11,9 @@
 //!
 //! "Exactly the diagnostics" means rule, file, line and severity — never the explanation's
 //! wording, which a rule is free to improve, and never TeX's own words, which the drawer never
-//! shows. Timing is printed, not asserted: measuring it properly is S9.2's harness.
+//! shows. Timing is measured by `warm_build_timings` and, since S9.5, asserted there too: a
+//! document whose warm p95 breaches its [`THRESHOLD_MS`] entry fails the build, the same "no
+//! warning, only pass or fail" rule the broken document's diagnostics already get.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -44,6 +46,38 @@ const CORPUS: [(&str, Expect); 8] = [
     ("broken", Expect::Broken),
     ("pathological-preamble", Expect::Builds { min_pages: 1 }),
 ];
+
+/// S9.5's performance gate, one warm p95 ceiling per buildable document, in milliseconds.
+///
+/// DESIGN.md §7's exit criterion asked for one number — 1.2 s on the thesis — for every warm
+/// build. S9.3 and S9.7 found the thesis cannot reach it on the bundled engine (its ~1.9 s
+/// preamble is the floor; §7 now says so). Measuring the rest of the corpus for this gate found
+/// a second reason one number cannot work: `tikz-figures`, a two-page document, warms slower
+/// than the sixty-page thesis (3-D `pgfplots` is the cost, not page count), so "1.2 s except the
+/// thesis" would have let a TikZ regression through unnoticed. Each document gets its own
+/// ceiling instead, so the gate catches a regression *in that document's own shape of cost*.
+///
+/// Every number here is this machine's measured p95 (`ABSTRACT_TEX_BENCH_RUNS=5`, 29 Sep 2026)
+/// with roughly 1.8× headroom, rounded — a guess at how much slower a CI runner is, not a
+/// measurement of one. **Provisional** until S9.5's own done-when is met: a real green run on
+/// CI, and a red one from a commit that deliberately slows a document, both recorded in
+/// SPRINTS.md. Tighten from there, not from a second guess made here.
+const THRESHOLD_MS: &[(&str, u64)] = &[
+    ("conference", 1_200), // 595 ms measured — also DESIGN.md §7's original number, kept legible
+    ("thesis", 6_000),     // 3_338 ms measured, full warm build (not the S9.7/S9.9 chapter draft)
+    ("beamer", 3_000),     // 1_650 ms measured
+    ("tikz-figures", 6_500), // 3_704 ms measured — slower than the thesis; see the module doc above
+    ("non-latin", 1_500),  // 833 ms measured
+    ("pathological-preamble", 4_500), // 2_513 ms measured — heavy by design (S9.1)
+];
+
+fn threshold_ms(document: &str) -> u64 {
+    THRESHOLD_MS
+        .iter()
+        .find(|(name, _)| *name == document)
+        .map(|(_, ms)| *ms)
+        .unwrap_or_else(|| panic!("{document} has no THRESHOLD_MS entry; the performance gate must cover every buildable corpus document"))
+}
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -88,6 +122,18 @@ fn the_recorded_broken_log_still_gives_its_diagnostics() {
     let log = fs::read_to_string(broken_capture())
         .expect("no capture; run the ignored test with ABSTRACT_TEX_RECORD_CORPUS=1");
     assert_eq!(signature(&log), expected_broken());
+}
+
+/// S9.5: a corpus document that builds but has no `THRESHOLD_MS` entry would make the ignored
+/// timing test panic a long way from here, after a real (slow) build. This runs with no engine,
+/// so a document added without a ceiling is caught on every `cargo test`, not only in CI.
+#[test]
+fn every_buildable_document_has_a_performance_ceiling() {
+    for (name, expect) in &CORPUS {
+        if matches!(expect, Expect::Builds { .. }) {
+            threshold_ms(name); // panics with a clear message if `name` is missing
+        }
+    }
 }
 
 #[test]
@@ -197,6 +243,14 @@ async fn warm_build_timings() {
                 steps.push(json!({ "singlePasses": warm.steps.single_passes, "full": warm.steps.full }));
             }
             let (median, p95) = (percentile(&millis, 50), percentile(&millis, 95));
+            // S9.5: fail, do not warn, the same rule the broken document's diagnostics get. Both
+            // edit kinds on the thesis are checked against the one `thesis` entry — a regression
+            // in either shows up as one document breaching its ceiling.
+            let ceiling = threshold_ms(name);
+            assert!(
+                p95 <= ceiling,
+                "{name} ({kind} edit): warm p95 {p95} ms breached its {ceiling} ms ceiling (THRESHOLD_MS in this file)"
+            );
             // "1p" is one single pass; "2p+full" is two passes that then needed the full build.
             let steps_text: Vec<String> = steps
                 .iter()

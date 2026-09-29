@@ -662,8 +662,17 @@ anywhere in the application.
 - System TeX Live / MiKTeX detection and per-project engine switching
 - Benchmark corpus and CI performance gate
 
-**Exit:** p95 warm recompile under 1.2 s on a sixty-page thesis with a TikZ- and biblatex-heavy
-preamble, measured in CI and failing the build if breached.
+**Exit (revised, S9.5, maintainer approved 29 Sep 2026):** the original single number — p95 warm
+recompile under 1.2 s on a sixty-page thesis — is not reachable on the bundled engine: its
+preamble alone loads in ~1.9 s (S9.3), and a document's warm cost turns out to track what it
+typesets (TikZ, biblatex) more than its page count, not something one document's number can speak
+for (S9.5 measured `tikz-figures`, two pages, slower to warm than the sixty-page thesis). The exit
+is now one ceiling **per corpus document**, in CI, each failing the build on its own breach — see
+`THRESHOLD_MS` in `crates/abstract-tex-engine/tests/corpus.rs` for the numbers and how they were
+chosen. `conference` keeps the original 1.2 s figure, since a plain document was always going to
+meet it. The thesis's own number covers the full warm build measured here; S9.7/S9.9's one-chapter
+draft is a separate, faster path the app already prefers when it can, not a second number this
+gate tracks.
 
 ### v0.6 — It syncs, storage before convenience · Sprints 10–11
 

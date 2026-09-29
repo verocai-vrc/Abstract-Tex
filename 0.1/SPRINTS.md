@@ -2923,7 +2923,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
 | [x] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
 | [x] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "pdflatex" \| "xelatex" \| "lualatex"` in `abstract-tex.toml`) | M | S9.1 |
-| [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
+| [~] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, each document's own warm p95 ceiling | M | S9.2, S9.3 |
 | [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
 | [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
@@ -3141,6 +3141,51 @@ Build     A CI job on Linux runs the corpus test and the harness; it fails on a 
 Verify    a green run, and a red one from a deliberately slowed commit on a throwaway branch
 Done when both runs are recorded here.
 ```
+
+**S9.5 (29 September 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 475 passed / 0
+failed (2 new: `every_buildable_document_has_a_performance_ceiling`, plus the assertion added
+inside `warm_build_timings`), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check`
+0 errors, Vitest 427/427; the full ignored corpus suite passes with real headroom
+(`ABSTRACT_TEX_BENCH_RUNS=5`), and a deliberately lowered `conference` ceiling was confirmed to
+fail the build with a clear message before being reverted — the local half of the card's own
+"a red one from a deliberately slowed" check. `[~]` because rung 3 — an actual GitHub Actions run,
+green then red — has not happened: this session has not pushed to `origin`, so nothing has run
+on a real runner yet. What a reader should take from the diff:
+
+1. **The card's single number could not survive contact with the rest of the corpus.** The
+   maintainer approved splitting the thesis's target from the rest of the corpus (per-message
+   discussion, 29 Sep); measuring *every* buildable document to set the other ceilings found a
+   second problem the discussion had not: `tikz-figures`, two pages, warms slower than the
+   sixty-page thesis (3.7 s against 3.3 s here) — 3-D `pgfplots` costs more than page count does.
+   A blanket "1.2 s except the thesis" rule would have let a TikZ regression through silently.
+   Each document now has its own ceiling, in `THRESHOLD_MS`, `crates/abstract-tex-engine/tests/
+   corpus.rs`, with the measurement and reasoning next to each number.
+2. **Every number is provisional, on purpose, and says so.** They are this machine's measured p95
+   with roughly 1.8× headroom — a guess at how much slower a CI runner is, not a measurement of
+   one. The card's own done-when — a real green run, then a real red one, both recorded here —
+   is what turns a guess into a number worth trusting. Tighten from an actual CI run, not from a
+   second guess made on this machine.
+3. **The gate is a `#[test]`, not a script that reads `corpus-report.json`.** `warm_build_timings`
+   already ran every warm build and computed each p95; S9.5 adds one `assert!` right where that
+   number exists, so the report file and the gate can never disagree about what was measured.
+   `every_buildable_document_has_a_performance_ceiling` runs with no engine, so a ninth corpus
+   document added without a `THRESHOLD_MS` entry is caught on every `cargo test`, before whoever
+   added it waits through a real build to find out.
+4. **DESIGN.md §7 records the exit criterion as revised, not silently dropped.** The original
+   single number is kept, struck through in spirit if not in Markdown, with the reasoning for
+   the per-document split next to it — the same "change it here and in DESIGN.md" rule §4 asks
+   for `abstract-tex.toml`'s settings.
+5. **CI runs it Linux-only, once.** The corpus already builds on all three OSes with no engine,
+   through `pnpm verify`; a real, six-document, five-run-each timing suite three times over would
+   only triple the noise a p95 exists to absorb, for a number this project has never claimed
+   holds cross-platform. `--test-threads 1` keeps the five ignored corpus tests from contending
+   with each other for CPU on what is likely a two-core runner, which would otherwise skew every
+   timing in the same direction S9.7 already had to reason about contention for.
+
+Not done here, on purpose: rung 3 (needs a push — asked about separately, not assumed); a ceiling
+for the S9.7/S9.9 chapter draft, which DESIGN.md §7 now explicitly leaves to a later loop if
+wanted, since the app already prefers the draft path when it can and this gate tracks the full
+build.
 
 ```
 Loop      S9.6 · Typing-path waste · M
