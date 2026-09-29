@@ -54,6 +54,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `didChange` on a long chapter. Not observed; whether TexLab 5.26's I/O threads can block that
   way is unconfirmed. Recorded so it is checked, not rediscovered: the fix would be separate
   reader and writer tasks, as TexLab itself has.
+  **Fixed** (29 Sep 2026, S9.11). Confirmed first, with a stand-in rather than TexLab: taught
+  to write a 320 KB burst with blocking writes (which is how TexLab's I/O library behaves, since
+  its threads hand messages to each other unbuffered), `fake-lsp-rpc` and the old bridge hung
+  for good on the second 50 KB `didChange`; the new test timed out every time. The supervisor
+  now never writes: each process gets its own writer task (`spawn_writer`, fed by a channel) and
+  the loop stays free to read. The same test passes 20 runs in 20, and the real-TexLab tests
+  still pass.
 
 - **A linked Zotero collection's entries are indexed but never reach the PDF: the compile does
   not know about `extra_bib_files`.** (S8.4 preparation, builder, 28 Sep 2026, found writing the

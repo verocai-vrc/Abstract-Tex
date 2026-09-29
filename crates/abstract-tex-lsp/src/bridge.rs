@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tracing::{debug, info, warn};
 
-use crate::server::{Running, TexLab};
+use crate::server::{FrameWriter, Running, TexLab};
 use crate::LspError;
 
 /// How many times a crashed server is restarted before we stop trying. A server that dies
@@ -206,9 +206,12 @@ impl Bridge {
 /// Owns the process for as long as anyone holds the bridge. Reads frames, routes them, and
 /// respawns a server that dies.
 ///
-/// Written as one `select!` loop rather than two tasks because the outbound and inbound halves
-/// have to agree about *when the process is replaced*: a restart swaps both pipes at once, and a
-/// writer task holding the old stdin would write into a dead process.
+/// One `select!` loop decides everything, because the outbound and inbound halves have to agree
+/// about *when the process is replaced*: a restart swaps both pipes at once. But it never writes
+/// to the pipe itself. Each process gets a writer task of its own ([`spawn_writer`]), and this
+/// loop only hands it messages, which never blocks — so it is always free to read. Until S9.11
+/// it wrote here, and a write bigger than the pipe, sent while the server was itself blocked
+/// writing to us, left both sides waiting on each other for good (ledger).
 async fn supervise(
     texlab: TexLab,
     root: PathBuf,
@@ -218,6 +221,7 @@ async fn supervise(
     pending: Pending,
 ) {
     let mut restarts = 0u32;
+    let mut writer = spawn_writer(running.take_writer());
     loop {
         // `select!` waits on several futures and runs whichever finishes first, cancelling the
         // rest. Both arms here are cancel-safe: `recv` on an mpsc and `recv` on the frame reader
@@ -231,10 +235,9 @@ async fn supervise(
                     let _ = running.kill().await;
                     return;
                 };
-                if let Err(error) = running.send(&body).await {
-                    // A failed write means a dead pipe; let the read arm notice and restart.
-                    warn!(%error, "write to language server failed");
-                }
+                // Only fails once the writer task has stopped on a dead pipe; the read arm is about
+                // to notice the same death and restart, so there is nothing to do here.
+                let _ = writer.send(body);
             }
 
             frame = running.recv() => {
@@ -259,6 +262,9 @@ async fn supervise(
                             Ok(fresh) => {
                                 info!(restarts, "language server restarted");
                                 running = fresh;
+                                // Replacing the sender ends the old writer task: its channel
+                                // closes, and nothing more is written into the dead process.
+                                writer = spawn_writer(running.take_writer());
                             }
                             Err(error) => {
                                 warn!(%error, "could not restart the language server");
@@ -270,6 +276,23 @@ async fn supervise(
             }
         }
     }
+}
+
+/// Start a task that writes every message sent on the returned channel to one process's stdin,
+/// in order. It ends when the channel's sender is dropped (a restart, or the bridge going away)
+/// or when a write fails (the process died).
+fn spawn_writer(mut frames: FrameWriter) -> mpsc::UnboundedSender<Vec<u8>> {
+    let (sender, mut receiver) = mpsc::unbounded_channel::<Vec<u8>>();
+    tokio::spawn(async move {
+        while let Some(body) = receiver.recv().await {
+            if let Err(error) = frames.send(&body).await {
+                // A dead pipe; the supervisor's read arm notices the same death and restarts.
+                warn!(%error, "write to language server failed");
+                return;
+            }
+        }
+    });
+    sender
 }
 
 /// Decide what one inbound message is, and deliver it.

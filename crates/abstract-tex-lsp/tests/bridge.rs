@@ -56,6 +56,32 @@ async fn many_concurrent_requests_each_get_their_own_answer() {
     }
 }
 
+/// S9.11: the bridge must read while it writes. The server floods its output (a burst of
+/// diagnostics, say) and, like TexLab, stops reading its input until someone reads that output;
+/// meanwhile the editor sends whole documents, each bigger than a pipe holds. A bridge that
+/// finishes every write before it reads again blocks on the second document forever, and so does
+/// the server. The request at the end is how the test notices.
+#[tokio::test]
+async fn large_messages_both_ways_at_once_do_not_deadlock() {
+    let (bridge, mut incoming) = start().await;
+    bridge.notify("flood", json!({})).unwrap();
+    let document = "y".repeat(50 * 1024);
+    for _ in 0..10 {
+        bridge.notify("textDocument/didChange", json!({ "text": document })).unwrap();
+    }
+    let answer = tokio::time::timeout(Duration::from_secs(10), bridge.request("hello", json!({})))
+        .await
+        .expect("the bridge and the server are waiting on each other")
+        .unwrap();
+    assert_eq!(answer["echo"], "hello");
+
+    let mut floods = 0;
+    while let Ok(Incoming::Notification { method, .. }) = incoming.try_recv() {
+        floods += usize::from(method == "telemetry/event");
+    }
+    assert_eq!(floods, 20, "every flooded notification was read, none lost");
+}
+
 #[tokio::test]
 async fn a_server_error_reaches_the_caller_as_an_error_not_a_result() {
     let (bridge, _incoming) = start().await;

@@ -2929,6 +2929,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
 | [~] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 | [x] | S9.10 A cancelled warm build keeps its warm start: the build folder is checkpointed before a warm pass and put back, marker included, when the pass is cancelled | M | S9.2, S9.9 |
+| [x] | S9.11 The LSP bridge reads while it writes: a writer task per process, so a big `didChange` sent while TexLab floods its output cannot deadlock | S | — |
 
 ```
 Loop      S9.1 · Benchmark corpus · L
@@ -3414,6 +3415,42 @@ take from the diff:
    there was nowhere to catch it. Split out, `build` sees the `Result` and restores before
    passing the error on. The pass logic itself is unchanged. The list of output extensions now
    has one home, `incremental::OUTPUT_EXTENSIONS`, used by both the checkpoint and `draft::seed`.
+
+```
+Loop      S9.11 · The LSP bridge reads while it writes · S
+Reads     the ledger entry "Latent: the LSP bridge does not read while it writes"; S3.2's bridge
+Depends   —
+Files     crates/abstract-tex-lsp/src/{server.rs,bridge.rs,lib.rs,bin/fake_lsp_rpc.rs},
+          crates/abstract-tex-lsp/tests/bridge.rs
+Build     Added 29 September 2026, from the ledger, while S9.5 waits on the maintainer. Reproduce
+          first: teach the stand-in server to flood its output with blocking writes, then send
+          documents bigger than a pipe while it does. If the bridge hangs, give each process a
+          writer task of its own and let the supervisor only hand it messages; restarts still
+          swap both halves in one place.
+Verify    cargo test -p abstract-tex-lsp; the same with --ignored against the real TexLab
+Done when the new test hangs on the old bridge and passes on the new one, repeatedly.
+```
+
+**S9.11 (29 September 2026).** `[x]`: rungs 1–3 green — `cargo test --workspace` 474 passed / 0
+failed (1 new), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors,
+Vitest 427/427; rung 3: the three ignored real-TexLab tests pass. The new test
+`large_messages_both_ways_at_once_do_not_deadlock` timed out (10 s) on the old bridge and passes
+in well under a second on the new one, 20 runs in 20. What a reader should take from the diff:
+
+1. **A `select!` arm's body is not raced.** Once `select!` picks the outbound arm, that arm runs
+   to completion, and the read arm is not polled until it has. The old supervisor's `send` was
+   therefore a write with nobody reading. That was fine until the server, blocked on its own
+   full output pipe, stopped reading too.
+2. **The deadlock needs a server shaped like TexLab, so the stand-in was made to be one.** The
+   stand-in's blocking writes stall its reading in the same way TexLab's unbuffered thread
+   hand-offs do. With it, the bug reproduced every run. The ledger entry had waited on "whether
+   TexLab can block that way"; the test no longer needs to know.
+3. **The restart rule survives.** The old doc comment argued for one loop, not two tasks,
+   because a restart must swap both pipes at once. It still does: the supervisor owns the swap,
+   and a restart replaces the writer's channel, which ends the old writer task. The writer never
+   decides anything; it only writes, in order.
+4. `Running::take_writer` moves the write half out, and `Running::send` stays for callers that do
+   one thing at a time (the process tests).
 
 ### Sprint 10–11 — v0.6 sync
 

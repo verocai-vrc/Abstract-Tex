@@ -10,6 +10,9 @@
 //!   - `boom`    — exits with code 9 without replying, to test crash-and-restart.
 //!   - `fail`    — replies with a JSON-RPC error object.
 //!   - `notify`  — sends an unsolicited notification instead of a reply.
+//!   - `flood`   — sends 20 notifications of 16 KB each (about five pipes' worth) before reading
+//!     anything else, with blocking writes like TexLab's own writer thread: while nobody reads
+//!     them, this process reads nothing either (S9.11).
 //!   - anything else — replies `{"echo": "<method>"}`.
 
 use std::io::{Read, Write};
@@ -38,6 +41,12 @@ fn main() {
                     send(&format!(
                         r#"{{"jsonrpc":"2.0","method":"telemetry/event","params":{{"from":{pid}}}}}"#
                     ));
+                }
+                "flood" => {
+                    let fill = "x".repeat(16 * 1024);
+                    for _ in 0..20 {
+                        send(&format!(r#"{{"jsonrpc":"2.0","method":"telemetry/event","params":{{"fill":"{fill}"}}}}"#));
+                    }
                 }
                 "exit" => return,
                 _ => {

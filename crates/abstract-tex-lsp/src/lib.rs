@@ -16,7 +16,7 @@ pub mod server;
 pub mod transport;
 
 pub use bridge::{Bridge, CallError, Incoming, RpcError};
-pub use server::{Running, TexLab, ENV_OVERRIDE};
+pub use server::{FrameWriter, Running, TexLab, ENV_OVERRIDE};
 pub use transport::{encode, FrameReader};
 
 /// Why the language server could not be used. `thiserror` derives `Display` and `Error` from

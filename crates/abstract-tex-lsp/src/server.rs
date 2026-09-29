@@ -1,7 +1,8 @@
 //! TexLab as a subprocess: find it, start it, hold its pipes, stop it.
 //!
 //! Owns the process and nothing above it. `Running::send` and `Running::recv` move whole
-//! frames; what the frames mean is S3.2's business. Dropping a `Running` kills the process —
+//! frames; what the frames mean is S3.2's business. A caller that must write and read at the
+//! same time takes the write half out with [`Running::take_writer`] (S9.11). Dropping a `Running` kills the process —
 //! a language server must never outlive the window that started it.
 
 use std::path::{Path, PathBuf};
@@ -70,15 +71,32 @@ impl TexLab {
         let stdin = child.stdin.take().expect("stdin was piped");
         let stdout = child.stdout.take().expect("stdout was piped");
         info!(binary = %self.binary.display(), pid = child.id(), "language server started");
-        Ok(Running { child, stdin, frames: FrameReader::new(stdout) })
+        Ok(Running { child, writer: Some(FrameWriter { stdin }), frames: FrameReader::new(stdout) })
     }
 }
 
 /// A live language server process. One of these per open project.
 pub struct Running {
     child: Child,
-    stdin: ChildStdin,
+    /// `None` once [`take_writer`](Running::take_writer) has moved it to a task of its own.
+    writer: Option<FrameWriter>,
     frames: FrameReader<ChildStdout>,
+}
+
+/// The server's stdin, as whole frames. Separate from [`Running`] so one task can write while
+/// another reads: a server blocked on writing its output may stop reading its input, and a
+/// writer that must finish before anyone reads would then wait forever (S9.11, ledger).
+pub struct FrameWriter {
+    stdin: ChildStdin,
+}
+
+impl FrameWriter {
+    /// Write one message. `body` is the JSON; the header is added here.
+    pub async fn send(&mut self, body: &[u8]) -> Result<(), LspError> {
+        self.stdin.write_all(&encode(body)).await?;
+        self.stdin.flush().await?;
+        Ok(())
+    }
 }
 
 impl Running {
@@ -87,11 +105,16 @@ impl Running {
         self.child.id()
     }
 
-    /// Write one message. `body` is the JSON; the header is added here.
+    /// Write one message. `body` is the JSON; the header is added here. Nothing is read while
+    /// this runs; see [`take_writer`](Running::take_writer) for a caller that needs both.
     pub async fn send(&mut self, body: &[u8]) -> Result<(), LspError> {
-        self.stdin.write_all(&encode(body)).await?;
-        self.stdin.flush().await?;
-        Ok(())
+        self.writer.as_mut().expect("the writer was taken: send through it instead").send(body).await
+    }
+
+    /// Move the write half out, so another task can write while this one keeps reading.
+    /// [`send`](Running::send) must not be called afterwards.
+    pub fn take_writer(&mut self) -> FrameWriter {
+        self.writer.take().expect("the writer can only be taken once")
     }
 
     /// Read one message. `Err(LspError::Exited)` once the server has closed its output.
