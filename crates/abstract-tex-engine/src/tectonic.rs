@@ -104,6 +104,50 @@ impl Tectonic {
         args
     }
 
+    /// The TeX passes of one build (S9.2): single passes while the build is warm and the `.aux`
+    /// files keep moving, then a full build if they never settle. Returns the last exit status,
+    /// what was run, and everything printed to stderr.
+    async fn run_passes(
+        &self,
+        job: &BuildJob,
+        warm: bool,
+        cancel: &CancellationToken,
+        progress: Option<ProgressSink>,
+    ) -> Result<(ExitStatus, BuildSteps, String), EngineError> {
+        let mut steps = BuildSteps::default();
+        let mut stderr = String::new();
+        if warm {
+            let mut before = AuxSnapshot::read(&job.out_dir);
+            loop {
+                let args = Self::arguments(job, true);
+                let (status, pass_stderr) = self.run_once(job, &args, cancel, progress.clone()).await?;
+                steps.single_passes += 1;
+                stderr.push_str(&pass_stderr);
+                // A failed pass goes to the full build rather than being reported: the pass read
+                // the last build's `.aux`, and a stale one (a package removed since, whose macros
+                // it still calls) fails on its own. The full build starts clean, so an error it
+                // reports is the document's, and its log is the one the drawer explains.
+                if !status.success() {
+                    break;
+                }
+                let after = AuxSnapshot::read(&job.out_dir);
+                // Unchanged: nothing moved, so the build is done in this many passes.
+                if after == before {
+                    return Ok((status, steps, stderr));
+                }
+                if after.bibliography_changed(&before) || steps.single_passes >= incremental::MAX_SINGLE_PASSES {
+                    break;
+                }
+                before = after;
+            }
+        }
+        steps.full = true;
+        let args = Self::arguments(job, false);
+        let (status, full_stderr) = self.run_once(job, &args, cancel, progress).await?;
+        stderr.push_str(&full_stderr);
+        Ok((status, steps, stderr))
+    }
+
     /// Run Tectonic once with `args` and wait for it, or kill it if `cancel` fires first. Returns
     /// the exit status and everything it printed to stderr.
     async fn run_once(
@@ -153,48 +197,21 @@ impl Engine for Tectonic {
         // build must succeed to earn the next one a warm start (`incremental::WARM_MARKER`).
         let marker = job.out_dir.join(incremental::WARM_MARKER);
         let warm = incremental::can_start_warm(&job.out_dir, &stem);
+        // S9.10: taken while the folder is still as the last successful build left it, so a
+        // cancelled warm build can put it back. Unreadable means no checkpoint, and a cancelled
+        // build then costs the next one its warm start, as it did before S9.10.
+        let checkpoint = if warm { incremental::Checkpoint::take(&job.out_dir).ok() } else { None };
         let _ = tokio::fs::remove_file(&marker).await;
 
-        let mut steps = BuildSteps::default();
-        let mut stderr = String::new();
-        // `Some` once a single pass settles the build; `None` means a full build must run.
-        let mut settled: Option<ExitStatus> = None;
-        if warm {
-            let mut before = AuxSnapshot::read(&job.out_dir);
-            loop {
-                let args = Self::arguments(job, true);
-                let (status, pass_stderr) = self.run_once(job, &args, &cancel, progress.clone()).await?;
-                steps.single_passes += 1;
-                stderr.push_str(&pass_stderr);
-                // A failed pass goes to the full build rather than being reported: the pass read
-                // the last build's `.aux`, and a stale one (a package removed since, whose macros
-                // it still calls) fails on its own. The full build starts clean, so an error it
-                // reports is the document's, and its log is the one the drawer explains.
-                if !status.success() {
-                    break;
-                }
-                let after = AuxSnapshot::read(&job.out_dir);
-                // Unchanged: nothing moved, so the build is done in this many passes.
-                if after == before {
-                    settled = Some(status);
-                    break;
-                }
-                if after.bibliography_changed(&before) || steps.single_passes >= incremental::MAX_SINGLE_PASSES {
-                    break;
-                }
-                before = after;
+        let passes = self.run_passes(job, warm, &cancel, progress).await;
+        if let (Err(EngineError::Cancelled), Some(checkpoint)) = (&passes, &checkpoint) {
+            // The engine is dead by now (`process::run` waits for the kill), and the next build
+            // has not started (the orchestrator waits for this one), so nothing else is writing.
+            if let Err(error) = checkpoint.restore() {
+                info!(%error, "could not restore the build folder after a cancel; the next build is full");
             }
         }
-        let status = match settled {
-            Some(status) => status,
-            None => {
-                steps.full = true;
-                let args = Self::arguments(job, false);
-                let (status, full_stderr) = self.run_once(job, &args, &cancel, progress).await?;
-                stderr.push_str(&full_stderr);
-                status
-            }
-        };
+        let (status, steps, stderr) = passes?;
         if status.success() {
             let _ = tokio::fs::write(&marker, b"").await;
         }
@@ -433,5 +450,61 @@ mod tests {
         if let Err(e) = result {
             assert!(matches!(e, EngineError::Cancelled), "unexpected: {e}");
         }
+    }
+
+    /// S9.10 without the real engine: a stand-in that does what a killed pass can — cuts the
+    /// `.aux` short, starts a new one — and then hangs until it is cancelled. A shell script, so
+    /// Unix only; the real-engine version in `tests/corpus.rs` runs everywhere.
+    #[cfg(unix)]
+    fn corrupting_engine(dir: &Path) -> Tectonic {
+        // `PermissionsExt` is the Unix-only half of `std::fs::Permissions`: it is what can set
+        // the executable bit a script needs.
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("fake-tectonic.sh");
+        std::fs::write(&script, "#!/bin/sh\nprintf '\\\\relax' > .abstract-tex/build/main.aux\n: > .abstract-tex/build/new.aux\nexec sleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Tectonic::at(script)
+    }
+
+    #[cfg(unix)]
+    async fn build_and_cancel(engine: &Tectonic, job: &BuildJob) -> Result<BuildOutcome, EngineError> {
+        let cancel = CancellationToken::new();
+        let cancel_later = cancel.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            cancel_later.cancel();
+        });
+        engine.build(job, cancel, None).await
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cancelled_warm_build_puts_the_folder_back_and_keeps_its_warm_start() {
+        let project = tempfile::tempdir().unwrap();
+        let j = job(project.path());
+        std::fs::create_dir_all(&j.out_dir).unwrap();
+        let whole_aux = "\\relax\n\\newlabel{s:end}{{1}{1}}\n";
+        std::fs::write(j.out_dir.join("main.aux"), whole_aux).unwrap();
+        std::fs::write(j.out_dir.join(incremental::WARM_MARKER), "").unwrap();
+
+        let result = build_and_cancel(&corrupting_engine(project.path()), &j).await;
+        assert!(matches!(result, Err(EngineError::Cancelled)), "{result:?}");
+        assert_eq!(std::fs::read_to_string(j.out_dir.join("main.aux")).unwrap(), whole_aux);
+        assert!(!j.out_dir.join("new.aux").exists());
+        assert!(incremental::can_start_warm(&j.out_dir, "main"), "the next build may still start warm");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_cancelled_cold_build_still_leaves_the_next_one_full() {
+        let project = tempfile::tempdir().unwrap();
+        let j = job(project.path());
+        std::fs::create_dir_all(&j.out_dir).unwrap();
+        std::fs::write(j.out_dir.join("main.aux"), "\\relax\n").unwrap();
+        // No marker: the last build did not succeed, so there is no state worth putting back.
+
+        let result = build_and_cancel(&corrupting_engine(project.path()), &j).await;
+        assert!(matches!(result, Err(EngineError::Cancelled)), "{result:?}");
+        assert!(!incremental::can_start_warm(&j.out_dir, "main"));
     }
 }

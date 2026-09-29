@@ -2928,6 +2928,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
 | [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
 | [ ] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
+| [x] | S9.10 A cancelled warm build keeps its warm start: the build folder is checkpointed before a warm pass and put back, marker included, when the pass is cancelled | M | S9.2, S9.9 |
 
 ```
 Loop      S9.1 · Benchmark corpus · L
@@ -3300,6 +3301,58 @@ lines of Rust, over `CLAUDE.md`'s ~400; about half are tests. What a reader shou
 Found while designing this and logged, not fixed: a cancelled warm build leaves no warm marker,
 so the build after it is a full one — saving during a 3 s thesis build costs the next save
 ~12 s, and gets no draft either. It is the next speed problem worth a loop.
+
+```
+Loop      S9.10 · A cancelled warm build keeps its warm start · M
+Reads     DESIGN.md §5.1 rung 2; S9.2's outcome point 3 (why the marker exists); the ledger entry
+          "A cancelled warm build makes the next build a full one"
+Depends   S9.2 (the marker), S9.9 (each request now waits for the one before it)
+Files     crates/abstract-tex-engine/src/{incremental.rs,tectonic.rs,draft.rs},
+          crates/abstract-tex-engine/tests/corpus.rs
+Build     Added 29 September 2026, from the ledger entry S9.9 logged. The marker's rule stays: it
+          vouches for the folder exactly as a successful build left it. What changes is that a
+          cancelled warm build can put the folder back in that state: before the first single
+          pass, read every intermediate file in the build folder (everything but the PDF, `.xdv`,
+          log, `.synctex.gz` and `.blg`, which a pass writes from scratch; ~30 KB on the thesis)
+          into memory; if the build is cancelled, delete intermediates the pass created, write
+          the checkpoint back, then the marker, last. A restore that fails leaves no marker, so
+          the next build is full, as today. Cold builds and failed builds are unchanged. Safe
+          only because S9.9 made each request wait for the previous one's task, so the restore
+          has finished before the next build reads the folder.
+Verify    cargo test -p abstract-tex-engine; cargo test -p abstract-tex-engine --test corpus --
+          --ignored a_cancelled_thesis_build
+Done when a fake engine that corrupts the `.aux` and hangs, once cancelled, leaves the folder
+          byte-for-byte as it was with the marker back; and on the corpus thesis a build
+          cancelled mid-pass is followed by a single-pass build with no undefined reference.
+```
+
+**S9.10 (29 September 2026).** `[x]`: rungs 1–3 green — `cargo test --workspace` 468 passed / 0
+failed (4 new: 2 in `incremental.rs`, 2 in `tectonic.rs`), clippy and `cargo doc --workspace -D
+warnings` clean, `pnpm check` 0 errors, Vitest 423/423; rung 3: the new `#[ignore]`d
+`a_cancelled_thesis_build_leaves_the_next_one_warm` passes against the real engine. The build
+after a cancel is **one pass in 3.5 s**, where it was a full build of 12 s or more. With the
+restore switched off, the same test fails with `full: true`, and so does the fake-engine test.
+There is no rung 4: nothing on screen changes except how soon the PDF arrives. What a reader should
+take from the diff:
+
+1. **The measurement showed the cost was not the one the ledger assumed.** The ledger entry
+   (and S9.2's reasoning) was about half-written `.aux` files. Killing a warm thesis pass at 2.5,
+   3.0 and even 3.3 s (it finishes at ~3.4) left every intermediate byte-for-byte unchanged:
+   Tectonic holds a pass's outputs in memory and writes them out as it ends. What a cancel
+   really lost was the warm marker, removed as every build starts.
+2. **The checkpoint stays anyway, because it is what makes restoring the marker honest.**
+   Putting the marker back on the strength of "Tectonic writes late" would rest the safety of
+   every warm build on an engine internal nobody promised. `Checkpoint` reads the ~30 KB of
+   intermediates before the first pass and writes them back on cancel, removing any that
+   appeared, then writes the marker *last*, so a restore that fails half-way still means a full
+   build next. The marker keeps meaning exactly what S9.2 said.
+3. **S9.9 is what made this safe.** Restoring after a cancel is only correct if nothing else
+   writes to the folder in the meantime. Before S9.9 the next build could start while the
+   cancelled one was still being killed; now each request waits for the one before it.
+4. **`run_passes` came out of `build`.** The loop returned early through `?` on a cancel, so
+   there was nowhere to catch it. Split out, `build` sees the `Result` and restores before
+   passing the error on. The pass logic itself is unchanged. The list of output extensions now
+   has one home, `incremental::OUTPUT_EXTENSIONS`, used by both the checkpoint and `draft::seed`.
 
 ### Sprint 10–11 — v0.6 sync
 

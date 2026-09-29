@@ -26,7 +26,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   build, since `draft::prepare` borrows the same marker. A likely fix: a pass cancelled
   *before TeX wrote anything* could restore the marker, or the orchestrator could let a warm
   single pass finish instead of cancelling it, as its cost is bounded. Not fixed in S9.9, which
-  does not change when builds are cancelled. Open.
+  does not change when builds are cancelled.
+  **Fixed** (29 Sep 2026, S9.10): a warm build takes an in-memory checkpoint of the build
+  folder's intermediates and, if cancelled, writes them back and then the marker. The build after
+  a cancel is now one 3.5 s pass on the thesis. Measuring it corrected this entry's premise:
+  Tectonic writes a pass's intermediates only as the pass ends, so a kill almost never
+  half-writes an `.aux`. The marker was what was lost, and the checkpoint is what makes putting
+  it back safe without relying on that.
 
 - **Latent: the LSP bridge does not read while it writes.** (found with the entry below, 28 Sep
   2026) `bridge::supervise` is one `select!` loop, and inside its outbound branch it awaits

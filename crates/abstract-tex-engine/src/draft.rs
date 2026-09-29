@@ -45,12 +45,6 @@ pub struct DraftLayout {
     pub out_dir: PathBuf,
 }
 
-/// Build artifacts a draft must not inherit from the full build: the outputs it will write
-/// itself, and the warm marker, which means "the last *full* build succeeded" and nothing else.
-/// Everything else is copied, because packages keep cross-reference state in files of their own
-/// (`.toc`, `.lof`, `.bbl`, `-blx.bib`, `.nav`, …) and a list of what to keep would miss the next one.
-const NOT_SEEDED: &[&str] = &["pdf", "xdv", "log", "gz", "blg"];
-
 /// Characters that would change what the wrapper means if they appeared in a path it writes: a
 /// space or `,` inside `\includeonly{…}` splits the list, and the rest are TeX specials. Paths
 /// with any of them get no draft rather than an attempt at quoting — the full build still runs.
@@ -129,7 +123,7 @@ fn relative_path_up(dir_in_project: &Path, root_file: &Path) -> Option<String> {
 }
 
 /// Copy every file under `from` into `to`, keeping subfolders (`\include` puts each chapter's
-/// `.aux` beside its path), except outputs and the warm marker ([`NOT_SEEDED`]).
+/// `.aux` beside its path), except outputs ([`incremental::OUTPUT_EXTENSIONS`]) and the warm marker.
 fn seed(from: &Path, to: &Path) -> io::Result<()> {
     for entry in fs::read_dir(from)? {
         let entry = entry?;
@@ -140,8 +134,11 @@ fn seed(from: &Path, to: &Path) -> io::Result<()> {
             seed(&source, &target)?;
             continue;
         }
-        let is_output = source.extension().is_some_and(|ext| NOT_SEEDED.iter().any(|skip| ext == *skip));
-        if is_output || entry.file_name() == incremental::WARM_MARKER {
+        // Not the outputs, which the draft writes itself, nor the warm marker, which means "the
+        // last *full* build succeeded" and nothing else. Everything else is copied, because
+        // packages keep cross-reference state in files of their own (`.toc`, `.lof`, `.bbl`,
+        // `-blx.bib`, `.nav`, …) and a list of what to keep would miss the next one.
+        if incremental::is_output(&source) || entry.file_name() == incremental::WARM_MARKER {
             continue;
         }
         fs::copy(&source, &target)?;

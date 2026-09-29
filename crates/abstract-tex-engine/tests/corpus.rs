@@ -274,6 +274,50 @@ async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
     assert!(drafted.duration < full.duration, "a draft slower than the full pass has no reason to exist");
 }
 
+/// S9.10 against the real engine: a warm thesis build cancelled part-way through its pass — as a
+/// save that lands mid-build cancels it — leaves the build folder able to start warm, so the
+/// build after it is single passes with every reference resolved, not the ~12 s full build.
+/// The cancel lands at 2.5 s of a ~3.3 s pass on a 12-core machine. Measured while writing this
+/// test: Tectonic keeps a pass's intermediates in memory and writes them out as the pass ends, so
+/// a kill even at 3.3 s left every `.aux` untouched. What a cancel really cost was the warm
+/// marker, and that is what this test catches going missing: without S9.10 it fails, full build.
+#[tokio::test]
+#[ignore]
+async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
+    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir(&corpus_dir().join("thesis"), tmp.path());
+    let job = BuildJob {
+        project_dir: tmp.path().to_path_buf(),
+        root_file: PathBuf::from("main.tex"),
+        out_dir: tmp.path().join(".abstract-tex/build"),
+        synctex: true,
+    };
+    assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
+
+    let edited = tmp.path().join("chapters/03-method.tex");
+    let mut text = fs::read_to_string(&edited).unwrap();
+    text.push_str("\nA sentence saved while the build was still running.\n");
+    fs::write(&edited, text).unwrap();
+
+    let cancel = CancellationToken::new();
+    let cancel_later = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+        cancel_later.cancel();
+    });
+    let cancelled = engine.build(&job, cancel, None).await;
+    assert!(matches!(cancelled, Err(EngineError::Cancelled)), "the pass must still be running at 2.5 s: {cancelled:?}");
+
+    let started = Instant::now();
+    let next = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+    assert!(next.success, "{}", next.stderr);
+    assert!(!next.steps.full, "the build after a cancel must start warm, not full: {:?}", next.steps);
+    let log = fs::read_to_string(next.log.as_ref().unwrap()).unwrap();
+    assert_eq!(log.matches("undefined").count(), 0, "a restored folder resolves every reference");
+    println!("after a cancel: {:?} in {} ms", next.steps, started.elapsed().as_millis());
+}
+
 /// What an author reads off a chapter's `.aux`: each label's number and page, and every counter
 /// the chapter hands on to the next one. Not the raw bytes: hyperref names its link targets from
 /// a document-wide caption count that `\\include` does not checkpoint, so a draft's anchors are
