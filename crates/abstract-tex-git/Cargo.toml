@@ -1,0 +1,22 @@
+[package]
+name = "abstract-tex-git"
+description = "The project's Git working tree and history, as the Source Control view needs them: status, stage, unstage, discard, commit, log, branch."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# libgit2, same flags and same reasons as crates/abstract-tex-snapshot: local objects only, so
+# no `https` and no `ssh`, which would pull in OpenSSL and libssh2. S10.4 turns them on when
+# there is a remote to talk to.
+git2 = { version = "0.20", default-features = false }
+# These types cross to the frontend as they are, so they serialise here rather than being
+# restated in src-tauri.
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -3695,9 +3695,122 @@ This crate is 440 lines against CLAUDE.md's ~400 guideline. Left whole rather th
 half is doc comments and a third is tests, and separating the tests from what they pin would make
 it less followable, not more. Noted rather than waved past.
 
+```
+Loop      S10.2a · The working tree, as Git sees it · M
+Reads     DESIGN.md §6 and the Source Control design notes below (the row shape
+          `name · dir · M/U/A/D/R`, the Changes / Staged Changes split); §5.8 (what is ours)
+Depends   — (S10.1 proved `git2` builds and behaves here; nothing else is needed)
+Files     crates/abstract-tex-git/ (new: no Tauri, tested against a temp repo)
+Build     The half of the crate the Source Control view reads on every refresh: what changed,
+          and the three verbs that change it. `status`, `stage`, `unstage`, `discard`.
+
+          **Two lists and a third, exactly as VS Code shows them.** A file can be in *Staged
+          Changes* and *Changes* at once — staged, then edited again — so the answer is not one
+          list with a flag on each row: it is `staged`, `unstaged` and `conflicted`, and the same
+          path may appear in two of them. Conflicted is its own list from the start because
+          S11.2 has to show it as two paragraphs, and a conflict hiding inside "modified" is how
+          that gets discovered late.
+
+          **`.abstract-tex/` is never a change.** §5.8 says that folder is ours. A project that
+          already had Git before it met this app has no `.gitignore` line for it, so without a
+          filter its build folder would fill the Changes list with junk on the first refresh. The
+          crate drops it unconditionally rather than relying on a file the author may not have —
+          and S10.5, which writes that `.gitignore`, gets a card note saying an *existing*
+          repository needs the same offer.
+
+          **Rename detection on, for both halves** (`renames_head_to_index`,
+          `renames_index_to_workdir`): `R` is in the row shape the design asks for, and a renamed
+          chapter showing up as one delete and one add is the kind of thing that makes an author
+          distrust the panel.
+
+          **Discard is two different operations wearing one word,** and the crate must be honest
+          about which it did: a tracked file is restored from `HEAD`, an untracked file is
+          *deleted*. Returning which one happened is what lets the view's confirmation say the
+          true thing (the design notes: "Discard always confirms").
+Verify    cargo test -p abstract-tex-git
+Done when a temp repo with one staged file, one edited-and-staged file, one untracked file, one
+          deleted file and one rename reports each in the right list with the right letter;
+          staging and unstaging move a path between lists and nothing else moves; discarding a
+          tracked file restores it and discarding an untracked one removes it; and a build folder
+          under `.abstract-tex/` never appears at all.
+```
+
+**S10.2a (29 September 2026).** `[x]`: rungs 1–3 green — `cargo test --workspace` 496 passed / 0
+failed (8 new), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors,
+Vitest 427/427; rung 3 is a new `#[ignore]`d `tests/against_real_git.rs`, which drives one
+repository into every state the card names and compares this crate's two lists with
+`git status --porcelain=v1`, path by path and letter by letter. What a reader should take from
+the diff:
+
+1. **The unit tests could not have caught the thing that matters.** They use libgit2 to set a
+   repository up and libgit2 to read it back, which proves the mapping is self-consistent, not
+   that it is *right* — and "right" here means "agrees with what the author sees when they type
+   `git status`", because that is the model the Source Control view has to match. Hence the
+   comparison test, and hence checking that it bites: with rename detection switched off it
+   fails with `new-name.tex, Renamed` missing from one side.
+2. **Three lists, because a file really is in two of them.** Staged, then edited again, is one
+   path with `M` in *Staged Changes* and `M` in *Changes*, and one list with a flag per row
+   cannot say that. Conflicted is separate from the first commit rather than arriving inside
+   "modified", because S11.2 has to show it as two paragraphs and that is the kind of thing that
+   gets discovered late.
+3. **The `.abstract-tex/` filter is not a convenience.** A repository that predates this app has
+   no `.gitignore` line for our folder, so the first refresh of the view would bury the
+   manuscript under build junk. Filtering unconditionally is the only thing that works for a
+   project we did not create, and S10.5 — which writes that `.gitignore` on init — inherits a
+   note saying an *existing* repository needs the same offer.
+4. **Two bugs that only exist in the writing.** `add_path` reads the file, so it cannot stage a
+   deletion; a deleted chapter needs `remove_path`, and without it the row silently never moves.
+   And `discard` is two operations wearing one word — a tracked file is restored from the index,
+   an untracked one is *deleted* — so it returns which it did, which is what lets the
+   confirmation the design notes require say the true thing rather than a generic one.
+5. `checkout_index` with `force` **and a pathspec**: without `force` it refuses to overwrite the
+   modified file that is the whole point, and without the pathspec it discards every other change
+   the author has open. A test pins the second half, because it is the one that loses work.
+
+```
+Loop      S10.2b · The history, and where this branch stands · M
+Reads     the Source Control design notes below (the Graph section, *Outgoing changes*, the
+          status bar's branch name and sync arrows); DESIGN.md §5.7 (`Sync Changes ↑n ↓m`)
+Depends   S10.2a (the crate and how it opens a repository)
+Files     crates/abstract-tex-git/ (grows), crates/abstract-tex-snapshot/src/lib.rs (one line)
+Build     `commit`, `log`, and the branch state the status bar and the Sync button are built on.
+
+          **`log` is a page, not a history.** The design settles this: "a single-lane list of the
+          first 200 commits with lazy loading", so the call takes a skip and a limit and returns
+          rows — id, short id, summary, author, time — with the refs that point at each one, so
+          the view can draw branch and remote tags without a second walk.
+
+          **The hidden snapshot ref must not appear in it.** S10.1 puts a commit on
+          `refs/abstract-tex/snapshots` after every successful compile. `git log` does not show
+          those because it walks `HEAD`, and this must walk `HEAD` for the same reason — but the
+          *ref tags* on a row come from enumerating refs, which would happily label a commit
+          "abstract-tex/snapshots". Filtered by name, with the constant imported from the
+          snapshot crate rather than spelled again.
+
+          **Ahead/behind is the whole of `Sync Changes ↑n ↓m`.** `graph_ahead_behind` against the
+          branch's upstream, `None` when there is no upstream — which is not an error and not a
+          zero: "no remote yet" and "nothing to sync" are different sentences, and §5.7's
+          one-verb button only appears for one of them.
+
+          **`commit` refuses an empty message and an empty tree**, because both are mistakes a
+          panel makes easy and neither is recoverable by pressing the button again. It uses the
+          repository's own `user.name`/`user.email`, and says plainly when Git has none — the one
+          piece of setup this app cannot invent, since a commit signed by a stand-in identity is
+          worse than a commit refused with a sentence.
+Verify    cargo test -p abstract-tex-git
+Done when a temp repo's log pages correctly, rows carry the branch name that points at them, a
+          snapshot commit never appears as a tag; committing writes what `git log` then shows and
+          empties the staged list; ahead/behind reads zero on a fresh clone, `None` with no
+          upstream, and the right numbers after a divergence.
+```
+
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
-tested against a temp repo · S10.3 activity bar and Source Control view, 1:1 VS Code · S10.4
+tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
+on the S3.3a–d precedent: one crate, but the working tree and the history are two loops' worth of
+surface and one commit of both would be past the ~400-line rule that keeps a diff followable ·
+S10.3 activity bar and Source Control view, 1:1 VS Code · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
 confirmation · S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`) · S11.2 conflicts
 as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two

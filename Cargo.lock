@@ -51,6 +51,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "abstract-tex-git"
+version = "0.1.0"
+dependencies = [
+ "git2",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "abstract-tex-includes"
 version = "0.1.0"
 dependencies = [
