@@ -4133,6 +4133,124 @@ S10.2b's note says it should be read here. Left whole rather than split because 
 state machine and its two public functions are two sinks on it — separating them would mean
 explaining the same grammar twice. Noted rather than waved past.
 
+```
+Loop      S10.4a · Signing in to GitHub, and where the token lives · M
+Reads     DESIGN.md §5.7 ("Sign in without a token dance": the device flow, "no client secret
+          ever ships in a desktop binary", "credentials go to the OS keychain, never a config
+          file"), §4's dependency table row `keyring`, §2 rule 6
+Depends   — (nothing; S10.4b is what puts it on screen)
+Files     crates/abstract-tex-github/ (new: no Tauri, tested against a fake server on localhost)
+Build     The OAuth **device flow**, which exists precisely because a desktop binary cannot keep
+          a secret: the app asks GitHub for a short code, the person types it into
+          `github.com/login/device` in their own browser, and the app polls until GitHub hands
+          over a token. Nothing in the exchange is confidential except the answer.
+
+          **Three calls and a state machine.** `POST /login/device/code`, then
+          `POST /login/oauth/access_token` every `interval` seconds, then `GET /user` once, to
+          know whose account it is. The polling answers are five, not two, and each means
+          something different to the person waiting: *pending* (keep waiting), *slow_down*
+          (GitHub is telling us off — the new interval is mandatory, not advisory), *denied*
+          (they said no; stop), *expired* (they walked away; offer to start again) and a token.
+          A flow that treats `slow_down` as `pending` gets rate-limited into an expiry that
+          looks like our bug.
+
+          **`repo`, and nothing else.** The smallest scope that can create a private repository
+          and push to it, which is what §5.7 promises. No `delete_repo`, no `workflow`, no
+          `admin:*`, no `gist`. The scope is in one constant with that sentence next to it,
+          because a scope list is the kind of thing that grows by accident.
+
+          **The token goes to the OS keychain and nowhere else** — `keyring` (§4's table),
+          behind a `SecretStore` trait with an in-memory implementation for tests. The trait is
+          not ceremony: a CI container has no Secret Service, and the flow's logic has to be
+          testable without one. Verified on this machine before the card was written: a real
+          round trip through the Secret Service, and the probe secret deleted after.
+
+          **The client id is a maintainer step, and this loop does not fake it.** The device
+          flow needs an OAuth app registered on GitHub; nobody has registered one for
+          Abstract-Tex yet. The id is public — every desktop OAuth app ships one — so it belongs
+          in the binary, read with `option_env!` at build time and overridable at runtime for
+          testing, with an honest "sign-in is not configured in this build" when it is absent.
+          Registering the app goes in the ledger as the one thing code cannot do here.
+Verify    cargo test -p abstract-tex-github; cargo test -p abstract-tex-github -- --ignored
+          (the real github.com, and the real keychain)
+Done when every one of the five polling answers is driven end to end against a fake GitHub on
+          localhost, including that `slow_down` lengthens the interval; a token round-trips
+          through the real keychain and `clear` removes it; an unregistered client id comes back
+          as GitHub's own error in a sentence rather than as a parse failure; and nothing in the
+          crate can write a token anywhere but a `SecretStore`.
+```
+
+**S10.4a (29 September 2026).** `[x]`: rungs 1–3 green — `cargo test --workspace` 536 passed / 0
+failed (12 new: 3 unit, 9 against the fake GitHub), clippy and `cargo doc --workspace -D
+warnings` clean. Rung 3 is two `#[ignore]`d files and both were run: the real Secret Service on
+this machine (a token saved, read back, deleted) and the real github.com. `[x]` rather than `[~]`
+because this loop has no rung 4 — nothing it does is on screen, which is S10.4b — and its
+done-when is fully met. What a reader should take from the diff:
+
+1. **The device flow exists because a desktop binary cannot keep a secret**, and that is the
+   whole design rather than a detail: anything compiled into a binary can be read out of it, so
+   the grant GitHub offers for this situation has no secret in it at all. The client *id* is
+   public and ships; the token is the only confidential thing, and it goes straight to the
+   keychain. Said once, in the crate's module doc, where the next person to wonder will look.
+2. **Five answers, not two, and the tests are named after that.** A poll can mean pending,
+   slow_down, denied, expired or a token, and `slow_down` is the one that looks safe to collapse
+   into `pending`: GitHub adds five seconds to its minimum interval every time it has to say it,
+   and keeps refusing until obeyed — so a flow that ignores it rate-limits itself into an expiry
+   that looks like our bug. `Poll::SlowDown` carries the new interval, and a `slow_down` with no
+   interval field still lengthens it.
+3. **The fake GitHub is forty lines of `TcpListener` and it earns its keep.** What a mocked
+   `reqwest` could not have caught is everything that actually breaks in an HTTP client: the form
+   encoding, the bearer header, the `X-GitHub-Api-Version` header, and above all the `Accept:
+   application/json` header — without which GitHub answers in `application/x-www-form-urlencoded`,
+   which is valid, documented, and would need a second parser. The tests assert those bytes are
+   on the wire, not that a function was called.
+4. **The real-GitHub test proves the half that fails silently.** It signs nobody in — that needs
+   a registered app — but a malformed request and an unregistered client id fail in completely
+   different ways: the first comes back as an HTML error page (`Unreadable`), the second as
+   GitHub's own JSON (`GitHub(..)`). So `GitHub(..)` is the *passing* outcome, and github.com
+   gave it: `{"error":"Not Found"}` to a client id nobody owns. The request shape is right.
+5. **`repo`, in one constant, with a test that exists only to make widening it deliberate.** It
+   is the smallest scope that can create a private repository and push to it, which is what §5.7
+   promises. No `delete_repo` — an editor that can delete a repository is an editor that can
+   delete a manuscript.
+6. **`MemoryStore` is for tests and says so, because the tempting thing is to make it a
+   fallback.** "We could not reach the keychain, so we kept the token somewhere else" is exactly
+   the decision §5.7 forbids being made quietly, so a machine with no keychain gets a sentence
+   naming the keychain instead.
+7. **One thing here cannot be finished by code**, and it is in the ledger: nobody has registered
+   the OAuth app. `client_id()` returning `None` is a first-class state with its own sentence,
+   not a panic and not somebody else's client id.
+
+```
+Loop      S10.4b · The sign-in panel, and the account in the status bar · M
+Reads     DESIGN.md §5.7, §6 (the Source Control view), §2 rule 5 and rule 6
+Depends   S10.4a, S10.3a (the view this lives in)
+Files     src-tauri/src/github.rs (new), src-tauri/src/{lib,commands}.rs, src-tauri/Cargo.toml
+          (`tauri-plugin-opener`), src-tauri/capabilities/default.json, src/lib/ipc.ts,
+          src/lib/github.svelte.ts (new) + its test, src/components/SourceControl.svelte,
+          src/components/StatusBar.svelte
+Build     **Sign-in is minutes long and mostly spent in a browser, so it is events, not a
+          command that returns.** `github_sign_in` starts a task and emits `github:sign-in`:
+          first the code and the URL, then either the account name or a sentence. Cancel is a
+          command, because a person who changes their mind should not have to wait fifteen
+          minutes for an expiry.
+
+          **The token never crosses to the frontend.** The webview gets the user code, the
+          verification URI and, afterwards, the login name. A token in the webview is a token in
+          every devtools log and every future extension; the only thing that ever holds it is
+          the keychain and the Rust side that reads it.
+
+          **The code is the whole interface.** Shown big enough to read off a screen, with one
+          button that copies it and one that opens the browser at the verification URI
+          (`tauri-plugin-opener`, listed in the capability file — a webview link cannot open a
+          browser on its own). Rule 6: the URL is also written out as text, so a machine where
+          the opener fails is not a machine where you cannot sign in.
+Verify    cargo test -p abstract-tex; pnpm test; pnpm check
+Done when the panel shows a code, copies it, opens the browser at it, and turns into "signed in
+          as <login>" once GitHub says so; cancelling stops the polling; signing out clears the
+          keychain and the panel; and a build with no client id says so instead of failing.
+```
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
@@ -4144,7 +4262,9 @@ S10.3 activity bar and Source Control view, 1:1 VS Code —
 S10.2 was: the pane and its two lists, the commit box and the graph, and the two writer additions
 are three loops' worth of surface. · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
-confirmation, and with it the Commit dropdown's *Commit & Push* and the header's ⋯ menu ·
+confirmation, and with it the Commit dropdown's *Commit & Push* and the header's ⋯ menu —
+S10.4 **split into S10.4a and S10.4b above, expanded 29 September 2026**: the flow and the
+keychain are testable with no window, the panel is not ·
 S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`), which is also when *Commit &
 Sync* and *Amend* become drawable (Amend has to know what is already pushed) · S11.2 conflicts
 as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two

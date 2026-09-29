@@ -1,0 +1,23 @@
+[package]
+name = "abstract-tex-github"
+description = "GitHub's OAuth device flow and the OS keychain the resulting token lives in. No client secret, because a desktop binary cannot keep one."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Blocking, like `texbib`'s acquisition: every call here is one request whose answer the caller
+# is waiting for, and the app runs it on `spawn_blocking` as it already does for builds. `rustls`
+# rather than the system OpenSSL, so a Windows or macOS box needs nothing installed.
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# DESIGN.md §4's dependency table: the OS keychain — Credential Manager, Keychain, Secret
+# Service. `sync-secret-service` is the Linux backend that needs no async runtime, and
+# `crypto-rust` keeps it off the system's OpenSSL for the session encryption it does.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]

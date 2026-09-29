@@ -15,6 +15,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Nobody has registered a GitHub OAuth app, so sign-in cannot be finished by code alone.** (29
+  Sep 2026, S10.4a) The device flow needs a client id from an OAuth app registered on GitHub —
+  public, not secret, which is why it ships in the binary — and Abstract-Tex has none. The crate
+  reads it from `ABSTRACT_TEX_GITHUB_CLIENT_ID` at build time (overridable at runtime) and says
+  "signing in to GitHub is not configured in this build" when it is absent, so nothing crashes
+  and nothing pretends. What is left for the maintainer, once: create the OAuth app at
+  github.com/settings/developers with *Device flow* enabled, put its client id in the release
+  build's environment, and record it in `DESIGN.md` §10 with the other ship-time decisions. Until
+  then S10.4b's panel can be exercised only against the fake GitHub in
+  `crates/abstract-tex-github/tests/`, and the exit demo for v0.6 cannot be performed.
+
 - **The graph's word counts are rebuilt a whole page at a time, and nothing caches them.** (29
   Sep 2026, found measuring S10.3c) `log` computes each row's `word_delta` from a tree diff and a
   prose scan of every changed `.tex` file, so one page of 200 rows costs ~111 ms on this machine —

@@ -1,0 +1,182 @@
+//! S10.4a: the device flow driven end to end against a GitHub that is not GitHub.
+//!
+//! Not `#[ignore]`d, because it needs no network beyond the loopback interface and nothing
+//! installed: the server is forty lines of `TcpListener` below. What it buys over a mocked
+//! `reqwest` is everything that actually breaks in an HTTP client — the form encoding, the
+//! `Accept` header that decides which of two body formats GitHub answers in, the bearer token,
+//! and the JSON shapes — all exercised for real.
+//!
+//! The one thing it cannot check is that GitHub behaves as documented. `tests/against_real_github.rs`
+//! does that part, with the network, and is `#[ignore]`d.
+
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use abstract_tex_github::{DeviceFlow, Endpoints, GitHubError, Poll};
+
+/// One canned answer per request, in the order the flow will ask for them.
+///
+/// A queue rather than a router, because what these tests are about is the *sequence*: pending,
+/// pending, slow_down, then a token. A router keyed by path could not express that.
+fn fake_github(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let (tx, rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        for (answer, stream) in answers.into_iter().zip(listener.incoming()) {
+            let mut stream = stream.expect("a connection");
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+            // Read the request line, the headers, and then exactly as many body bytes as
+            // `Content-Length` promises — a `read_to_end` would block, because the client keeps
+            // the connection open for a reply.
+            let mut request = String::new();
+            let mut length = 0usize;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                if let Some(value) = line.strip_prefix("Content-Length: ").or_else(|| line.strip_prefix("content-length: ")) {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+                request.push_str(&line);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            if length > 0 {
+                let mut body = vec![0u8; length];
+                std::io::Read::read_exact(&mut reader, &mut body).unwrap();
+                request.push_str(&String::from_utf8_lossy(&body));
+            }
+            let _ = tx.send(request);
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                answer.len(),
+                answer
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    (origin, rx)
+}
+
+fn flow(origin: &str) -> DeviceFlow {
+    DeviceFlow::with_endpoints(Endpoints::under(origin)).unwrap()
+}
+
+#[test]
+fn a_code_request_sends_what_github_documents_and_reads_back_the_code() {
+    let (origin, requests) = fake_github(vec![
+        r#"{"device_code":"dc-1","user_code":"WDJB-MJHT","verification_uri":"https://github.com/login/device","expires_in":899,"interval":5}"#,
+    ]);
+
+    let code = flow(&origin).request_code("Iv1.test").unwrap();
+
+    assert_eq!(code.user_code, "WDJB-MJHT");
+    assert_eq!(code.verification_uri, "https://github.com/login/device");
+    assert_eq!(code.device_code, "dc-1");
+    assert_eq!(code.interval, Duration::from_secs(5));
+    assert_eq!(code.expires_in, Duration::from_secs(899));
+
+    let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.starts_with("POST /login/device/code"), "{request}");
+    // The `Accept` header is load-bearing: without it GitHub answers in form encoding, which
+    // would need a second parser.
+    assert!(request.contains("accept: application/json") || request.contains("Accept: application/json"), "{request}");
+    assert!(request.contains("client_id=Iv1.test"), "{request}");
+    // The one scope, as it crosses the wire.
+    assert!(request.contains("scope=repo"), "{request}");
+}
+
+#[test]
+fn the_five_answers_a_poll_can_give_are_five_different_things() {
+    let (origin, requests) = fake_github(vec![
+        r#"{"error":"authorization_pending","error_description":"The authorization request is still pending."}"#,
+        r#"{"error":"slow_down","error_description":"Too many requests","interval":10}"#,
+        r#"{"access_token":"gho_signed_in","token_type":"bearer","scope":"repo"}"#,
+        r#"{"error":"access_denied","error_description":"The user denied the request."}"#,
+        r#"{"error":"expired_token","error_description":"The device code has expired."}"#,
+    ]);
+    let flow = flow(&origin);
+
+    assert_eq!(flow.poll("Iv1.test", "dc-1").unwrap(), Poll::Pending);
+    // Mandatory, not advisory: the new interval comes back so the caller can obey it.
+    assert_eq!(flow.poll("Iv1.test", "dc-1").unwrap(), Poll::SlowDown(Duration::from_secs(10)));
+    assert_eq!(flow.poll("Iv1.test", "dc-1").unwrap(), Poll::Token("gho_signed_in".to_string()));
+    assert!(matches!(flow.poll("Iv1.test", "dc-1"), Err(GitHubError::Denied)));
+    assert!(matches!(flow.poll("Iv1.test", "dc-1"), Err(GitHubError::Expired)));
+
+    // And the grant type, without which GitHub rejects the request outright.
+    let first = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(first.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"), "{first}");
+    assert!(first.contains("device_code=dc-1"), "{first}");
+}
+
+#[test]
+fn a_slow_down_with_no_interval_still_slows_down() {
+    // GitHub documents the field, and a server that leaves it out must not be read as "carry on
+    // at the same rate" — that is how a flow gets itself rate-limited into a false expiry.
+    let (origin, _requests) = fake_github(vec![r#"{"error":"slow_down"}"#]);
+    assert_eq!(flow(&origin).poll("Iv1.test", "dc-1").unwrap(), Poll::SlowDown(Duration::from_secs(10)));
+}
+
+#[test]
+fn an_unregistered_client_id_comes_back_as_githubs_own_sentence() {
+    let (origin, _requests) = fake_github(vec![
+        r#"{"error":"incorrect_client_credentials","error_description":"The client_id passed is incorrect."}"#,
+    ]);
+    let error = flow(&origin).request_code("Iv1.nope").unwrap_err();
+    // The description, not the slug: "incorrect_client_credentials" is not a sentence for anyone.
+    assert_eq!(error.to_string(), "GitHub said: The client_id passed is incorrect.");
+}
+
+#[test]
+fn an_answer_this_crate_cannot_read_says_so_and_keeps_the_body() {
+    let (origin, _requests) = fake_github(vec!["<html>maintenance</html>"]);
+    let error = flow(&origin).request_code("Iv1.test").unwrap_err();
+    assert!(matches!(error, GitHubError::Unreadable(_)), "{error}");
+    // The body is kept, because this variant means *we* are wrong and someone has to see why.
+    assert!(error.to_string().contains("maintenance"), "{error}");
+}
+
+#[test]
+fn a_code_response_missing_the_fields_is_not_a_code() {
+    // No `error`, no `user_code` either: a well-formed JSON object that is still not an answer.
+    let (origin, _requests) = fake_github(vec![r#"{"expires_in":900}"#]);
+    assert!(matches!(flow(&origin).request_code("Iv1.test"), Err(GitHubError::Unreadable(_))));
+}
+
+#[test]
+fn the_account_call_carries_the_token_as_a_bearer_and_reads_the_login() {
+    let (origin, requests) = fake_github(vec![r#"{"login":"ada","id":42,"name":"Ada Lovelace"}"#]);
+
+    let account = flow(&origin).account("gho_signed_in").unwrap();
+    assert_eq!(account.login, "ada");
+
+    let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.starts_with("GET /user"), "{request}");
+    assert!(request.contains("authorization: Bearer gho_signed_in") || request.contains("Authorization: Bearer gho_signed_in"), "{request}");
+    assert!(request.contains("x-github-api-version: 2022-11-28") || request.contains("X-GitHub-Api-Version: 2022-11-28"), "{request}");
+}
+
+#[test]
+fn an_account_with_no_login_is_not_an_account() {
+    let (origin, _requests) = fake_github(vec![r#"{"login":""}"#]);
+    assert!(matches!(flow(&origin).account("gho_x"), Err(GitHubError::Unreadable(_))));
+}
+
+#[test]
+fn a_github_that_is_not_there_is_a_network_error_and_not_a_panic() {
+    // Nothing is listening on this port; the flow must come back with a sentence.
+    let error = flow("http://127.0.0.1:1").request_code("Iv1.test").unwrap_err();
+    assert!(matches!(error, GitHubError::Network(_)), "{error}");
+    assert!(error.to_string().starts_with("Could not reach GitHub"), "{error}");
+}

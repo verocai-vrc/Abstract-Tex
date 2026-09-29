@@ -12,6 +12,7 @@ members = [
     "crates/abstract-tex-sidecar",
     "crates/abstract-tex-engine",
     "crates/abstract-tex-git",
+    "crates/abstract-tex-github",
     "crates/abstract-tex-includes",
     "crates/abstract-tex-lsp",
     "crates/abstract-tex-reconcile",
