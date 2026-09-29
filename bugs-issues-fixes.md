@@ -292,6 +292,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   rule needs either a second entry point that also takes `.blg` content, or `diagnostics` gaining an
   optional second parameter — a real design question, not a one-line fix, and not decided here.
   Not required; no sprint-6 or sprint-7/8 (bibliography) card owns it yet.
+  **Narrowed** (29 Sep 2026, looking at the corpus thesis's `.blg` files during S9.10). Two
+  things changed since this was written. First, most of what BibTeX would report now reaches the
+  author another way: S7–S8's bibliography health checks parse the `.bib` themselves (an
+  unreadable file, missing fields, undefined and never-cited keys, duplicate DOIs), so what is
+  left that only BibTeX can say is small: a `.bst` style that cannot be found, and style-specific
+  warnings. Second, a trap for whoever builds this: on any document with `\include`, Tectonic runs
+  BibTeX on every chapter's `.aux`, and each chapter's `.blg` holds three *errors* ("I found no
+  \citation commands", "no \bibdata", "no \bibstyle") that are not the author's. That is where
+  the thesis's "errors were issued by BibTeX, but were ignored" comes from on every build. A
+  `.blg` rule must read only the root's `.blg`, or drop exactly those three. Still Open, at low
+  priority.
 
 - **`unwrap_lines` does not undo a `\PackageError` message's own multi-line continuation, only a
   plain 79-column hard wrap.** (S6.1, builder, 17 Sep 2026) LaTeX's `\PackageError`/`\GenericError`
