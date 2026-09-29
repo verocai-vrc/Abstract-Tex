@@ -9,6 +9,10 @@ import type { BibliographyIndex, CompileEvent, Finding, FsEvent, LspEvent, Proje
 const disk = new Map<string, string>();
 const calls = {
   compiles: 0,
+  /** The `file` each compile was asked to draft a chapter of (S9.9). */
+  compileFiles: [] as Array<string | null>,
+  /** The `draft` flag of each SyncTeX query, forward or inverse (S9.9). */
+  synctexDraft: [] as boolean[],
   writes: [] as Array<{ path: string; contents: string }>,
   reads: [] as string[],
   /** Every `textDocument/*` message the controller sent the language server. */
@@ -67,7 +71,10 @@ vi.mock('./ipc', () => ({
       calls.writes.push({ path, contents });
       disk.set(path, contents);
     },
-    compile: async () => ++calls.compiles,
+    compile: async (file: string | null) => {
+      calls.compileFiles.push(file);
+      return ++calls.compiles;
+    },
     diffOps: async (oldText: string, newText: string): Promise<TextOp[]> => {
       // Prefix/suffix trimming, as the Rust reconciler does. Its own correctness is proved by
       // the proptests in abstract-tex-reconcile; here it only has to leave untouched text alone.
@@ -89,11 +96,13 @@ vi.mock('./ipc', () => ({
       return logOnDisk;
     },
     assetUrl: (p: string) => `asset://${p}`,
-    synctexForward: async () => {
+    synctexForward: async (_file: string, _line: number, draft: boolean) => {
+      calls.synctexDraft.push(draft);
       if (synctexForwardAnswer instanceof Error) throw synctexForwardAnswer;
       return synctexForwardAnswer;
     },
-    synctexInverse: async () => {
+    synctexInverse: async (_page: number, _x: number, _y: number, draft: boolean) => {
+      calls.synctexDraft.push(draft);
       if (synctexInverseAnswer instanceof Error) throw synctexInverseAnswer;
       return synctexInverseAnswer;
     },
@@ -180,6 +189,8 @@ beforeEach(async () => {
   disk.clear();
   disk.set('main.tex', 'hello');
   calls.compiles = 0;
+  calls.compileFiles = [];
+  calls.synctexDraft = [];
   calls.writes = [];
   calls.reads = [];
   calls.lsp = [];
@@ -374,6 +385,81 @@ describe('compile progress (S2.2)', () => {
 
     compileHandler({ status: 'progress', generation: 2, message: 'current line' });
     expect(app.compile.progress).toBe('current line');
+  });
+});
+
+describe('the draft preview (S9.9)', () => {
+  const finished = (generation: number, success: boolean): CompileEvent => ({
+    status: 'finished',
+    generation,
+    success,
+    pdfPath: success ? '/proj/.abstract-tex/build/main.pdf' : null,
+    logPath: null,
+    diagnostics: [],
+    durationMs: 3300,
+    stderr: '',
+  });
+  const draft = (generation: number): CompileEvent => ({
+    status: 'draft',
+    generation,
+    chapter: 'chapters/03-method',
+    pdfPath: '/proj/.abstract-tex/draft/build/main.pdf',
+    durationMs: 2060,
+  });
+
+  it('asks Rust to draft the file being edited', async () => {
+    await triggerCompile();
+    expect(app.activePath).toBe('main.tex');
+    expect(calls.compileFiles.at(-1)).toBe('main.tex');
+  });
+
+  it('shows the draft while the full build runs, then the full PDF in its place', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler(draft(1));
+    expect(app.pdfUrl).toContain('/draft/build/main.pdf');
+    expect(app.pdfDraftOf).toBe('chapters/03-method');
+
+    compileHandler(finished(1, true));
+    expect(app.pdfUrl).toContain('/build/main.pdf');
+    expect(app.pdfUrl).not.toContain('/draft/');
+    expect(app.pdfDraftOf).toBeNull();
+  });
+
+  it('never lets a draft replace a finished build, nor a superseded build put one on screen', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler(finished(1, true));
+    const full = app.pdfUrl;
+    compileHandler(draft(1)); // late: Rust promises this cannot happen; the screen agrees anyway
+    expect(app.pdfUrl).toBe(full);
+
+    compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
+    compileHandler({ status: 'started', generation: 3, rootFile: 'main.tex' });
+    compileHandler(draft(2));
+    expect(app.pdfUrl).toBe(full);
+    expect(app.pdfDraftOf).toBeNull();
+  });
+
+  it('puts the last full PDF back when the build the draft stood in for fails', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler(finished(1, true));
+    const full = app.pdfUrl;
+
+    compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
+    compileHandler(draft(2));
+    compileHandler(finished(2, false));
+    expect(app.pdfUrl).toBe(full);
+    expect(app.pdfDraftOf).toBeNull();
+  });
+
+  it('searches the SyncTeX of whichever PDF is on screen', async () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    await syncTexForward('main.tex', 3);
+    compileHandler(draft(1));
+    await syncTexForward('main.tex', 3);
+    await syncTexInverse(1, 10, 20);
+    compileHandler(finished(1, true));
+    await syncTexInverse(1, 10, 20);
+    expect(calls.synctexDraft).toEqual([false, true, true, false]);
   });
 });
 

@@ -53,6 +53,12 @@
     <span class="warn">
       <span class="dot pulse"></span>Compiling… {elapsed}s{app.compile.progress ? ` · ${app.compile.progress}` : ''}
     </span>
+    {#if app.pdfDraftOf}
+      <!-- S9.9: the PDF on screen is one chapter, typeset ahead of the whole document. -->
+      <span class="muted" title="Only this chapter was typeset; the full PDF replaces it when the build finishes.">
+        showing a draft of {app.pdfDraftOf}
+      </span>
+    {/if}
   {:else if app.compile.phase === 'ok'}
     <span class="ok"><span class="dot"></span>Built in {((app.compile.durationMs ?? 0) / 1000).toFixed(1)}s</span>
     {#if app.warningCount > 0}

@@ -4,6 +4,10 @@
 //! build and starts over; nothing is ever queued. Typing bursts therefore produce one compile,
 //! not forty, and the PDF on screen always corresponds to the latest text the author saved.
 //!
+//! Since S9.9 a build of a chapter also runs a one-chapter *draft* beside it (DESIGN.md §5.1
+//! rung 4, `abstract_tex_engine::draft`): same generation, same cancel, and a `Draft` event that
+//! can only ever arrive before that generation's `Finished`, never after.
+//!
 //! This module reports through a callback, not through Tauri directly, so it can be tested with
 //! a fake engine and a channel. The `commands` module supplies a callback that emits a window
 //! event. It must never read the log beyond handing it to `texlog`, and never touch the editor.
@@ -12,6 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_engine::latexmk::{EngineChoice, Latexmk};
 use abstract_tex_engine::tectonic::Tectonic;
 use abstract_tex_engine::{BuildJob, Engine, EngineError};
@@ -59,6 +64,18 @@ pub enum CompileEvent {
         /// Engine stderr, for the "raw output" view that is one click away.
         stderr: String,
     },
+    /// A one-chapter draft of this generation's document is ready (S9.9): a stand-in to show
+    /// until `Finished` replaces it. Only ever sent before this generation's `Finished` or
+    /// `Failed`, and only for a draft that succeeded — a failed draft says nothing, because the
+    /// full build's diagnostics are the only ones the author should see.
+    Draft {
+        generation: u64,
+        /// The chapter it typeset, as its `\include` wrote it (`chapters/03-method`).
+        chapter: String,
+        /// Absolute path to the draft's PDF, under `.abstract-tex/draft/`.
+        pdf_path: String,
+        duration_ms: u64,
+    },
     /// The build could not run at all: no engine, or it failed to spawn.
     Failed {
         generation: u64,
@@ -80,6 +97,12 @@ struct Inner {
     in_flight: Mutex<Option<(u64, CancellationToken)>>,
     /// Monotonic counter. `AtomicU64` gives us increment-and-read without a lock.
     generation: AtomicU64,
+    /// The task running the last request's build and its draft. Each request's task waits for
+    /// the one before it (S9.9): cancelling only *asks* a build to stop, and a draft still
+    /// writing into `.abstract-tex/draft/` while the next request's `draft::prepare` clears it
+    /// would mix two drafts in one folder. The wait is short — a superseded build was cancelled
+    /// first, and a cancelled engine is one `kill` away from gone.
+    last_task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 /// The engine a project's `engine` setting asks for (S9.4), and a sentence when it cannot have
@@ -113,7 +136,12 @@ pub struct Orchestrator {
 impl Orchestrator {
     pub fn new(engine: Option<Arc<dyn Engine>>) -> Self {
         Self {
-            inner: Arc::new(Inner { engine: Mutex::new(engine), in_flight: Mutex::new(None), generation: AtomicU64::new(0) }),
+            inner: Arc::new(Inner {
+                engine: Mutex::new(engine),
+                in_flight: Mutex::new(None),
+                generation: AtomicU64::new(0),
+                last_task: Mutex::new(None),
+            }),
         }
     }
 
@@ -127,10 +155,12 @@ impl Orchestrator {
     }
 
     /// Start a build, cancelling whichever one was running. Returns the new generation number.
+    /// With `draft`, also typeset that one chapter beside it, if the engine and the last full
+    /// build allow (`draft::prepare` decides; most of the time they do not, and nothing is said).
     ///
     /// `on_event` is called from a background task, so it must be `Send + Sync + 'static`:
     /// safe to hand to another thread and not borrowing anything short-lived.
-    pub fn request<F>(&self, job: BuildJob, on_event: F) -> u64
+    pub fn request<F>(&self, job: BuildJob, draft: Option<DraftJob>, on_event: F) -> u64
     where
         F: Fn(CompileEvent) + Send + Sync + 'static,
     {
@@ -176,9 +206,60 @@ impl Orchestrator {
             }
         });
 
+        // Set once this generation has said `Finished` or `Failed`, and read by the draft before
+        // it says `Draft`. Both emits happen *while holding this lock*, so they cannot interleave:
+        // either the draft got in first, or it sees the flag and stays quiet. A draft arriving
+        // after the full PDF would replace a finished build with a partial one.
+        let full_reported = Arc::new(Mutex::new(false));
+
         let inner = Arc::clone(&self.inner);
+        let mut last_task = self.inner.last_task.lock().unwrap();
+        let previous_task = last_task.take();
         // Tauri's runtime is Tokio; this works in tests too, where Tauri lazily creates one.
-        tauri::async_runtime::spawn(async move {
+        *last_task = Some(tauri::async_runtime::spawn(async move {
+            if let Some(previous_task) = previous_task {
+                let _ = previous_task.await;
+            }
+            // Superseded while waiting: a newer request already said `Started`, so say nothing,
+            // lay nothing out and spawn nothing. Returning drops `progress_tx`, which ends the
+            // forwarder task too.
+            if token.is_cancelled() {
+                return;
+            }
+
+            // The draft is laid out before the full build starts, never beside it: the full build
+            // rewrites the `.aux` files `prepare` copies (the `draft` module doc says why).
+            let draft_run = draft.and_then(|draft_job| lay_out_draft(&job, draft_job)).map(|(chapter, layout)| {
+                // A child token is cancelled with its parent (a newer request), and can also be
+                // cancelled alone — below, once the full build has made the draft pointless.
+                let draft_token = token.child_token();
+                let engine = Arc::clone(&engine);
+                let job = job.clone();
+                let on_event = Arc::clone(&on_event);
+                let full_reported = Arc::clone(&full_reported);
+                let cancel = draft_token.clone();
+                let handle = tauri::async_runtime::spawn(async move {
+                    let Ok(Some(outcome)) = engine.build_draft(&job, &layout, cancel).await else {
+                        return; // no draft mode, cancelled, or could not run: silent, all three
+                    };
+                    // A failed draft is silent: the full build's diagnostics are the ones to show.
+                    if !outcome.success {
+                        return;
+                    }
+                    let Some(pdf) = outcome.pdf else { return };
+                    let full_reported = full_reported.lock().unwrap();
+                    if !*full_reported {
+                        on_event(CompileEvent::Draft {
+                            generation,
+                            chapter,
+                            pdf_path: pdf.to_string_lossy().into_owned(),
+                            duration_ms: outcome.duration.as_millis() as u64,
+                        });
+                    }
+                });
+                (draft_token, handle)
+            });
+
             let result = engine.build(&job, token, Some(progress_tx)).await;
 
             // `build` dropped its end of the progress channel on the way out (whether it
@@ -197,30 +278,41 @@ impl Orchestrator {
                 }
             }
 
-            match result {
-                Ok(outcome) => {
-                    let diagnostics = outcome.log.as_deref().map(read_diagnostics).unwrap_or_default();
-                    info!(generation, success = outcome.success, diagnostics = diagnostics.len(), "build finished");
-                    on_event(CompileEvent::Finished {
-                        generation,
-                        success: outcome.success,
-                        pdf_path: outcome.pdf.map(|p| p.to_string_lossy().into_owned()),
-                        log_path: outcome.log.map(|p| p.to_string_lossy().into_owned()),
-                        diagnostics,
-                        duration_ms: outcome.duration.as_millis() as u64,
-                        stderr: outcome.stderr,
-                    });
-                }
-                Err(EngineError::Cancelled) => {
-                    // Silence is correct: the frontend already received `Started` for the
-                    // build that replaced this one.
-                    debug!(generation, "build cancelled");
-                }
-                Err(error) => {
-                    on_event(CompileEvent::Failed { generation, message: error.to_string() });
+            {
+                let mut full_reported = full_reported.lock().unwrap();
+                *full_reported = true;
+                match result {
+                    Ok(outcome) => {
+                        let diagnostics = outcome.log.as_deref().map(read_diagnostics).unwrap_or_default();
+                        info!(generation, success = outcome.success, diagnostics = diagnostics.len(), "build finished");
+                        on_event(CompileEvent::Finished {
+                            generation,
+                            success: outcome.success,
+                            pdf_path: outcome.pdf.map(|p| p.to_string_lossy().into_owned()),
+                            log_path: outcome.log.map(|p| p.to_string_lossy().into_owned()),
+                            diagnostics,
+                            duration_ms: outcome.duration.as_millis() as u64,
+                            stderr: outcome.stderr,
+                        });
+                    }
+                    Err(EngineError::Cancelled) => {
+                        // Silence is correct: the frontend already received `Started` for the
+                        // build that replaced this one.
+                        debug!(generation, "build cancelled");
+                    }
+                    Err(error) => {
+                        on_event(CompileEvent::Failed { generation, message: error.to_string() });
+                    }
                 }
             }
-        });
+
+            // A draft still running once the full PDF exists has nothing left to show. Stop it,
+            // and wait, so this task ending means its draft has ended too (`Inner::last_task`).
+            if let Some((draft_token, draft_handle)) = draft_run {
+                draft_token.cancel();
+                let _ = draft_handle.await;
+            }
+        }));
 
         generation
     }
@@ -230,6 +322,20 @@ impl Orchestrator {
         if let Some((generation, token)) = self.inner.in_flight.lock().unwrap().take() {
             debug!(generation, "cancel requested");
             token.cancel();
+        }
+    }
+}
+
+/// Write the draft's wrapper and seed its folder, or say why not in the debug log. `None` is the
+/// common case — no full build to borrow numbering from yet, an engine with no draft mode — and
+/// never an error the author hears about: the full build runs either way.
+fn lay_out_draft(job: &BuildJob, draft_job: DraftJob) -> Option<(String, draft::DraftLayout)> {
+    match draft::prepare(job, &draft_job) {
+        Ok(Some(layout)) => Some((draft_job.chapter, layout)),
+        Ok(None) => None,
+        Err(error) => {
+            debug!(%error, "no draft: its folder could not be laid out");
+            None
         }
     }
 }
@@ -291,6 +397,17 @@ mod tests {
         assert_eq!(json["status"], "started");
         assert_eq!(json["rootFile"], "main.tex");
         assert!(json.get("root_file").is_none(), "root_file leaked: {json}");
+    }
+
+    /// `Draft` carries two-word fields too; `src/lib/ipc.ts` reads them as `pdfPath`/`durationMs`.
+    #[test]
+    fn draft_serialises_its_fields_in_camel_case() {
+        let event = CompileEvent::Draft { generation: 3, chapter: "chapters/one".into(), pdf_path: "/d/main.pdf".into(), duration_ms: 2060 };
+        let json = serde_json::to_value(&event).expect("event serialises");
+        assert_eq!(json["status"], "draft");
+        assert_eq!(json["chapter"], "chapters/one");
+        assert_eq!(json["pdfPath"], "/d/main.pdf");
+        assert_eq!(json["durationMs"], 2060);
     }
 
     use abstract_tex_engine::{BuildOutcome, EngineInfo};
@@ -373,6 +490,7 @@ mod tests {
             CompileEvent::Started { generation, .. } => ("started", *generation),
             CompileEvent::Progress { generation, .. } => ("progress", *generation),
             CompileEvent::Finished { generation, .. } => ("finished", *generation),
+            CompileEvent::Draft { generation, .. } => ("draft", *generation),
             CompileEvent::Failed { generation, .. } => ("failed", *generation),
         }
     }
@@ -383,7 +501,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
 
         let tx1 = tx.clone();
-        let first = orchestrator.request(job(), move |e| {
+        let first = orchestrator.request(job(), None, move |e| {
             let _ = tx1.send(e);
         });
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -394,7 +512,7 @@ mod tests {
         let _ = orchestrator_fast; // (kept simple: a second request on the same orchestrator follows)
 
         let tx2 = tx.clone();
-        let second = orchestrator.request(job(), move |e| {
+        let second = orchestrator.request(job(), None, move |e| {
             let _ = tx2.send(e);
         });
         assert_eq!(second, first + 1);
@@ -418,7 +536,7 @@ mod tests {
     async fn a_build_that_completes_reports_finished_with_its_generation() {
         let orchestrator = Orchestrator::new(Some(Arc::new(SleepyEngine { delay: Duration::from_millis(30) })));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let generation = orchestrator.request(job(), move |e| {
+        let generation = orchestrator.request(job(), None, move |e| {
             let _ = tx.send(e);
         });
 
@@ -435,7 +553,7 @@ mod tests {
     async fn progress_lines_arrive_between_started_and_finished_in_order() {
         let orchestrator = Orchestrator::new(Some(Arc::new(ChattyEngine)));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let generation = orchestrator.request(job(), move |e| {
+        let generation = orchestrator.request(job(), None, move |e| {
             let _ = tx.send(e);
         });
 
@@ -461,11 +579,115 @@ mod tests {
     async fn no_engine_reports_failed_immediately() {
         let orchestrator = Orchestrator::new(None);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        orchestrator.request(job(), move |e| {
+        orchestrator.request(job(), None, move |e| {
             let _ = tx.send(e);
         });
         let event = rx.recv().await.unwrap();
         assert_eq!(status(&event).0, "failed");
+    }
+
+    // ---- the draft beside the build (S9.9) ----
+
+    /// A full build and a draft that each take as long as the test says, and a draft that
+    /// succeeds or fails as told. It never looks at the draft's layout: `prepare` is real and
+    /// tested in its own crate; what is under test here is only the order of the events.
+    struct DraftingEngine {
+        full: Duration,
+        draft: Duration,
+        draft_succeeds: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for DraftingEngine {
+        async fn probe(&self) -> Result<EngineInfo, EngineError> {
+            Ok(EngineInfo { name: "drafting".into(), version: "0".into(), path: PathBuf::new() })
+        }
+
+        async fn build(
+            &self,
+            job: &BuildJob,
+            cancel: CancellationToken,
+            _progress: Option<abstract_tex_engine::ProgressSink>,
+        ) -> Result<BuildOutcome, EngineError> {
+            SleepyEngine { delay: self.full }.build(job, cancel, None).await
+        }
+
+        async fn build_draft(
+            &self,
+            _job: &BuildJob,
+            _layout: &draft::DraftLayout,
+            cancel: CancellationToken,
+        ) -> Result<Option<BuildOutcome>, EngineError> {
+            tokio::select! {
+                _ = tokio::time::sleep(self.draft) => Ok(Some(BuildOutcome {
+                    success: self.draft_succeeds, pdf: Some(PathBuf::from("/proj/.abstract-tex/draft/build/main.pdf")),
+                    log: None, synctex: None, stderr: String::new(), exit_code: Some(0), duration: self.draft,
+                    steps: Default::default(),
+                })),
+                _ = cancel.cancelled() => Err(EngineError::Cancelled),
+            }
+        }
+    }
+
+    /// A project whose last full build succeeded, so `draft::prepare` agrees to lay a draft out.
+    fn warm_project() -> (tempfile::TempDir, BuildJob, DraftJob) {
+        let project = tempfile::tempdir().unwrap();
+        let build = project.path().join(".abstract-tex/build");
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join("main.aux"), "\\relax\n").unwrap();
+        std::fs::write(build.join(abstract_tex_engine::incremental::WARM_MARKER), "").unwrap();
+        let job = BuildJob { project_dir: project.path().to_path_buf(), root_file: PathBuf::from("main.tex"), out_dir: build, synctex: true };
+        let draft = DraftJob { chapter: "chapters/one".into(), dir: project.path().join(".abstract-tex/draft") };
+        (project, job, draft)
+    }
+
+    /// Every event one request produces, until its `Finished` and a short quiet spell after it,
+    /// so a draft that arrived late would be caught rather than missed.
+    async fn events_of(engine: DraftingEngine, job: BuildJob, draft: Option<DraftJob>) -> Vec<(&'static str, u64)> {
+        let orchestrator = Orchestrator::new(Some(Arc::new(engine)));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        orchestrator.request(job, draft, move |e| {
+            let _ = tx.send(e);
+        });
+        let mut seen = Vec::new();
+        while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(400), rx.recv()).await {
+            if let CompileEvent::Draft { chapter, pdf_path, .. } = &event {
+                assert_eq!(chapter, "chapters/one");
+                assert!(pdf_path.ends_with("main.pdf"));
+            }
+            seen.push(status(&event));
+        }
+        seen
+    }
+
+    #[tokio::test]
+    async fn a_draft_faster_than_the_full_build_arrives_between_started_and_finished() {
+        let (_project, job, draft) = warm_project();
+        let engine = DraftingEngine { full: Duration::from_millis(150), draft: Duration::from_millis(20), draft_succeeds: true };
+        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("draft", 1), ("finished", 1)]);
+    }
+
+    #[tokio::test]
+    async fn a_draft_slower_than_the_full_build_is_never_shown() {
+        let (_project, job, draft) = warm_project();
+        let engine = DraftingEngine { full: Duration::from_millis(20), draft: Duration::from_millis(150), draft_succeeds: true };
+        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("finished", 1)]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_draft_says_nothing() {
+        let (_project, job, draft) = warm_project();
+        let engine = DraftingEngine { full: Duration::from_millis(150), draft: Duration::from_millis(20), draft_succeeds: false };
+        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("finished", 1)]);
+    }
+
+    #[tokio::test]
+    async fn no_draft_without_a_warm_full_build_to_borrow_numbering_from() {
+        let (project, job, draft) = warm_project();
+        std::fs::remove_file(job.out_dir.join(abstract_tex_engine::incremental::WARM_MARKER)).unwrap();
+        let engine = DraftingEngine { full: Duration::from_millis(150), draft: Duration::from_millis(20), draft_succeeds: true };
+        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("finished", 1)]);
+        assert!(!project.path().join(".abstract-tex/draft").exists(), "nothing laid out");
     }
 
     // ---- choosing the engine (S9.4) ----

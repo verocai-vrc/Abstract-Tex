@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use abstract_tex_includes::IncludeGraph;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,8 @@ pub const CONFIG_FILE: &str = "abstract-tex.toml";
 pub const STATE_DIR: &str = ".abstract-tex";
 /// Where the engine writes `.pdf`, `.log`, `.aux` and friends.
 pub const BUILD_SUBDIR: &str = "build";
+/// Beside `build/` under `STATE_DIR`: the one-chapter draft (S9.9).
+pub const DRAFT_SUBDIR: &str = "draft";
 /// The config file's name before the rename (see the module doc).
 pub const LEGACY_CONFIG_FILE: &str = "preamble.toml";
 /// The state folder's name before the rename. Still ignored, so an old project does not show a
@@ -108,13 +111,14 @@ pub struct Project {
     graph_builds: usize,
 }
 
-/// The document files `info()` found, and what each one looked like when it did.
+/// The include graph `info()` walked, and what each of its files looked like when it did. The
+/// whole graph, not only its file list, since S9.9 asks it which chapter a file belongs to.
 #[derive(Debug)]
 struct GraphCache {
     root: PathBuf,
+    /// One per `graph.nodes`, in the same order.
     stamps: Vec<FileStamp>,
-    document_files: Vec<String>,
-    complete: bool,
+    graph: IncludeGraph,
 }
 
 /// Enough to tell that a file changed without reading it: whether it exists, its size, and
@@ -162,6 +166,12 @@ impl Project {
 
     pub fn build_dir(&self) -> PathBuf {
         self.root_dir.join(STATE_DIR).join(BUILD_SUBDIR)
+    }
+
+    /// Where one-chapter drafts are built (S9.9, DESIGN.md §5.8): beside `build/`, which
+    /// `draft::prepare` insists on, and created by it, not here.
+    pub fn draft_dir(&self) -> PathBuf {
+        self.root_dir.join(STATE_DIR).join(DRAFT_SUBDIR)
     }
 
     /// The root `.tex`, relative to the project. Configured value first, detection second.
@@ -276,27 +286,34 @@ impl Project {
         }
     }
 
-    /// The document's files and whether the graph is complete: from the cache while every file
-    /// it walked still looks the same, from a fresh walk otherwise.
+    /// The document's files and whether the graph is complete.
     fn document_graph(&mut self, root: &Path) -> (Vec<String>, bool) {
-        if let Some(cache) = &self.graph_cache {
-            let unchanged = cache.root == root
-                && cache.document_files.iter().zip(&cache.stamps).all(|(file, then)| stamp(&self.root_dir.join(file)) == *then);
-            if unchanged {
-                return (cache.document_files.clone(), cache.complete);
-            }
-        }
+        let graph = self.graph(root);
+        (graph.nodes.iter().map(|node| node.path.clone()).collect(), graph.is_complete())
+    }
 
-        self.graph_builds += 1;
-        let graph = abstract_tex_includes::build_graph(&self.root_dir, root);
-        // `is_complete` first: `into_iter()` below moves `graph.nodes` out of `graph`, and
-        // calling it after would be a partial-move error (a method on `graph` used once one of
-        // its fields has already been moved out).
-        let complete = graph.is_complete();
-        let document_files: Vec<String> = graph.nodes.into_iter().map(|node| node.path).collect();
-        let stamps = document_files.iter().map(|file| stamp(&self.root_dir.join(file))).collect();
-        self.graph_cache = Some(GraphCache { root: root.to_path_buf(), stamps, document_files: document_files.clone(), complete });
-        (document_files, complete)
+    /// The include graph: from the cache while every file it walked still looks the same, from a
+    /// fresh walk otherwise.
+    fn graph(&mut self, root: &Path) -> &IncludeGraph {
+        let unchanged = self.graph_cache.as_ref().is_some_and(|cache| {
+            cache.root == root
+                && cache.graph.nodes.iter().zip(&cache.stamps).all(|(node, then)| stamp(&self.root_dir.join(&node.path)) == *then)
+        });
+        if !unchanged {
+            self.graph_builds += 1;
+            let graph = abstract_tex_includes::build_graph(&self.root_dir, root);
+            let stamps = graph.nodes.iter().map(|node| stamp(&self.root_dir.join(&node.path))).collect();
+            self.graph_cache = Some(GraphCache { root: root.to_path_buf(), stamps, graph });
+        }
+        &self.graph_cache.as_ref().expect("filled just above when it was empty or stale").graph
+    }
+
+    /// The `\include` argument of the chapter `relative` belongs to, for a one-chapter draft
+    /// (S9.9). `None` without a root, and for the root itself, its preamble, or any file no
+    /// `\include` reaches: those have no chapter to draft.
+    pub fn chapter_of(&mut self, relative: &str) -> Option<String> {
+        let root = self.root_file()?;
+        self.graph(&root).chapter_of(relative).map(|chapter| chapter.argument.clone())
     }
 }
 
@@ -676,6 +693,24 @@ mod tests {
         let info = project.info();
         assert_eq!(project.graph_builds, 3);
         assert_eq!(info.document_files, vec!["main.tex", "intro.tex", "fig.tex", "table.tex"]);
+    }
+
+    #[test]
+    fn chapter_of_names_the_include_a_file_is_reached_through_and_reuses_the_graph() {
+        let dir = scaffold(&[
+            ("main.tex", "\\input{preamble}\n\\include{chapters/one}\n"),
+            ("preamble.tex", ""),
+            ("chapters/one.tex", "\\input{figures/plot}\n"),
+            ("figures/plot.tex", ""),
+        ]);
+        let mut project = Project::open(dir.path()).unwrap();
+        assert_eq!(project.chapter_of("chapters/one.tex").as_deref(), Some("chapters/one"));
+        assert_eq!(project.chapter_of("figures/plot.tex").as_deref(), Some("chapters/one"), "through its \\input");
+        assert_eq!(project.chapter_of("preamble.tex"), None, "the preamble has no chapter to draft");
+        assert_eq!(project.chapter_of("main.tex"), None);
+        assert_eq!(project.graph_builds, 1, "four questions, one walk");
+        assert!(project.draft_dir().ends_with(".abstract-tex/draft"));
+        assert_eq!(project.draft_dir().parent(), project.build_dir().parent(), "beside build/, as prepare requires");
     }
 
     #[test]

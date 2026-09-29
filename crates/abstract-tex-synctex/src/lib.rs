@@ -58,7 +58,8 @@ pub enum SyncTexError {
 /// A `file:line` pair, the unit both search directions answer in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceLocation {
-    /// Absolute path, as SyncTeX's own `Input:` line recorded it.
+    /// Absolute path, as SyncTeX's own `Input:` line recorded it, with any `.`/`..` segments
+    /// resolved: a scoped draft records its root as `…/draft/../../main.tex` (S9.9).
     pub file: PathBuf,
     /// 1-based, matching how an editor gutter and TeX's own `l.NN` both count.
     pub line: u32,
@@ -181,6 +182,34 @@ fn normalise(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// A recorded path with its `.` and `..` segments resolved, as text, without asking the
+/// filesystem. TeX records a file by the path it was asked to open, and a scoped draft (S9.9)
+/// asks for the root by a path relative to the draft's own folder: its `Input:` line reads
+/// `/proj/.abstract-tex/draft/../../main.tex`, which no editor path would ever match and which
+/// `strip_prefix` would turn into a project-relative path that climbs out and back in. Paths
+/// with no such segment are kept exactly as recorded; resolved ones come back with forward
+/// slashes, which every platform this app runs on accepts.
+fn without_dot_segments(recorded: &str) -> PathBuf {
+    let forward = recorded.replace('\\', "/");
+    let has_dot_segment = forward.split('/').any(|segment| segment == "." || segment == "..");
+    if !has_dot_segment {
+        return PathBuf::from(recorded);
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    for segment in forward.split('/') {
+        match segment {
+            "." => {}
+            // Only a real folder name can be climbed out of: not the empty segment before an
+            // absolute path's first `/`, and not another `..` that could not be resolved either.
+            ".." if kept.last().is_some_and(|last| !last.is_empty() && *last != "..") => {
+                kept.pop();
+            }
+            _ => kept.push(segment),
+        }
+    }
+    PathBuf::from(kept.join("/"))
+}
+
 fn distance_sq(record: &Record, position: PdfPosition) -> f64 {
     let candidate = to_pdf_position(record);
     let dx = candidate.x - position.x;
@@ -244,7 +273,7 @@ fn parse(text: &str) -> Option<SyncTex> {
                 // for macro-expansion levels with no file of their own); nothing to index there.
                 if !path.is_empty() {
                     if let Ok(tag) = tag.parse() {
-                        files.insert(tag, PathBuf::from(path));
+                        files.insert(tag, without_dot_segments(path));
                     }
                 }
             }
@@ -356,6 +385,23 @@ Count:5\n";
     fn forward_search_is_none_for_a_line_with_no_typeset_material() {
         let synctex = parse(REAL_EXCERPT).unwrap();
         assert!(synctex.forward_search(Path::new("C:\\proj\\multi.tex"), 999).is_none());
+    }
+
+    /// A draft's root, recorded through `..` (S9.9): found by its plain path, and handed back as it.
+    #[test]
+    fn a_path_recorded_through_dot_dot_is_resolved_both_ways() {
+        let draft = REAL_EXCERPT.replace("Input:1:C:\\proj\\multi.tex", "Input:1:/proj/.abstract-tex/draft/../../main.tex");
+        let synctex = parse(&draft).unwrap();
+        let forward = synctex.forward_search(Path::new("/proj/main.tex"), 3).expect("the root's plain path matches");
+        let back = synctex.inverse_search(forward).unwrap();
+        assert_eq!(back.file, PathBuf::from("/proj/main.tex"));
+    }
+
+    #[test]
+    fn dot_segments_resolve_and_plain_paths_stay_as_recorded() {
+        assert_eq!(without_dot_segments("/p/./a/../b.tex"), PathBuf::from("/p/b.tex"));
+        assert_eq!(without_dot_segments("/../b.tex"), PathBuf::from("/../b.tex"));
+        assert_eq!(without_dot_segments("C:\\proj\\multi.tex"), PathBuf::from("C:\\proj\\multi.tex"));
     }
 
     #[test]

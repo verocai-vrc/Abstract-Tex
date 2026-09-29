@@ -24,6 +24,10 @@ pub struct ForwardQuery {
     pub file: String,
     /// 1-based, matching the editor's own line numbers.
     pub line: u32,
+    /// Search the draft's `.synctex.gz`, because the PDF on screen is the draft (S9.9).
+    /// `#[serde(default)]`: a query without the field means the full build, as before S9.9.
+    #[serde(default)]
+    pub draft: bool,
 }
 
 /// What the frontend gets back from a forward search: where to scroll and highlight in the PDF.
@@ -48,6 +52,9 @@ pub struct InverseQuery {
     pub page: u32,
     pub x: f64,
     pub y: f64,
+    /// As [`ForwardQuery::draft`].
+    #[serde(default)]
+    pub draft: bool,
 }
 
 /// What the frontend gets back from an inverse search: where to open the cursor.
@@ -153,6 +160,69 @@ mod tests {
 
         assert_eq!(result.file.as_deref(), Some("multi.tex"));
         assert_eq!(result.line, 3);
+    }
+
+    /// S9.9's "a click in the draft lands on the right line", against the real engine and the
+    /// corpus thesis: the project names the chapter, the draft is built as the orchestrator
+    /// builds it, and both searches run on the draft's `.synctex.gz` the way `synctex_forward`
+    /// and `synctex_inverse` do when the frontend says a draft is showing.
+    /// `cargo test -p abstract-tex -- --ignored a_click_in_a_real_thesis_draft`
+    #[tokio::test]
+    #[ignore]
+    async fn a_click_in_a_real_thesis_draft_lands_on_the_chapter_line() {
+        use abstract_tex_engine::draft::{self, DraftJob};
+        use abstract_tex_engine::tectonic::Tectonic;
+        use abstract_tex_engine::{BuildJob, Engine};
+        use tokio_util::sync::CancellationToken;
+
+        let binaries = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
+        let tectonic = std::fs::read_dir(&binaries)
+            .expect("run `pnpm fetch-engine`")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("tectonic-")))
+            .expect("run `pnpm fetch-engine`");
+        let engine = Tectonic::at(tectonic);
+
+        let folder = tempfile::tempdir().unwrap();
+        copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/corpus/thesis"), folder.path());
+        let mut project = crate::project::Project::open(folder.path()).unwrap();
+        let root_file = project.root_file().unwrap();
+        let job = BuildJob { project_dir: project.root_dir.clone(), root_file: root_file.clone(), out_dir: project.build_dir(), synctex: true };
+        assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
+
+        let chapter = project.chapter_of("chapters/03-method.tex").expect("chapter 3 is an \\include");
+        let draft_job = DraftJob { chapter, dir: project.draft_dir() };
+        let layout = draft::prepare(&job, &draft_job).unwrap().expect("a warm thesis has a draft");
+        let drafted = engine.build_draft(&job, &layout, CancellationToken::new()).await.unwrap().unwrap();
+        assert!(drafted.success, "{}", drafted.stderr);
+
+        let table = open(&draft::build_folder(&project.draft_dir()), &root_file).expect("the draft wrote SyncTeX");
+        // Chapter 3, line 7: the first line of prose after the generated text.
+        let chapter_file = project.root_dir.join("chapters/03-method.tex");
+        let spot = table.forward_search(&chapter_file, 7).expect("line 7 is typeset in the draft");
+        let hit = to_relative(&project.root_dir, table.inverse_search(spot).expect("and can be clicked"));
+        assert_eq!(hit.file.as_deref(), Some("chapters/03-method.tex"));
+        assert!((7..=9).contains(&hit.line), "the click landed on line {}, not the paragraph at 7–9", hit.line);
+
+        // The root is recorded through `..` from the draft's folder; its front matter still maps.
+        // Line 13, `\\tableofcontents`: `\\maketitle` on line 12 leaves no record in any build.
+        let contents = table.forward_search(&project.root_dir.join("main.tex"), 13).expect("the contents are in the draft");
+        let back = to_relative(&project.root_dir, table.inverse_search(contents).unwrap());
+        assert_eq!(back.file.as_deref(), Some("main.tex"), "not .abstract-tex/draft/../../main.tex");
+    }
+
+    fn copy_dir(from: &Path, to: &Path) {
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                std::fs::create_dir_all(&target).unwrap();
+                copy_dir(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), target).unwrap();
+            }
+        }
     }
 
     /// Copy `abstract-tex-synctex`'s committed fixture into `folder`, rewriting its `Input:1:` line to

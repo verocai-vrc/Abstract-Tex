@@ -15,6 +15,19 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
+  costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes
+  `.abstract-tex-warm` before anything runs and writes it back only after a success
+  (`tectonic.rs`, S9.2), so a build the orchestrator cancels — every save that lands while a
+  build is running — leaves no marker, and the next build starts cold: every BibTeX run and
+  every rerun, 12–25 s on the corpus thesis instead of one 3.3 s pass. That is safe (S9.2's
+  point 3: never trust an `.aux` a half-run pass may have rewritten) but it turns the ordinary
+  typing rhythm into the slowest path there is, and it also means no draft (S9.9) for that
+  build, since `draft::prepare` borrows the same marker. A likely fix: a pass cancelled
+  *before TeX wrote anything* could restore the marker, or the orchestrator could let a warm
+  single pass finish instead of cancelling it, as its cost is bounded. Not fixed in S9.9, which
+  does not change when builds are cancelled. Open.
+
 - **Latent: the LSP bridge does not read while it writes.** (found with the entry below, 28 Sep
   2026) `bridge::supervise` is one `select!` loop, and inside its outbound branch it awaits
   `running.send(&body)` to completion, so nothing drains TexLab's stdout during a write. That can
@@ -407,6 +420,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   proper does — the test as written assumes an OS pipe with no meaningful capacity limit,
   which Linux does not give it. Found running the full workspace suite for the first time on
   Linux, 14 Sep 2026.
+  **Fixed** in the test (28 Sep 2026, commit `b3e0986`; this entry was only updated on 29 Sep):
+  it now sends ten frames at a time and reads their replies before sending more, which stays
+  under one pipe's worth and still keeps several frames in flight. The bridge's own version of
+  the hazard is not fixed, and is the *Latent: the LSP bridge does not read while it writes* entry
+  above.
 
 - **LSP diagnostic lookups can miss on a drive-letter casing mismatch.**
   `src/lib/lsp-diagnostics.ts` keys its map by the server's URI spelling on write
@@ -500,6 +518,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cosmetic.
 
 ## Fixed
+
+- **A draft's SyncTeX names its root `…/.abstract-tex/draft/../../main.tex`, so neither search
+  direction would match the root file while a draft was on screen.** (29 Sep 2026, found in
+  S9.9's spike before any app code was written) TeX records a file by the path it was asked to
+  open, and the draft's wrapper reaches the root by a path relative to its own folder (S9.7).
+  Chapter files come out clean — they are `\include`d relative to the project — so only the
+  root's own pages (title, contents, bibliography) were affected: forward search from `main.tex`
+  found nothing, and inverse search returned a project-relative path that climbed out and back
+  in. **Fixed** (29 Sep 2026, S9.9): `abstract-tex-synctex` resolves `.`/`..` segments in every
+  `Input:` path as text when it parses; pinned by a unit test and by the ignored real-engine test
+  `a_click_in_a_real_thesis_draft_lands_on_the_chapter_line`.
 
 - **The README had gone stale since sprint 1, and two of its instructions did not work.**
   (28 Sep 2026, found rewriting it as a public project page) It still said "Status: sprint 1";

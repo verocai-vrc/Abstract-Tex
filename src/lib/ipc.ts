@@ -82,6 +82,9 @@ export type CompileEvent =
       durationMs: number;
       stderr: string;
     }
+  /** S9.9: a one-chapter draft of this generation, to show until its `finished` replaces it.
+   * Rust never sends one after that generation's `finished`, nor for a draft that failed. */
+  | { status: 'draft'; generation: number; chapter: string; pdfPath: string; durationMs: number }
   | { status: 'failed'; generation: number; message: string };
 
 /** Anything the language server says without being asked (`src-tauri/src/lsp.rs`).
@@ -256,18 +259,20 @@ export const ipc = {
   writeFile: (path: string, contents: string) => invoke<void>('write_file', { path, contents }),
   createFile: (path: string) => invoke<ProjectInfo>('create_file', { path }),
   setRootFile: (path: string) => invoke<ProjectInfo>('set_root_file', { path }),
-  compile: () => invoke<number>('compile'),
+  /** `file` is the one being edited: when it belongs to a chapter, that chapter is drafted too. */
+  compile: (file: string | null) => invoke<number>('compile', { file }),
   cancelCompile: () => invoke<void>('cancel_compile'),
   readLog: () => invoke<string>('read_log'),
   diffOps: (oldText: string, newText: string) => invoke<TextOp[]>('diff_ops', { old: oldText, new: newText }),
 
   /** Forward search: a source line to a spot in the last build's PDF (S3.4). Rejects with a
-   * sentence — no build yet, or nothing typeset for that line — rather than an engine detail. */
-  synctexForward: (file: string, line: number) =>
-    invoke<SyncTexForwardResult>('synctex_forward', { query: { file, line } }),
+   * sentence — no build yet, or nothing typeset for that line — rather than an engine detail.
+   * `draft`: search the draft's SyncTeX, because the PDF on screen is the draft (S9.9). */
+  synctexForward: (file: string, line: number, draft: boolean) =>
+    invoke<SyncTexForwardResult>('synctex_forward', { query: { file, line, draft } }),
   /** Inverse search: a click in the PDF to a source line (S3.5). */
-  synctexInverse: (page: number, x: number, y: number) =>
-    invoke<SyncTexInverseResult>('synctex_inverse', { query: { page, x, y } }),
+  synctexInverse: (page: number, x: number, y: number, draft: boolean) =>
+    invoke<SyncTexInverseResult>('synctex_inverse', { query: { page, x, y, draft } }),
 
   /** Start TexLab for the open project; resolves to its capabilities. Rejects with a sentence
    * if the binary is missing — the editor keeps working without it. */

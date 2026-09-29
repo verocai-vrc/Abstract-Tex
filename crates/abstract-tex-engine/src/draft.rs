@@ -84,7 +84,7 @@ pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayou
 
     // Rebuilt from the full build every time, so nothing a previous draft wrote (another
     // chapter's `.aux`, rewritten by that draft's pass) can leak into this one.
-    let out_dir = draft.dir.join("build");
+    let out_dir = build_folder(&draft.dir);
     if out_dir.exists() {
         fs::remove_dir_all(&out_dir)?;
     }
@@ -102,6 +102,13 @@ pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayou
     fs::write(draft.dir.join(&wrapper_name), wrapper_text)?;
 
     Ok(Some(DraftLayout { wrapper: dir_in_project.join(wrapper_name), out_dir }))
+}
+
+/// Where a draft in `draft_dir` writes its PDF, log and `.synctex.gz`: what [`prepare`] lays out
+/// and [`DraftLayout::out_dir`] names, for a caller that needs it without a layout in hand
+/// (SyncTeX against the draft on screen, S9.9).
+pub fn build_folder(draft_dir: &Path) -> PathBuf {
+    draft_dir.join("build")
 }
 
 /// The path from a folder inside the project back up to `root_file`, forward slashes, for

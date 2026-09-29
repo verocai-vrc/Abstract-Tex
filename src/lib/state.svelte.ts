@@ -90,6 +90,9 @@ class AppState {
 
   /** Asset URL of the last *successful* PDF. Stays put when a build fails (DESIGN.md §6). */
   pdfUrl = $state<string | null>(null);
+  /** The chapter the PDF on screen is a one-chapter draft of (S9.9), as its `\include` wrote it;
+   * `null` when it is a full build. SyncTeX searches whichever of the two is showing. */
+  pdfDraftOf = $state<string | null>(null);
 
   drawerOpen = $state(false);
   /** The drawer's severity and "this file" filter (S6.3). Kept for the session, not reset per

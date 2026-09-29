@@ -276,7 +276,10 @@ the budget in §2 requires:
    still running behind it. **Measured** (S9.7): the unit is the `\include`d chapter the edited
    file belongs to, and on the corpus thesis a draft of one chapter takes 2.1 s against 3.4 s for
    the warm full pass — but a draft of *no* chapter still takes 1.9 s. The preamble is the floor,
-   and on the bundled engine nothing in rungs 1–4 goes below it.
+   and on the bundled engine nothing in rungs 1–4 goes below it. **In the app** (S9.9): every
+   build of a chapter drafts it alongside; the draft is on screen from the moment it lands until
+   the full PDF replaces it (or, if the full build fails, the last full PDF comes back), the
+   status bar says it is a draft, and SyncTeX searches whichever PDF is showing.
 5. **Persistent engine process.** Amortise interpreter start-up. Last rung; only if measurement
    demands it.
 

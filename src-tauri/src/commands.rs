@@ -7,6 +7,7 @@
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
+use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -170,23 +171,25 @@ pub fn set_root_file(state: State<'_, AppState>, path: String) -> CommandResult<
 }
 
 /// Start a build of the project's root file. Progress arrives as `compile` events.
+///
+/// `file` is the file being edited, project-relative (S9.9): when it belongs to a chapter, that
+/// chapter is also drafted beside the full build, and a `draft` event may arrive first.
 #[tauri::command]
-pub fn compile(app: AppHandle, state: State<'_, AppState>) -> CommandResult<u64> {
+pub fn compile(app: AppHandle, state: State<'_, AppState>, file: Option<String>) -> CommandResult<u64> {
     // Gather everything under the lock, then release it before the build starts.
-    let job = with_project(&state, |project| {
+    let (job, draft) = with_project(&state, |project| {
         let root_file = project.root_file().ok_or_else(|| {
             anyhow::anyhow!("No root .tex file found. Create main.tex or choose a root file in the tree.")
         })?;
-        Ok(BuildJob {
-            project_dir: project.root_dir.clone(),
-            root_file,
-            out_dir: project.build_dir(),
-            synctex: true,
-        })
+        let job = BuildJob { project_dir: project.root_dir.clone(), root_file, out_dir: project.build_dir(), synctex: true };
+        let draft = file
+            .and_then(|file| project.chapter_of(&file))
+            .map(|chapter| DraftJob { chapter, dir: project.draft_dir() });
+        Ok((job, draft))
     })?;
 
     let emitter = app.clone();
-    let generation = state.orchestrator.request(job, move |event: CompileEvent| {
+    let generation = state.orchestrator.request(job, draft, move |event: CompileEvent| {
         let _ = emitter.emit("compile", event);
     });
     Ok(generation)
@@ -411,13 +414,23 @@ fn project_root(state: &AppState) -> CommandResult<Option<(PathBuf, PathBuf, Vec
 // parser errors into a sentence; this is only the Tauri glue on top of it.
 // ---------------------------------------------------------------------------
 
+/// The folder whose `.synctex.gz` matches the PDF on screen: the full build's, or the draft's
+/// while a draft is showing (S9.9). The frontend knows which one it is showing; Rust does not.
+fn synctex_dir(project: &Project, draft: bool) -> PathBuf {
+    if draft {
+        draft::build_folder(&project.draft_dir())
+    } else {
+        project.build_dir()
+    }
+}
+
 /// Cursor in the editor → page and point in the PDF (S3.4).
 #[tauri::command]
 pub fn synctex_forward(state: State<'_, AppState>, query: ForwardQuery) -> CommandResult<ForwardResult> {
     with_project(&state, |project| {
         let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
         let source = project.resolve(&query.file)?;
-        let table = synctex::open(&project.build_dir(), &root_file).map_err(|e| anyhow::anyhow!(e))?;
+        let table = synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
         table
             .forward_search(&source, query.line)
             .map(ForwardResult::from)
@@ -430,7 +443,7 @@ pub fn synctex_forward(state: State<'_, AppState>, query: ForwardQuery) -> Comma
 pub fn synctex_inverse(state: State<'_, AppState>, query: InverseQuery) -> CommandResult<InverseResult> {
     with_project(&state, |project| {
         let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
-        let table = synctex::open(&project.build_dir(), &root_file).map_err(|e| anyhow::anyhow!(e))?;
+        let table = synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
         let position = abstract_tex_synctex::PdfPosition { page: query.page, x: query.x, y: query.y };
         let hit = table
             .inverse_search(position)

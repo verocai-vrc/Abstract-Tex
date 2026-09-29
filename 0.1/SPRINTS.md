@@ -2926,7 +2926,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
 | [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
-| [ ] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
+| [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
 | [ ] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 
 ```
@@ -3262,6 +3262,44 @@ Verify    cargo test -p abstract-tex -- compile synctex; pnpm vitest run; rung 4
 Done when an edit to chapter 3 of the thesis shows its draft before the full PDF, a click in the
           draft lands on the right line, and a draft never replaces a finished build.
 ```
+
+**S9.9 (29 September 2026).** `[~]`: rungs 1–3 green, on the Linux machine — `cargo test
+--workspace` 464 passed / 0 failed (8 new: 5 in `compile.rs`, 1 in `project.rs`, 2 in
+`abstract-tex-synctex`), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check` 0
+errors, Vitest 423/423 (5 new); rung 3: the new `#[ignore]`d
+`a_click_in_a_real_thesis_draft_lands_on_the_chapter_line` passes against the real engine in 14 s.
+`[~]` because rung 4 is the maintainer's: open `fixtures/corpus/thesis`, edit chapter 3, watch the
+draft appear before the full PDF and the status bar say so, double-click in it. The diff is 450
+lines of Rust, over `CLAUDE.md`'s ~400; about half are tests. What a reader should take from it:
+
+1. **One lock, two emits.** The draft and the full build run on separate tasks, so "a draft never
+   after `finished`" cannot be a check on the frontend alone. Each generation gets an
+   `Arc<Mutex<bool>>`: the full build sets it and emits `Finished` *while holding the lock*; the
+   draft emits `Draft` only while holding the same lock and seeing it unset. Whichever gets the
+   lock first wins, and a late draft stays silent. The frontend checks again anyway (a draft for
+   anything but the running generation is ignored), because it is one line.
+2. **Each request waits for the one before it.** Cancelling only *asks* a build to stop.
+   `prepare` clears `.abstract-tex/draft/`, so a draft still writing there when the next request
+   lays out its own would mix two drafts in one folder. `Inner::last_task` chains the requests'
+   tasks; the wait is one `kill`, because the superseded build was cancelled first, and a task
+   ends only after its draft has (a draft still running when the full PDF lands is cancelled,
+   through a child token, then awaited). A request superseded while waiting spawns nothing.
+3. **The spike found the only SyncTeX bug before any code existed.** Chapters are recorded by
+   clean paths, but the root is recorded as `…/draft/../../main.tex`, the path the wrapper used,
+   which matches nothing. `abstract-tex-synctex` now resolves `.`/`..` as text when it parses
+   (ledger). The real-engine test checks both a chapter line and the root's contents page.
+4. **Rust does not know which PDF is on screen; the frontend says so.** `synctex_forward` and
+   `synctex_inverse` take `draft: bool` (`#[serde(default)]`, so older callers mean the full
+   build). The folder name has one definition, `draft::build_folder`, which `prepare` also uses.
+5. **A draft stands in for a build; it never outlives one.** A successful `finished` replaces
+   it. A failed one puts the last *full* PDF back, not the draft: the drawer is explaining errors
+   in the whole document, and a chapter-only PDF beside them, labelled "draft" indefinitely,
+   would be the harder thing to read. `Project` now caches the whole include graph (not only its
+   file list), so `chapter_of` costs nothing extra once `info()` has walked it.
+
+Found while designing this and logged, not fixed: a cancelled warm build leaves no warm marker,
+so the build after it is a full one — saving during a 3 s thesis build costs the next save
+~12 s, and gets no draft either. It is the next speed problem worth a loop.
 
 ### Sprint 10–11 — v0.6 sync
 

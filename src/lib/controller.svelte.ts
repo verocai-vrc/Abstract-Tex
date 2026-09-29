@@ -462,6 +462,8 @@ export async function openFolder(path?: string): Promise<void> {
     closeAllDocuments();
     app.project = info;
     app.pdfUrl = null;
+    app.pdfDraftOf = null;
+    fullPdfUrl = null;
     app.compile = { ...app.compile, phase: 'idle', diagnostics: [], message: null };
     // The previous project's log must not be what the raw view shows for this one.
     app.showRawLog = false;
@@ -600,7 +602,8 @@ export async function triggerCompile(): Promise<void> {
      * against a slightly stale version of one file beats not building at all. */
   });
   try {
-    await ipc.compile();
+    // The file being edited, so Rust can draft its chapter beside the full build (S9.9).
+    await ipc.compile(app.activePath);
   } catch (error) {
     app.compile = { ...app.compile, phase: 'failed', message: String(error) };
     app.drawerOpen = true;
@@ -728,7 +731,7 @@ let syncTexNonce = 0;
 export async function syncTexForward(relativePath: string, line: number): Promise<void> {
   if (!app.project) return;
   try {
-    const hit = await ipc.synctexForward(relativePath, line);
+    const hit = await ipc.synctexForward(relativePath, line, app.pdfDraftOf !== null);
     app.syncTexScrollRequest = { page: hit.page, x: hit.x, y: hit.y, nonce: ++syncTexNonce };
   } catch {
     /* no build yet, or nothing typeset for this line — both ordinary, neither worth a notice */
@@ -743,7 +746,7 @@ export async function syncTexForward(relativePath: string, line: number): Promis
 export async function syncTexInverse(page: number, x: number, y: number): Promise<void> {
   if (!app.project) return;
   try {
-    const hit = await ipc.synctexInverse(page, x, y);
+    const hit = await ipc.synctexInverse(page, x, y, app.pdfDraftOf !== null);
     if (!hit.file) return; // resolved outside the project (a package's own file); nothing to open
     if (app.activePath !== hit.file) await openFile(hit.file);
     jumpToLine(hit.line);
@@ -880,6 +883,18 @@ export async function resolveConflict(choice: 'keep-mine' | 'load-disk'): Promis
   }
 }
 
+/** The last *full* build's PDF (S9.9). `app.pdfUrl` may be a draft's instead; when the full build
+ * the draft stood in for fails, this is what goes back on screen — a draft is only ever a stand-in
+ * for a finished build, so it never outlives the build it was drafted beside. */
+let fullPdfUrl: string | null = null;
+
+/** Put the last full build back on screen, if a draft is standing in for it. */
+function withdrawDraft(): void {
+  if (app.pdfDraftOf === null) return;
+  app.pdfDraftOf = null;
+  app.pdfUrl = fullPdfUrl;
+}
+
 function handleCompileEvent(event: CompileEvent): void {
   switch (event.status) {
     case 'started':
@@ -915,6 +930,10 @@ function handleCompileEvent(event: CompileEvent): void {
       if (event.success && event.pdfPath) {
         // The query string defeats the webview's cache; the path itself never changes.
         app.pdfUrl = `${ipc.assetUrl(event.pdfPath)}?v=${event.generation}`;
+        fullPdfUrl = app.pdfUrl;
+        app.pdfDraftOf = null;
+      } else {
+        withdrawDraft();
       }
       // A failed build opens the drawer; a clean build closes it (never shouting when nothing
       // is wrong, DESIGN.md §6). The raw log view is never the default.
@@ -927,8 +946,16 @@ function handleCompileEvent(event: CompileEvent): void {
       if (app.showRawLog) void refreshRawLog();
       break;
     }
+    case 'draft':
+      // Only while this very build still runs. Rust already never sends a draft after its
+      // `finished`; this also keeps a draft from a superseded generation off the screen.
+      if (event.generation !== app.compile.generation || app.compile.phase !== 'running') return;
+      app.pdfUrl = `${ipc.assetUrl(event.pdfPath)}?v=${event.generation}-draft`;
+      app.pdfDraftOf = event.chapter;
+      break;
     case 'failed':
       if (event.generation < app.compile.generation) return;
+      withdrawDraft();
       app.compile = {
         ...app.compile,
         phase: 'failed',
