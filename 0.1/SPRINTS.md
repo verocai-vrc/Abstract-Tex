@@ -3149,8 +3149,12 @@ inside `warm_build_timings`), clippy and `cargo doc --workspace -D warnings` cle
 (`ABSTRACT_TEX_BENCH_RUNS=5`), and a deliberately lowered `conference` ceiling was confirmed to
 fail the build with a clear message before being reverted — the local half of the card's own
 "a red one from a deliberately slowed" check. `[~]` because rung 3 — an actual GitHub Actions run,
-green then red — has not happened: this session has not pushed to `origin`, so nothing has run
-on a real runner yet. What a reader should take from the diff:
+green then red — has not happened. This Linux machine has no GitHub credentials at all (no
+credential helper, no SSH key, no `gh`), so the commits wait for the maintainer to push them from
+a machine that does. **What rung 3 needs, when they do:** the `Golden corpus and performance gate`
+step goes green once (its `--nocapture` output carries the runner's real per-document p95 — copy
+those numbers here and tighten `THRESHOLD_MS` from them), and once red from a throwaway branch
+that lowers one ceiling below its measured p95. What a reader should take from the diff:
 
 1. **The card's single number could not survive contact with the rest of the corpus.** The
    maintainer approved splitting the thesis's target from the rest of the corpus (per-message
