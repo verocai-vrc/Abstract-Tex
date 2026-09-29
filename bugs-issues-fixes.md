@@ -15,6 +15,19 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **The graph's word counts are rebuilt a whole page at a time, and nothing caches them.** (29
+  Sep 2026, found measuring S10.3c) `log` computes each row's `word_delta` from a tree diff and a
+  prose scan of every changed `.tex` file, so one page of 200 rows costs ~111 ms on this machine —
+  measured in `crates/abstract-tex-git/tests/against_real_git.rs`, over a 300-commit repository
+  whose files grow to 20 KB. S10.3c already removed the bad case (the panel re-reads the graph
+  only when `HEAD` moves, not on every save), so the cost is paid on opening a project, on each
+  commit, and on *Show more* — each of them once, asynchronously, with nothing on screen waiting
+  for it. It is logged because it scales with the page, not with what changed: a commit that
+  touched one comma still re-prices all 200 rows, and an author with a 2 MB chapter would feel
+  it. The fix, if it is ever needed, is a `commit id → delta` map in `AppState` — a commit's own
+  delta can never change — which was deliberately not written yet because the `HEAD` comparison
+  made it unnecessary and a cache is state that can go stale.
+
 - **Turning shell-escape consent on or off makes the next latexmk build a full one.** (29 Sep
   2026, found verifying S9.12) `.fdb_latexmk` is latexmk's own dependency database, and it
   records every source file by the path latexmk saw — relative (`"main.tex"`) from the project

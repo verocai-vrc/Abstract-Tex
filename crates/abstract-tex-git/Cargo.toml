@@ -19,6 +19,10 @@ thiserror = { workspace = true }
 # For one constant: the ref S10.1 puts its snapshots on, so that `log` can leave it out of a
 # row's tags rather than spelling `refs/abstract-tex/snapshots` a second time and drifting.
 abstract-tex-snapshot = { path = "../abstract-tex-snapshot" }
+# S10.3c: the word count behind the suggested commit message and each graph row's delta. A
+# `.tex` line diff counts markup; a writer counts prose, and `texwords` is the only thing here
+# that knows the difference. This crate still knows nothing about TeX itself.
+texwords = { path = "../texwords" }
 tracing = { workspace = true }
 
 [dev-dependencies]

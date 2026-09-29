@@ -59,6 +59,7 @@ dependencies = [
  "git2",
  "serde",
  "tempfile",
+ "texwords",
  "thiserror 2.0.20",
  "tracing",
 ]
@@ -4075,6 +4076,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "texwords"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

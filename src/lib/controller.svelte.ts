@@ -4,7 +4,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
-import { git, GRAPH_PAGE, NO_CHANGES } from './git.svelte';
+import { git, GRAPH_PAGE, NO_CHANGES, suggestedMessage } from './git.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -488,14 +488,27 @@ export async function refreshGitStatus(): Promise<void> {
     git.branch = null;
     git.commits = [];
     git.mayHaveMore = false;
+    git.prose = null;
+    graphBuiltFrom = null;
     return;
   }
-  // Three questions, one refresh (S10.3b). The branch line and the graph change with the same
-  // events the lists do — a commit moves all three — and asking for them separately would mean
-  // the status bar and the panel could be describing two different moments.
+  // Three questions, one refresh (S10.3b). The lists, the branch line and the graph would
+  // otherwise be able to describe two different moments.
   git.branch = await ipc.gitBranch().catch(() => null);
-  await refreshGitGraph();
+  // S10.3c: the numbers behind the suggested message. A diff of the working tree, so its cost is
+  // proportional to what changed — unlike the graph below.
+  git.prose = await ipc.gitProseSummary().catch(() => null);
+  if (git.messageIsSuggested) git.message = suggestedMessage(git.prose);
+  // And the graph only if the *history* moved. A page of it carries a word count per row and
+  // costs around 100 ms to build (measured in the crate's `tests/against_real_git.rs`); a save
+  // changes what `git status` says and not one row of the history, so re-reading it on every
+  // save would be a tenth of a second of work per keystroke burst for an identical answer.
+  if (git.branch?.head !== graphBuiltFrom) await refreshGitGraph();
 }
+
+/** The commit `HEAD` pointed at when the graph on screen was built, or `null` for "no graph
+ * yet". Not in `git` because nothing renders it: it is this module's bookkeeping. */
+let graphBuiltFrom: string | null = null;
 
 /**
  * Re-read the history the author already has on screen.
@@ -511,9 +524,11 @@ async function refreshGitGraph(): Promise<void> {
     const rows = await ipc.gitLog(0, wanted);
     git.commits = rows;
     git.mayHaveMore = rows.length === wanted;
+    graphBuiltFrom = git.branch?.head ?? null;
   } catch (error) {
     git.commits = [];
     git.mayHaveMore = false;
+    graphBuiltFrom = null;
     git.error = String(error);
   }
 }
@@ -542,7 +557,17 @@ export async function commitStaged(): Promise<void> {
   git.committing = true;
   const committed = await runGitVerb(() => ipc.gitCommit(git.message));
   git.committing = false;
-  if (committed !== null) git.message = '';
+  if (committed !== null) {
+    // The next change gets a fresh suggestion: the author's own sentence described the commit
+    // that has just happened, and keeping it would describe the wrong work (S10.3c).
+    git.message = '';
+    git.messageIsSuggested = true;
+  }
+}
+
+/** The author has typed in the commit box, so it is theirs from now on (S10.3c). */
+export function claimCommitMessage(): void {
+  git.messageIsSuggested = false;
 }
 
 /** Stage one path. The refresh comes back as a `git:status-changed` event, not from here: one
@@ -638,6 +663,9 @@ export async function openFolder(path?: string): Promise<void> {
     git.mayHaveMore = false;
     // A half-written message belongs to the project it was being written about.
     git.message = '';
+    git.messageIsSuggested = true;
+    git.prose = null;
+    graphBuiltFrom = null;
     git.error = null;
     git.lastDiscard = null;
     void refreshGitStatus();

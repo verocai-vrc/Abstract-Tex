@@ -19,6 +19,7 @@ members = [
     "crates/abstract-tex-synctex",
     "crates/texbib",
     "crates/texlog",
+    "crates/texwords",
 ]
 
 [workspace.package]

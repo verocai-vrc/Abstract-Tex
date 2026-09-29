@@ -10,6 +10,7 @@ import type {
   CompileEvent,
   Discarded,
   Finding,
+  ProseSummary,
   FsEvent,
   GitStatus,
   LspEvent,
@@ -70,7 +71,9 @@ let discardAnswer = false;
 let gitVerbError: string | null = null;
 /** The fake history, newest first, and the branch it is on (S10.3b). */
 let commitsOnDisk: CommitRow[] = [];
-let branchOnDisk: BranchState = { name: 'main', aheadBehind: null, unborn: false };
+let branchOnDisk: BranchState = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
+/** What `gitProseSummary` answers with (S10.3c). */
+let proseOnDisk: ProseSummary = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
 /** Set to a message to make the next commit be refused, as the crate refuses an empty message,
  * an empty stage or a repository with no `user.name`. */
 let commitError: string | null = null;
@@ -205,6 +208,7 @@ vi.mock('./ipc', () => ({
       return discardAnswer;
     },
     gitBranch: async (): Promise<BranchState | null> => (gitOnDisk === null ? null : branchOnDisk),
+    gitProseSummary: async (): Promise<ProseSummary | null> => (gitOnDisk === null ? null : proseOnDisk),
     gitLog: async (skip: number, limit: number): Promise<CommitRow[]> => {
       calls.gitLogPages.push(`${skip}+${limit}`);
       return commitsOnDisk.slice(skip, skip + limit);
@@ -214,10 +218,13 @@ vi.mock('./ipc', () => ({
       calls.gitVerbs.push(`commit ${message}`);
       const id = `commit${commitsOnDisk.length + 1}`;
       commitsOnDisk = [
-        { id, shortId: id.slice(0, 7), summary: message.split('\n')[0]!, author: 'Ada', time: 1_760_000_000, tags: [] },
+        { id, shortId: id.slice(0, 7), summary: message.split('\n')[0]!, author: 'Ada', time: 1_760_000_000, tags: [], wordDelta: 7 },
         ...commitsOnDisk,
       ];
       gitOnDisk = { ...gitOnDisk!, staged: [] };
+      // A commit moves HEAD, which is what tells the panel the history — and not just the
+      // working tree — has changed (S10.3c).
+      branchOnDisk = { ...branchOnDisk, head: id };
       gitStatusHandler();
       return id;
     },
@@ -237,6 +244,7 @@ vi.mock('./ipc', () => ({
 const {
   allowShellEscape,
   applyDiagnosticFix,
+  claimCommitMessage,
   commitStaged,
   discardChange,
   loadMoreCommits,
@@ -316,7 +324,8 @@ beforeEach(async () => {
   discardAnswer = false;
   gitVerbError = null;
   commitsOnDisk = [];
-  branchOnDisk = { name: 'main', aheadBehind: null, unborn: false };
+  branchOnDisk = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
+  proseOnDisk = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
   commitError = null;
   calls.gitLogPages = [];
   calls.gitStatusReads = 0;
@@ -1598,6 +1607,13 @@ describe('the Source Control view (S10.3a)', () => {
 describe('committing, and the graph (S10.3b)', () => {
   const staged = { path: 'main.tex', kind: 'modified' as const, renamedFrom: null };
 
+  /** Put a history `n` commits long on the fake disk, with `HEAD` on its newest commit — which
+   * is what tells the panel the history has moved (S10.3c). */
+  function putHistory(n: number): void {
+    commitsOnDisk = history(n);
+    branchOnDisk = { ...branchOnDisk, head: commitsOnDisk[0]?.id ?? null };
+  }
+
   /** A history `n` commits long, newest first, as Rust would report it. */
   function history(n: number): CommitRow[] {
     return Array.from({ length: n }, (_unused, i) => ({
@@ -1607,6 +1623,7 @@ describe('committing, and the graph (S10.3b)', () => {
       author: 'Ada',
       time: 1_760_000_000 - i,
       tags: [],
+      wordDelta: 10 - i,
     }));
   }
 
@@ -1639,7 +1656,7 @@ describe('committing, and the graph (S10.3b)', () => {
   });
 
   it('asks for one page of history, and offers more only while pages come back full', async () => {
-    commitsOnDisk = history(200);
+    putHistory(200);
     calls.gitLogPages = []; // the folder opening already read the (then empty) history once
     await refreshGitStatus();
     expect(calls.gitLogPages).toEqual(['0+200']);
@@ -1654,22 +1671,30 @@ describe('committing, and the graph (S10.3b)', () => {
     expect(git.mayHaveMore).toBe(false);
   });
 
-  it('a refresh keeps the pages the author had already asked for', async () => {
-    commitsOnDisk = history(400);
+  it('does not rebuild the graph when only the working tree changed, and keeps its pages when it does', async () => {
+    putHistory(400);
     await refreshGitStatus();
     await loadMoreCommits();
     expect(git.commits).toHaveLength(400);
 
+    // A save: the lists move, `HEAD` does not. Rebuilding 400 rows with a word count on each
+    // would be ~200 ms of work for an identical answer (S10.3c's measurement).
     calls.gitLogPages = [];
     await refreshGitStatus();
-    expect(calls.gitLogPages).toEqual(['0+400']);
+    expect(calls.gitLogPages).toEqual([]);
     expect(git.commits).toHaveLength(400);
+
+    // A commit, or a checkout, or a reset: `HEAD` moves, and then it is re-read at the depth the
+    // author had already opened up.
+    branchOnDisk = { ...branchOnDisk, head: 'somewhere-else' };
+    await refreshGitStatus();
+    expect(calls.gitLogPages).toEqual(['0+400']);
   });
 
   it('carries the branch and its drift for the status bar, and clears both with the project', async () => {
-    branchOnDisk = { name: 'thesis', aheadBehind: [2, 1], unborn: false };
+    branchOnDisk = { name: 'thesis', aheadBehind: [2, 1], unborn: false, head: 'head0' };
     await refreshGitStatus();
-    expect(git.branch).toEqual({ name: 'thesis', aheadBehind: [2, 1], unborn: false });
+    expect(git.branch).toEqual({ name: 'thesis', aheadBehind: [2, 1], unborn: false, head: 'head0' });
     expect(git.outgoing).toBe(2);
 
     gitOnDisk = null; // a project that is not in Git at all
@@ -1677,5 +1702,54 @@ describe('committing, and the graph (S10.3b)', () => {
     expect(git.branch).toBeNull();
     expect(git.commits).toEqual([]);
     expect(git.outgoing).toBe(0);
+  });
+});
+
+describe("the writer's own additions (S10.3c)", () => {
+  const staged = { path: 'main.tex', kind: 'modified' as const, renamedFrom: null };
+
+  beforeEach(() => {
+    proseOnDisk = { wordsBefore: 1200, wordsAfter: 1440, sections: ['Methods'], paths: ['main.tex'], addedPaths: [] };
+  });
+
+  it('fills the empty box with a sentence built from the outline and the diff', async () => {
+    await refreshGitStatus();
+    expect(git.message).toBe('Revised Methods, +240 words');
+    expect(git.wordsSinceCommit).toBe(240);
+  });
+
+  it('never overwrites the author once they have typed in it', async () => {
+    await refreshGitStatus();
+    git.message = 'Reply to reviewer 2';
+    claimCommitMessage();
+
+    // Another save, another refresh, a different suggestion — and the box is left alone.
+    proseOnDisk = { ...proseOnDisk, wordsAfter: 1600, sections: ['Results'] };
+    await refreshGitStatus();
+    expect(git.message).toBe('Reply to reviewer 2');
+    // The number still updates, because it is a fact and not a sentence.
+    expect(git.wordsSinceCommit).toBe(400);
+  });
+
+  it('starts suggesting again after a commit, since the old sentence described the old work', async () => {
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    git.message = 'Mine';
+    claimCommitMessage();
+    await commitStaged();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(calls.gitVerbs).toEqual(['commit Mine']);
+
+    proseOnDisk = { wordsBefore: 0, wordsAfter: 30, sections: [], paths: ['notes.tex'], addedPaths: ['notes.tex'] };
+    await refreshGitStatus();
+    expect(git.message).toBe('Added notes.tex, +30 words');
+  });
+
+  it('forgets the previous project’s half-written message when a folder opens', async () => {
+    git.message = 'About the other paper';
+    claimCommitMessage();
+    await openFolder('/proj');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(git.message).toBe('Revised Methods, +240 words');
   });
 });

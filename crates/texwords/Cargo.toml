@@ -1,0 +1,13 @@
+[package]
+name = "texwords"
+description = "How many words of prose a LaTeX source file holds, and which section a line of it is in. Markup, maths and verbatim do not count."
+version.workspace = true
+edition.workspace = true
+# MIT, like texlog and texbib and for the same reason (DESIGN.md §10): counting the words in a
+# .tex file is useful to anyone who writes them, and nothing about it is specific to this app.
+license = "MIT"
+repository.workspace = true
+rust-version.workspace = true
+
+# No dependencies, deliberately. Everything here is a scan over a string.
+[dependencies]

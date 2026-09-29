@@ -312,6 +312,10 @@ pub struct CommitRow {
     /// The branch and remote names pointing at exactly this commit, for the tags the design asks
     /// for. Never our own snapshot ref — `tags_by_commit` says why that needs saying.
     pub tags: Vec<String>,
+    /// Words of prose this commit added, against its first parent — negative when it cut more
+    /// than it wrote (S10.3c). Counted over `.tex` files only, by `texwords`, which is what
+    /// makes the graph a progress log rather than a list of diffs (DESIGN.md §6).
+    pub word_delta: i64,
 }
 
 /// Where the current branch stands against the place it came from — everything
@@ -330,6 +334,14 @@ pub struct BranchState {
     /// True before the first commit, when `HEAD` points at a branch that does not exist yet.
     /// The view says "no commits yet" rather than showing an empty graph with no explanation.
     pub unborn: bool,
+    /// The commit `HEAD` points at, or `None` on an unborn branch.
+    ///
+    /// Here so that a caller can tell whether the *history* moved, which is not the same question
+    /// as whether a file changed (S10.3c). A page of the graph carries a word count per row and
+    /// costs real work to build — measured in `tests/against_real_git.rs` — while `branch_state`
+    /// is a ref lookup. Comparing this against the id a page was built from is what lets the
+    /// panel re-read the graph on a commit and not on every save.
+    pub head: Option<String>,
 }
 
 /// A page of the history, walking back from `HEAD`.
@@ -359,6 +371,7 @@ pub fn log(repository: &Repository, skip: usize, limit: usize) -> Result<Vec<Com
             author: commit.author().name().unwrap_or_default().to_string(),
             time: commit.time().seconds(),
             tags: tags.iter().filter(|(commit_id, _)| *commit_id == id).map(|(_, name)| name.clone()).collect(),
+            word_delta: word_delta(repository, &commit),
             id,
         });
     }
@@ -398,12 +411,13 @@ pub fn branch_state(repository: &Repository) -> Result<BranchState, GitError> {
         // `head()` fails before the first commit, where `HEAD` names a branch with no commit on
         // it. The branch's *name* is still there and still worth showing.
         let name = repository.find_reference("HEAD").ok().and_then(|head| head.symbolic_target().map(shorthand_of));
-        return Ok(BranchState { name, ahead_behind: None, unborn: true });
+        return Ok(BranchState { name, ahead_behind: None, unborn: true, head: None });
     };
 
     let name = head.shorthand().map(str::to_string).filter(|_| head.is_branch());
     let ahead_behind = name.as_deref().and_then(|name| upstream_drift(repository, name, &head));
-    Ok(BranchState { name, ahead_behind, unborn: false })
+    let head_id = head.target().map(|id| id.to_string());
+    Ok(BranchState { name, ahead_behind, unborn: false, head: head_id })
 }
 
 fn upstream_drift(repository: &Repository, name: &str, head: &git2::Reference<'_>) -> Option<(usize, usize)> {
@@ -446,6 +460,162 @@ pub fn commit(repository: &Repository, message: &str) -> Result<String, GitError
     // and it is supposed to move their branch.
     let id = repository.commit(Some("HEAD"), &who, &who, message, &tree, &parents)?;
     Ok(id.to_string())
+}
+
+// ---------------------------------------------------------------------------------------------
+// S10.3c: what a writer counts.
+//
+// DESIGN.md §6: "the commit-message box is pre-filled with a summary built from the outline and
+// the diff — *\"Revised §3.2 Methods, +240 words\"* — with no model involved", and "each graph row
+// carries its word-count delta, so the graph doubles as a progress log". Both numbers come from
+// `texwords`, because a `.tex` line diff counts markup and a writer counts prose: wrapping an
+// equation in `\begin{align}` is four lines and no words, and rewording a paragraph in place is
+// one line and twenty.
+//
+// Only `.tex` files are counted. A `.bib` entry, a figure and a `Makefile` are all real work and
+// none of them is prose the author wrote in sentences.
+// ---------------------------------------------------------------------------------------------
+
+/// Everything a suggested commit message is built from.
+///
+/// Numbers and names only: the *sentence* is the frontend's, the same split `CommitRow::time`
+/// already makes. "Revised Methods, +240 words" is a phrasing decision, and phrasing belongs
+/// where the person reads it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProseSummary {
+    /// Words of prose in the `.tex` files involved, as `HEAD` has them.
+    pub words_before: usize,
+    /// Words of prose in the same files, as the working tree has them.
+    pub words_after: usize,
+    /// The titles of the sections a changed line falls in, in the order met, without repeats.
+    /// Empty when nothing could be attributed — a new file, or a change above the first heading.
+    pub sections: Vec<String>,
+    /// The `.tex` files involved, project-relative.
+    pub paths: Vec<String>,
+    /// Those of them Git has not got at all yet, so the message can say *Added* rather than
+    /// *Revised*.
+    pub added_paths: Vec<String>,
+}
+
+/// What has changed since the last commit, in a writer's units.
+///
+/// The comparison is `HEAD` against the working tree *with the index folded in*, which is the
+/// same span the Changes and Staged Changes lists cover between them: the suggested message has
+/// to describe what a commit would contain, and an author who has staged half their work is
+/// still writing about all of it.
+pub fn prose_summary(repository: &Repository) -> Result<ProseSummary, GitError> {
+    let head_tree = repository.head().ok().and_then(|head| head.peel_to_tree().ok());
+
+    let mut options = git2::DiffOptions::new();
+    options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        // A new file's own content, so its sections can be attributed like any other file's.
+        .show_untracked_content(true)
+        // No context: a hunk's line range should name the lines that changed and not the three
+        // either side of them, or a one-line edit at a section boundary lands in both sections.
+        .context_lines(0);
+    let diff = repository.diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut options))?;
+
+    let mut summary = ProseSummary::default();
+    for (index, delta) in diff.deltas().enumerate() {
+        let Some(path) = delta.new_file().path().map(path_string).or_else(|| delta.old_file().path().map(path_string))
+        else {
+            continue;
+        };
+        if is_ours(&path) || !is_tex(&path) {
+            continue;
+        }
+
+        let before = blob_text(repository, delta.old_file().id());
+        // The working tree, not the index: rule 1 — the file on disk is the truth. A deleted file
+        // reads as empty, which is exactly the count it should contribute.
+        let after = workdir_text(repository, &path);
+        summary.words_before += texwords::count_prose(&before);
+        summary.words_after += texwords::count_prose(&after);
+        summary.paths.push(path.clone());
+        if matches!(delta.status(), git2::Delta::Added | git2::Delta::Untracked) {
+            summary.added_paths.push(path.clone());
+        }
+
+        // Which sections those words landed in. `Patch::from_diff` is per delta, so this is the
+        // only place the hunks of one file can be walked without a callback that would have to
+        // borrow `summary` twice.
+        let headings = texwords::headings(&after);
+        if headings.is_empty() {
+            continue;
+        }
+        if let Ok(Some(patch)) = git2::Patch::from_diff(&diff, index) {
+            for hunk_index in 0..patch.num_hunks() {
+                let Ok((hunk, _)) = patch.hunk(hunk_index) else { continue };
+                if let Some(section) = texwords::section_of(&headings, hunk.new_start() as usize) {
+                    if !summary.sections.contains(&section.title) {
+                        summary.sections.push(section.title.clone());
+                    }
+                }
+            }
+        }
+    }
+    Ok(summary)
+}
+
+/// How many words of prose one commit added, against its first parent.
+///
+/// First parent, because a merge's second parent is someone else's writing and counting it as
+/// this commit's progress would flatter the log. A root commit counts everything in it.
+///
+/// This runs once per row of [`log`], which is up to a page of history at a time. It is a tree
+/// diff and a prose scan of each changed `.tex` file — microseconds each on a manuscript, and
+/// measured on a 300-commit repository in `tests/against_real_git.rs` before it was left in the
+/// hot path of the panel's refresh.
+fn word_delta(repository: &Repository, commit: &git2::Commit<'_>) -> i64 {
+    let new_tree = match commit.tree() {
+        Ok(tree) => tree,
+        Err(_) => return 0,
+    };
+    let old_tree = commit.parent(0).ok().and_then(|parent| parent.tree().ok());
+
+    let mut options = git2::DiffOptions::new();
+    let Ok(diff) = repository.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut options)) else {
+        return 0;
+    };
+
+    let mut delta: i64 = 0;
+    for change in diff.deltas() {
+        let path = change.new_file().path().map(path_string).or_else(|| change.old_file().path().map(path_string));
+        let Some(path) = path else { continue };
+        if is_ours(&path) || !is_tex(&path) {
+            continue;
+        }
+        let before = texwords::count_prose(&blob_text(repository, change.old_file().id()));
+        let after = texwords::count_prose(&blob_text(repository, change.new_file().id()));
+        delta += after as i64 - before as i64;
+    }
+    delta
+}
+
+/// A blob's text, or `""` when there is none — a file being added has no old blob, and a binary
+/// blob has no text worth counting. Lossy, like `read_file` in the app: a `.tex` file written in
+/// Latin-1 should give a slightly odd count rather than none at all.
+fn blob_text(repository: &Repository, id: git2::Oid) -> String {
+    if id.is_zero() {
+        return String::new();
+    }
+    match repository.find_blob(id) {
+        Ok(blob) => String::from_utf8_lossy(blob.content()).into_owned(),
+        Err(_) => String::new(),
+    }
+}
+
+/// A file's text as it is on disk right now, or `""` if it is not there.
+fn workdir_text(repository: &Repository, path: &str) -> String {
+    let Some(dir) = repository.workdir() else { return String::new() };
+    std::fs::read(dir.join(path)).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default()
+}
+
+fn is_tex(path: &str) -> bool {
+    path.rsplit('.').next().is_some_and(|extension| extension.eq_ignore_ascii_case("tex"))
 }
 
 #[cfg(test)]
@@ -722,5 +892,100 @@ mod tests {
     fn a_folder_with_no_repository_says_so() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(matches!(open(tmp.path()), Err(GitError::NotARepository)));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S10.3c: the writer's numbers.
+    // -----------------------------------------------------------------------------------------
+
+    /// A manuscript with two sections, so a change can be attributed to one of them.
+    const TWO_SECTIONS: &str = "\\section{Methods}\nWe sampled forty people.\n\\section{Results}\nThe effect held.\n";
+
+    #[test]
+    fn the_summary_counts_prose_and_names_the_section_the_change_landed_in() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repository = Repository::init(tmp.path()).unwrap();
+        fs::write(tmp.path().join("main.tex"), TWO_SECTIONS).unwrap();
+        commit_all(&repository, "first");
+
+        // Four words added, all of them under Results.
+        fs::write(
+            tmp.path().join("main.tex"),
+            "\\section{Methods}\nWe sampled forty people.\n\\section{Results}\nThe effect held for every single participant.\n",
+        )
+        .unwrap();
+
+        let summary = prose_summary(&repository).unwrap();
+        assert_eq!(summary.words_after as i64 - summary.words_before as i64, 4);
+        assert_eq!(summary.sections, vec!["Results".to_string()]);
+        assert_eq!(summary.paths, vec!["main.tex".to_string()]);
+        assert!(summary.added_paths.is_empty());
+    }
+
+    #[test]
+    fn a_new_file_is_named_as_added_and_all_of_its_words_are_new() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("notes.tex"), "\\section{Notes}\nOne two three four.\n").unwrap();
+
+        let summary = prose_summary(&repository).unwrap();
+        assert_eq!(summary.added_paths, vec!["notes.tex".to_string()]);
+        assert_eq!(summary.words_before, 0);
+        assert_eq!(summary.words_after, 5);
+    }
+
+    /// The whole reason `texwords` exists rather than a line count.
+    #[test]
+    fn markup_that_adds_lines_and_no_words_is_not_progress() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repository = Repository::init(tmp.path()).unwrap();
+        fs::write(tmp.path().join("main.tex"), "\\section{Theory}\nIt follows that x = y.\n").unwrap();
+        commit_all(&repository, "first");
+
+        // Four more lines, one fewer prose word ("x = y" becomes maths).
+        fs::write(
+            tmp.path().join("main.tex"),
+            "\\section{Theory}\nIt follows that\n\\begin{align}\n  x &= y \\\\\n\\end{align}\n",
+        )
+        .unwrap();
+
+        let summary = prose_summary(&repository).unwrap();
+        assert!(
+            summary.words_after < summary.words_before,
+            "before {} after {}",
+            summary.words_before,
+            summary.words_after
+        );
+    }
+
+    #[test]
+    fn a_bib_file_a_figure_and_the_build_folder_are_not_prose() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("refs.bib"), "@article{a, title = {Several words of title here}}\n").unwrap();
+        fs::write(tmp.path().join("figure.pdf"), b"%PDF and some words").unwrap();
+        fs::create_dir_all(tmp.path().join(".abstract-tex/build")).unwrap();
+        fs::write(tmp.path().join(".abstract-tex/build/main.tex"), "words words words words\n").unwrap();
+
+        let summary = prose_summary(&repository).unwrap();
+        assert_eq!(summary.paths, Vec::<String>::new());
+        assert_eq!(summary.words_after, 0);
+    }
+
+    #[test]
+    fn a_graph_row_carries_the_words_its_own_commit_added() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repository = Repository::init(tmp.path()).unwrap();
+        fs::write(tmp.path().join("main.tex"), "One two three.\n").unwrap();
+        commit_all(&repository, "three words");
+        fs::write(tmp.path().join("main.tex"), "One two three four five.\n").unwrap();
+        commit_all(&repository, "two more");
+        fs::write(tmp.path().join("main.tex"), "One.\n").unwrap();
+        commit_all(&repository, "cut it back");
+
+        let rows = log(&repository, 0, 10).unwrap();
+        assert_eq!(rows[0].summary, "cut it back");
+        assert_eq!(rows[0].word_delta, -4, "a commit that cuts prose reads as negative");
+        assert_eq!(rows[1].word_delta, 2);
+        // The root commit has no parent, so everything in it is new.
+        assert_eq!(rows[2].word_delta, 3);
     }
 }

@@ -5,7 +5,7 @@
 // `controller.test.ts`.
 
 import { describe, expect, it } from 'vitest';
-import type { BranchState, FileChange, GitStatus } from './ipc';
+import type { BranchState, FileChange, GitStatus, ProseSummary } from './ipc';
 import {
   branchLabel,
   changedFileCount,
@@ -14,11 +14,13 @@ import {
   relativeTime,
   rowsOf,
   splitPath,
+  suggestedMessage,
   syncArrows,
+  wordDeltaLabel,
 } from './git.svelte';
 
 function branch(over: Partial<BranchState> = {}): BranchState {
-  return { name: 'main', aheadBehind: null, unborn: false, ...over };
+  return { name: 'main', aheadBehind: null, unborn: false, head: 'abcdef1234', ...over };
 }
 
 function change(path: string, kind: FileChange['kind'], renamedFrom: string | null = null): FileChange {
@@ -130,5 +132,54 @@ describe("a commit row's age", () => {
 
   it('never reads as the future, however skewed the clock that wrote the commit', () => {
     expect(relativeTime(secondsAgo(-3600), now)).toBe('just now');
+  });
+});
+
+describe('the suggested commit message (S10.3c)', () => {
+  function summary(over: Partial<ProseSummary> = {}): ProseSummary {
+    return { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [], ...over };
+  }
+
+  it('names the section and the words, as §6 writes it', () => {
+    expect(
+      suggestedMessage(summary({ wordsBefore: 1200, wordsAfter: 1440, sections: ['Methods'], paths: ['main.tex'] })),
+    ).toBe('Revised Methods, +240 words');
+  });
+
+  it('names two sections, and counts them past two', () => {
+    expect(suggestedMessage(summary({ sections: ['Methods', 'Results'], paths: ['main.tex'] }))).toBe(
+      'Revised Methods and Results',
+    );
+    expect(suggestedMessage(summary({ sections: ['A', 'B', 'C'], paths: ['main.tex'] }))).toBe('Revised 3 sections');
+  });
+
+  it('says a cut is a cut, in ASCII a commit message can carry', () => {
+    const cut = summary({ wordsBefore: 900, wordsAfter: 830, sections: ['Discussion'], paths: ['main.tex'] });
+    expect(suggestedMessage(cut)).toBe('Revised Discussion, -70 words');
+  });
+
+  it('names a new file rather than a section nobody has seen before', () => {
+    expect(
+      suggestedMessage(summary({ wordsAfter: 40, paths: ['notes.tex'], addedPaths: ['notes.tex'], sections: ['Notes'] })),
+    ).toBe('Added notes.tex, +40 words');
+  });
+
+  it('falls back to the file when no section could be attributed — a preamble edit, say', () => {
+    expect(suggestedMessage(summary({ wordsBefore: 10, wordsAfter: 12, paths: ['preamble.tex'] }))).toBe(
+      'Revised preamble.tex, +2 words',
+    );
+    expect(suggestedMessage(summary({ paths: ['a.tex', 'b.tex'] }))).toBe('Revised 2 files');
+  });
+
+  it('suggests nothing when there is nothing true to say, rather than filling the box', () => {
+    expect(suggestedMessage(summary())).toBe('');
+    expect(suggestedMessage(null)).toBe('');
+  });
+
+  it('leaves the count out when the words did not move — a reword is still a revision', () => {
+    expect(suggestedMessage(summary({ wordsBefore: 500, wordsAfter: 500, sections: ['Methods'], paths: ['m.tex'] }))).toBe(
+      'Revised Methods',
+    );
+    expect(wordDeltaLabel(0)).toBe('');
   });
 });

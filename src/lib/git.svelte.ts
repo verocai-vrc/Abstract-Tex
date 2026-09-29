@@ -7,7 +7,7 @@
 // the same rule `app` follows. The helpers take their input as arguments rather than reading the
 // store, so `git.test.ts` exercises them with literals and no Svelte runtime.
 
-import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus } from './ipc';
+import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus, ProseSummary } from './ipc';
 
 /** An empty answer: what the view shows before the first refresh, and after a project closes. */
 export const NO_CHANGES: GitStatus = { staged: [], unstaged: [], conflicted: [] };
@@ -139,6 +139,55 @@ export function relativeTime(seconds: number, now: number): string {
   return new Date(seconds * 1000).toLocaleDateString();
 }
 
+/**
+ * A word count in the words a commit message can carry (S10.3c).
+ *
+ * ASCII, and that is deliberate: this ends up inside a commit message that `git log`, GitHub and
+ * someone's terminal will all render, and a typographic minus sign there is a small act of
+ * vandalism. `''` for no change, so a caller can leave it out entirely.
+ */
+export function wordDeltaLabel(delta: number): string {
+  if (delta === 0) return '';
+  return `${delta > 0 ? '+' : '-'}${Math.abs(delta)} words`;
+}
+
+/**
+ * The commit message the box is pre-filled with — DESIGN.md §6's *"Revised §3.2 Methods, +240
+ * words"*, built from the outline and the diff with no model involved (rule 6).
+ *
+ * The section *names* and not §3.2: numbering a section correctly needs the whole document walked
+ * in `\input` order with `\appendix` and `\section*` accounted for, and a wrong number in a
+ * commit message is a lie that outlives the commit. `texwords::section_of` carries the same note
+ * on the Rust side.
+ *
+ * `''` when there is nothing true to say, which leaves the box empty rather than filling it with
+ * a sentence about nothing.
+ */
+export function suggestedMessage(summary: ProseSummary | null): string {
+  if (!summary) return '';
+  const delta = summary.wordsAfter - summary.wordsBefore;
+  const words = wordDeltaLabel(delta);
+  const subject = subjectOf(summary);
+  if (!subject) return '';
+  return words ? `${subject}, ${words}` : subject;
+}
+
+/** The "what" half of the suggestion: a section if the change sat in one, a file otherwise. */
+function subjectOf(summary: ProseSummary): string {
+  const { sections, paths, addedPaths } = summary;
+  // A brand-new file is news in itself, and its sections are all new too — naming the file says
+  // more than naming a section nobody has seen before.
+  if (addedPaths.length === 1 && paths.length === 1) return `Added ${addedPaths[0]}`;
+  if (addedPaths.length > 1 && addedPaths.length === paths.length) return `Added ${addedPaths.length} files`;
+  if (sections.length === 1) return `Revised ${sections[0]}`;
+  if (sections.length === 2) return `Revised ${sections[0]} and ${sections[1]}`;
+  if (sections.length > 2) return `Revised ${sections.length} sections`;
+  // No section could be attributed: a preamble, a file with no headings, or a deletion.
+  if (paths.length === 1) return `Revised ${paths[0]}`;
+  if (paths.length > 1) return `Revised ${paths.length} files`;
+  return '';
+}
+
 class GitState {
   /** Whether the open project is inside a Git repository. False before the first answer, and for
    * a folder nobody has run `git init` in — which is a sentence in the view, not an error, and
@@ -184,6 +233,20 @@ class GitState {
 
   /** True while a commit is in flight, so the button cannot be pressed twice. */
   committing = $state(false);
+
+  /** Whether the box still holds *our* sentence rather than the author's (S10.3c).
+   *
+   * This is the whole of "it is never overwritten under them": while it is true a new suggestion
+   * may replace what is in the box, and the first keystroke in the box turns it false for good —
+   * until the commit lands and there is a new change to describe. */
+  messageIsSuggested = $state(true);
+
+  /** The numbers the suggestion was built from, kept so the panel can show the word count even
+   * when the author has replaced the sentence. `null` before the first answer. */
+  prose = $state.raw<ProseSummary | null>(null);
+
+  /** Net words of prose added since the last commit — the one number a writer checks. */
+  wordsSinceCommit = $derived(this.prose ? this.prose.wordsAfter - this.prose.wordsBefore : 0);
 
   /** How many of the newest rows are not on the upstream yet. */
   outgoing = $derived(outgoingCount(this.branch));

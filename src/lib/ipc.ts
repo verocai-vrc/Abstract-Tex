@@ -286,6 +286,9 @@ export interface CommitRow {
   /** The branch, remote and tag names pointing at exactly this commit. Never S10.1's snapshot
    * ref — a hidden ref that showed up as a tag would not be hidden. */
   tags: string[];
+  /** Words of prose this commit added against its first parent, negative when it cut more than
+   * it wrote (S10.3c). `.tex` files only, counted by `texwords`. */
+  wordDelta: number;
 }
 
 /** Which branch the project is on and how far it has drifted (`abstract_tex_git::BranchState`). */
@@ -297,6 +300,25 @@ export interface BranchState {
   aheadBehind: [number, number] | null;
   /** True before the first commit, when `HEAD` names a branch no commit has created yet. */
   unborn: boolean;
+  /** The commit `HEAD` points at, `null` on an unborn branch. The frontend compares it with the
+   * id the graph was built from: a page of the graph carries a word count per row and costs
+   * ~100 ms to build, so it is re-read when the *history* moved and not when a file changed. */
+  head: string | null;
+}
+
+/** What a suggested commit message is built from (`abstract_tex_git::ProseSummary`) — numbers and
+ * section names, never the sentence: phrasing belongs where the person reads it (`git.svelte.ts`). */
+export interface ProseSummary {
+  /** Words of prose in the changed `.tex` files, as `HEAD` has them. */
+  wordsBefore: number;
+  /** The same files, as the working tree has them. */
+  wordsAfter: number;
+  /** Titles of the sections a changed line falls in, in the order met, without repeats. */
+  sections: string[];
+  /** The `.tex` files involved. */
+  paths: string[];
+  /** Those of them Git has never seen, so the message can say *Added* rather than *Revised*. */
+  addedPaths: string[];
 }
 
 /** Which of the two things a discard did (`abstract_tex_git::Discarded`) — what the notice
@@ -410,6 +432,10 @@ export const ipc = {
   /** Commit whatever is staged; resolves to the new commit's id. Rejects with the sentence for
    * whichever of the three refusals applies — no message, nothing staged, no Git identity. */
   gitCommit: (message: string) => invoke<string>('git_commit', { message }),
+
+  /** S10.3c: what changed since the last commit, in words and section names. `null` when the
+   * project is not inside a Git repository. */
+  gitProseSummary: () => invoke<ProseSummary | null>('git_prose_summary'),
 
   /** A URL the webview may fetch for a file inside an allowed scope (the build folder). */
   assetUrl: (absolutePath: string) => convertFileSrc(absolutePath),

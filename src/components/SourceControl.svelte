@@ -8,6 +8,7 @@
   // not a Git repository — because an empty panel would look like a clean tree, which is a
   // different and much more reassuring thing than "nobody asked Git anything".
   import {
+    claimCommitMessage,
     commitStaged,
     discardChange,
     loadMoreCommits,
@@ -16,7 +17,7 @@
     stageChange,
     unstageChange,
   } from '../lib/controller.svelte';
-  import { git, relativeTime, type ChangeRow } from '../lib/git.svelte';
+  import { git, relativeTime, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
   import { app } from '../lib/state.svelte';
 
   /** `Ctrl Enter` commits (DESIGN.md §6), bound on the box and not in `shortcuts.ts`: that table
@@ -106,11 +107,17 @@
         rows="2"
         placeholder={`Message (Ctrl Enter to commit${git.branch?.name ? ` on ${git.branch.name}` : ''})`}
         bind:value={git.message}
+        oninput={claimCommitMessage}
         onkeydown={onMessageKeydown}
       ></textarea>
       <button class="primary" disabled={!canCommit} onclick={() => void commitStaged()}>
         {git.committing ? 'Committing…' : 'Commit'}
       </button>
+      {#if git.wordsSinceCommit !== 0}
+        <!-- S10.3c: the one number a writer checks, kept visible even after they have replaced
+             our sentence with their own. -->
+        <span class="prose-count">{wordDeltaLabel(git.wordsSinceCommit)} since the last commit</span>
+      {/if}
     </div>
 
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
@@ -157,6 +164,10 @@
               <div class="commit-meta">
                 <span class="short-id">{commit.shortId}</span>
                 {commit.author} · {relativeTime(commit.time, now)}
+                {#if commit.wordDelta !== 0}
+                  <!-- S10.3c: this is what makes the graph double as a progress log. -->
+                  <span class={commit.wordDelta > 0 ? 'ok' : 'warn'}>· {wordDeltaLabel(commit.wordDelta)}</span>
+                {/if}
               </div>
             </li>
           {/each}
@@ -312,6 +323,16 @@
   .commit-meta {
     font-size: 11px;
     color: var(--fg-muted);
+  }
+  .prose-count {
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .commit-meta .ok {
+    color: var(--ok);
+  }
+  .commit-meta .warn {
+    color: var(--warn);
   }
   .short-id {
     font-family: var(--font-mono);

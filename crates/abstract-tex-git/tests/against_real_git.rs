@@ -195,3 +195,52 @@ fn ahead_and_behind_agree_with_git_rev_list() {
     assert_eq!(state.ahead_behind, Some((ahead, behind)), "git says {ahead} ahead, {behind} behind");
     assert_eq!(state.ahead_behind, Some((2, 1)), "and the state this test set up is 2 ahead, 1 behind");
 }
+
+/// S10.3c: a page of history with a word count on every row, on a repository the size of a real
+/// one, because the panel re-reads this on every save.
+///
+/// Not an assertion about a number of milliseconds — a test that fails on a busy machine teaches
+/// people to ignore it. It prints the measurement and fails only if a page takes longer than a
+/// second, which is the point at which the design's own latency commitment (§2, rule 2) would be
+/// the thing to argue with rather than the machine.
+///
+/// Measured on this Linux machine, 300 commits over three `.tex` files that grow to 20 KB: one
+/// page of 200 rows in **111 ms**, of which 4 ms is the tree diffs, 43 ms is reading the blobs
+/// and the rest is the prose scan. The first version of that scan took 482 ms, which is what sent
+/// `texwords` from a `Vec<char>` and a `String` per file to one allocation-free pass over bytes.
+///
+/// 111 ms is cheap enough to build a page and far too expensive to repeat on every save, which is
+/// why `BranchState::head` exists: the panel re-reads the graph when the history moved, not when
+/// a file changed.
+#[test]
+#[ignore]
+fn a_page_of_history_with_word_counts_is_fast_enough_to_sit_in_a_refresh() {
+    let dir = tempfile::tempdir().unwrap();
+    let repository = git2::Repository::init(dir.path()).unwrap();
+    let who = git2::Signature::now("Ada", "ada@example.invalid").unwrap();
+
+    let chapters = ["main.tex", "sections/methods.tex", "sections/results.tex"];
+    fs::create_dir_all(dir.path().join("sections")).unwrap();
+    let mut body = String::from("\\section{Methods}\n");
+    for round in 0..300 {
+        body.push_str("Another sentence of perfectly ordinary prose about the experiment.\n");
+        fs::write(dir.path().join(chapters[round % chapters.len()]), &body).unwrap();
+
+        let mut index = repository.index().unwrap();
+        index.add_all(["*"], git2::IndexAddOption::DEFAULT, None).unwrap();
+        index.write().unwrap();
+        let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+        let parent = repository.head().ok().and_then(|head| head.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
+        repository.commit(Some("HEAD"), &who, &who, &format!("round {round}"), &tree, &parents).unwrap();
+    }
+
+    let started = std::time::Instant::now();
+    let rows = abstract_tex_git::log(&repository, 0, 200).unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(rows.len(), 200);
+    assert!(rows.iter().all(|row| row.word_delta > 0), "every round added a sentence");
+    println!("one page of 200 rows with word counts: {elapsed:?}");
+    assert!(elapsed < std::time::Duration::from_secs(1), "a page took {elapsed:?}, which the panel cannot hide");
+}

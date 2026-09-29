@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{BranchState, CommitRow, Discarded, Status as GitStatus};
+use abstract_tex_git::{BranchState, CommitRow, Discarded, ProseSummary, Status as GitStatus};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -660,6 +660,15 @@ pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -
     let id = git::in_repository(&state, |repository| abstract_tex_git::commit(repository, &message))?;
     git::emit_status_changed(&app);
     Ok(id)
+}
+
+/// What has changed since the last commit, in a writer's units (S10.3c).
+///
+/// Numbers and section names; the sentence the commit box is filled with is the frontend's, the
+/// same split `CommitRow::time` already makes.
+#[tauri::command]
+pub fn git_prose_summary(state: State<'_, AppState>) -> CommandResult<Option<ProseSummary>> {
+    git::with_repository(&state, abstract_tex_git::prose_summary)
 }
 
 #[cfg(test)]

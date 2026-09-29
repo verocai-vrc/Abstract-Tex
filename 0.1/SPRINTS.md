@@ -4049,8 +4049,11 @@ Loop      S10.3c · The two things VS Code does not do · M
 Reads     DESIGN.md §6 ("Where we add to VS Code rather than copy it, it is because the user is
           a writer, not a programmer"), §6's flow table row *Track progress*, §2 rule 6
 Depends   S10.3b (the box and the graph rows these two fill in)
-Files     crates/abstract-tex-git/ (grows: word counts across a diff), src-tauri/src/git.rs,
-          src/lib/git.svelte.ts, src/components/SourceControl.svelte
+Files     crates/texwords/ (new — the card said the git crate would grow; it does, but the *TeX*
+          half went into its own crate instead, for the reason under point 1 of the outcome),
+          crates/abstract-tex-git/ (grows), src-tauri/src/{commands,lib}.rs, src/lib/ipc.ts,
+          src/lib/git.svelte.ts + git.test.ts, src/lib/controller.svelte.ts + controller.test.ts,
+          src/components/SourceControl.svelte
 Build     The commit box pre-filled from the outline and the diff — *"Revised §3.2 Methods, +240
           words"* — and a word-count delta on every graph row, which is what makes the graph
           double as a progress log.
@@ -4069,6 +4072,66 @@ Done when opening Source Control with an edited section pre-fills a message nami
           and a signed word count, the author can replace it and it is never overwritten under
           them, and each graph row shows its own delta.
 ```
+
+**S10.3c (29 September 2026).** `[~]`: rungs 1–3 green — `cargo test --workspace` 524 passed / 0
+failed (20 new: 14 plus a doctest in the new `texwords`, 5 in `abstract-tex-git`), clippy and
+`cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors, Vitest 471/471 (11 new: 7 in
+`git.test.ts`, 4 in `controller.test.ts`). Rung 3 is a new `#[ignore]`d test that builds a
+300-commit repository and times one page of the graph — which is the test that changed this
+loop's design twice. `[~]` because rung 4 is the maintainer's, as for the other two. What a
+reader should take from the diff:
+
+1. **The TeX half went into its own crate, against the card.** The card said
+   `abstract-tex-git` would grow, and a word counter would have fitted there in lines of code.
+   It does not fit there in *ownership*: that crate's own module doc says it owns "what has
+   changed and what you can do about it", and it must not learn what a `\section` is. `texwords`
+   is 14 tests, no dependencies, MIT like `texlog` and `texbib`, and useful to anyone who writes
+   `.tex` — so it is a crate, and the git crate depends on it for two numbers.
+2. **A word count is the whole reason this is not a line count, and the tests are written as
+   that argument.** Wrapping an existing equation in `\begin{align}` is four lines of diff and
+   *minus one* word; rewording a paragraph in place is one line and twenty. There is a test named
+   after exactly that, and a test that a `.bib` file, a figure and the build folder contribute
+   nothing at all.
+3. **The measurement changed the design, twice.** The first version took **482 ms** to build one
+   page of 200 rows, because the scanner collected a `Vec<char>` and a `String` per file and the
+   page reads 5 MB of blobs. Rewritten as one allocation-free pass over bytes — safe rather than
+   clever, since every character the grammar cares about is ASCII and no byte of a multi-byte
+   UTF-8 character can be mistaken for one — it is **111 ms**, of which 43 ms is libgit2 reading
+   the blobs and 4 ms is the tree diffs.
+4. **111 ms is cheap to do once and far too expensive to do on every save, which is what
+   `BranchState::head` is for.** The panel used to re-read the graph on every
+   `git:status-changed`, and a save fires one. But a save changes what `git status` says and not
+   one row of the history, so the frontend now compares the commit `HEAD` points at against the
+   one the page on screen was built from, and only then re-reads. A test pins both halves: a save
+   reads no page, and a moved `HEAD` re-reads at the depth the author had already opened.
+   The alternative was a cache of deltas by commit id; this needs no state at all and says the
+   true thing about *why* the answer has not changed.
+5. **Section names, not "§3.2".** DESIGN.md §6's example is *"Revised §3.2 Methods, +240
+   words"*, and the number is the part this loop does not do. Numbering correctly needs the whole
+   document walked in `\input` order, `\appendix` understood and `\section*` left out of the
+   count — and a wrong number in a commit message is a lie that outlives the commit, while a name
+   stays true wherever the section moves to. Noted in `section_of`'s doc comment, where the next
+   person to want numbering will look.
+6. **The phrasing is the frontend's and the numbers are Rust's**, the same split
+   `CommitRow::time` already made: `ProseSummary` carries counts, section titles and paths, and
+   `suggestedMessage` turns them into `Revised Methods, +240 words` — in ASCII, deliberately,
+   because this text ends up in a commit message that `git log` and a terminal will render and a
+   typographic minus sign there is a small act of vandalism.
+7. **"Never overwritten under them" is one boolean and the first keystroke.**
+   `messageIsSuggested` starts true, every refresh may replace the sentence while it is true, and
+   `oninput` turns it false for good — until a commit lands, when the author's sentence now
+   describes work that is already in the history and a fresh suggestion is the right thing. The
+   word count under the box keeps updating either way, because a count is a fact and not a
+   sentence.
+8. **A new file is named, not its sections.** "Added notes.tex, +40 words" says more than
+   "Revised Notes" about a section nobody has seen before, and rule 6's non-AI path has to be
+   *useful*, not merely present.
+
+`texwords/src/lib.rs` is 588 lines, well past CLAUDE.md's ~400 guideline for one commit: 120 of
+them are its tests and 131 are comment, leaving ~330 of code, which is the guideline read the way
+S10.2b's note says it should be read here. Left whole rather than split because the scanner is one
+state machine and its two public functions are two sinks on it — separating them would mean
+explaining the same grammar twice. Noted rather than waved past.
 
 
 S10.2
