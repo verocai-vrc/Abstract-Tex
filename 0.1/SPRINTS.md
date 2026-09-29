@@ -2922,11 +2922,12 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.1 Benchmark corpus: the eight `DESIGN.md` §8 documents under `fixtures/corpus/`, each compiling with the real engine, the broken one pinned to its diagnostics | L | — |
 | [x] | S9.2 Timing harness and pass counting: cold and warm build times per corpus document, as a JSON report; how many TeX passes a warm one-line edit costs | M | S9.1 |
 | [x] | S9.3 Precompiled preamble: dump everything before `\begin{document}` to a format keyed by its hash, build with `--format`, fall back silently on any failure | L | S9.2 |
-| [~] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "pdflatex" \| "xelatex" \| "lualatex"` in `abstract-tex.toml`) | M | S9.1 |
+| [x] | S9.4 System TeX detection and per-project engine switching (`engine = "tectonic" \| "pdflatex" \| "xelatex" \| "lualatex"` in `abstract-tex.toml`) | M | S9.1 |
 | [ ] | S9.5 CI performance and golden-corpus gate: every corpus document compiles, the broken one's diagnostics unchanged, thesis p95 warm < 1.2 s | M | S9.2, S9.3 |
 | [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
 | [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
+| [ ] | S9.12 latexmk shell escape writes into the build folder, not the project: run from the build folder, TEXINPUTS carries the project folder, verified on TeX Live and MiKTeX | M | S9.8, S9.4 |
 | [~] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 | [x] | S9.10 A cancelled warm build keeps its warm start: the build folder is checkpointed before a warm pass and put back, marker included, when the pass is cancelled | M | S9.2, S9.9 |
 | [x] | S9.11 The LSP bridge reads while it writes: a writer task per process, so a big `didChange` sent while TexLab floods its output cannot deadlock | S | — |
@@ -3118,6 +3119,15 @@ texlive-latex-extra` in S9.5. What a reader should take from the diff:
    shell-escape on would let any project run commands on the machine that opens it. A test pins
    that no `latexmk` command line ever carries it. Consent that lives outside the project is new
    card S9.8. The S1.4 placeholder value `"system"` is gone; it never reached any code.
+
+**Rung 3, closed (29 September 2026).** The maintainer installed `latexmk texlive-latex-extra`
+on this machine (`pdflatex`, `lualatex` now on `PATH`; no `xelatex`, no `biber` — separate
+packages the install did not pull in). `builds_the_minimal_fixture_with_a_system_pdflatex` passes
+against the real `pdflatex`; `a_system_engine_this_machine_lacks_falls_back_with_a_sentence` now
+takes its own early-return branch, as its comment says it would once a machine has TeX Live.
+`[x]`. The "corpus under latexmk" half of the card's `Build` line was never implemented — point 4
+above already replaced it with the shell-escape split, and nothing else in the corpus needs a
+second engine to prove itself. Xelatex/biber coverage stays open, for whenever a machine has them.
 
 ```
 Loop      S9.5 · CI performance and golden-corpus gate · M
@@ -3451,6 +3461,31 @@ in well under a second on the new one, 20 runs in 20. What a reader should take 
    decides anything; it only writes, in order.
 4. `Running::take_writer` moves the write half out, and `Running::send` stays for callers that do
    one thing at a time (the process tests).
+
+```
+Loop      S9.12 · latexmk shell escape keeps the source tree clean · M
+Reads     the ledger entry "Confirmed: under latexmk, \write18 ... writes into the source tree";
+          crates/abstract-tex-engine/src/{latexmk.rs,tectonic.rs} (Tectonic's own `shell-escape-cwd`)
+Depends   S9.8 (consent, and why this matters), S9.4 (latexmk itself)
+Files     crates/abstract-tex-engine/src/{latexmk.rs,process.rs}, crates/abstract-tex-engine/tests/
+          (a fixture that `\write18`s a marker, and one with a relative `\inputminted`)
+Build     Confirmed by hand (29 Sep 2026, logged): `\write18` runs in the process's own working
+          directory, not `-output-directory`, so shell escape under latexmk writes into the
+          project folder today. A fix shape is tested for plain TeX Live: run with `cwd` = the
+          build folder, root file passed by path, `TEXINPUTS` carrying the project folder so
+          `\input`/`\include` still resolve (kpathsea does not add the master file's own folder
+          once cwd moves away from it — confirmed separately). Needs, before this closes:
+          `\include`d chapters still resolve from the moved cwd; SyncTeX and the log's own file
+          names are unaffected by the cwd change; the env var syntax differs on Windows (`;` not
+          `:`) and appends to, never replaces, the existing `TEXINPUTS`; and MiKTeX specifically —
+          minted's own error text on this machine names `TEXMF_OUTPUT_DIRECTORY` as what MiKTeX
+          wants instead, which needs checking against a MiKTeX install, not assumed from the text.
+Verify    cargo test -p abstract-tex-engine; the new fixtures against a real TeX Live and, if this
+          project gets access to one, a real MiKTeX
+Done when a `\write18` marker and minted's cache both land in the build folder under latexmk, on
+          both distributions, and a multi-file project with `\include` still builds correctly
+          from the moved cwd.
+```
 
 ### Sprint 10–11 — v0.6 sync
 

@@ -15,17 +15,27 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
-- **Unverified: under latexmk, shell escape may write minted's cache into the source tree, and
-  `\inputminted` with a relative path may not resolve under either engine.** (29 Sep 2026, S9.8)
-  Tectonic runs the commands in the build folder (`-Z shell-escape-cwd`), and the real-engine
-  test proves the source tree stays untouched there. latexmk has no such option: its
-  `-shell-escape` runs them from the project folder, so minted may write `_minted-*` beside the
-  author's `.tex`, which DESIGN.md's rule on the source tree forbids. That can't be checked on a
-  machine with no TeX Live. Separately, `\inputminted{code/example.py}` reads a file relative to
-  where the commands run. On Tectonic that is now the build folder, so a relative path to the
-  author's own code may not be found. The corpus document only uses inline listings. Both need a
-  real run: the first when S9.4's rung 3 runs (CI, S9.5), the second with a fixture that
-  `\inputminted`s a file. Open.
+- **Confirmed: under latexmk, `\write18` (what shell escape runs through) obeys the process's own
+  working directory, never `-output-directory`, so it writes into the source tree.** (29 Sep 2026,
+  S9.8; confirmed 29 Sep after the maintainer installed TeX Live) `latexmk.rs` runs every build
+  with the project folder as `cwd`, only telling `pdflatex` where to put its *outputs*
+  (`-outdir`). Reproduced directly, no minted needed: `\immediate\write18{pwd > marker}` under
+  `pdflatex -output-directory=<build> -shell-escape`, run from the project folder, writes `marker`
+  beside the `.tex`, not into the build folder. minted's own cache would land the same way.
+  Tectonic does not have this problem — `-Z shell-escape-cwd=<dir>` sets the shell commands'
+  directory independently of the engine's own cwd, which is what S9.8 relies on.
+  **A fix shape is tested and works for a plain TeX Live pdfTeX toolchain:** run the process with
+  `cwd` = the build folder instead of the project folder, and add the project folder to
+  `TEXINPUTS` (kpathsea does not search the main file's own folder automatically once cwd moves
+  away from it — confirmed separately: `\input{sections/sub}` failed to resolve, with or without
+  an absolute path to the root file, until `TEXINPUTS` named the project folder). Not applied to
+  `latexmk.rs` yet: this changes the working directory of *every* latexmk build, not only
+  shell-escape ones, and minted's own error text on this machine ("MiKTeX is being used with
+  `-aux-directory`... without setting a `TEXMF_OUTPUT_DIRECTORY` environment variable") suggests
+  MiKTeX may need a different mechanism than `TEXINPUTS` — unverified, no Windows/MiKTeX machine
+  here. Card S9.12 in SPRINTS.md picks this up properly, with both distributions and `\include`
+  covered, rather than merging a cwd change proven on one platform. `\inputminted` with a relative
+  path is the same root cause and closes with the same fix; still open on its own until then.
 
 - **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
   costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes
