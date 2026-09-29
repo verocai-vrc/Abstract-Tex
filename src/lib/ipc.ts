@@ -5,7 +5,7 @@
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { ask, open as openDialog } from '@tauri-apps/plugin-dialog';
 
 export interface TreeNode {
   name: string;
@@ -262,6 +262,12 @@ export const ipc = {
   /** `file` is the one being edited: when it belongs to a chapter, that chapter is drafted too. */
   compile: (file: string | null) => invoke<number>('compile', { file }),
   cancelCompile: () => invoke<void>('cancel_compile'),
+  /** S9.8: whether this machine lets the open project's builds run programs (shell escape). */
+  shellEscapeAllowed: () => invoke<boolean>('shell_escape_allowed'),
+  /** Record the person's yes, for the open project's folder, on this machine only. Only ever
+   * called after `confirmShellEscape` came back `true`. */
+  allowShellEscape: () => invoke<void>('allow_shell_escape'),
+  disallowShellEscape: () => invoke<void>('disallow_shell_escape'),
   readLog: () => invoke<string>('read_log'),
   diffOps: (oldText: string, newText: string) => invoke<TextOp[]>('diff_ops', { old: oldText, new: newText }),
 
@@ -320,6 +326,17 @@ export const ipc = {
     const chosen = await openDialog({ directory: true, multiple: false, title: 'Open a LaTeX project folder' });
     return typeof chosen === 'string' ? chosen : null;
   },
+
+  /** S9.8: ask, in a native dialog, before letting a folder's documents run programs. Says
+   * plainly what is being allowed; the default button is the safe one. */
+  confirmShellEscape: (folder: string): Promise<boolean> =>
+    ask(
+      `Documents in this folder will be able to run any program on this computer while they build. ` +
+        `That is what minted needs to colour code, and it is also how a document could do harm.\n\n` +
+        `Allow it only for documents you trust. It is remembered for this folder on this computer, ` +
+        `and never stored in the project.\n\n${folder}`,
+      { title: 'Allow shell escape for this folder?', kind: 'warning', okLabel: 'Allow', cancelLabel: 'Not now' },
+    ),
 
   /** A URL the webview may fetch for a file inside an allowed scope (the build folder). */
   assetUrl: (absolutePath: string) => convertFileSrc(absolutePath),

@@ -1,0 +1,12 @@
+[
+  {
+    "explanation": "`minted` works by running Pygments (the program that colours the code) on this computer during the build. The engine only allows that with shell escape turned on, and it is off by default for a reason: with it on, the document can run any command at all. Turn it on only for a document you trust, or remove `minted` to build without it.",
+    "file": "main.tex",
+    "fix": null,
+    "line": 3,
+    "rawMessage": "Package minted Error: You must invoke LaTeX with the -shell-escape flag.",
+    "rule": "shell-escape-required",
+    "severity": "error",
+    "title": "`minted` needs to run a program while the document builds"
+  }
+]

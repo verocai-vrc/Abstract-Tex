@@ -66,6 +66,14 @@ impl Tectonic {
         if job.synctex {
             args.push("--synctex".to_string());
         }
+        if job.shell_escape {
+            // S9.8. `shell-escape-cwd` rather than plain `shell-escape`: the commands run in the
+            // build folder, so what they write (minted's `_minted-*` cache) stays out of the
+            // source tree and survives to the next build, which then skips re-running Pygments.
+            // Plain `shell-escape` would use a fresh temporary folder every time.
+            args.push("-Z".to_string());
+            args.push(format!("shell-escape-cwd={}", job.out_dir.to_string_lossy()));
+        }
         if single_pass {
             // One TeX pass, then the PDF. Not `--pass tex`: that runs TeX and stops, leaving a
             // `.xdv` and the *previous* build's PDF on screen (ledger, S9.7 spike). The default
@@ -94,6 +102,7 @@ impl Tectonic {
             root_file: layout.wrapper.clone(),
             out_dir: layout.out_dir.clone(),
             synctex: job.synctex,
+            shell_escape: job.shell_escape,
         };
         let mut args = Self::arguments(&draft_job, true);
         let root_dir = job.project_dir.join(job.root_file.parent().unwrap_or(Path::new("")));
@@ -279,6 +288,7 @@ mod tests {
             root_file: PathBuf::from("main.tex"),
             out_dir: dir.join(".abstract-tex").join("build"),
             synctex: true,
+            shell_escape: false,
         }
     }
 
@@ -292,6 +302,17 @@ mod tests {
         assert!(!args.contains(&"--pass".to_string()), "a full build lets the engine choose its passes");
         let outdir_pos = args.iter().position(|a| a == "--outdir").unwrap();
         assert!(args[outdir_pos + 1].ends_with("build"));
+    }
+
+    #[test]
+    fn shell_escape_is_only_on_when_the_job_says_so_and_runs_in_the_build_folder() {
+        let off = Tectonic::arguments(&job(Path::new("proj")), false);
+        assert!(!off.iter().any(|a| a.contains("shell-escape")), "{off:?}");
+        let on = Tectonic::arguments(&BuildJob { shell_escape: true, ..job(Path::new("proj")) }, true);
+        let flag = on.iter().position(|a| a.starts_with("shell-escape-cwd=")).expect("asked for");
+        assert_eq!(on[flag - 1], "-Z");
+        assert!(on[flag].ends_with("build"), "commands run in the build folder: {}", on[flag]);
+        assert_eq!(on.last().map(String::as_str), Some("main.tex"));
     }
 
     #[test]

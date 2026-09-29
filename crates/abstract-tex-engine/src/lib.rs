@@ -63,6 +63,11 @@ pub struct BuildJob {
     pub out_dir: PathBuf,
     /// Emit a `.synctex.gz` so the PDF pane can map clicks back to source lines (sprint 3).
     pub synctex: bool,
+    /// Let the document run programs while it builds (`\write18`, what `minted` needs, S9.8).
+    /// Only ever `true` because the person at this machine allowed it for this project folder;
+    /// never because of anything in the project's own files. Commands run in `out_dir`, so
+    /// whatever they write (minted's `_minted-*` cache) stays out of the source tree.
+    pub shell_escape: bool,
 }
 
 /// What a finished build produced. `success == false` is a normal outcome, not an error:

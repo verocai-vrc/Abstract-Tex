@@ -15,6 +15,7 @@
 pub mod bibliography;
 pub mod commands;
 pub mod compile;
+pub mod consent;
 pub mod lsp;
 pub mod paste;
 pub mod project;
@@ -25,6 +26,7 @@ use std::sync::{Arc, Mutex};
 
 use abstract_tex_engine::tectonic::Tectonic;
 use abstract_tex_engine::Engine;
+use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
 use crate::compile::Orchestrator;
@@ -81,6 +83,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
+        // S9.8: consent lives in the app's own config folder, which only exists once the app
+        // does — hence `setup`, not `AppState::new`. Never in a project (`consent.rs`).
+        .setup(|app| {
+            let config = app.path().app_config_dir()?;
+            app.manage(consent::ShellEscapeConsent::at(config.join("shell-escape.toml")));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::initial_project,
             commands::engine_info,
@@ -92,6 +101,9 @@ pub fn run() {
             commands::set_root_file,
             commands::compile,
             commands::cancel_compile,
+            commands::shell_escape_allowed,
+            commands::allow_shell_escape,
+            commands::disallow_shell_escape,
             commands::read_log,
             commands::diff_ops,
             commands::synctex_forward,

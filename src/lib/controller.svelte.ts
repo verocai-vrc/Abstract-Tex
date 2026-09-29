@@ -482,6 +482,8 @@ export async function openFolder(path?: string): Promise<void> {
     // will actually build, and a setting it could not honour says so.
     app.engine = await ipc.engineInfo().catch(() => null);
     if (info.engineNotice) app.notice = info.engineNotice;
+    // Consent belongs to the folder, so each project reads its own (S9.8). Unknown means no.
+    app.shellEscapeAllowed = await ipc.shellEscapeAllowed().catch(() => false);
     if (info.rootFile) {
       await openFile(info.rootFile);
       await triggerCompile();
@@ -610,6 +612,36 @@ export async function triggerCompile(): Promise<void> {
   }
 }
 
+/**
+ * S9.8: let this folder's documents run programs while they build — what `minted` needs. Asks
+ * first, every time, in a native dialog; a "no" changes nothing. Offered from the diagnostic that
+ * says a package needs it, and from the command palette.
+ */
+export async function allowShellEscape(): Promise<void> {
+  const project = app.project;
+  if (!project || app.shellEscapeAllowed) return;
+  try {
+    if (!(await ipc.confirmShellEscape(project.rootDir))) return;
+    await ipc.allowShellEscape();
+    app.shellEscapeAllowed = true;
+    await triggerCompile();
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
+/** Take it back. No question asked: turning a permission off is always safe. */
+export async function disallowShellEscape(): Promise<void> {
+  if (!app.project || !app.shellEscapeAllowed) return;
+  try {
+    await ipc.disallowShellEscape();
+    app.shellEscapeAllowed = false;
+    app.notice = 'Documents in this folder can no longer run programs while they build.';
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
 export async function setRootFile(relativePath: string): Promise<void> {
   try {
     app.project = await ipc.setRootFile(relativePath);
@@ -671,6 +703,21 @@ registerCommand({
   category: 'action',
   shortcut: 'Ctrl O',
   run: () => void openFolder(),
+});
+// S9.8. Both always listed, each a no-op in the state where it means nothing: the registry is
+// static by design (commands.ts), and a palette that hides a permission's off switch would be
+// the wrong place to be clever.
+registerCommand({
+  id: 'allow-shell-escape',
+  title: "Allow shell escape (let this folder's documents run programs)…",
+  category: 'action',
+  run: () => void allowShellEscape(),
+});
+registerCommand({
+  id: 'disallow-shell-escape',
+  title: "Disallow shell escape for this folder",
+  category: 'action',
+  run: () => void disallowShellEscape(),
 });
 registerCommand({
   id: 'toggle-focus-mode',

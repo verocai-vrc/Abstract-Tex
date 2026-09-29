@@ -188,7 +188,7 @@ mod tests {
         copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/corpus/thesis"), folder.path());
         let mut project = crate::project::Project::open(folder.path()).unwrap();
         let root_file = project.root_file().unwrap();
-        let job = BuildJob { project_dir: project.root_dir.clone(), root_file: root_file.clone(), out_dir: project.build_dir(), synctex: true };
+        let job = BuildJob { project_dir: project.root_dir.clone(), root_file: root_file.clone(), out_dir: project.build_dir(), synctex: true, shell_escape: false };
         assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
 
         let chapter = project.chapter_of("chapters/03-method.tex").expect("chapter 3 is an \\include");

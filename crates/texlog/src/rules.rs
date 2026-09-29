@@ -321,6 +321,19 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_font_not_found,
         fix: None,
     },
+    // S9.8: `minted` (and `svg`, `pythontex`, …) run a program while the document builds, which
+    // an engine allows only with shell escape on. The caller decides whether to offer turning it
+    // on; this crate only says what happened, and never suggests it is harmless.
+    &FnRule {
+        id: "shell-escape-required",
+        severity: Severity::Error,
+        matches: |e| {
+            let lower = e.message.to_lowercase();
+            e.message.starts_with("Package ") && (lower.contains("shell-escape") || lower.contains("shell escape"))
+        },
+        explain: explain_shell_escape_required,
+        fix: None,
+    },
     // S6.1: rules 21–22, DESIGN.md §5.2's "overfull boxes" — see `box_warnings` below for why
     // these need their own scan rather than `located_errors`/`located_warnings`.
     &FnRule {
@@ -1038,6 +1051,22 @@ fn explain_font_not_found(error: &QuickError) -> (String, String) {
              that name. Check the spelling against the font's exact name (not its filename), and \
              make sure it is actually installed for this engine to see rather than only present \
              in another application."
+        ),
+    )
+}
+
+fn explain_shell_escape_required(error: &QuickError) -> (String, String) {
+    // "Package minted Error: …" → "minted".
+    let package = error.message.strip_prefix("Package ").and_then(|rest| rest.split_whitespace().next()).unwrap_or("A package");
+    // minted is by far the most common case, so it gets the name of the program it runs.
+    let program = if package == "minted" { "Pygments (the program that colours the code)" } else { "another program" };
+    (
+        format!("`{package}` needs to run a program while the document builds"),
+        format!(
+            "`{package}` works by running {program} on this computer during the build. The engine \
+             only allows that with shell escape turned on, and it is off by default for a reason: with it on, the document can \
+             run any command at all. Turn it on only for a document you trust, or remove \
+             `{package}` to build without it."
         ),
     )
 }

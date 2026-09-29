@@ -12,6 +12,7 @@
   // `drawer.ts`, tested; this file only lays it out.
   import { app } from '../lib/state.svelte';
   import {
+    allowShellEscape,
     applyDiagnosticFix,
     jumpToDiagnostic,
     setDrawerFilter,
@@ -91,6 +92,10 @@
   function onApplyFix(event: MouseEvent, diagnostic: Diagnostic) {
     event.stopPropagation();
     void applyDiagnosticFix(diagnostic);
+  }
+  function onAllowShellEscape(event: MouseEvent) {
+    event.stopPropagation();
+    void allowShellEscape();
   }
   function onRawLog(event: MouseEvent, diagnostic: Diagnostic) {
     event.stopPropagation();
@@ -182,6 +187,10 @@
                   <button class="ghost fix" onclick={(e) => onApplyFix(e, diagnostic)}>
                     {diagnostic.fix.description}
                   </button>
+                {/if}
+                {#if diagnostic.rule === 'shell-escape-required' && !app.shellEscapeAllowed}
+                  <!-- S9.8: not a text fix, a permission; the dialog behind it asks first. -->
+                  <button class="ghost fix" onclick={onAllowShellEscape}>Allow for this folder…</button>
                 {/if}
                 <button class="ghost raw" title="Show what TeX printed for this" onclick={(e) => onRawLog(e, diagnostic)}>
                   Raw log

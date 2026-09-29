@@ -14,6 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::bibliography::{self, BibliographyIndex, Finding};
 use crate::compile::CompileEvent;
+use crate::consent::ShellEscapeConsent;
 use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
 use crate::synctex::{self, ForwardQuery, ForwardResult, InverseQuery, InverseResult};
@@ -175,13 +176,25 @@ pub fn set_root_file(state: State<'_, AppState>, path: String) -> CommandResult<
 /// `file` is the file being edited, project-relative (S9.9): when it belongs to a chapter, that
 /// chapter is also drafted beside the full build, and a `draft` event may arrive first.
 #[tauri::command]
-pub fn compile(app: AppHandle, state: State<'_, AppState>, file: Option<String>) -> CommandResult<u64> {
+pub fn compile(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    consent: State<'_, ShellEscapeConsent>,
+    file: Option<String>,
+) -> CommandResult<u64> {
     // Gather everything under the lock, then release it before the build starts.
     let (job, draft) = with_project(&state, |project| {
         let root_file = project.root_file().ok_or_else(|| {
             anyhow::anyhow!("No root .tex file found. Create main.tex or choose a root file in the tree.")
         })?;
-        let job = BuildJob { project_dir: project.root_dir.clone(), root_file, out_dir: project.build_dir(), synctex: true };
+        let job = BuildJob {
+            project_dir: project.root_dir.clone(),
+            root_file,
+            out_dir: project.build_dir(),
+            synctex: true,
+            // S9.8: this machine's consent for this folder, and nothing the project says.
+            shell_escape: consent.allows(&project.root_dir),
+        };
         let draft = file
             .and_then(|file| project.chapter_of(&file))
             .map(|chapter| DraftJob { chapter, dir: project.draft_dir() });
@@ -193,6 +206,24 @@ pub fn compile(app: AppHandle, state: State<'_, AppState>, file: Option<String>)
         let _ = emitter.emit("compile", event);
     });
     Ok(generation)
+}
+
+/// Whether the open project's builds may run programs (S9.8). An error with no project open.
+#[tauri::command]
+pub fn shell_escape_allowed(state: State<'_, AppState>, consent: State<'_, ShellEscapeConsent>) -> CommandResult<bool> {
+    with_project(&state, |project| Ok(consent.allows(&project.root_dir)))
+}
+
+/// Let the open project's builds run programs, on this machine, from now on. The frontend asks
+/// the person first, in words that say what this allows; this command is only ever their answer.
+#[tauri::command]
+pub fn allow_shell_escape(state: State<'_, AppState>, consent: State<'_, ShellEscapeConsent>) -> CommandResult<()> {
+    with_project(&state, |project| consent.allow(&project.root_dir))
+}
+
+#[tauri::command]
+pub fn disallow_shell_escape(state: State<'_, AppState>, consent: State<'_, ShellEscapeConsent>) -> CommandResult<()> {
+    with_project(&state, |project| consent.disallow(&project.root_dir))
 }
 
 #[tauri::command]

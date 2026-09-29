@@ -7,8 +7,9 @@
 //! this engine hands it the whole job rather than reimplementing that loop.
 //!
 //! It must never install, update or configure a distribution (DESIGN.md §1.3: not a TeX
-//! distribution) — it finds one on `PATH` or reports that there is none. And it never turns on
-//! shell-escape: a project file must not be able to grant that (SPRINTS.md S9.4).
+//! distribution) — it finds one on `PATH` or reports that there is none. And it turns on
+//! shell-escape only when the job says so, which only the person at the machine can make it say
+//! (`BuildJob::shell_escape`, S9.8): a project file must never be able to grant that (S9.4).
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -84,6 +85,11 @@ impl Latexmk {
         ];
         if job.synctex {
             args.push("-synctex=1".to_string());
+        }
+        if job.shell_escape {
+            // Unlike Tectonic's, the commands run in the project folder: latexmk has no separate
+            // working folder for them. Where minted then puts its cache is unverified (ledger).
+            args.push("-shell-escape".to_string());
         }
         args.push(job.root_file.to_string_lossy().into_owned());
         args
@@ -175,6 +181,7 @@ mod tests {
             root_file: PathBuf::from("thesis.tex"),
             out_dir: Path::new("proj").join(".abstract-tex").join("build"),
             synctex,
+            shell_escape: false,
         }
     }
 
@@ -195,10 +202,13 @@ mod tests {
     }
 
     #[test]
-    fn shell_escape_is_never_on() {
+    fn shell_escape_is_on_only_when_the_job_says_so() {
         for program in [TexProgram::PdfLatex, TexProgram::XeLatex, TexProgram::LuaLatex] {
             let args = Latexmk::at("latexmk", program).arguments(&job(true));
             assert!(!args.iter().any(|a| a.contains("shell-escape") || a == "-shell-restricted"), "{args:?}");
+            let allowed = Latexmk::at("latexmk", program).arguments(&BuildJob { shell_escape: true, ..job(true) });
+            assert!(allowed.contains(&"-shell-escape".to_string()), "{allowed:?}");
+            assert_eq!(allowed.last().map(String::as_str), Some("thesis.tex"));
         }
     }
 
@@ -225,6 +235,7 @@ mod tests {
             root_file: PathBuf::from("main.tex"),
             out_dir: tmp.path().join(".abstract-tex/build"),
             synctex: true,
+            shell_escape: false,
         };
         let outcome = engine.build(&job, CancellationToken::new(), None).await.unwrap();
         assert!(outcome.success, "{}", outcome.stderr);

@@ -13,6 +13,8 @@ const calls = {
   compileFiles: [] as Array<string | null>,
   /** The `draft` flag of each SyncTeX query, forward or inverse (S9.9). */
   synctexDraft: [] as boolean[],
+  /** How often the shell-escape question was put to the person (S9.8). */
+  shellEscapeQuestions: 0,
   writes: [] as Array<{ path: string; contents: string }>,
   reads: [] as string[],
   /** Every `textDocument/*` message the controller sent the language server. */
@@ -21,6 +23,9 @@ const calls = {
   /** How often the raw view asked for `main.log` (S6.3). */
   logReads: 0,
 };
+/** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
+let shellEscapeOnDisk = false;
+let shellEscapeAnswer = false;
 /** Set to a message to make `lsp_start` fail, as a machine with no TexLab would. */
 let lspStartError: string | null = null;
 /** What `synctexForward`/`synctexInverse` answer with, or throw, for the S3.4/S3.5 tests below. */
@@ -60,6 +65,17 @@ vi.mock('./ipc', () => ({
     initialProject: async () => null,
     engineInfo: async () => ({ name: 'Tectonic', version: '0.17.0', path: '/bin/tectonic' }),
     openProject: async () => project,
+    shellEscapeAllowed: async () => shellEscapeOnDisk,
+    allowShellEscape: async () => {
+      shellEscapeOnDisk = true;
+    },
+    disallowShellEscape: async () => {
+      shellEscapeOnDisk = false;
+    },
+    confirmShellEscape: async () => {
+      calls.shellEscapeQuestions++;
+      return shellEscapeAnswer;
+    },
     refreshTree: async () => project,
     readFile: async (path: string) => {
       calls.reads.push(path);
@@ -138,9 +154,11 @@ vi.mock('./ipc', () => ({
 }));
 
 const {
+  allowShellEscape,
   applyDiagnosticFix,
   applyFindingFix,
   closeTab,
+  disallowShellEscape,
   goToOutlineItem,
   jumpToDiagnostic,
   lspDiagnosticsFor,
@@ -191,6 +209,9 @@ beforeEach(async () => {
   calls.compiles = 0;
   calls.compileFiles = [];
   calls.synctexDraft = [];
+  calls.shellEscapeQuestions = 0;
+  shellEscapeOnDisk = false;
+  shellEscapeAnswer = false;
   calls.writes = [];
   calls.reads = [];
   calls.lsp = [];
@@ -385,6 +406,44 @@ describe('compile progress (S2.2)', () => {
 
     compileHandler({ status: 'progress', generation: 2, message: 'current line' });
     expect(app.compile.progress).toBe('current line');
+  });
+});
+
+describe('shell escape by consent (S9.8)', () => {
+  it('reads the folder\'s consent when the folder opens', async () => {
+    expect(app.shellEscapeAllowed).toBe(false);
+    shellEscapeOnDisk = true;
+    await openFolder('/proj');
+    expect(app.shellEscapeAllowed).toBe(true);
+  });
+
+  it('asks first, and a "not now" changes nothing and builds nothing', async () => {
+    shellEscapeAnswer = false;
+    await allowShellEscape();
+    expect(calls.shellEscapeQuestions).toBe(1);
+    expect(shellEscapeOnDisk).toBe(false);
+    expect(app.shellEscapeAllowed).toBe(false);
+    expect(calls.compiles).toBe(0);
+  });
+
+  it('records a yes for this folder and builds again with it', async () => {
+    shellEscapeAnswer = true;
+    await allowShellEscape();
+    expect(shellEscapeOnDisk).toBe(true);
+    expect(app.shellEscapeAllowed).toBe(true);
+    expect(calls.compiles).toBe(1);
+
+    await allowShellEscape();
+    expect(calls.shellEscapeQuestions, 'already allowed: nothing to ask').toBe(1);
+  });
+
+  it('takes it back without a question', async () => {
+    shellEscapeAnswer = true;
+    await allowShellEscape();
+    await disallowShellEscape();
+    expect(calls.shellEscapeQuestions).toBe(1);
+    expect(shellEscapeOnDisk).toBe(false);
+    expect(app.shellEscapeAllowed).toBe(false);
   });
 });
 

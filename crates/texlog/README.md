@@ -37,12 +37,13 @@ Three layers, each usable on its own:
 2. **`resolver`** walks those parens as a stack to answer "which file was open when this line
    was printed", which is the whole problem in resolving a message to a real `file:line`. The
    rule it uses, and the real captures that overturned every simpler one, are in its module doc.
-3. **`rules`** is the catalog: 36 rules covering the mistakes people actually make — undefined
+3. **`rules`** is the catalog: 37 rules covering the mistakes people actually make — undefined
    control sequences, maths outside `$`, unbalanced braces, misplaced `&`, missing packages and
    images, undefined references and citations, over/underfull boxes, `\verb` at end of line,
-   `\include` nesting, and package errors from `babel`, `hyperref`, `tikz`, `xcolor`, `fontspec`
-   and `amsmath`. Eight of them offer a `Fix`: a literal `find`/`replace` pair
-   on the reported line, never a byte offset, since the crate has no source text to offset into.
+   `\include` nesting, package errors from `babel`, `hyperref`, `tikz`, `xcolor`, `fontspec`
+   and `amsmath`, and packages such as `minted` that need shell escape. Eight of them offer a
+   `Fix`: a literal `find`/`replace` pair on the reported line, never a byte offset, since the
+   crate has no source text to offset into.
 
 ## What it does not do
 

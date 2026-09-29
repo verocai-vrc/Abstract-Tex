@@ -482,6 +482,7 @@ mod tests {
             root_file: PathBuf::from("main.tex"),
             out_dir: PathBuf::from("./.abstract-tex/build"),
             synctex: false,
+            shell_escape: false,
         }
     }
 
@@ -636,7 +637,7 @@ mod tests {
         std::fs::create_dir_all(&build).unwrap();
         std::fs::write(build.join("main.aux"), "\\relax\n").unwrap();
         std::fs::write(build.join(abstract_tex_engine::incremental::WARM_MARKER), "").unwrap();
-        let job = BuildJob { project_dir: project.path().to_path_buf(), root_file: PathBuf::from("main.tex"), out_dir: build, synctex: true };
+        let job = BuildJob { project_dir: project.path().to_path_buf(), root_file: PathBuf::from("main.tex"), out_dir: build, synctex: true, shell_escape: false };
         let draft = DraftJob { chapter: "chapters/one".into(), dir: project.path().join(".abstract-tex/draft") };
         (project, job, draft)
     }

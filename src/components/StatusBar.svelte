@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
-  import { detectZotero, toggleDrawer } from '../lib/controller.svelte';
+  import { detectZotero, disallowShellEscape, toggleDrawer } from '../lib/controller.svelte';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -81,6 +81,16 @@
   {/if}
 
   <span class="spacer"></span>
+  {#if app.shellEscapeAllowed}
+    <!-- S9.8: on means visible. One click turns it off; turning it on again asks. -->
+    <button
+      class="ghost warn"
+      title="Documents in this folder may run programs while they build. Click to stop allowing it."
+      onclick={() => void disallowShellEscape()}
+    >
+      shell escape on
+    </button>
+  {/if}
   {#if app.lspMessage}
     <!-- Quiet, not a notice: completion being unavailable does not stop anyone writing. -->
     <span class="muted" title={app.lspMessage}>no language server</span>

@@ -94,6 +94,10 @@ class AppState {
    * `null` when it is a full build. SyncTeX searches whichever of the two is showing. */
   pdfDraftOf = $state<string | null>(null);
 
+  /** Whether this machine lets the open project's builds run programs (S9.8). Shown in the status
+   * bar whenever it is on: a permission this large is never allowed to be invisible. */
+  shellEscapeAllowed = $state(false);
+
   drawerOpen = $state(false);
   /** The drawer's severity and "this file" filter (S6.3). Kept for the session, not reset per
    * build: an author chasing one error under "errors only" is still chasing it after rebuilding. */

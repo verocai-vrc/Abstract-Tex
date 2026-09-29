@@ -2927,7 +2927,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
 | [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
-| [ ] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
+| [~] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 | [x] | S9.10 A cancelled warm build keeps its warm start: the build folder is checkpointed before a warm pass and put back, marker included, when the pass is cancelled | M | S9.2, S9.9 |
 
 ```
@@ -3301,6 +3301,67 @@ lines of Rust, over `CLAUDE.md`'s ~400; about half are tests. What a reader shou
 Found while designing this and logged, not fixed: a cancelled warm build leaves no warm marker,
 so the build after it is a full one — saving during a 3 s thesis build costs the next save
 ~12 s, and gets no draft either. It is the next speed problem worth a loop.
+
+```
+Loop      S9.8 · Shell-escape by per-machine consent · M
+Reads     S9.4's outcome point 4 (why a project file must never grant it); DESIGN.md §9, the row
+          "Tectonic cannot compile real documents"; fixtures/corpus/README.md on `minted`
+Depends   S9.4 (the second engine that must honour it)
+Files     crates/texlog/src/rules.rs (+ a fixture), crates/abstract-tex-engine/src/{lib.rs,
+          tectonic.rs,latexmk.rs}, src-tauri/src/{consent.rs,commands.rs,lib.rs},
+          src-tauri/capabilities/default.json, src/lib/{ipc.ts,state.svelte.ts,controller.svelte.ts},
+          src/components/{Drawer,StatusBar}.svelte
+Build     Expanded at the start of the loop (29 September 2026), after a spike: Tectonic 0.17 has
+          `-Z shell-escape` and `-Z shell-escape-cwd`, and with Pygments on PATH the corpus minted
+          document builds on the bundled engine, so the dependency on a system TeX was only ever
+          about the second engine. texlog gains `shell-escape-required`, from a real capture.
+          `BuildJob` gains `shell_escape`; Tectonic passes `-Z shell-escape-cwd=<build folder>`,
+          latexmk `-shell-escape`. Consent is a list of absolute project folders in the app's
+          config folder (`shell-escape.toml`), read on every build, never from the project. The
+          drawer card for the new rule offers "Allow for this folder…", which asks in a native
+          dialog first; the status bar shows "shell escape on" while it is, and one click turns it
+          off; the palette has both.
+Verify    cargo test -p texlog; cargo test -p abstract-tex-engine; cargo test -p abstract-tex --
+          consent; pnpm vitest run; cargo test -p abstract-tex-engine --test corpus -- --ignored
+Done when minted fails without consent and builds with it on the real engine, writing nothing
+          into the source tree; nothing in a project folder can turn it on; and turning it on is
+          always a question the person answered.
+```
+
+**S9.8 (29 September 2026).** `[~]`: rungs 1–3 green — `cargo test --workspace` 473 passed / 0
+failed (5 new: 3 in `consent.rs`, 1 in `tectonic.rs`, and the generated fixture test for the new
+rule; latexmk's "shell escape is never on" test became "on only when the job says so"), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check`
+0 errors, Vitest 427/427 (4 new); rung 3: the whole ignored corpus suite passes (5 tests, 78 s),
+including the new `minted_builds_once_shell_escape_is_allowed` and the old requirement that
+minted *fails* without consent. `[~]` because rung 4 is the maintainer's: the native dialog and
+the two buttons have not been clicked. Open `fixtures/corpus/minted`, press "Allow for this
+folder…", answer both ways, and check that the status bar's "shell escape on" turns it off again.
+What a reader should take from the diff:
+
+1. **The corpus README was wrong about minted, and the spike found it in a minute.** It said
+   minted "cannot build on the bundled engine". It can: Tectonic has `-Z shell-escape`, and this
+   machine has Pygments. What was missing was permission, not an engine. So this loop needed no
+   system TeX, and S9.4's `[~]` is still only about latexmk's rung 3.
+2. **Where the commands run decides where their files land.** With the working folder set to the
+   project, minted wrote `_minted-main/`, `main.aux`, `main.log` and `main.xdv` into the source
+   tree. Plain `-Z shell-escape` uses a fresh temporary folder, which keeps the tree clean but
+   throws minted's cache away on every build. `shell-escape-cwd=<build folder>` keeps both
+   promises: nothing in the source tree, and a warm minted build that is single passes. The
+   real-engine test checks the source tree file by file.
+3. **Consent is keyed by the folder and kept by the machine.** `consent.rs` reads
+   `<app config>/shell-escape.toml` on every build and never looks inside the project, so neither
+   `abstract-tex.toml` nor anything under `.abstract-tex/` can carry it. A fresh clone at another
+   path is another folder and gets asked again. A file that does not parse means "no".
+4. **Asking is the frontend's job; recording the answer is Rust's.** `allow_shell_escape` has no
+   dialog of its own. It is only ever called after `confirmShellEscape` came back `true`, and the
+   controller test pins that a "not now" writes nothing and builds nothing. Turning it off asks
+   nothing, because turning a permission off is always safe.
+5. **A Tauri 2 detail:** `ask()` calls the dialog plugin's `message` command, so the capability
+   is `dialog:allow-message`; `allow-ask` is a deprecated alias for the same thing.
+
+Not verified here, and logged: whether latexmk's `-shell-escape` keeps minted's cache out of the
+source tree (latexmk has no working-folder option for the commands, and there is no TeX Live
+here), and whether `\inputminted{relative/path}` resolves from the build folder.
 
 ```
 Loop      S9.10 · A cancelled warm build keeps its warm start · M

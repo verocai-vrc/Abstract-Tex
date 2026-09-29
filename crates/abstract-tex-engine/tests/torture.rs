@@ -181,6 +181,7 @@ async fn the_real_engine_walk_resolves_every_mistake() {
         root_file: PathBuf::from("main.tex"),
         out_dir: tmp.path().join(".abstract-tex/build"),
         synctex: false,
+        shell_escape: false,
     };
 
     // The clean build is the extra twenty-first step, once the last chapter is fixed too.

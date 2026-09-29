@@ -39,7 +39,7 @@ const CORPUS: [(&str, Expect); 8] = [
     ("thesis", Expect::Builds { min_pages: 60 }),
     ("beamer", Expect::Builds { min_pages: 10 }),
     ("tikz-figures", Expect::Builds { min_pages: 2 }),
-    ("minted", Expect::Unsupported { reason: "minted needs shell-escape and Pygments; the bundled engine runs without shell-escape" }),
+    ("minted", Expect::Unsupported { reason: "minted needs shell-escape, off unless the person at the machine allows it (S9.8); see minted_builds_once_shell_escape_is_allowed" }),
     ("non-latin", Expect::Builds { min_pages: 1 }),
     ("broken", Expect::Broken),
     ("pathological-preamble", Expect::Builds { min_pages: 1 }),
@@ -120,6 +120,7 @@ async fn every_corpus_document_builds_as_recorded() {
             root_file: PathBuf::from("main.tex"),
             out_dir: tmp.path().join(".abstract-tex/build"),
             synctex: true,
+            shell_escape: false,
         };
 
         let started = Instant::now();
@@ -174,6 +175,7 @@ async fn warm_build_timings() {
             root_file: PathBuf::from("main.tex"),
             out_dir: tmp.path().join(".abstract-tex/build"),
             synctex: true,
+            shell_escape: false,
         };
 
         let cold = engine.build(&job, CancellationToken::new(), None).await.unwrap();
@@ -233,6 +235,7 @@ async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
         root_file: PathBuf::from("main.tex"),
         out_dir: tmp.path().join(".abstract-tex/build"),
         synctex: true,
+        shell_escape: false,
     };
     assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
 
@@ -292,6 +295,7 @@ async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
         root_file: PathBuf::from("main.tex"),
         out_dir: tmp.path().join(".abstract-tex/build"),
         synctex: true,
+        shell_escape: false,
     };
     assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
 
@@ -316,6 +320,53 @@ async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
     let log = fs::read_to_string(next.log.as_ref().unwrap()).unwrap();
     assert_eq!(log.matches("undefined").count(), 0, "a restored folder resolves every reference");
     println!("after a cancel: {:?} in {} ms", next.steps, started.elapsed().as_millis());
+}
+
+/// S9.8 against the real engine: the corpus's `minted` document, which fails without shell
+/// escape (above), builds with it — and nothing it runs writes into the source tree: minted's
+/// cache lands in the build folder, where the next build finds it. Needs `pygmentize` on `PATH`.
+#[tokio::test]
+#[ignore]
+async fn minted_builds_once_shell_escape_is_allowed() {
+    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let tmp = tempfile::tempdir().unwrap();
+    copy_dir(&corpus_dir().join("minted"), tmp.path());
+    let source_tree_before = source_tree(tmp.path());
+    let job = BuildJob {
+        project_dir: tmp.path().to_path_buf(),
+        root_file: PathBuf::from("main.tex"),
+        out_dir: tmp.path().join(".abstract-tex/build"),
+        synctex: true,
+        shell_escape: true,
+    };
+
+    let cold = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+    assert!(cold.success, "needs pygmentize on PATH:\n{}", cold.stderr);
+    assert!(cold.pdf.is_some());
+    assert_eq!(source_tree(tmp.path()), source_tree_before, "shell commands must not write into the source tree");
+    assert!(job.out_dir.join("_minted-main").is_dir() || job.out_dir.join("_minted").is_dir(), "minted's cache stays in the build folder");
+
+    let warm = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+    assert!(warm.success, "{}", warm.stderr);
+    assert!(!warm.steps.full, "a warm minted build is single passes too: {:?}", warm.steps);
+    assert_eq!(source_tree(tmp.path()), source_tree_before);
+}
+
+/// Every path under `dir` outside `.abstract-tex/`: what the author sees as their project.
+fn source_tree(dir: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().is_some_and(|name| name == ".abstract-tex") {
+            continue;
+        }
+        if path.is_dir() {
+            paths.extend(source_tree(&path));
+        }
+        paths.push(path);
+    }
+    paths.sort();
+    paths
 }
 
 /// What an author reads off a chapter's `.aux`: each label's number and page, and every counter

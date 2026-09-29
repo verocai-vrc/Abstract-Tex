@@ -11,7 +11,7 @@ sprint 9 times.
 | `thesis` | report class, six `\include`d chapters, TikZ + pgfplots, biblatex, cleveref | builds, 62 pages |
 | `beamer` | Madrid theme, overlays, TikZ | builds, 13 pages |
 | `tikz-figures` | six heavy figures: 3-D surface, trees, matrices, computed colours | builds, 3 pages |
-| `minted` | code listings through Pygments | **does not build** (see below) |
+| `minted` | code listings through Pygments | **fails without shell escape, builds with it** (see below) |
 | `non-latin` | fontspec + polyglossia; Greek, Cyrillic and Hebrew | builds, 1 page |
 | `broken` | one error after three warnings | fails, with the four diagnostics in `expected.json` |
 | `pathological-preamble` | ~45 packages, tcolorbox `most`, pgfplots, xparse, a real `\qty` clash | builds, 1 page |
@@ -32,11 +32,15 @@ On the maintainer's Windows machine the engine cannot resolve DNS by itself; run
 
 ## What building it found
 
-- **`minted` cannot build on the bundled engine.** It needs `-shell-escape` and a `pygmentize`
-  on `PATH`. The app runs Tectonic without `-Z shell-escape` on purpose, since shell-escape runs
-  arbitrary commands from the document, and this machine has no Pygments anyway. This is the gap
-  `DESIGN.md` §9 names; the route through it is S9.4's system-TeX switch. The test requires the
-  build to fail, so the day it starts building, the test says so.
+- **`minted` needs shell escape, which is off unless the person at the machine allows it.** It
+  runs Pygments (`pygmentize` on `PATH`) during the build, and shell escape lets a document run
+  any command, so the app never turns it on by itself and never because a project file says so.
+  Since S9.8 an author can allow it per folder, on their own machine; Tectonic then runs the
+  commands in the build folder (`-Z shell-escape-cwd`), so minted's cache stays out of the source
+  tree. `every_corpus_document_builds_as_recorded` still requires the build to *fail* without
+  consent; `minted_builds_once_shell_escape_is_allowed` builds it with consent and checks the
+  source tree is untouched. (Recorded 28 Sep 2026 as "cannot build on the bundled engine"; it
+  could, all along, with `-Z shell-escape` and Pygments installed.)
 - **Fonts in Tectonic's bundle are found by file name, not family name.**
   `\setmainfont{DejaVu Serif}` fails with "font cannot be found"; `\setmainfont{FreeSerif.otf}`
   works. An author following any fontspec tutorial hits this first. It's worth a texlog rule

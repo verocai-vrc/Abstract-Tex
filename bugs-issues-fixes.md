@@ -15,6 +15,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Unverified: under latexmk, shell escape may write minted's cache into the source tree, and
+  `\inputminted` with a relative path may not resolve under either engine.** (29 Sep 2026, S9.8)
+  Tectonic runs the commands in the build folder (`-Z shell-escape-cwd`), and the real-engine
+  test proves the source tree stays untouched there. latexmk has no such option: its
+  `-shell-escape` runs them from the project folder, so minted may write `_minted-*` beside the
+  author's `.tex`, which DESIGN.md's rule on the source tree forbids. That can't be checked on a
+  machine with no TeX Live. Separately, `\inputminted{code/example.py}` reads a file relative to
+  where the commands run. On Tectonic that is now the build folder, so a relative path to the
+  author's own code may not be found. The corpus document only uses inline listings. Both need a
+  real run: the first when S9.4's rung 3 runs (CI, S9.5), the second with a fixture that
+  `\inputminted`s a file. Open.
+
 - **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
   costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes
   `.abstract-tex-warm` before anything runs and writes it back only after a success

@@ -176,6 +176,7 @@ mod tests {
             root_file: PathBuf::from(root),
             out_dir: dir.join(".abstract-tex/build"),
             synctex: true,
+            shell_escape: false,
         }
     }
 
