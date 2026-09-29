@@ -3804,6 +3804,44 @@ Done when a temp repo's log pages correctly, rows carry the branch name that poi
           upstream, and the right numbers after a divergence.
 ```
 
+**S10.2b (29 September 2026).** `[x]`: rungs 1–3 green — `cargo test --workspace` 502 passed / 0
+failed (6 new), clippy and `cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors,
+Vitest 427/427; rung 3 adds a second real-`git` test, which builds a bare repository and two
+clones, diverges them, and checks `ahead_behind` against `git rev-list --left-right --count` —
+the command `git status`'s own "ahead 2, behind 1" sentence comes from. What a reader should take
+from the diff:
+
+1. **The snapshot ref leaks through the tags, not through the walk.** `log` walks `HEAD`, so it
+   never *lists* a snapshot commit, exactly as `git log` does not. But a row's branch and remote
+   tags come from enumerating refs, and `refs/abstract-tex/snapshots` is a ref — so a commit that
+   happens to also be the latest snapshot would be labelled "abstract-tex/snapshots" in the
+   graph. A hidden ref that shows up as a tag is not hidden. Filtered by name, and the name is
+   imported from the snapshot crate rather than spelled a second time, so the two cannot drift.
+2. **`None` is not zero, and the view needs the difference.** "No remote yet" and "nothing to
+   sync" are different sentences, and §5.7's one-verb `Sync Changes ↑n ↓m` button only belongs
+   under one of them, so `ahead_behind` is an `Option` and a test pins that a branch with no
+   upstream reports `None` rather than `(0, 0)`.
+3. **A repository before its first commit is a real state, not an error.** `Repository::head()`
+   fails there, because `HEAD` names a branch no commit has created yet — but the branch's *name*
+   exists and is worth showing, so `branch_state` reads it from the symbolic target and returns
+   `unborn: true`. Without that the view would draw an empty graph with no explanation on a
+   repository someone has just created, which is S10.5's whole output.
+4. **`commit` refuses twice, and never invents an identity.** An empty message and an empty tree
+   are both mistakes a panel makes easy, and pressing the button again fixes neither. A
+   repository with no `user.name` gets a sentence naming the two commands that fix it, rather
+   than a commit attributed to a stand-in — the snapshot crate can sign with a stand-in because
+   its commits are a safety net nobody reads as authorship, and this one cannot.
+5. **The one line that differs from S10.1's commit call is the important one.** The snapshot
+   writes `commit(None, …)` and moves a hidden ref itself; this writes `commit(Some("HEAD"), …)`,
+   because this *is* the author's commit and it is supposed to move their branch. The two sit in
+   sibling crates, and the comment on each says which it is.
+
+Both halves together are 452 lines in `lib.rs` plus a 220-line integration test, over CLAUDE.md's
+~400 guideline for one commit even after the split — which is why they are two commits rather
+than one. Worth noting that in this codebase the guideline binds much earlier than it reads:
+roughly half of any file here is doc comment by house style, so ~400 lines is nearer 200 lines of
+code.
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,

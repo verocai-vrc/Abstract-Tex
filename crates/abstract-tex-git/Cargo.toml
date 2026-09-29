@@ -16,6 +16,9 @@ git2 = { version = "0.20", default-features = false }
 # restated in src-tauri.
 serde = { workspace = true }
 thiserror = { workspace = true }
+# For one constant: the ref S10.1 puts its snapshots on, so that `log` can leave it out of a
+# row's tags rather than spelling `refs/abstract-tex/snapshots` a second time and drifting.
+abstract-tex-snapshot = { path = "../abstract-tex-snapshot" }
 tracing = { workspace = true }
 
 [dev-dependencies]

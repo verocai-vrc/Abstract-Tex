@@ -133,3 +133,65 @@ fn every_state_reads_the_same_way_as_the_git_binary() {
     );
 }
 
+/// `Sync Changes ↑n ↓m` is drawn straight from these two numbers, so they are checked against
+/// `git rev-list --left-right --count`, which is where `git status`'s own "ahead 2, behind 1"
+/// sentence comes from. Needs a real remote, which means a real bare repository and a real clone.
+#[test]
+#[ignore]
+fn ahead_and_behind_agree_with_git_rev_list() {
+    let tmp = tempfile::tempdir().unwrap();
+    let origin = tmp.path().join("origin.git");
+    let ours = tmp.path().join("ours");
+    let theirs = tmp.path().join("theirs");
+
+    git(tmp.path(), &["init", "--bare", "-q", "origin.git"]);
+    for clone in [&ours, &theirs] {
+        git(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        git(clone, &["config", "user.name", "Ada"]);
+        git(clone, &["config", "user.email", "ada@example.invalid"]);
+    }
+
+    // One commit pushed, so both clones share a base and have an upstream.
+    fs::write(ours.join("main.tex"), "shared base\n").unwrap();
+    git(&ours, &["add", "-A"]);
+    git(&ours, &["commit", "-qm", "base"]);
+    // Name the branch rather than inheriting this machine's `init.defaultBranch`, which is
+    // `master` here and `main` elsewhere — the test should not depend on which.
+    git(&ours, &["branch", "-M", "main"]);
+    git(&ours, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+    git(&ours, &["branch", "--set-upstream-to=origin/main"]);
+    git(&theirs, &["fetch", "-q"]);
+    git(&theirs, &["checkout", "-q", "-B", "main", "origin/main"]);
+    git(&theirs, &["branch", "--set-upstream-to=origin/main"]);
+
+    // They push one commit; we make two of our own and fetch without merging. Now we are two
+    // ahead and one behind — the state the Sync button exists for.
+    fs::write(theirs.join("theirs.tex"), "their work\n").unwrap();
+    git(&theirs, &["add", "-A"]);
+    git(&theirs, &["commit", "-qm", "theirs"]);
+    git(&theirs, &["push", "-q"]);
+
+    for n in 1..=2 {
+        fs::write(ours.join(format!("ours-{n}.tex")), "our work\n").unwrap();
+        git(&ours, &["add", "-A"]);
+        git(&ours, &["commit", "-qm", &format!("ours {n}")]);
+    }
+    git(&ours, &["fetch", "-q"]);
+
+    let repository = abstract_tex_git::open(&ours).unwrap();
+    let state = abstract_tex_git::branch_state(&repository).unwrap();
+    assert_eq!(state.name.as_deref(), Some("main"));
+    assert!(!state.unborn);
+
+    let counts = Command::new("git")
+        .args(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"])
+        .current_dir(&ours)
+        .output()
+        .expect("needs git on PATH");
+    let counts = String::from_utf8_lossy(&counts.stdout);
+    let mut numbers = counts.split_whitespace().map(|n| n.parse::<usize>().unwrap());
+    let (ahead, behind) = (numbers.next().unwrap(), numbers.next().unwrap());
+
+    assert_eq!(state.ahead_behind, Some((ahead, behind)), "git says {ahead} ahead, {behind} behind");
+    assert_eq!(state.ahead_behind, Some((2, 1)), "and the state this test set up is 2 ahead, 1 behind");
+}

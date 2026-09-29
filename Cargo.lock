@@ -54,6 +54,7 @@ dependencies = [
 name = "abstract-tex-git"
 version = "0.1.0"
 dependencies = [
+ "abstract-tex-snapshot",
  "git2",
  "serde",
  "tempfile",
