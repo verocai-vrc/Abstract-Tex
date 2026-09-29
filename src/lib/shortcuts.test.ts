@@ -27,9 +27,18 @@ describe('shortcutFor', () => {
     expect(shortcutFor(press('b'))).toBeNull();
   });
 
-  it('does not steal chords that carry Shift or Alt', () => {
+  it('reaches the activity bar the way VS Code does (S10.3a)', () => {
+    expect(shortcutFor(press('E', { ctrlKey: true, shiftKey: true }))).toBe('view-files');
+    expect(shortcutFor(press('G', { ctrlKey: true, shiftKey: true }))).toBe('view-source-control');
+  });
+
+  it('does not steal a chord that carries Shift or Alt and is not in the table', () => {
+    // `Ctrl Shift S` is the platform's, and `Ctrl E` is not "Files" — Shift is matched exactly,
+    // not ignored, so neither the chord with it nor the one without it reaches the other's action.
     expect(shortcutFor(press('S', { ctrlKey: true, shiftKey: true }))).toBeNull();
+    expect(shortcutFor(press('e', { ctrlKey: true }))).toBeNull();
     expect(shortcutFor(press('s', { ctrlKey: true, altKey: true }))).toBeNull();
+    expect(shortcutFor(press('E', { ctrlKey: true, shiftKey: true, altKey: true }))).toBeNull();
     expect(shortcutFor(press('F5', { altKey: true }))).toBeNull();
   });
 
@@ -40,8 +49,11 @@ describe('shortcutFor', () => {
 
   it('every entry in the table is reachable', () => {
     for (const shortcut of SHORTCUTS) {
-      const [modifier, key] = shortcut.keys.includes('-') ? shortcut.keys.split('-') : [null, shortcut.keys];
-      expect(shortcutFor(press(key!, { ctrlKey: modifier === 'Mod' }))).toBe(shortcut.action);
+      const parts = shortcut.keys.split('-');
+      const key = parts.pop()!;
+      expect(shortcutFor(press(key, { ctrlKey: parts.includes('Mod'), shiftKey: parts.includes('Shift') }))).toBe(
+        shortcut.action,
+      );
     }
   });
 });

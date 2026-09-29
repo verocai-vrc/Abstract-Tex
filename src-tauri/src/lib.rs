@@ -5,6 +5,7 @@
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
+//! - [`git`]      — which repository the open project is in, for the Source Control view.
 //! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `abstract-tex-synctex`.
 //! - [`bibliography`] — the `.bib` index: files, entries, citations, rebuilt from disk on change.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
@@ -16,6 +17,7 @@ pub mod bibliography;
 pub mod commands;
 pub mod compile;
 pub mod consent;
+pub mod git;
 pub mod lsp;
 pub mod paste;
 pub mod project;
@@ -120,6 +122,10 @@ pub fn run() {
             commands::list_zotero_libraries,
             commands::link_zotero_collection,
             commands::unlink_bib_file,
+            commands::git_status,
+            commands::git_stage,
+            commands::git_unstage,
+            commands::git_discard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Abstract-Tex window");

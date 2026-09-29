@@ -4,6 +4,7 @@
   import {
     openFolder,
     saveNow,
+    showActivityView,
     start,
     toggleCommandPalette,
     toggleDrawer,
@@ -11,6 +12,8 @@
     triggerCompile,
   } from './lib/controller.svelte';
   import { shortcutFor } from './lib/shortcuts';
+  import ActivityBar from './components/ActivityBar.svelte';
+  import SourceControl from './components/SourceControl.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Editor from './components/Editor.svelte';
   import PdfPane from './components/PdfPane.svelte';
@@ -48,6 +51,12 @@
       case 'command-palette':
         toggleCommandPalette();
         break;
+      case 'view-files':
+        showActivityView('files');
+        break;
+      case 'view-source-control':
+        showActivityView('source-control');
+        break;
     }
   }
 </script>
@@ -71,7 +80,14 @@
     </button>
   </header>
 
-  <Sidebar />
+  <ActivityBar />
+  <!-- One left pane, two tenants (S10.3a). Each renders its own `.sidebar`, so the grid column
+       holds whichever is current and nothing about the layout depends on which. -->
+  {#if app.activityView === 'files'}
+    <Sidebar />
+  {:else}
+    <SourceControl />
+  {/if}
   <Editor />
   <PdfPane />
 

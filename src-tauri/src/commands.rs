@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
+use abstract_tex_git::{Discarded, Status as GitStatus};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -15,10 +16,11 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::bibliography::{self, BibliographyIndex, Finding};
 use crate::compile::CompileEvent;
 use crate::consent::ShellEscapeConsent;
+use crate::git;
 use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
 use crate::synctex::{self, ForwardQuery, ForwardResult, InverseQuery, InverseResult};
-use crate::watcher::{self, remember_write};
+use crate::watcher::{self, remember_write, Change};
 use crate::AppState;
 
 /// Tauri needs command errors to be serialisable. A `String` is the simplest thing that is, and
@@ -87,15 +89,22 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
         .map_err(to_message)?;
 
     let emitter = app.clone();
-    let watcher = watcher::watch(&project.root_dir, state.written.clone(), move |event| {
-        // The watcher already dropped our own writes, so this is an external change. A `.bib`
-        // or `.tex` may have changed what the bibliography index says; rebuild it here, on the
-        // watcher's thread, so the frontend learns within one debounce window (S7.2).
-        let touches_bibliography = bibliography::affects_index(Path::new(&event.path));
-        let _ = emitter.emit("fs:changed", event);
-        if touches_bibliography {
-            emit_bibliography(&emitter);
+    let watcher = watcher::watch(&project.root_dir, state.written.clone(), move |change| match change {
+        Change::Manuscript(event) => {
+            // The watcher already dropped our own writes, so this is an external change. A `.bib`
+            // or `.tex` may have changed what the bibliography index says; rebuild it here, on the
+            // watcher's thread, so the frontend learns within one debounce window (S7.2).
+            let touches_bibliography = bibliography::affects_index(Path::new(&event.path));
+            let _ = emitter.emit("fs:changed", event);
+            if touches_bibliography {
+                emit_bibliography(&emitter);
+            }
+            // Whoever wrote the file, `git status` now says something different (S10.3a).
+            git::emit_status_changed(&emitter);
         }
+        // Git itself wrote something the Source Control view reads — `git add` in a terminal,
+        // say. Nothing to tell the editor about: no file in the project changed.
+        Change::GitMetadata => git::emit_status_changed(&emitter),
     })
     .map_err(to_message)?;
 
@@ -144,12 +153,16 @@ pub fn write_file(app: AppHandle, state: State<'_, AppState>, path: String, cont
     if bibliography::affects_index(Path::new(&path)) {
         emit_bibliography(&app);
     }
+    // And for the same reason the Source Control view has to be told here rather than by the
+    // watcher: a save from our own editor is exactly the write the echo filter drops, and it is
+    // also the commonest way a file becomes a row in *Changes* (S10.3a).
+    git::emit_status_changed(&app);
     Ok(())
 }
 
 #[tauri::command]
-pub fn create_file(state: State<'_, AppState>, path: String) -> CommandResult<ProjectInfo> {
-    with_project(&state, |project| {
+pub fn create_file(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<ProjectInfo> {
+    let info = with_project(&state, |project| {
         let absolute = project.resolve(&path)?;
         if absolute.exists() {
             anyhow::bail!("{path} already exists");
@@ -160,7 +173,11 @@ pub fn create_file(state: State<'_, AppState>, path: String) -> CommandResult<Pr
         remember_write(&state.written, &absolute, b"");
         write_atomically(&absolute, "")?;
         Ok(project.info())
-    })
+    })?;
+    // A new file is an untracked row in *Changes*, and our own write is invisible to the
+    // watcher — same reason as `write_file` above.
+    git::emit_status_changed(&app);
+    Ok(info)
 }
 
 #[tauri::command]
@@ -572,6 +589,50 @@ pub fn lsp_notify(state: State<'_, AppState>, method: String, params: serde_json
 pub fn lsp_respond(state: State<'_, AppState>, id: serde_json::Value, result: serde_json::Value) -> CommandResult<()> {
     state.lsp.bridge()?.respond(id, result).map_err(to_message)
 }
+
+// ---------------------------------------------------------------------------------------------
+// S10.3a: the Source Control view's questions and its three verbs.
+//
+// Reads answer `None` when the project is not inside a Git repository, which the view says in a
+// sentence; verbs cannot be reached without one, so they fail with it instead (`git.rs`). Every
+// verb ends by emitting `git:status-changed`, so the panel has one refresh path whether the
+// change came from a button here or from `git` in a terminal.
+// ---------------------------------------------------------------------------------------------
+
+/// What has changed, in the three lists DESIGN.md §6 draws them in.
+#[tauri::command]
+pub fn git_status(state: State<'_, AppState>) -> CommandResult<Option<GitStatus>> {
+    git::with_repository(&state, abstract_tex_git::status)
+}
+
+/// Add one path to the index, or record its deletion there.
+#[tauri::command]
+pub fn git_stage(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<()> {
+    git::in_repository(&state, |repository| abstract_tex_git::stage(repository, &path))?;
+    git::emit_status_changed(&app);
+    Ok(())
+}
+
+/// Put the index entry back to what `HEAD` has, leaving the file on disk alone.
+#[tauri::command]
+pub fn git_unstage(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<()> {
+    git::in_repository(&state, |repository| abstract_tex_git::unstage(repository, &path))?;
+    git::emit_status_changed(&app);
+    Ok(())
+}
+
+/// Throw away the working-tree changes to one path, and say which of the two things that was.
+///
+/// The frontend has already confirmed with the author by the time this runs — "Discard always
+/// confirms" (the Source Control design notes) — and the answer is what lets the notice
+/// afterwards say *restored* or *deleted* rather than something that covers both.
+#[tauri::command]
+pub fn git_discard(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<Discarded> {
+    let done = git::in_repository(&state, |repository| abstract_tex_git::discard(repository, &path))?;
+    git::emit_status_changed(&app);
+    Ok(done)
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -4,6 +4,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
+import { git, NO_CHANGES } from './git.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -16,7 +17,7 @@ import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
 import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
 import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
-import { app } from './state.svelte';
+import { app, type ActivityView } from './state.svelte';
 
 const backend: DocumentBackend = {
   writeFile: (path, contents) => ipc.writeFile(path, contents),
@@ -431,6 +432,97 @@ export function goToOutlineItem(item: OutlineItem): void {
   jumpToLine(item.line);
 }
 
+// ---------------------------------------------------------------------------------------------
+// S10.3a: the Source Control view's actions.
+// ---------------------------------------------------------------------------------------------
+
+/** Which view the left pane shows. The activity bar and the command palette both call this. */
+export function showActivityView(view: ActivityView): void {
+  app.activityView = view;
+}
+
+/** Pending coalesced status refresh, if any. See `scheduleGitRefresh`. */
+let gitRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Ask again, once, ~120 ms after the last thing that changed the answer.
+ *
+ * Rust already emits at most one `git:status-changed` per debounce window of the *watcher*, but
+ * our own writes are invisible to the watcher and are announced per file (`commands.rs`), and a
+ * build saves every open tab: a six-tab project would otherwise read the whole status six times
+ * for one answer. Short enough that the panel still moves while the author is looking at it.
+ */
+function scheduleGitRefresh(): void {
+  if (gitRefreshTimer) clearTimeout(gitRefreshTimer);
+  gitRefreshTimer = setTimeout(() => {
+    gitRefreshTimer = null;
+    void refreshGitStatus();
+  }, 120);
+}
+
+/**
+ * Read the three lists as they stand.
+ *
+ * A `null` answer is not a failure: it is a project nobody has run `git init` in, which the view
+ * says in a sentence (and S10.5 offers to fix). A thrown error is one worth showing — a
+ * repository Git itself cannot read — but it never becomes a notice: a Source Control view that
+ * cannot answer stops nobody from writing (DESIGN.md §2, commitment 6).
+ */
+export async function refreshGitStatus(): Promise<void> {
+  if (!app.project) {
+    git.isRepository = false;
+    git.status = NO_CHANGES;
+    return;
+  }
+  try {
+    const status = await ipc.gitStatus();
+    git.isRepository = status !== null;
+    git.status = status ?? NO_CHANGES;
+    git.error = null;
+  } catch (error) {
+    git.isRepository = false;
+    git.status = NO_CHANGES;
+    git.error = String(error);
+  }
+}
+
+/** Stage one path. The refresh comes back as a `git:status-changed` event, not from here: one
+ * refresh path, whether the change came from this button or from `git add` in a terminal. */
+export async function stageChange(path: string): Promise<void> {
+  await runGitVerb(() => ipc.gitStage(path));
+}
+
+export async function unstageChange(path: string): Promise<void> {
+  await runGitVerb(() => ipc.gitUnstage(path));
+}
+
+/**
+ * Throw away the changes to one path, after asking.
+ *
+ * "Discard always confirms" (the Source Control design notes), and the question has to say the
+ * true thing: `untracked` decides whether the author is agreeing to *restore* a file or to
+ * *delete* one Git has never seen. What comes back says which of the two actually happened, and
+ * the panel reports it — an unrecoverable action should not be silent about having happened.
+ */
+export async function discardChange(path: string, untracked: boolean): Promise<void> {
+  if (!(await ipc.confirmDiscard(path, untracked))) return;
+  const done = await runGitVerb(() => ipc.gitDiscard(path));
+  if (done === 'deleted') git.lastDiscard = `Deleted ${path}.`;
+  else if (done === 'restored') git.lastDiscard = `${path} is back to its last committed version.`;
+}
+
+/** Run one verb, turning a rejection into the panel's own sentence rather than a notice. */
+async function runGitVerb<T>(verb: () => Promise<T>): Promise<T | null> {
+  git.error = null;
+  git.lastDiscard = null;
+  try {
+    return await verb();
+  } catch (error) {
+    git.error = String(error);
+    return null;
+  }
+}
+
 /** Called once from App.svelte. Subscribes to backend events and probes the engine. */
 export async function start(): Promise<void> {
   await ipc.onCompile(handleCompileEvent);
@@ -443,6 +535,10 @@ export async function start(): Promise<void> {
     bibliography.index = index;
     void refreshBibliographyHealth();
   });
+  // S10.3a: Rust says when the answer may have moved — a file written by anyone, or Git's own
+  // index, `HEAD` or a branch. The frontend never polls for status (the Source Control design
+  // notes), so this subscription is the only thing that keeps the panel current.
+  await ipc.onGitStatusChanged(() => scheduleGitRefresh());
   try {
     app.engine = await ipc.engineInfo();
   } catch (error) {
@@ -474,6 +570,13 @@ export async function openFolder(path?: string): Promise<void> {
     // command below; later ones arrive as events.
     bibliography.index = null;
     void refreshBibliography();
+    // The previous project's changes are not this one's, and the new project may not be in Git
+    // at all. Both are settled by the first refresh; until it answers, show neither.
+    git.status = NO_CHANGES;
+    git.isRepository = false;
+    git.error = null;
+    git.lastDiscard = null;
+    void refreshGitStatus();
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
     // compile loop and the PDF all work without it.
@@ -707,6 +810,22 @@ registerCommand({
 // S9.8. Both always listed, each a no-op in the state where it means nothing: the registry is
 // static by design (commands.ts), and a palette that hides a permission's off switch would be
 // the wrong place to be clever.
+// S10.3a. Rule 5 (keyboard first): the two views the activity bar can show are reachable from
+// the palette as well as from `Ctrl Shift E`/`Ctrl Shift G`, against the same callback.
+registerCommand({
+  id: 'view-files',
+  title: 'Files',
+  category: 'action',
+  shortcut: 'Ctrl Shift E',
+  run: () => showActivityView('files'),
+});
+registerCommand({
+  id: 'view-source-control',
+  title: 'Source Control',
+  category: 'action',
+  shortcut: 'Ctrl Shift G',
+  run: () => showActivityView('source-control'),
+});
 registerCommand({
   id: 'allow-shell-escape',
   title: "Allow shell escape (let this folder's documents run programs)…",

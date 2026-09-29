@@ -250,6 +250,32 @@ export interface ZoteroCollection {
   children: ZoteroCollection[];
 }
 
+/** S10.2a's row letters, as `abstract_tex_git::ChangeKind` serialises them. */
+export type ChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'conflicted';
+
+/** One row of the Changes, Staged Changes or Merge Changes list (`abstract_tex_git::FileChange`). */
+export interface FileChange {
+  /** Project-relative, forward slashes. */
+  path: string;
+  /** Where Git thinks it came from, when it detected a rename. `null` otherwise. */
+  renamedFrom: string | null;
+  kind: ChangeKind;
+}
+
+/** What has changed, in the three lists the Source Control view draws (`abstract_tex_git::Status`).
+ *
+ * Three lists and not one with a flag per row: a file staged and then edited again is in `staged`
+ * **and** in `unstaged`, with a different letter in each. */
+export interface GitStatus {
+  staged: FileChange[];
+  unstaged: FileChange[];
+  conflicted: FileChange[];
+}
+
+/** Which of the two things a discard did (`abstract_tex_git::Discarded`) — what the notice
+ * afterwards reports, since an untracked file is *deleted* and a tracked one is restored. */
+export type Discarded = 'restored' | 'deleted';
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -338,6 +364,17 @@ export const ipc = {
       { title: 'Allow shell escape for this folder?', kind: 'warning', okLabel: 'Allow', cancelLabel: 'Not now' },
     ),
 
+  /** S10.3a: what has changed in the project's repository. `null` — not an error — when the
+   * project is not inside a Git repository at all, which the view says in one sentence. */
+  gitStatus: () => invoke<GitStatus | null>('git_status'),
+  /** Add one path to the index, or record its deletion there. */
+  gitStage: (path: string) => invoke<void>('git_stage', { path }),
+  /** Put the index entry back to what `HEAD` has, leaving the file on disk alone. */
+  gitUnstage: (path: string) => invoke<void>('git_unstage', { path }),
+  /** Throw away the working-tree changes to one path. Only ever called after `confirmDiscard`
+   * came back `true`; the answer says which of the two things actually happened. */
+  gitDiscard: (path: string) => invoke<Discarded>('git_discard', { path }),
+
   /** A URL the webview may fetch for a file inside an allowed scope (the build folder). */
   assetUrl: (absolutePath: string) => convertFileSrc(absolutePath),
 
@@ -347,6 +384,28 @@ export const ipc = {
     listen<FsEvent>('fs:changed', (e) => handler(e.payload)),
   onLsp: (handler: (event: LspEvent) => void): Promise<UnlistenFn> =>
     listen<LspEvent>('lsp', (e) => handler(e.payload)),
+  /** S10.3a: ask before throwing away work. Two sentences, because a discard is two different
+   * operations: a tracked file is restored from Git, an untracked one is deleted outright and
+   * Git has never seen it. The default button is the safe one. */
+  confirmDiscard: (path: string, untracked: boolean): Promise<boolean> =>
+    ask(
+      untracked
+        ? `${path} has never been committed, so there is no version to put back. Discarding it deletes the file.`
+        : `${path} will go back to the last committed version. Changes to it since then are lost.`,
+      {
+        title: untracked ? `Delete ${path}?` : `Discard changes to ${path}?`,
+        kind: 'warning',
+        okLabel: untracked ? 'Delete' : 'Discard',
+        cancelLabel: 'Keep',
+      },
+    ),
+
+  /** S10.3a: something changed what the Source Control view would show — a file the author (or
+   * anyone else) wrote, or Git's own index, `HEAD` or a branch. No payload: the view asks again
+   * for whichever of its three questions it is currently showing. Never polled. */
+  onGitStatusChanged: (handler: () => void): Promise<UnlistenFn> =>
+    listen<null>('git:status-changed', () => handler()),
+
   /** A `.bib` or `.tex` changed — on disk or through our own `writeFile` — and the index was
    * rebuilt. The payload is the whole new index, so there is nothing to fetch afterwards. */
   onBibliographyChanged: (handler: (index: BibliographyIndex) => void): Promise<UnlistenFn> =>

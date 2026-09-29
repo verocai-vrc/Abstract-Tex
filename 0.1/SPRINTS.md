@@ -3842,17 +3842,206 @@ than one. Worth noting that in this codebase the guideline binds much earlier th
 roughly half of any file here is doc comment by house style, so ~400 lines is nearer 200 lines of
 code.
 
+```
+Loop      S10.3a · The activity bar, and what has changed · L
+Reads     DESIGN.md §6 ("An activity bar, borrowed from VS Code"; "The Source Control view is a
+          1:1 copy of VS Code's"), §5.8 (`.abstract-tex/` is ours), §2 rule 5 (keyboard first),
+          rule 1 (plain files are the truth); the Source Control design notes below
+Depends   S10.2a (`status`, `stage`, `unstage`, `discard`)
+Files     src-tauri/src/git.rs (new), src-tauri/src/{lib,commands,watcher}.rs,
+          src/lib/git.svelte.ts (new) + git.test.ts, src/lib/ipc.ts, src/lib/shortcuts.ts,
+          src/App.svelte, src/components/ActivityBar.svelte (new),
+          src/components/SourceControl.svelte (new), src/components/Sidebar.svelte, src/app.css
+Build     The left pane stops being the file tree and becomes a pane with two tenants.
+
+          **Four icons, two of which work.** Files, Source Control, Assistant, Settings, with
+          `Ctrl Shift E` and `Ctrl Shift G` as VS Code binds them. The last two ship drawn and
+          disabled, each saying which version it arrives in, because the design notes ask for
+          exactly that: an icon strip that gains a working icon later must not move the three
+          already there. `Sidebar.svelte` keeps everything it has and becomes the Files view;
+          nothing about the tree or the Document map changes.
+
+          **The repository is opened per call and never held.** No handle in `AppState`: a
+          cached `Repository` goes stale the moment the author switches project, runs `git init`
+          in a terminal, or deletes `.git` — and it keeps an in-memory index that would then
+          disagree with the file on disk, which is rule 1 inverted. `discover` costs a few stats
+          and this is not on the keystroke path.
+
+          **`.git/` stops being invisible to the watcher, but only four names in it count.**
+          Today `watcher.rs` drops everything under `.git/` because Git churns it and none of it
+          is an edit to the manuscript — which is still true of `fs:changed`, and stays. But
+          `git status` also changes when *Git* writes, and an author who types `git add` in a
+          terminal must see the panel move. So the watcher classifies instead of dropping:
+          `index`, `HEAD`, `MERGE_HEAD` and `refs/heads/**` emit `git:status-changed` and
+          nothing else. The rest is deliberately excluded, and S10.1 is why it has to be: a
+          snapshot writes objects and a ref after *every successful compile*, so a filter of
+          "anything under `.git/`" would refresh the panel on every build for a change no one
+          can see.
+
+          **No repository is a normal state, not an error.** A folder with no `.git` gets one
+          sentence saying so; the view offers nothing that could fail, and S10.5 puts the button
+          that creates one there. Same for a project not open yet.
+
+          **Three sections, because the crate already knows there are three.** *Staged Changes*
+          when anything is staged, *Changes*, and *Merge Changes* for conflicts — listed rather
+          than shown as two paragraphs, which is S11.2, but never silently absent: a conflicted
+          path appears in no other list, so without its own section it would vanish from the one
+          panel whose job is to say what changed.
+
+          **Rows are `name · dir · letter`, and the letter comes from the crate.** Hover actions
+          open, stage or unstage, and discard. Discard always confirms (design notes), and the
+          confirmation says the true thing rather than a generic one: the row's own letter
+          decides whether the sentence is *restore* or *delete*, and the crate's `Discarded`
+          answer is what the notice afterwards reports.
+
+          **A click opens the file, not a diff.** §6 says a click opens a diff and it will; a
+          CodeMirror merge view over two revisions is its own loop (S11.6 below), and a row that
+          opened a half-built diff would be worse than a row that opens the file.
+Verify    cargo test -p abstract-tex; pnpm test; pnpm check
+Done when the four icons are there, two of them switch the pane, and `Ctrl Shift G` reaches
+          Source Control with a badge counting changed *paths*; editing a file in the editor and
+          `git add` in a terminal both move the lists within one debounce and nothing polls;
+          stage and unstage move a row between sections; discard asks first and afterwards says
+          which of the two things it did; a folder with no Git says so in one sentence.
+```
+
+**S10.3a (29 September 2026).** `[~]`: rungs 1–3 green — `cargo test --workspace` 504 passed / 0
+failed (2 new, both in `watcher.rs`), clippy and `cargo doc --workspace -D warnings` clean,
+`pnpm check` 0 errors, Vitest 445/445 (18 new: 7 in the new `git.test.ts`, 10 in
+`controller.test.ts`, 1 in `shortcuts.test.ts`). Rung 3 is the new watcher test, which is a real
+`notify` watch over a real temp folder: it writes a real `.git/index` and asserts that what comes
+out is one `GitMetadata` and no manuscript change at all. `[~]` because rung 4 is the
+maintainer's — this is the first loop in a while where *everything* it does is on screen, and
+nothing here has been looked at by a person yet. What a reader should take from the diff:
+
+1. **The interesting change is in `watcher.rs`, not in the panel.** `.git/` had been dropped
+   wholesale since S2.1, for a good reason that is still true: Git churns it and none of it is an
+   edit to the manuscript. But `git status` also changes when *Git* writes, so an author who
+   types `git add` in a terminal has to see the panel move — the design notes say the frontend
+   never polls, which means the watcher is the only thing that can tell it. So `.git` is now
+   classified rather than ignored, and only four names in it count: `index`, `HEAD`,
+   `MERGE_HEAD` and `refs/heads/**`. S10.1 is why the filter has to be that narrow and not
+   "anything under `.git/`" — a snapshot writes an object and moves a ref after *every successful
+   compile*, so the broad version would refresh the panel on every build for a change nobody can
+   see. The test names all four, and names the three S10.1 writes that must not count.
+2. **Our own saves are the case the watcher cannot report, and that is by design.** The echo
+   filter exists so a debounced save does not come back as an external change (S2.1) — but a save
+   is also the commonest way a file becomes a row in *Changes*. So `write_file` and `create_file`
+   emit `git:status-changed` themselves, right where they already emit `bibliography:changed` for
+   the same reason. Two emitters, one event, one refresh path.
+3. **Then the frontend coalesces, because one answer can arrive as six questions.** A build saves
+   every open tab, and each save emits. `scheduleGitRefresh` is the same 120 ms trailing debounce
+   shape as `scheduleOutlineRefresh`, and a test pins that six events become one read.
+4. **The repository is opened per call and deliberately not cached.** `git.rs` says why: a kept
+   `Repository` outlives the author switching project, running `git init` in a terminal or
+   deleting `.git`, and it carries an in-memory index that would then disagree with the file on
+   disk — which is rule 1 inverted. `discover` is a few `stat`s and none of this is on the
+   keystroke path. The crate now re-exports `Repository` so the app crate can name the handle
+   without taking a `git2` dependency of its own.
+5. **"Not a Git repository" is `Ok(None)`, and that shape is the whole reason the view reads
+   well.** It travels as `null` and becomes one sentence. Had it been an error it would have had
+   to be told apart from a real failure at every call site, and the panel would have shown a
+   folder nobody has run `git init` in the same face it shows a broken repository. A test pins
+   that opening such a folder raises no notice and still opens the editor.
+6. **Shift became part of a chord for the first time.** `shortcutFor` used to reject any keypress
+   carrying Shift, with a comment explaining that this stopped it stealing `Ctrl Shift S`.
+   `Ctrl Shift E`/`Ctrl Shift G` are VS Code's, so Shift is now matched exactly instead of
+   rejected — which keeps the original guarantee (no table entry asks for `Ctrl Shift S`, so it
+   still reaches the platform) and adds its mirror image, tested: `Ctrl E` alone is not "Files".
+7. **Three deliberate refusals to draw something that does not work yet.** A conflicted path is
+   in no other list, so *Merge Changes* is listed now rather than waiting for S11.2 — otherwise
+   a conflict would be invisible in the one panel whose job is to say what changed. The commit ✓
+   and ⋯ header actions are not drawn, because S10.3b is what makes them do anything. And a click
+   opens the file rather than a diff: §6's "a click opens a diff" is a CodeMirror merge view,
+   which is now its own card (S11.6) rather than a half-built one here.
+8. **Two of the four icons are disabled on purpose**, which is what the design notes ask for:
+   Assistant and Settings exist so that the two icons above them never move when v0.7 arrives.
+   Each says which version it is waiting for rather than doing nothing silently.
+
+```
+Loop      S10.3b · Committing, and where the branch stands · M
+Reads     DESIGN.md §6 (the commit box, the Graph section, "the status bar shows the branch name
+          and sync arrows at the left"), §5.7 (`Sync Changes ↑n ↓m`)
+Depends   S10.3a (the view and its refresh), S10.2b (`commit`, `log`, `branch_state`)
+Files     src-tauri/src/git.rs (grows), src-tauri/src/{lib,commands}.rs, src/lib/ipc.ts,
+          src/lib/git.svelte.ts (grows) + git.test.ts, src/components/SourceControl.svelte
+          (grows), src/components/StatusBar.svelte, src/app.css
+Build     The other half of the panel: write a message, commit it, see it in the history.
+
+          **`Ctrl Enter` is bound in the box, not in the global table.** `shortcuts.ts` is for
+          chords that mean the same thing wherever focus is; `Ctrl Enter` means commit only
+          while the commit box has it, and a global binding would fire from inside CodeMirror.
+
+          **A refused commit is a sentence under the box, never a dialog.** All three refusals
+          the crate can return — no message, nothing staged, no identity — are things the author
+          fixes where they are standing, and `NoIdentity`'s message already names the two
+          commands that fix it.
+
+          **The Graph is paged and pull-based, exactly as the design settles it.** 200 rows,
+          *Show more* appends the next 200. It refreshes on the same `git:status-changed` event
+          the lists use, plus once after a commit, because a commit is the one thing that
+          changes the history without touching the working tree.
+
+          **Outgoing changes is a header, not a list.** `ahead_behind` already says how many
+          commits are not on the upstream, and those are the newest *n* rows: the header goes
+          above the first of them. Nothing else about the rows changes, which is what VS Code
+          does and is why one number is enough.
+
+          **The arrows ship; the button waits.** §5.7's `Sync Changes ↑n ↓m` *is* the one-verb
+          path, and the verb is S11.1. Ahead/behind is information and lands here, in the status
+          bar where §6 puts it. A button labelled with a verb this loop cannot perform would be
+          the worst of both.
+Verify    cargo test -p abstract-tex; pnpm test; pnpm check
+Done when a message and `Ctrl Enter` make a commit that `git log` then shows, the staged list
+          empties, and the new commit is the top row of the graph; an empty message, an empty
+          stage and a repository with no `user.name` each get a sentence and no commit; the
+          status bar reads `main` on a fresh repository, `main ↑2 ↓1` after a divergence, "no
+          commits yet" before the first commit, and nothing at all where there is no Git.
+```
+
+```
+Loop      S10.3c · The two things VS Code does not do · M
+Reads     DESIGN.md §6 ("Where we add to VS Code rather than copy it, it is because the user is
+          a writer, not a programmer"), §6's flow table row *Track progress*, §2 rule 6
+Depends   S10.3b (the box and the graph rows these two fill in)
+Files     crates/abstract-tex-git/ (grows: word counts across a diff), src-tauri/src/git.rs,
+          src/lib/git.svelte.ts, src/components/SourceControl.svelte
+Build     The commit box pre-filled from the outline and the diff — *"Revised §3.2 Methods, +240
+          words"* — and a word-count delta on every graph row, which is what makes the graph
+          double as a progress log.
+
+          **Computed without a model, and that is rule 6, not a limitation.** The outline
+          already exists (S4.1's include graph, S4.2's section scan); the diff already exists;
+          a section heading plus a signed word count is a true sentence built from both. The
+          assistant may rewrite it at v0.7, on top of a path that works with no key.
+
+          **Words, not lines.** A `.tex` line diff counts markup; a writer counts prose. The
+          count has to strip commands and maths well enough to be *useful and never wrong by a
+          lot* — which is the whole difficulty of this card and the reason it is its own loop
+          rather than a tail on S10.3b.
+Verify    cargo test -p abstract-tex-git; pnpm test
+Done when opening Source Control with an edited section pre-fills a message naming that section
+          and a signed word count, the author can replace it and it is never overwritten under
+          them, and each graph row shows its own delta.
+```
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
 on the S3.3a–d precedent: one crate, but the working tree and the history are two loops' worth of
 surface and one commit of both would be past the ~400-line rule that keeps a diff followable ·
-S10.3 activity bar and Source Control view, 1:1 VS Code · S10.4
+S10.3 activity bar and Source Control view, 1:1 VS Code —
+**split into S10.3a, S10.3b and S10.3c below, expanded 29 September 2026**, for the same reason
+S10.2 was: the pane and its two lists, the commit box and the graph, and the two writer additions
+are three loops' worth of surface. · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
 confirmation · S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`) · S11.2 conflicts
 as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
-graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test.
+graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
+as a CodeMirror merge view, which is what §6's "a click opens a diff" finally means (deferred
+from S10.3a, 29 September 2026: a row that opened a half-built diff is worse than one that opens
+the file).
 
 **Source Control design notes** (settled 2026-09-17, `DESIGN.md` §6; cards expanded at sprint
 start):

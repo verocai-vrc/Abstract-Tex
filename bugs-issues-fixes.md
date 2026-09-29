@@ -86,6 +86,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   a wrapper that rewrites the triple. A real fix is to install a normal clang or gcc, or to put
   `[target.x86_64-unknown-linux-gnu] linker`/`CC` in the environment properly; the maintainer's
   other machine is unaffected.
+  **There is a real gcc on this machine, found in S10.3a** (29 Sep 2026): `/usr/bin/gcc` exists
+  and works; `~/.local/bin/cc` merely shadows it on `PATH`. So the whole gate runs with
+  `CC=/usr/bin/gcc CXX=/usr/bin/g++ pnpm verify` and needs no wrapper and no
+  `-fno-sanitize=undefined` — both zig defaults below stop applying, because zig is not involved.
+  That is the recommended incantation for a session on this machine until `PATH` is fixed.
   **A second `zig cc` default, found in S10.1** (29 Sep 2026): it turns UndefinedBehaviorSanitizer
   on in debug builds and *traps*. libgit2's bundled `sha1dc` does unaligned 32-bit loads — UB by
   the letter of C, fine on x86, and present in every libgit2 build everywhere — so every `git2`

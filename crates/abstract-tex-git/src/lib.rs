@@ -19,7 +19,12 @@
 
 use std::path::{Path, PathBuf};
 
-use git2::{Repository, Status as GitStatus, StatusOptions};
+use git2::{Status as GitStatus, StatusOptions};
+
+/// The handle [`open`] hands back, re-exported so that a caller can name it without depending on
+/// `git2` itself. The app crate does exactly that (`src-tauri/src/git.rs`): every Git question it
+/// asks goes through this crate, so libgit2 stays one crate's business and one crate's version.
+pub use git2::Repository;
 
 /// Folders whose contents are never part of the author's changes, whatever Git thinks.
 ///

@@ -3,7 +3,17 @@
 // every line of the reaction except the Rust on the far side of `invoke`.
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import type { BibliographyIndex, CompileEvent, Finding, FsEvent, LspEvent, ProjectInfo, TextOp } from './ipc';
+import type {
+  BibliographyIndex,
+  CompileEvent,
+  Discarded,
+  Finding,
+  FsEvent,
+  GitStatus,
+  LspEvent,
+  ProjectInfo,
+  TextOp,
+} from './ipc';
 
 /** The fake disk and the calls made against it. Declared before the mock factory uses it. */
 const disk = new Map<string, string>();
@@ -22,6 +32,11 @@ const calls = {
   lspStarts: 0,
   /** How often the raw view asked for `main.log` (S6.3). */
   logReads: 0,
+  /** How often the Source Control view asked Rust what changed (S10.3a). */
+  gitStatusReads: 0,
+  /** Every Git verb called, as `'<verb> <path>'`, and every discard the author was asked about. */
+  gitVerbs: [] as string[],
+  discardQuestions: [] as string[],
 };
 /** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
 let shellEscapeOnDisk = false;
@@ -41,6 +56,15 @@ let logOnDisk = '';
 const emptyBibliography: BibliographyIndex = { files: [], entries: [], citations: [], hasNociteStar: false };
 let bibliographyOnDisk: BibliographyIndex = emptyBibliography;
 let bibliographyHandler: (index: BibliographyIndex) => void = () => {};
+/** The fake repository the Source Control tests (S10.3a) read and act on. `null` stands for a
+ * folder that is not inside a Git repository at all, which is a sentence in the view. */
+let gitOnDisk: GitStatus | null = { staged: [], unstaged: [], conflicted: [] };
+/** What the author answers when asked to confirm a discard. */
+let discardAnswer = false;
+/** Set to a message to make the next Git verb fail, as Rust would for a path outside the
+ * project or a repository it cannot write. */
+let gitVerbError: string | null = null;
+let gitStatusHandler: () => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
 let lspHandler: (event: LspEvent) => void = () => {};
@@ -144,6 +168,36 @@ vi.mock('./ipc', () => ({
       lspHandler = handler;
       return () => {};
     },
+    gitStatus: async (): Promise<GitStatus | null> => {
+      calls.gitStatusReads++;
+      return gitOnDisk;
+    },
+    gitStage: async (path: string) => {
+      if (gitVerbError) throw new Error(gitVerbError);
+      calls.gitVerbs.push(`stage ${path}`);
+      const moving = gitOnDisk!.unstaged.filter((c) => c.path === path);
+      gitOnDisk = { ...gitOnDisk!, staged: [...gitOnDisk!.staged, ...moving], unstaged: gitOnDisk!.unstaged.filter((c) => c.path !== path) };
+      gitStatusHandler();
+    },
+    gitUnstage: async (path: string) => {
+      calls.gitVerbs.push(`unstage ${path}`);
+      gitStatusHandler();
+    },
+    gitDiscard: async (path: string): Promise<Discarded> => {
+      calls.gitVerbs.push(`discard ${path}`);
+      const untracked = gitOnDisk!.unstaged.some((c) => c.path === path && c.kind === 'untracked');
+      gitOnDisk = { ...gitOnDisk!, unstaged: gitOnDisk!.unstaged.filter((c) => c.path !== path) };
+      gitStatusHandler();
+      return untracked ? 'deleted' : 'restored';
+    },
+    confirmDiscard: async (path: string, untracked: boolean) => {
+      calls.discardQuestions.push(`${path}${untracked ? ' (untracked)' : ''}`);
+      return discardAnswer;
+    },
+    onGitStatusChanged: async (handler: () => void) => {
+      gitStatusHandler = handler;
+      return () => {};
+    },
     bibliographyIndex: async (): Promise<BibliographyIndex> => bibliographyOnDisk,
     bibliographyHealth: async (): Promise<Finding[]> => [],
     onBibliographyChanged: async (handler: (index: BibliographyIndex) => void) => {
@@ -156,6 +210,7 @@ vi.mock('./ipc', () => ({
 const {
   allowShellEscape,
   applyDiagnosticFix,
+  discardChange,
   applyFindingFix,
   closeTab,
   disallowShellEscape,
@@ -170,9 +225,13 @@ const {
   quickOpenPick,
   refreshOutline,
   resolveConflict,
+  refreshGitStatus,
   setDrawerFilter,
+  showActivityView,
   showRawLogFor,
+  stageChange,
   start,
+  unstageChange,
   syncTexForward,
   syncTexInverse,
   toggleDrawer,
@@ -182,6 +241,7 @@ const {
 } = await import('./controller.svelte');
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
+const { git } = await import('./git.svelte');
 const { allCommands } = await import('./commands');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
@@ -223,6 +283,13 @@ beforeEach(async () => {
   synctexForwardAnswer = { page: 1, x: 10, y: 20 };
   synctexInverseAnswer = { file: 'main.tex', line: 3 };
   bibliographyOnDisk = emptyBibliography;
+  gitOnDisk = { staged: [], unstaged: [], conflicted: [] };
+  discardAnswer = false;
+  gitVerbError = null;
+  calls.gitStatusReads = 0;
+  calls.gitVerbs = [];
+  calls.discardQuestions = [];
+  app.activityView = 'files';
   app.conflict = null;
   app.notice = null;
   await start();
@@ -1387,5 +1454,110 @@ describe('the bibliography index (S7.2)', () => {
     });
     expect(bibliography.entries.get('smith2019')).toEqual(smith);
     expect(bibliography.missingFiles).toEqual(['missing.bib']);
+  });
+});
+
+describe('the Source Control view (S10.3a)', () => {
+  const modified = { path: 'sections/intro.tex', kind: 'modified' as const, renamedFrom: null };
+  const untracked = { path: 'notes.tex', kind: 'untracked' as const, renamedFrom: null };
+
+  it('asks Rust what changed when a folder opens, and never polls after that', async () => {
+    gitOnDisk = { staged: [], unstaged: [modified], conflicted: [] };
+    await openFolder('/proj');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(git.isRepository).toBe(true);
+    expect(git.unstagedRows.map((r) => `${r.name} ${r.dir} ${r.letter}`)).toEqual(['intro.tex sections M']);
+
+    const readsSoFar = calls.gitStatusReads;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls.gitStatusReads).toBe(readsSoFar);
+  });
+
+  it('a folder that is not in Git is a state to describe, not an error', async () => {
+    gitOnDisk = null;
+    await openFolder('/proj');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(git.isRepository).toBe(false);
+    expect(git.error).toBeNull();
+    // And nothing about it interrupts the author: no notice, and the editor opened as usual.
+    expect(app.notice).toBeNull();
+    expect(app.activePath).toBe('main.tex');
+  });
+
+  it('coalesces a burst of "something changed" into one read', async () => {
+    calls.gitStatusReads = 0;
+    for (let i = 0; i < 6; i++) gitStatusHandler();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(calls.gitStatusReads).toBe(1);
+  });
+
+  it('refreshes after a save, which the watcher itself never reports', async () => {
+    gitOnDisk = { staged: [], unstaged: [], conflicted: [] };
+    calls.gitStatusReads = 0;
+    type('\\section{New}');
+    // The 700 ms save debounce writes the file; Rust emits `git:status-changed` for our own
+    // write because the echo filter means the watcher will not (commands.rs).
+    await vi.advanceTimersByTimeAsync(800);
+    gitStatusHandler();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(calls.gitStatusReads).toBe(1);
+  });
+
+  it('stages a path and learns the new lists from the event, not from the caller', async () => {
+    gitOnDisk = { staged: [], unstaged: [modified], conflicted: [] };
+    await refreshGitStatus();
+    await stageChange('sections/intro.tex');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(calls.gitVerbs).toEqual(['stage sections/intro.tex']);
+    expect(git.stagedRows.map((r) => r.path)).toEqual(['sections/intro.tex']);
+    expect(git.unstagedRows).toEqual([]);
+  });
+
+  it('unstages a path', async () => {
+    await unstageChange('sections/intro.tex');
+    expect(calls.gitVerbs).toEqual(['unstage sections/intro.tex']);
+  });
+
+  it('always asks before discarding, and a "keep" changes nothing', async () => {
+    gitOnDisk = { staged: [], unstaged: [modified], conflicted: [] };
+    await refreshGitStatus();
+    discardAnswer = false;
+    await discardChange('sections/intro.tex', false);
+    expect(calls.discardQuestions).toEqual(['sections/intro.tex']);
+    expect(calls.gitVerbs).toEqual([]);
+    expect(git.unstagedRows.map((r) => r.path)).toEqual(['sections/intro.tex']);
+  });
+
+  it('says which of the two things a discard did, because only one of them is recoverable', async () => {
+    gitOnDisk = { staged: [], unstaged: [modified, untracked], conflicted: [] };
+    await refreshGitStatus();
+    discardAnswer = true;
+
+    await discardChange('sections/intro.tex', false);
+    expect(git.lastDiscard).toBe('sections/intro.tex is back to its last committed version.');
+
+    await discardChange('notes.tex', true);
+    // The question said "untracked", so the author agreed to a deletion and not to a restore.
+    expect(calls.discardQuestions).toEqual(['sections/intro.tex', 'notes.tex (untracked)']);
+    expect(git.lastDiscard).toBe('Deleted notes.tex.');
+  });
+
+  it('a Git failure is a sentence in the panel and nowhere else', async () => {
+    gitOnDisk = { staged: [], unstaged: [modified], conflicted: [] };
+    await refreshGitStatus();
+    gitVerbError = '../outside.tex is outside the project';
+    await stageChange('../outside.tex');
+    expect(git.error).toContain('outside the project');
+    expect(app.notice).toBeNull();
+  });
+
+  it('switches which view the left pane holds', () => {
+    expect(app.activityView).toBe('files');
+    showActivityView('source-control');
+    expect(app.activityView).toBe('source-control');
+    // And the palette reaches the same two actions the chords do (rule 5).
+    const ids = allCommands().map((c) => c.id);
+    expect(ids).toContain('view-files');
+    expect(ids).toContain('view-source-control');
   });
 });

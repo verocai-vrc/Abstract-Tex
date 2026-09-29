@@ -3,8 +3,10 @@
 //! Owns: turning raw `notify` events into a small, debounced stream of "this path changed"
 //! notifications, with two filters applied:
 //!
-//! 1. Paths under `.abstract-tex/` and `.git/` are dropped. The engine writes into the first on
-//!    every build and Git churns the second; neither is an edit to the manuscript.
+//! 1. Paths under `.abstract-tex/` are dropped: the engine writes there on every build and none
+//!    of it is an edit to the manuscript. Paths under `.git/` are not an edit either, but a
+//!    handful of them change what `git status` would say, so they are reported as
+//!    [`Change::GitMetadata`] instead of as a file the author touched (S10.3a).
 //! 2. Files whose content matches what *we* just wrote are dropped. Otherwise every debounced
 //!    save would come back as an "external change" and the reconciler would run a no-op diff.
 //!    We compare a content hash rather than a timestamp window because a slow disk can deliver
@@ -45,6 +47,20 @@ pub struct FsEvent {
     pub exists: bool,
 }
 
+/// What the watcher saw, in the only two kinds the rest of the app reacts to differently.
+///
+/// An enum rather than a flag on [`FsEvent`], because the two carry different things: a
+/// manuscript change is *a path*, which the frontend reads, diffs and may ask a question about;
+/// a Git change is only the news that the answer to `git status` may have moved, and the path it
+/// happened at (`.git/index`) is meaningless outside Git.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Change {
+    /// A file in the project that the author, or another program, wrote.
+    Manuscript(FsEvent),
+    /// Something inside `.git/` that changes what the Source Control view would show.
+    GitMetadata,
+}
+
 /// Keeps the watcher thread alive. Drop it to stop watching.
 pub struct ProjectWatcher {
     _debouncer: Debouncer<notify::RecommendedWatcher>,
@@ -66,12 +82,20 @@ pub fn content_hash(bytes: &[u8]) -> u64 {
 /// Start watching `root` recursively. `on_event` runs on the watcher's thread.
 pub fn watch<F>(root: &Path, written: WrittenHashes, on_event: F) -> Result<ProjectWatcher>
 where
-    F: Fn(FsEvent) + Send + 'static,
+    F: Fn(Change) + Send + 'static,
 {
     let handler = move |result: DebounceEventResult| match result {
         Ok(events) => {
+            // One `GitMetadata` per debounce window at most. A single `git commit` writes the
+            // index, `HEAD` and a ref in the same burst, and three identical "ask again" events
+            // would mean three status reads for one answer.
+            let mut git_changed = false;
             for event in events {
                 if is_ignored(&event.path) {
+                    continue;
+                }
+                if inside_git_dir(&event.path) {
+                    git_changed |= changes_git_status(&event.path);
                     continue;
                 }
                 let exists = event.path.exists();
@@ -79,7 +103,10 @@ where
                     debug!(path = %event.path.display(), "ignoring echo of our own write");
                     continue;
                 }
-                on_event(FsEvent { path: event.path.to_string_lossy().into_owned(), exists });
+                on_event(Change::Manuscript(FsEvent { path: event.path.to_string_lossy().into_owned(), exists }));
+            }
+            if git_changed {
+                on_event(Change::GitMetadata);
             }
         }
         Err(error) => warn!(%error, "file watcher error"),
@@ -97,8 +124,32 @@ fn is_ignored(path: &Path) -> bool {
     path.components().any(|c| {
         let name = c.as_os_str().to_string_lossy();
         // `.preamble` is the state folder from before the rename (see `project.rs`).
-        name == ".abstract-tex" || name == ".preamble" || name == ".git" || name.ends_with(".abstract-tex-tmp")
+        name == ".abstract-tex" || name == ".preamble" || name.ends_with(".abstract-tex-tmp")
     })
+}
+
+fn inside_git_dir(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == ".git")
+}
+
+/// Whether this file inside `.git/` is one whose change the Source Control view would see.
+///
+/// Four names, not "anything under `.git/`", and S10.1 is why it has to be that way: a snapshot
+/// writes an object and moves `refs/abstract-tex/snapshots` after *every successful compile*, so
+/// the broad filter would refresh the panel on every build for a change nobody can see. What is
+/// left is what `git status` and the branch line actually read: the index, what `HEAD` points
+/// at, the local branches, and `MERGE_HEAD` — which is how a repository says it is mid-merge,
+/// and so how a conflict appears without any file being written.
+fn changes_git_status(path: &Path) -> bool {
+    let mut after_git_dir = path.components().skip_while(|c| c.as_os_str() != ".git").skip(1);
+    let Some(first) = after_git_dir.next() else { return false };
+    let first = first.as_os_str().to_string_lossy();
+    match first.as_ref() {
+        // Git writes the index as `index.lock` and renames it, so the rename is what arrives.
+        "index" | "HEAD" | "MERGE_HEAD" => true,
+        "refs" => after_git_dir.next().is_some_and(|c| c.as_os_str() == "heads"),
+        _ => false,
+    }
 }
 
 fn is_our_own_write(written: &WrittenHashes, path: &Path) -> bool {
@@ -114,8 +165,16 @@ mod tests {
     use super::*;
     use std::sync::mpsc;
 
-    fn wait_for_event(rx: &mpsc::Receiver<FsEvent>, timeout: Duration) -> Option<FsEvent> {
+    fn wait_for_change(rx: &mpsc::Receiver<Change>, timeout: Duration) -> Option<Change> {
         rx.recv_timeout(timeout).ok()
+    }
+
+    /// The manuscript path out of a change, for the tests that only care about that.
+    fn manuscript(change: Option<Change>) -> Option<FsEvent> {
+        match change {
+            Some(Change::Manuscript(event)) => Some(event),
+            _ => None,
+        }
     }
 
     #[test]
@@ -131,7 +190,7 @@ mod tests {
         let target = dir.path().join("main.tex");
         std::fs::write(&target, "hello").unwrap();
 
-        let event = wait_for_event(&rx, Duration::from_secs(5)).expect("expected an fs event");
+        let event = manuscript(wait_for_change(&rx, Duration::from_secs(5))).expect("expected an fs event");
         assert!(event.exists);
         assert!(event.path.ends_with("main.tex"), "{}", event.path);
     }
@@ -152,7 +211,7 @@ mod tests {
         std::fs::write(&target, "from the app").unwrap();
 
         assert!(
-            wait_for_event(&rx, Duration::from_millis(1500)).is_none(),
+            wait_for_change(&rx, Duration::from_millis(1500)).is_none(),
             "a write whose hash we recorded must not be reported"
         );
     }
@@ -171,14 +230,55 @@ mod tests {
 
         std::fs::write(build.join("main.pdf"), b"%PDF").unwrap();
 
-        assert!(wait_for_event(&rx, Duration::from_millis(1500)).is_none(), "build artifacts must not be reported");
+        assert!(wait_for_change(&rx, Duration::from_millis(1500)).is_none(), "build artifacts must not be reported");
+    }
+
+    /// S10.3a: `git add` in a terminal writes only `.git/index`, and the panel has to move.
+    #[test]
+    fn a_write_to_the_git_index_asks_for_a_status_refresh_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = dir.path().join(".git");
+        std::fs::create_dir_all(git.join("objects")).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = watch(dir.path(), WrittenHashes::default(), move |e| {
+            let _ = tx.send(e);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+
+        std::fs::write(git.join("index"), b"not really an index").unwrap();
+
+        assert_eq!(wait_for_change(&rx, Duration::from_secs(5)), Some(Change::GitMetadata));
+        assert!(
+            wait_for_change(&rx, Duration::from_millis(500)).is_none(),
+            "nothing inside .git is a manuscript change"
+        );
     }
 
     #[test]
-    fn ignore_rules_match_state_and_git_dirs() {
+    fn ignore_rules_match_the_state_dir_but_no_longer_the_git_dir() {
         assert!(is_ignored(Path::new("C:/p/.abstract-tex/build/main.pdf")));
-        assert!(is_ignored(Path::new("/p/.git/index")));
         assert!(is_ignored(Path::new("/p/main.tex.abstract-tex-tmp")));
         assert!(!is_ignored(Path::new("/p/sections/intro.tex")));
+        // `.git` is classified rather than ignored now; `changes_git_status` is what filters it.
+        assert!(!is_ignored(Path::new("/p/.git/index")));
+        assert!(inside_git_dir(Path::new("/p/.git/index")));
+        assert!(!inside_git_dir(Path::new("/p/sections/intro.tex")));
+    }
+
+    /// The filter that keeps a snapshot-on-compile from refreshing the panel after every build.
+    #[test]
+    fn only_the_four_names_that_change_the_answer_count() {
+        assert!(changes_git_status(Path::new("/p/.git/index")));
+        assert!(changes_git_status(Path::new("/p/.git/HEAD")));
+        assert!(changes_git_status(Path::new("/p/.git/MERGE_HEAD")));
+        assert!(changes_git_status(Path::new("/p/.git/refs/heads/main")));
+        assert!(changes_git_status(Path::new("C:/p/.git/refs/heads/feature/x")));
+
+        // S10.1 writes both of these after every successful compile.
+        assert!(!changes_git_status(Path::new("/p/.git/refs/abstract-tex/snapshots")));
+        assert!(!changes_git_status(Path::new("/p/.git/objects/ab/cdef")));
+        assert!(!changes_git_status(Path::new("/p/.git/logs/HEAD")));
+        assert!(!changes_git_status(Path::new("/p/.git/COMMIT_EDITMSG")));
     }
 }
