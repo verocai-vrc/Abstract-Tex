@@ -15,6 +15,29 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Turning shell-escape consent on or off makes the next latexmk build a full one.** (29 Sep
+  2026, found verifying S9.12) `.fdb_latexmk` is latexmk's own dependency database, and it
+  records every source file by the path latexmk saw — relative (`"main.tex"`) from the project
+  folder, absolute (`"/home/ada/thesis/main.tex"`) from the build folder. S9.12 moves the working
+  folder on exactly that toggle, so every path in the database changes at once and latexmk
+  reruns everything: `Rule 'pdflatex': Reasons for rerun`, measured directly. Bounded and rare —
+  consent is answered once per project folder (S9.8), not per build — so it is logged rather than
+  worked around. The fix, if it ever matters, is to run *every* latexmk build from the build
+  folder and pay S9.12's log-name cost everywhere; that trade was considered in S9.12 and
+  declined, and this entry is the evidence for reconsidering it.
+
+- **Nothing measures a system engine's speed: `latexmk` builds report zero passes and always
+  `full`.** (29 Sep 2026, noted while writing S9.12) `BuildSteps { single_passes: 0, full: true }`
+  is what `latexmk.rs` returns for every build, because latexmk decides its own rerun loop and
+  does not say how many passes it ran. That is honest, but it means S9.2's timing harness and
+  S9.5's `THRESHOLD_MS` performance gate — DESIGN.md §8's "fail the build rather than warn" —
+  cover the bundled Tectonic only. A system engine could get arbitrarily slower between releases
+  with nothing to catch it, and the warm/cold distinction the whole of sprint 9 is built on is
+  invisible there. Not a regression and not urgent (Tectonic is the default, rule 4), but the
+  gate's own doc comment claims "one ceiling per corpus document" without saying "on one engine".
+  Worth a card if sprint 10 leaves room: either parse latexmk's `Run number N of rule` lines,
+  which it prints with `-verbose`, or gate on wall-clock alone for system engines.
+
 - **A shell command handed a project-relative path finds nothing, on either engine.** (29 Sep
   2026, S9.12; split out of the entry above, which had it as a footnote) Both engines run the
   document's shell commands in the build folder — Tectonic through `-Z shell-escape-cwd` (S9.8),
@@ -63,6 +86,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   a wrapper that rewrites the triple. A real fix is to install a normal clang or gcc, or to put
   `[target.x86_64-unknown-linux-gnu] linker`/`CC` in the environment properly; the maintainer's
   other machine is unaffected.
+  **A second `zig cc` default, found in S10.1** (29 Sep 2026): it turns UndefinedBehaviorSanitizer
+  on in debug builds and *traps*. libgit2's bundled `sha1dc` does unaligned 32-bit loads — UB by
+  the letter of C, fine on x86, and present in every libgit2 build everywhere — so every `git2`
+  commit died with `SIGABRT` and a stack ending in `sha1_compression_states`. The wrapper also
+  passes `-fno-sanitize=undefined` now. Worth knowing because the symptom looks exactly like a
+  bug in our own code: a clean compile, then an abort inside a C dependency on the first write.
 
 - **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
   costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes

@@ -1,0 +1,19 @@
+[package]
+name = "abstract-tex-snapshot"
+description = "A snapshot of a project's files on every successful compile, written as real Git objects on a hidden ref."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# libgit2. `default-features = false` turns off `https` and `ssh`, which would otherwise pull in
+# OpenSSL and libssh2: this crate only ever writes objects to a repository on this disk, and the
+# network half of v0.6 (S10.4 sign-in, S11.1 sync) is a different crate's problem.
+git2 = { version = "0.20", default-features = false }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

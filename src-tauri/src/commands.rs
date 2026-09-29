@@ -202,10 +202,48 @@ pub fn compile(
     })?;
 
     let emitter = app.clone();
+    // S10.1. A successful compile is a recoverable state (DESIGN.md §5.7), and this is where that
+    // is noticed: the orchestrator's job is builds, and a build in one of *its* tests must never
+    // write a ref into whatever repository the test happened to run in.
+    let snapshot_dir = job.project_dir.clone();
     let generation = state.orchestrator.request(job, draft, move |event: CompileEvent| {
+        let succeeded = matches!(event, CompileEvent::Finished { success: true, .. });
+        // The frontend hears first; the snapshot is never something the author waits for.
         let _ = emitter.emit("compile", event);
+        if succeeded {
+            take_snapshot(snapshot_dir.clone());
+        }
     });
     Ok(generation)
+}
+
+/// At most one snapshot runs at a time.
+///
+/// Builds are serialised (S9.9), but a snapshot outlives the build that triggered it, so a slow
+/// one could still be hashing a folder of figures when the next compile finishes. Two snapshots
+/// racing would each read the same parent and each move the ref, leaving one of the two commits
+/// written but off the chain — no corruption, but a version silently missing from the history
+/// the author would go looking through. One lock is cheaper than reasoning about that again.
+static SNAPSHOT_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Take a snapshot of the project, off the build's path and out of its way.
+///
+/// `spawn_blocking` and not `spawn`: libgit2 is ordinary blocking file I/O, and hashing every
+/// file of a thesis is real work that would otherwise stall whatever else an async worker owed
+/// the window. Failures are logged and dropped — §5.7 asks for a safety net, and a safety net
+/// that interrupts the author to announce its own failure is worse than one that quietly caught
+/// nothing this time.
+fn take_snapshot(project_dir: PathBuf) {
+    tauri::async_runtime::spawn_blocking(move || {
+        // A poisoned lock means a previous snapshot panicked. That is worth knowing about, but
+        // not worth refusing every later snapshot over, so the guard is taken either way.
+        let _guard = SNAPSHOT_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        match abstract_tex_snapshot::snapshot(&project_dir) {
+            Ok(abstract_tex_snapshot::Snapshot::Took(id)) => tracing::debug!(%id, "snapshot taken"),
+            Ok(abstract_tex_snapshot::Snapshot::Unchanged) => tracing::debug!("no snapshot: nothing changed"),
+            Err(error) => tracing::warn!(%error, "no snapshot taken"),
+        }
+    });
 }
 
 /// Whether the open project's builds may run programs (S9.8). An error with no project open.

@@ -2927,7 +2927,7 @@ Windows machine real-engine runs that fetch packages need `scripts/dev-proxy.py`
 | [x] | S9.6 Typing-path waste from the ledger: focus mode's per-keystroke rebuild, the gutter's per-update re-merge, `Project::info()` re-reading every file per tree refresh | M | — |
 | [x] | S9.7 Scoped draft build (DESIGN.md §5.1 rung 4), library half: which chapter a file belongs to, and a one-pass `\includeonly` draft of it that borrows the full build's numbering | L | S9.2, S9.3 |
 | [~] | S9.9 Draft preview in the app: the draft beside every full build of a chapter, shown until the full PDF lands, SyncTeX against whichever is on screen | M | S9.7 |
-| [ ] | S9.12 latexmk shell escape writes into the build folder, not the project: run from the build folder, TEXINPUTS carries the project folder, verified on TeX Live and MiKTeX | M | S9.8, S9.4 |
+| [~] | S9.12 latexmk shell escape writes into the build folder, not the project: run from the build folder, TEXINPUTS carries the project folder, verified on TeX Live and MiKTeX | M | S9.8, S9.4 |
 | [~] | S9.8 Shell-escape by per-machine consent, never by project file: what `minted` needs, offered when a build fails for want of it, remembered per machine and per project folder, outside the source tree | M | S9.4 |
 | [x] | S9.10 A cancelled warm build keeps its warm start: the build folder is checkpointed before a warm pass and put back, marker included, when the pass is cancelled | M | S9.2, S9.9 |
 | [x] | S9.11 The LSP bridge reads while it writes: a writer task per process, so a big `didChange` sent while TexLab floods its output cannot deadlock | S | — |
@@ -3589,7 +3589,113 @@ Also logged, and not this project's: `cc` on this Linux machine is `zig cc`, whi
 
 ### Sprint 10–11 — v0.6 sync
 
-S10.1 snapshot-on-compile to a hidden ref (**first three days, before anything else**) · S10.2
+**Exit demo.** `DESIGN.md` §7 v0.6: a manuscript written on one machine, synced, and continued on
+another, with no terminal — and, before any of that, a manuscript recoverable from an author who
+has never once pressed commit.
+
+S10.1's card is expanded below (29 September 2026), ahead of the rest of the sprint, because
+§6's ordering argument puts it there: *"snapshot-on-compile at the very start of v0.6 rather than
+the end"*, since losing a manuscript is the one failure §9 calls unforgivable. It deliberately
+depends on nothing — not on the `abstract-tex-git` crate, not on the activity bar, not on a
+GitHub account. The remaining cards are expanded when the Source Control view starts.
+
+```
+Loop      S10.1 · Snapshot on every successful compile · L
+Reads     DESIGN.md §5.7 ("snapshot on every successful compile, to a hidden ref"), §4's storage
+          table row (real Git, *"rejected: a snapshot format — locks history inside the app"*),
+          §2 rule 1 (plain files are the truth), §9's row "CRDT-to-file reconciliation corrupts a
+          manuscript"
+Depends   — deliberately. This is the loop that makes a lost manuscript recoverable, so it waits
+          on nothing: not S10.2's git crate, not S10.3's view, not S10.4's sign-in.
+Files     crates/abstract-tex-snapshot/ (new: `no Tauri, testable alone`), src-tauri/src/compile.rs,
+          Cargo.toml
+Build     Real Git objects, never an invented format — §4 rejects a snapshot format by name, and
+          the whole point is that a recovery needs `git`, not this app. `git2` (libgit2) with
+          `default-features = false`: no OpenSSL, no libssh2, nothing from the network until
+          S10.4 needs it. Verified to build on this machine before the card was written.
+
+          **Two homes, one shape.** A project that is already a Git repository gets its snapshots
+          on `refs/abstract-tex/snapshots` inside it — a ref under its own namespace, so
+          `git branch`, `git log` and `git status` never mention it, and `git show
+          refs/abstract-tex/snapshots` recovers it. A project that is not a repository gets a
+          bare one at `.abstract-tex/snapshots.git`, which keeps DESIGN.md §5.8's promise about
+          the source tree and is still read by ordinary `git --git-dir=… log`. An author who
+          never pressed commit is the case this loop exists for, so that branch is not an
+          afterthought.
+
+          **What it must never touch.** Not the index, not `HEAD`, not the working tree, not a
+          branch. A snapshot that changed what `git status` says would be worse than no snapshot:
+          it would make the app an unwelcome co-author of the author's own history. So the tree
+          is built straight into the object database with `TreeBuilder`, the commit is written
+          with no ref update of its own, and only then is the hidden ref moved. The test for this
+          is a real repository with a staged change and a dirty file, whose `status` is compared
+          before and after.
+
+          **What goes in.** Everything under the project folder except `.abstract-tex/`, `.git/`
+          and whatever the repository already ignores, so build junk and a `node_modules` never
+          arrive. Git stores by content hash, so re-snapshotting an unchanged 4 MB figure costs
+          nothing. Each snapshot's parent is the one before it, so the ref is a history and not a
+          single blob; a snapshot whose tree is identical to its parent's writes no commit at
+          all, because a compile that changed nothing is not a version.
+
+          **Off the critical path.** §2 rule 2 is latency. The snapshot is taken after `Finished`
+          has already been sent, on its own task, and a failure to snapshot is logged and
+          swallowed — it never fails a build, never delays a PDF, and never raises a dialog.
+Verify    cargo test -p abstract-tex-snapshot; cargo test -p abstract-tex -- snapshot
+Done when three compiles of a project with no Git at all leave a three-commit history readable
+          with plain `git log`; the same in a project that has Git leaves `git status`,
+          `git branch` and `git log` byte-for-byte as they were; and a compile that changed no
+          file adds no commit.
+```
+
+**S10.1 (29 September 2026).** `[~]`: rungs 1–3 green — `cargo test --workspace` 488 passed / 0
+failed (9 new, all in the new crate), clippy and `cargo doc --workspace -D warnings` clean,
+`pnpm check` 0 errors, Vitest 427/427. Rung 3 here is not an `#[ignore]`d test but the real `git`
+binary, because a test in which libgit2 reads back what libgit2 wrote proves very little: two
+projects were snapshotted by hand and recovered with `git log refs/abstract-tex/snapshots` and
+`git show refs/abstract-tex/snapshots~1:main.tex`, and in the project that already had Git,
+`git status`, `git branch -a` and `git log` printed exactly what they printed before — with a
+staged file and a dirty file still staged and dirty. `[~]` because rung 4 is the maintainer's:
+nothing on screen changes, so the only way to see this working in the app is to compile a project
+twice and run those two `git` commands on it. What a reader should take from the diff:
+
+1. **The snapshot is real Git, and that is the feature.** §4's storage table rejects "a snapshot
+   format" by name. What this crate writes is a tree, a commit and a ref — recoverable by someone
+   who has never heard of this app, with `git`, on a machine where it is not installed. The tests
+   assert behaviour, but the thing that actually validates the design was running `git show`.
+2. **What it must not do mattered more than what it does, and shaped every choice.** Building the
+   tree with `TreeBuilder` rather than `repository.index()` is the whole difference between a
+   snapshot and an app that silently stages your work every time you compile — the index *is*
+   what `git status` reads. `commit(None, …)` writes the object without moving `HEAD` or a
+   branch, and the ref is set afterwards, on its own. A hidden ref under `refs/abstract-tex/`
+   is outside `refs/heads`, so nothing that lists branches — including S10.3's view — will show it.
+3. **Two homes, because the author this exists for has no repository.** "Even from an author who
+   has never once pressed commit" is the sentence in §5.7, so the no-Git branch is not a fallback:
+   it is a bare repository at `.abstract-tex/snapshots.git`, which §5.8 already reserves, and
+   `git --git-dir=… log` reads it. `discover` and not `open`, so a paper inside a monorepo puts
+   its snapshots where the author's history already is.
+4. **It is wired at the app edge, not in the orchestrator, and a test is why.** `compile.rs`'s own
+   tests build with `project_dir: "."` — this repository. Snapshotting from inside the orchestrator
+   would have written a ref into Abstract-Tex's own `.git` on every `cargo test`. The seam was
+   already there: `commands::compile` sees every `CompileEvent`, so the snapshot hangs off
+   `Finished { success: true }`, after the event is emitted, on `spawn_blocking`, under a mutex
+   that stops a slow snapshot racing the next one.
+5. **A folder is not what the filesystem hands back.** `read_dir` order is the filesystem's, and a
+   tree built in that order hashes differently on two machines with identical files — which would
+   make the first snapshot after a clone report that everything changed. Sorted, and pinned by a
+   test that builds the same files in two orders. Empty folders are skipped, because Git has no
+   representation for one and inventing ours would make these trees unlike every other tree.
+6. **The ignore list is deliberately a copy.** `NEVER_WALKED` repeats `project.rs`'s
+   `IGNORED_DIRS` rather than sharing it, because the app crate depends on this one and not the
+   other way round. It is a copy with a comment saying it is a copy and what to do if a third
+   appears — for a project with no Git there is no `.gitignore` to fall back on, which is exactly
+   the case this loop is for.
+
+This crate is 440 lines against CLAUDE.md's ~400 guideline. Left whole rather than split: roughly
+half is doc comments and a third is tests, and separating the tests from what they pin would make
+it less followable, not more. Noted rather than waved past.
+
+S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo · S10.3 activity bar and Source Control view, 1:1 VS Code · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
