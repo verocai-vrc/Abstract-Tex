@@ -1,11 +1,25 @@
-// The pure half of `git.svelte.ts` (S10.3a): the row shape DESIGN.md §6 asks for, and the count
-// the activity bar's badge shows. Everything here is a function of its arguments, so no Svelte
+// The pure half of `git.svelte.ts`: the row shape DESIGN.md §6 asks for and the count the
+// activity bar's badge shows (S10.3a), then the branch line, the sync arrows and a commit row's
+// age (S10.3b). Everything here is a function of its arguments, so no Svelte
 // runtime and no `invoke` are involved — the store itself is exercised through the controller in
 // `controller.test.ts`.
 
 import { describe, expect, it } from 'vitest';
-import type { FileChange, GitStatus } from './ipc';
-import { changedFileCount, letterFor, rowsOf, splitPath } from './git.svelte';
+import type { BranchState, FileChange, GitStatus } from './ipc';
+import {
+  branchLabel,
+  changedFileCount,
+  letterFor,
+  outgoingCount,
+  relativeTime,
+  rowsOf,
+  splitPath,
+  syncArrows,
+} from './git.svelte';
+
+function branch(over: Partial<BranchState> = {}): BranchState {
+  return { name: 'main', aheadBehind: null, unborn: false, ...over };
+}
 
 function change(path: string, kind: FileChange['kind'], renamedFrom: string | null = null): FileChange {
   return { path, kind, renamedFrom };
@@ -55,5 +69,66 @@ describe("the badge's count", () => {
 
   it('is zero on a clean tree', () => {
     expect(changedFileCount({ staged: [], unstaged: [], conflicted: [] })).toBe(0);
+  });
+});
+
+describe("the status bar's branch line (S10.3b)", () => {
+  it('names the branch', () => {
+    expect(branchLabel(branch())).toBe('main');
+  });
+
+  it('says so before the first commit, rather than looking like a branch with a history', () => {
+    expect(branchLabel(branch({ unborn: true }))).toBe('main · no commits yet');
+  });
+
+  it('is empty where there is no repository, so the bar says nothing about Git at all', () => {
+    expect(branchLabel(null)).toBe('');
+  });
+
+  it('names a detached HEAD instead of pretending there is a branch', () => {
+    expect(branchLabel(branch({ name: null }))).toBe('detached HEAD');
+  });
+});
+
+describe('the sync arrows (S10.3b)', () => {
+  it('shows each side that is not zero', () => {
+    expect(syncArrows(branch({ aheadBehind: [2, 1] }))).toBe('↑2 ↓1');
+    expect(syncArrows(branch({ aheadBehind: [3, 0] }))).toBe('↑3');
+    expect(syncArrows(branch({ aheadBehind: [0, 4] }))).toBe('↓4');
+  });
+
+  it('is quiet both when there is nothing to sync and when there is nowhere to sync to', () => {
+    // Two different states — `[0, 0]` has an upstream and agrees with it, `null` has none — and
+    // the difference matters to S11.1's button, not to this line.
+    expect(syncArrows(branch({ aheadBehind: [0, 0] }))).toBe('');
+    expect(syncArrows(branch({ aheadBehind: null }))).toBe('');
+    expect(syncArrows(null)).toBe('');
+  });
+
+  it("counts nothing as outgoing when there is nowhere for it to go", () => {
+    expect(outgoingCount(branch({ aheadBehind: null }))).toBe(0);
+    expect(outgoingCount(branch({ aheadBehind: [2, 1] }))).toBe(2);
+  });
+});
+
+describe("a commit row's age", () => {
+  const now = Date.UTC(2026, 8, 29, 12, 0, 0);
+  const secondsAgo = (n: number) => (now - n * 1000) / 1000;
+
+  it('reads in the units a person would use', () => {
+    expect(relativeTime(secondsAgo(20), now)).toBe('just now');
+    expect(relativeTime(secondsAgo(60), now)).toBe('1 minute ago');
+    expect(relativeTime(secondsAgo(40 * 60), now)).toBe('40 minutes ago');
+    expect(relativeTime(secondsAgo(3 * 3600), now)).toBe('3 hours ago');
+    expect(relativeTime(secondsAgo(26 * 3600), now)).toBe('yesterday');
+    expect(relativeTime(secondsAgo(4 * 86_400), now)).toBe('4 days ago');
+  });
+
+  it('gives up on "ago" past a week, because a date is not arithmetic the reader has to do', () => {
+    expect(relativeTime(secondsAgo(60 * 86_400), now)).toBe(new Date(secondsAgo(60 * 86_400) * 1000).toLocaleDateString());
+  });
+
+  it('never reads as the future, however skewed the clock that wrote the commit', () => {
+    expect(relativeTime(secondsAgo(-3600), now)).toBe('just now');
   });
 });

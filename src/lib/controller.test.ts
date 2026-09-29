@@ -5,6 +5,8 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   BibliographyIndex,
+  BranchState,
+  CommitRow,
   CompileEvent,
   Discarded,
   Finding,
@@ -37,6 +39,8 @@ const calls = {
   /** Every Git verb called, as `'<verb> <path>'`, and every discard the author was asked about. */
   gitVerbs: [] as string[],
   discardQuestions: [] as string[],
+  /** Every page of history asked for, as `'<skip>+<limit>'` (S10.3b). */
+  gitLogPages: [] as string[],
 };
 /** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
 let shellEscapeOnDisk = false;
@@ -64,6 +68,12 @@ let discardAnswer = false;
 /** Set to a message to make the next Git verb fail, as Rust would for a path outside the
  * project or a repository it cannot write. */
 let gitVerbError: string | null = null;
+/** The fake history, newest first, and the branch it is on (S10.3b). */
+let commitsOnDisk: CommitRow[] = [];
+let branchOnDisk: BranchState = { name: 'main', aheadBehind: null, unborn: false };
+/** Set to a message to make the next commit be refused, as the crate refuses an empty message,
+ * an empty stage or a repository with no `user.name`. */
+let commitError: string | null = null;
 let gitStatusHandler: () => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
@@ -194,6 +204,23 @@ vi.mock('./ipc', () => ({
       calls.discardQuestions.push(`${path}${untracked ? ' (untracked)' : ''}`);
       return discardAnswer;
     },
+    gitBranch: async (): Promise<BranchState | null> => (gitOnDisk === null ? null : branchOnDisk),
+    gitLog: async (skip: number, limit: number): Promise<CommitRow[]> => {
+      calls.gitLogPages.push(`${skip}+${limit}`);
+      return commitsOnDisk.slice(skip, skip + limit);
+    },
+    gitCommit: async (message: string): Promise<string> => {
+      if (commitError) throw new Error(commitError);
+      calls.gitVerbs.push(`commit ${message}`);
+      const id = `commit${commitsOnDisk.length + 1}`;
+      commitsOnDisk = [
+        { id, shortId: id.slice(0, 7), summary: message.split('\n')[0]!, author: 'Ada', time: 1_760_000_000, tags: [] },
+        ...commitsOnDisk,
+      ];
+      gitOnDisk = { ...gitOnDisk!, staged: [] };
+      gitStatusHandler();
+      return id;
+    },
     onGitStatusChanged: async (handler: () => void) => {
       gitStatusHandler = handler;
       return () => {};
@@ -210,7 +237,9 @@ vi.mock('./ipc', () => ({
 const {
   allowShellEscape,
   applyDiagnosticFix,
+  commitStaged,
   discardChange,
+  loadMoreCommits,
   applyFindingFix,
   closeTab,
   disallowShellEscape,
@@ -286,6 +315,10 @@ beforeEach(async () => {
   gitOnDisk = { staged: [], unstaged: [], conflicted: [] };
   discardAnswer = false;
   gitVerbError = null;
+  commitsOnDisk = [];
+  branchOnDisk = { name: 'main', aheadBehind: null, unborn: false };
+  commitError = null;
+  calls.gitLogPages = [];
   calls.gitStatusReads = 0;
   calls.gitVerbs = [];
   calls.discardQuestions = [];
@@ -1559,5 +1592,90 @@ describe('the Source Control view (S10.3a)', () => {
     const ids = allCommands().map((c) => c.id);
     expect(ids).toContain('view-files');
     expect(ids).toContain('view-source-control');
+  });
+});
+
+describe('committing, and the graph (S10.3b)', () => {
+  const staged = { path: 'main.tex', kind: 'modified' as const, renamedFrom: null };
+
+  /** A history `n` commits long, newest first, as Rust would report it. */
+  function history(n: number): CommitRow[] {
+    return Array.from({ length: n }, (_unused, i) => ({
+      id: `id${i}`,
+      shortId: `id${i}`,
+      summary: `commit ${i}`,
+      author: 'Ada',
+      time: 1_760_000_000 - i,
+      tags: [],
+    }));
+  }
+
+  it('commits the message, empties the box, and the new row is at the top of the graph', async () => {
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    git.message = 'Revised the methods section';
+    await commitStaged();
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(calls.gitVerbs).toEqual(['commit Revised the methods section']);
+    expect(git.message).toBe('');
+    expect(git.stagedRows).toEqual([]);
+    expect(git.commits[0]?.summary).toBe('Revised the methods section');
+  });
+
+  it('keeps the words in the box when the commit is refused, and says why under it', async () => {
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    commitError = 'Git does not know who you are yet.';
+    git.message = 'Half a sentence';
+    await commitStaged();
+
+    expect(git.error).toContain('Git does not know who you are');
+    // The refusal is fixed and the same words tried again — losing them would be the one
+    // unrecoverable part of a recoverable mistake.
+    expect(git.message).toBe('Half a sentence');
+    expect(app.notice).toBeNull();
+    expect(git.committing).toBe(false);
+  });
+
+  it('asks for one page of history, and offers more only while pages come back full', async () => {
+    commitsOnDisk = history(200);
+    calls.gitLogPages = []; // the folder opening already read the (then empty) history once
+    await refreshGitStatus();
+    expect(calls.gitLogPages).toEqual(['0+200']);
+    expect(git.commits).toHaveLength(200);
+    expect(git.mayHaveMore).toBe(true);
+
+    commitsOnDisk = history(250);
+    await loadMoreCommits();
+    expect(calls.gitLogPages).toEqual(['0+200', '200+200']);
+    expect(git.commits).toHaveLength(250);
+    // The second page came back short, so the history has ended and the button goes away.
+    expect(git.mayHaveMore).toBe(false);
+  });
+
+  it('a refresh keeps the pages the author had already asked for', async () => {
+    commitsOnDisk = history(400);
+    await refreshGitStatus();
+    await loadMoreCommits();
+    expect(git.commits).toHaveLength(400);
+
+    calls.gitLogPages = [];
+    await refreshGitStatus();
+    expect(calls.gitLogPages).toEqual(['0+400']);
+    expect(git.commits).toHaveLength(400);
+  });
+
+  it('carries the branch and its drift for the status bar, and clears both with the project', async () => {
+    branchOnDisk = { name: 'thesis', aheadBehind: [2, 1], unborn: false };
+    await refreshGitStatus();
+    expect(git.branch).toEqual({ name: 'thesis', aheadBehind: [2, 1], unborn: false });
+    expect(git.outgoing).toBe(2);
+
+    gitOnDisk = null; // a project that is not in Git at all
+    await refreshGitStatus();
+    expect(git.branch).toBeNull();
+    expect(git.commits).toEqual([]);
+    expect(git.outgoing).toBe(0);
   });
 });

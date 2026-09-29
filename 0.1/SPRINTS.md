@@ -3999,6 +3999,51 @@ Done when a message and `Ctrl Enter` make a commit that `git log` then shows, th
           commits yet" before the first commit, and nothing at all where there is no Git.
 ```
 
+**S10.3b (29 September 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 504 passed / 0
+failed (no new Rust tests, and that is the honest number: the three commands added here are four
+lines each over a crate S10.2b already tested against the real `git` binary, and both of those
+comparison tests were re-run green), clippy and `cargo doc --workspace -D warnings` clean,
+`pnpm check` 0 errors, Vitest 460/460 (15 new: 10 in `git.test.ts`, 5 in `controller.test.ts`).
+`[~]` for the same reason S10.3a is: rung 4 is the maintainer's, and everything this loop does is
+on screen. What a reader should take from the diff:
+
+1. **One refresh answers three questions, on purpose.** The lists, the branch line and the graph
+   all move when a commit lands, and asking for them on three separate triggers would let the
+   status bar and the panel describe two different moments. So `refreshGitStatus` reads all
+   three, and the graph re-reads *as many rows as are showing* rather than one page — someone who
+   pressed *Show more* twice and then saved a file should not find the graph collapsed back.
+2. **`mayHaveMore` is a fact, not a guess.** The button appears while the last page came back
+   full and vanishes when it came back short, which is the only thing that can be known without
+   counting the whole history. A test walks a 250-commit history to the end and pins that the
+   button goes away exactly there.
+3. **A refused commit keeps the author's words.** All three refusals — no message, nothing
+   staged, no `user.name` — are fixed in place and then tried again with the same sentence, so
+   the message is cleared only once the commit exists. The refusal shows under the box, never as
+   a dialog and never as a notice.
+4. **`Ctrl Enter` is bound on the box and not in `shortcuts.ts`.** That table is for chords that
+   mean one thing wherever focus is; a global `Ctrl Enter` would fire from inside CodeMirror
+   while the author was writing LaTeX.
+5. **The arrows ship and the button does not.** `↑2 ↓1` is information and belongs in the status
+   bar where §6 puts it; `Sync Changes` is a *verb*, and the verb is S11.1. `syncArrows` is quiet
+   in the two cases that both look like nothing and are not the same thing — no upstream at all,
+   and an upstream this branch agrees with — because S11.1's button belongs under only one of
+   them. The status bar is empty rather than apologetic in a project with no repository: a bar
+   that mentioned Git there would be talking about a feature nobody asked for. The **Commit
+   dropdown** (Commit & Push, Commit & Sync, Amend) and the header's **⋯** menu are held back
+   for the same reason and not forgotten: two of the three dropdown items need a remote, which
+   is S10.4 and S11.1, and Amend has to be hidden once a commit is pushed — which means knowing
+   what is pushed, which is the same dependency. A dropdown offering three items where one
+   worked would teach the author that this panel is decoration.
+6. **"Outgoing changes" is a header between rows, not a second list.** `ahead_behind` already
+   says how many of the newest rows the upstream does not have, so the header goes above the
+   first of them and a second one names the branch below. Nothing about a row changes, which is
+   both what VS Code does and why one number is enough.
+7. **The one thing §6 asks for that is not here** is the pre-filled commit message and the
+   word-count delta per row. They are S10.3c, carded above, because a word count over a `.tex`
+   diff has to strip markup and maths well enough to be useful and never wrong by a lot — which
+   is a loop's worth of difficulty, not a tail on this one. The box is a plain empty box until
+   then, and it says what `Ctrl Enter` does.
+
 ```
 Loop      S10.3c · The two things VS Code does not do · M
 Reads     DESIGN.md §6 ("Where we add to VS Code rather than copy it, it is because the user is
@@ -4036,7 +4081,9 @@ S10.3 activity bar and Source Control view, 1:1 VS Code —
 S10.2 was: the pane and its two lists, the commit box and the graph, and the two writer additions
 are three loops' worth of surface. · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
-confirmation · S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`) · S11.2 conflicts
+confirmation, and with it the Commit dropdown's *Commit & Push* and the header's ⋯ menu ·
+S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`), which is also when *Commit &
+Sync* and *Amend* become drawable (Amend has to know what is already pushed) · S11.2 conflicts
 as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
 graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
 as a CodeMirror merge view, which is what §6's "a click opens a diff" finally means (deferred

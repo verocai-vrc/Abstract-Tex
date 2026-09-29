@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{Discarded, Status as GitStatus};
+use abstract_tex_git::{BranchState, CommitRow, Discarded, Status as GitStatus};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -633,6 +633,34 @@ pub fn git_discard(app: AppHandle, state: State<'_, AppState>, path: String) -> 
     Ok(done)
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// S10.3b: committing, and where the branch stands.
+// ---------------------------------------------------------------------------------------------
+
+/// Which branch this is and how far it has drifted from its upstream — the status bar's line.
+#[tauri::command]
+pub fn git_branch(state: State<'_, AppState>) -> CommandResult<Option<BranchState>> {
+    git::with_repository(&state, abstract_tex_git::branch_state)
+}
+
+/// One page of the history for the Graph section. `skip` rows in, at most `limit` rows out.
+#[tauri::command]
+pub fn git_log(state: State<'_, AppState>, skip: usize, limit: usize) -> CommandResult<Vec<CommitRow>> {
+    Ok(git::with_repository(&state, |repository| abstract_tex_git::log(repository, skip, limit))?.unwrap_or_default())
+}
+
+/// Commit whatever is staged, and answer with the new commit's id.
+///
+/// Every refusal the crate can return — no message, nothing staged, no identity — arrives here
+/// as its own sentence and is shown under the commit box. None of them is a dialog: they are all
+/// fixed where the author is already standing.
+#[tauri::command]
+pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -> CommandResult<String> {
+    let id = git::in_repository(&state, |repository| abstract_tex_git::commit(repository, &message))?;
+    git::emit_status_changed(&app);
+    Ok(id)
+}
 
 #[cfg(test)]
 mod tests {

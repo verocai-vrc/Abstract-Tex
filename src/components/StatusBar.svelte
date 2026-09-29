@@ -1,7 +1,8 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
-  import { detectZotero, disallowShellEscape, toggleDrawer } from '../lib/controller.svelte';
+  import { branchLabel, git, syncArrows } from '../lib/git.svelte';
+  import { detectZotero, disallowShellEscape, showActivityView, toggleDrawer } from '../lib/controller.svelte';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -42,6 +43,12 @@
           : 'Detect Zotero',
   );
 
+  // S10.3b: the branch at the left, as VS Code and DESIGN.md §6 both put it. Empty — not "no
+  // branch" — in a project with no repository: a status bar that mentioned Git there would be
+  // saying something about a feature the author has not asked for.
+  const branch = $derived(git.isRepository ? branchLabel(git.branch) : '');
+  const arrows = $derived(syncArrows(git.branch));
+
   // S8.3: a quiet count, shown only once there is something to say — an empty bibliography or a
   // clean one both mean "nothing to show here", matching the drawer's own "only interrupt for a
   // real problem" rule (DESIGN.md §6).
@@ -49,6 +56,14 @@
 </script>
 
 <footer class="statusbar">
+  {#if branch}
+    <!-- Clicking it opens the panel the branch belongs to, which is what VS Code's does. The
+         arrows are information only: §5.7's one-verb `Sync Changes` button is S11.1, and a verb
+         drawn before it works would be the worst of both. -->
+    <button class="ghost" title="Source Control (Ctrl Shift G)" onclick={() => showActivityView('source-control')}>
+      {branch}{arrows ? ` ${arrows}` : ''}
+    </button>
+  {/if}
   {#if app.compile.phase === 'running'}
     <span class="warn">
       <span class="dot pulse"></span>Compiling… {elapsed}s{app.compile.progress ? ` · ${app.compile.progress}` : ''}

@@ -4,7 +4,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
-import { git, NO_CHANGES } from './git.svelte';
+import { git, GRAPH_PAGE, NO_CHANGES } from './git.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -484,6 +484,65 @@ export async function refreshGitStatus(): Promise<void> {
     git.status = NO_CHANGES;
     git.error = String(error);
   }
+  if (!git.isRepository) {
+    git.branch = null;
+    git.commits = [];
+    git.mayHaveMore = false;
+    return;
+  }
+  // Three questions, one refresh (S10.3b). The branch line and the graph change with the same
+  // events the lists do — a commit moves all three — and asking for them separately would mean
+  // the status bar and the panel could be describing two different moments.
+  git.branch = await ipc.gitBranch().catch(() => null);
+  await refreshGitGraph();
+}
+
+/**
+ * Re-read the history the author already has on screen.
+ *
+ * As many rows as are showing, not one page: someone who pressed *Show more* twice and then
+ * saved a file should not find the graph collapsed back to its first page. `mayHaveMore` is set
+ * from whether the page came back full, which is the only honest reason to offer the button —
+ * a short page means the history ended.
+ */
+async function refreshGitGraph(): Promise<void> {
+  const wanted = Math.max(GRAPH_PAGE, git.commits.length);
+  try {
+    const rows = await ipc.gitLog(0, wanted);
+    git.commits = rows;
+    git.mayHaveMore = rows.length === wanted;
+  } catch (error) {
+    git.commits = [];
+    git.mayHaveMore = false;
+    git.error = String(error);
+  }
+}
+
+/** Append the next page of history (DESIGN.md §6's "lazy loading"). */
+export async function loadMoreCommits(): Promise<void> {
+  try {
+    const rows = await ipc.gitLog(git.commits.length, GRAPH_PAGE);
+    git.commits = [...git.commits, ...rows];
+    git.mayHaveMore = rows.length === GRAPH_PAGE;
+  } catch (error) {
+    git.error = String(error);
+  }
+}
+
+/**
+ * Commit what is staged.
+ *
+ * The message is cleared only once the commit exists: all three refusals the crate can return —
+ * no message, nothing staged, no Git identity — leave the author's words in the box, because
+ * every one of them is fixed and then tried again with the same sentence. The refusal itself
+ * shows under the box and never as a dialog.
+ */
+export async function commitStaged(): Promise<void> {
+  if (git.committing) return;
+  git.committing = true;
+  const committed = await runGitVerb(() => ipc.gitCommit(git.message));
+  git.committing = false;
+  if (committed !== null) git.message = '';
 }
 
 /** Stage one path. The refresh comes back as a `git:status-changed` event, not from here: one
@@ -574,6 +633,11 @@ export async function openFolder(path?: string): Promise<void> {
     // at all. Both are settled by the first refresh; until it answers, show neither.
     git.status = NO_CHANGES;
     git.isRepository = false;
+    git.branch = null;
+    git.commits = [];
+    git.mayHaveMore = false;
+    // A half-written message belongs to the project it was being written about.
+    git.message = '';
     git.error = null;
     git.lastDiscard = null;
     void refreshGitStatus();

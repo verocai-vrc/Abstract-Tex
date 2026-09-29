@@ -272,6 +272,33 @@ export interface GitStatus {
   conflicted: FileChange[];
 }
 
+/** One row of the Graph section (`abstract_tex_git::CommitRow`). */
+export interface CommitRow {
+  id: string;
+  /** The first seven characters, the length `git log --oneline` shows. */
+  shortId: string;
+  /** The message's first line, which is all a one-line row can show. */
+  summary: string;
+  author: string;
+  /** Seconds since the Unix epoch, UTC. Rust deliberately does not format it: a library that
+   * guessed at a locale would be guessing for every caller. */
+  time: number;
+  /** The branch, remote and tag names pointing at exactly this commit. Never S10.1's snapshot
+   * ref — a hidden ref that showed up as a tag would not be hidden. */
+  tags: string[];
+}
+
+/** Which branch the project is on and how far it has drifted (`abstract_tex_git::BranchState`). */
+export interface BranchState {
+  /** `null` on a detached `HEAD`. */
+  name: string | null;
+  /** `[ahead, behind]` against the upstream, or `null` when there is no upstream at all —
+   * which is *not* `[0, 0]`: "no remote yet" and "nothing to sync" are different sentences. */
+  aheadBehind: [number, number] | null;
+  /** True before the first commit, when `HEAD` names a branch no commit has created yet. */
+  unborn: boolean;
+}
+
 /** Which of the two things a discard did (`abstract_tex_git::Discarded`) — what the notice
  * afterwards reports, since an untracked file is *deleted* and a tracked one is restored. */
 export type Discarded = 'restored' | 'deleted';
@@ -374,6 +401,15 @@ export const ipc = {
   /** Throw away the working-tree changes to one path. Only ever called after `confirmDiscard`
    * came back `true`; the answer says which of the two things actually happened. */
   gitDiscard: (path: string) => invoke<Discarded>('git_discard', { path }),
+
+  /** S10.3b: which branch, and how far ahead of or behind its upstream. `null` when the project
+   * is not inside a Git repository, like `gitStatus`. */
+  gitBranch: () => invoke<BranchState | null>('git_branch'),
+  /** One page of the history for the Graph section. Empty on a repository with no commits. */
+  gitLog: (skip: number, limit: number) => invoke<CommitRow[]>('git_log', { skip, limit }),
+  /** Commit whatever is staged; resolves to the new commit's id. Rejects with the sentence for
+   * whichever of the three refusals applies — no message, nothing staged, no Git identity. */
+  gitCommit: (message: string) => invoke<string>('git_commit', { message }),
 
   /** A URL the webview may fetch for a file inside an allowed scope (the build folder). */
   assetUrl: (absolutePath: string) => convertFileSrc(absolutePath),

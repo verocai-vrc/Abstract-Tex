@@ -7,9 +7,39 @@
   // states are deliberately sentences rather than empty space — no project, and a folder that is
   // not a Git repository — because an empty panel would look like a clean tree, which is a
   // different and much more reassuring thing than "nobody asked Git anything".
-  import { discardChange, openFile, refreshGitStatus, stageChange, unstageChange } from '../lib/controller.svelte';
-  import { git, type ChangeRow } from '../lib/git.svelte';
+  import {
+    commitStaged,
+    discardChange,
+    loadMoreCommits,
+    openFile,
+    refreshGitStatus,
+    stageChange,
+    unstageChange,
+  } from '../lib/controller.svelte';
+  import { git, relativeTime, type ChangeRow } from '../lib/git.svelte';
   import { app } from '../lib/state.svelte';
+
+  /** `Ctrl Enter` commits (DESIGN.md §6), bound on the box and not in `shortcuts.ts`: that table
+   * is for chords that mean the same thing wherever focus is, and a global `Ctrl Enter` would
+   * fire from inside CodeMirror while the author was writing LaTeX. */
+  function onMessageKeydown(event: KeyboardEvent) {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      void commitStaged();
+    }
+  }
+
+  /** Nothing staged means nothing to commit, and the crate would refuse — so the button says so
+   * before it is pressed rather than after. */
+  const canCommit = $derived(git.status.staged.length > 0 && git.message.trim().length > 0 && !git.committing);
+
+  // "4 minutes ago" on a row would otherwise still say that an hour later. One tick a minute,
+  // only while this view is on screen, as the status bar's build clock does it.
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(timer);
+  });
 
   /** A deleted file has nothing to open, so its row is not a button. §6's "a click opens a diff"
    * arrives with the merge view (S11.6); until then a click opens the file itself. */
@@ -67,7 +97,20 @@
   {:else}
     <div class="sidebar-head">
       <span class="label">Source Control</span>
+      <button class="ghost" title="Commit (Ctrl Enter)" disabled={!canCommit} onclick={() => void commitStaged()}>✓</button>
       <button class="ghost" title="Refresh" onclick={() => void refreshGitStatus()}>⟳</button>
+    </div>
+
+    <div class="commit-box">
+      <textarea
+        rows="2"
+        placeholder={`Message (Ctrl Enter to commit${git.branch?.name ? ` on ${git.branch.name}` : ''})`}
+        bind:value={git.message}
+        onkeydown={onMessageKeydown}
+      ></textarea>
+      <button class="primary" disabled={!canCommit} onclick={() => void commitStaged()}>
+        {git.committing ? 'Committing…' : 'Commit'}
+      </button>
     </div>
 
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
@@ -88,6 +131,41 @@
     {#if git.changedCount === 0}
       <p class="hint">No changes. Everything here matches the last commit.</p>
     {/if}
+
+    <div class="sc-section">
+      <div class="sidebar-head">
+        <span class="label">Graph</span>
+      </div>
+      {#if git.branch?.unborn}
+        <p class="hint">No commits yet. The first one starts the history.</p>
+      {:else}
+        <ul class="commit-list">
+          {#each git.commits as commit, index (commit.id)}
+            {#if git.outgoing > 0 && index === 0}
+              <!-- The newest `outgoing` rows are the ones the upstream does not have. One number
+                   is enough to say where the line goes, which is what VS Code does too. -->
+              <li class="graph-head">Outgoing changes</li>
+            {/if}
+            {#if git.outgoing > 0 && index === git.outgoing}
+              <li class="graph-head">On {git.branch?.name ?? 'the remote'}</li>
+            {/if}
+            <li class="commit-row">
+              <div class="commit-summary">
+                {commit.summary || '(no message)'}
+                {#each commit.tags as tag (tag)}<span class="tag">{tag}</span>{/each}
+              </div>
+              <div class="commit-meta">
+                <span class="short-id">{commit.shortId}</span>
+                {commit.author} · {relativeTime(commit.time, now)}
+              </div>
+            </li>
+          {/each}
+        </ul>
+        {#if git.mayHaveMore}
+          <button class="ghost more" onclick={() => void loadMoreCommits()}>Show more</button>
+        {/if}
+      {/if}
+    </div>
   {/if}
 </aside>
 
@@ -198,5 +276,64 @@
   .kind-deleted,
   .kind-conflicted {
     color: var(--error);
+  }
+
+  .commit-box {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 10px 8px;
+  }
+  .commit-box textarea {
+    resize: vertical;
+    font: inherit;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-editor);
+    color: var(--fg);
+  }
+  .commit-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .commit-row {
+    padding: 3px 10px;
+  }
+  .commit-row:hover {
+    background: var(--bg-hover);
+  }
+  .commit-summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .commit-meta {
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .short-id {
+    font-family: var(--font-mono);
+    margin-right: 5px;
+  }
+  .tag {
+    margin-left: 5px;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 10px;
+    color: var(--fg-muted);
+  }
+  /* Not a section head: it sits between rows, marking where the upstream's history begins. */
+  .graph-head {
+    padding: 6px 10px 2px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-muted);
+  }
+  .more {
+    margin: 4px 10px 10px;
   }
 </style>

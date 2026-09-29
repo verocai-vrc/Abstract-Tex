@@ -126,6 +126,9 @@ pub fn run() {
             commands::git_stage,
             commands::git_unstage,
             commands::git_discard,
+            commands::git_branch,
+            commands::git_log,
+            commands::git_commit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Abstract-Tex window");
