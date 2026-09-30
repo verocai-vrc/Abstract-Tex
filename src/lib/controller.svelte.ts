@@ -479,20 +479,27 @@ export async function refreshGitStatus(): Promise<void> {
     const status = await ipc.gitStatus();
     git.isRepository = status !== null;
     git.status = status ?? NO_CHANGES;
-    git.error = null;
+    // Only the read's own slot: a verb's refusal is not stale news just because the status was
+    // read successfully a moment later (`git.svelte.ts` on why there are two).
+    git.readError = null;
   } catch (error) {
     git.isRepository = false;
     git.status = NO_CHANGES;
-    git.error = String(error);
+    git.readError = String(error);
   }
   if (!git.isRepository) {
     git.branch = null;
     git.commits = [];
     git.mayHaveMore = false;
     git.prose = null;
+    git.ourFolderIsIgnored = null;
     graphBuiltFrom = null;
     return;
   }
+  // S10.5a: whether this repository has a line for our folder. Cheap (libgit2 answers from the
+  // ignore rules it has already parsed) and it only changes when someone edits `.gitignore`,
+  // which is a file change — so it rides along with the refresh rather than having its own.
+  git.ourFolderIsIgnored = await ipc.gitOurFolderIsIgnored().catch(() => null);
   // Three questions, one refresh (S10.3b). The lists, the branch line and the graph would
   // otherwise be able to describe two different moments.
   git.branch = await ipc.gitBranch().catch(() => null);
@@ -530,7 +537,7 @@ async function refreshGitGraph(): Promise<void> {
     git.commits = [];
     git.mayHaveMore = false;
     graphBuiltFrom = null;
-    git.error = String(error);
+    git.readError = String(error);
   }
 }
 
@@ -566,6 +573,30 @@ export async function commitStaged(): Promise<void> {
   }
 }
 
+/**
+ * Make this folder a Git repository (S10.5a).
+ *
+ * One action, as §5.7 asks: `init`, a `.gitignore` that names our folder and the junk a hand-run
+ * `pdflatex` leaves, everything staged, and a first commit — except on a machine where Git has no
+ * identity yet, where the commit deliberately does not happen and the panel says why. Either way
+ * the refresh that follows turns the panel from a sentence into a repository.
+ */
+export async function initialiseRepository(): Promise<void> {
+  if (git.initialising) return;
+  git.initialising = true;
+  const done = await runGitVerb(() => ipc.gitInitialise());
+  git.initialising = false;
+  if (done) git.needsIdentity = done.needsIdentity;
+  await refreshGitStatus();
+}
+
+/** Add our folder to this repository's `.gitignore`, having been asked to (S10.5a). Never called
+ * on its own initiative: it is the author's file, in the author's history. */
+export async function ignoreOurFolder(): Promise<void> {
+  await runGitVerb(() => ipc.gitIgnoreOurFolder());
+  await refreshGitStatus();
+}
+
 /** The author has typed in the commit box, so it is theirs from now on (S10.3c). */
 export function claimCommitMessage(): void {
   git.messageIsSuggested = false;
@@ -596,7 +627,14 @@ export async function discardChange(path: string, untracked: boolean): Promise<v
   else if (done === 'restored') git.lastDiscard = `${path} is back to its last committed version.`;
 }
 
-/** Run one verb, turning a rejection into the panel's own sentence rather than a notice. */
+/**
+ * Run one verb, turning a rejection into the panel's own sentence rather than a notice.
+ *
+ * The slot is cleared here, when a verb *starts*, and nowhere else. Every verb is followed by a
+ * status refresh — awaited, or arriving as a `git:status-changed` event — and a refresh that
+ * cleared this slot would make a refusal appear and then vanish before it could be read. That
+ * was a real bug from S10.3a until S10.5a's tests caught it; it is in the ledger.
+ */
 async function runGitVerb<T>(verb: () => Promise<T>): Promise<T | null> {
   git.error = null;
   git.lastDiscard = null;
@@ -742,8 +780,11 @@ export async function openFolder(path?: string): Promise<void> {
     git.message = '';
     git.messageIsSuggested = true;
     git.prose = null;
+    git.needsIdentity = false;
+    git.ourFolderIsIgnored = null;
     graphBuiltFrom = null;
     git.error = null;
+    git.readError = null;
     git.lastDiscard = null;
     void refreshGitStatus();
     // Start the language server before opening the first file, so that file's `didOpen` is the

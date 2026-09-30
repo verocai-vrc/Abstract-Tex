@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{BranchState, CommitRow, Discarded, ProseSummary, Status as GitStatus};
+use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, ProseSummary, Status as GitStatus};
 use abstract_tex_github::Account;
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
@@ -670,6 +670,37 @@ pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -
 #[tauri::command]
 pub fn git_prose_summary(state: State<'_, AppState>) -> CommandResult<Option<ProseSummary>> {
     git::with_repository(&state, abstract_tex_git::prose_summary)
+}
+
+/// Make the open project a Git repository (S10.5a): `init`, a `.gitignore`, and a first commit.
+///
+/// Refuses a folder already inside a repository, naming it — `git init` in a subfolder of one is
+/// almost never what anyone meant. The answer says whether the commit happened, because on a
+/// machine where Git has no identity yet it deliberately does not.
+#[tauri::command]
+pub fn git_initialise(app: AppHandle, state: State<'_, AppState>) -> CommandResult<Initialised> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    let done = abstract_tex_git::initialise(&root).map_err(to_message)?;
+    git::emit_status_changed(&app);
+    Ok(done)
+}
+
+/// Whether this repository already tells Git to ignore `.abstract-tex/` (S10.5a).
+///
+/// `Some(false)` is the state S10.2a's outcome note left open: a repository that existed before
+/// this app, whose build folder the panel filters out rather than relying on a line for. `None`
+/// is a project with no repository at all, where the question does not arise.
+#[tauri::command]
+pub fn git_our_folder_is_ignored(state: State<'_, AppState>) -> CommandResult<Option<bool>> {
+    git::with_repository(&state, |repository| Ok(abstract_tex_git::our_folder_is_ignored(repository)))
+}
+
+/// Add our lines to the repository's `.gitignore` — only ever after the author said yes.
+#[tauri::command]
+pub fn git_ignore_our_folder(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
+    git::in_repository(&state, abstract_tex_git::ignore_our_folder)?;
+    git::emit_status_changed(&app);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------------------------

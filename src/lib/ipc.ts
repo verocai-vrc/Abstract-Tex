@@ -307,6 +307,15 @@ export interface BranchState {
   head: string | null;
 }
 
+/** What making a folder a repository did (`abstract_tex_git::Initialised`). */
+export interface Initialised {
+  /** The first commit's id, or `null` when Git does not know who the author is yet. */
+  firstCommit: string | null;
+  /** True when there is no commit *because* of that — the repository, the `.gitignore` and a
+   * fully staged tree all exist, and the author's own first commit is one `git config` away. */
+  needsIdentity: boolean;
+}
+
 /** Whose GitHub account this machine is signed in to (`abstract_tex_github::Account`). */
 export interface GitHubAccount {
   /** The `@handle`. The only field of `GET /user` this app has any use for. */
@@ -454,6 +463,14 @@ export const ipc = {
   /** S10.3c: what changed since the last commit, in words and section names. `null` when the
    * project is not inside a Git repository. */
   gitProseSummary: () => invoke<ProseSummary | null>('git_prose_summary'),
+
+  /** S10.5a: make the open project a Git repository — `init`, a `.gitignore`, a first commit.
+   * Rejects with a sentence naming the repository when the folder is already inside one. */
+  gitInitialise: () => invoke<Initialised>('git_initialise'),
+  /** Whether `.abstract-tex/` is already ignored here. `null` when there is no repository. */
+  gitOurFolderIsIgnored: () => invoke<boolean | null>('git_our_folder_is_ignored'),
+  /** Add our lines to the repository's `.gitignore`. Only called after the author said yes. */
+  gitIgnoreOurFolder: () => invoke<void>('git_ignore_our_folder'),
 
   /** S10.4b: whose GitHub account this machine is signed in to, or `null`. A token GitHub no
    * longer accepts is forgotten rather than reported, so this answers `null` for it too. */

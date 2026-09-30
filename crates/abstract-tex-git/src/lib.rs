@@ -56,6 +56,12 @@ pub enum GitError {
 
     #[error("Nothing is staged, so there is nothing to commit.")]
     NothingStaged,
+
+    /// S10.5a: `git init` inside a folder that is already in a repository. Names what was found,
+    /// because the answer depends on which repository it is — often one the author forgot they
+    /// had, occasionally a monorepo where the paper is meant to live.
+    #[error("This folder is already inside a Git repository ({0}).")]
+    AlreadyARepository(String),
 }
 
 /// What one changed file is, in the words the row in the view uses.
@@ -618,6 +624,147 @@ fn is_tex(path: &str) -> bool {
     path.rsplit('.').next().is_some_and(|extension| extension.eq_ignore_ascii_case("tex"))
 }
 
+// ---------------------------------------------------------------------------------------------
+// S10.5a: making a folder a repository.
+// ---------------------------------------------------------------------------------------------
+
+/// What `.gitignore` gets, and why each half of it is there.
+///
+/// `.abstract-tex/` is ours by DESIGN.md §5.8, and [`NEVER_A_CHANGE`] already keeps it out of the
+/// panel — this is the same promise written where `git` itself can read it, so a coauthor who
+/// clones the project does not get our build folder in their first `git status` either.
+///
+/// The rest is what a hand-run `pdflatex` leaves behind. Builds from *this* app never write those
+/// into the source tree (S9.12 moved shell-escape builds into the build folder for exactly that
+/// reason), but an author who runs the engine in a terminal will, and a *Changes* list full of
+/// `.aux` files is what DESIGN.md §6 means by shouting when nothing is wrong.
+const GITIGNORE_LINES: &str = "\
+# Abstract-Tex's own folder: builds, drafts and snapshots (DESIGN.md §5.8)
+.abstract-tex/
+
+# What a TeX run leaves next to the manuscript when it is not run by Abstract-Tex
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.log
+*.lot
+*.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
+";
+
+/// The line every check for "is our folder ignored" looks for.
+const OUR_FOLDER_LINE: &str = ".abstract-tex/";
+
+/// What [`initialise`] did, so the panel can say the true thing.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Initialised {
+    /// The first commit's id, or `None` when Git does not know who the author is yet.
+    pub first_commit: Option<String>,
+    /// Set when there is no commit: the sentence naming what to do about it. The repository and
+    /// the `.gitignore` exist regardless, and everything is staged, so the author's own first
+    /// commit is one `git config` away.
+    pub needs_identity: bool,
+}
+
+/// Turn a folder into a Git repository: `init`, a `.gitignore`, stage everything, commit.
+///
+/// §5.7 asks for one action that ends in an initial commit, and S10.2b's rule is that this app
+/// never invents an identity. Both hold here: the repository and its `.gitignore` are made either
+/// way, and the commit happens only when `user.name` is set. A repository with a staged tree and
+/// no commit is a real, recoverable state; a commit signed by a stand-in is not.
+///
+/// Refuses a folder that is *already* inside a repository, naming what it found: `git init` in a
+/// subfolder of a repository is almost never what anyone meant, and it is unpleasant to undo.
+pub fn initialise(project_dir: &Path) -> Result<Initialised, GitError> {
+    if let Ok(existing) = Repository::discover(project_dir) {
+        let found = existing.workdir().map(|dir| dir.display().to_string()).unwrap_or_else(|| "a Git repository".into());
+        return Err(GitError::AlreadyARepository(found));
+    }
+
+    let repository = Repository::init(project_dir)?;
+    write_gitignore(project_dir)?;
+    stage_and_commit_everything(&repository)
+}
+
+/// Stage the whole folder and make the first commit — the half of [`initialise`] that can refuse.
+///
+/// Split out so that the "Git does not know who you are" path can be tested on a machine that
+/// *does* know: the test initialises a repository, empties its own local `user.name`, and calls
+/// this. Taking the machine's global identity away for the length of a test would mean mutating
+/// process-wide state that every other test in the same process reads.
+fn stage_and_commit_everything(repository: &Repository) -> Result<Initialised, GitError> {
+    // `add_all` respects the `.gitignore` written just before it, which is the whole reason the
+    // order is that way round: staging and *then* ignoring would leave the build folder in the
+    // first commit for ever, where `git rm --cached` is the only way out.
+    let mut index = repository.index()?;
+    index.add_all(["*"], git2::IndexAddOption::DEFAULT, None)?;
+    index.write()?;
+
+    match commit(repository, "Initial commit") {
+        Ok(id) => Ok(Initialised { first_commit: Some(id), needs_identity: false }),
+        // The one refusal that is not a failure here: everything else about this worked, and the
+        // staged tree is waiting for the author's own first commit.
+        Err(GitError::NoIdentity) => Ok(Initialised { first_commit: None, needs_identity: true }),
+        // An empty folder has nothing to commit, and that is fine too — a repository with no
+        // commits is where S10.2b's `unborn` branch state comes from.
+        Err(GitError::NothingStaged) => Ok(Initialised { first_commit: None, needs_identity: false }),
+        Err(error) => Err(error),
+    }
+}
+
+/// Whether this repository already tells Git to ignore our folder.
+///
+/// `is_path_ignored` and not a read of `.gitignore`: the rule may be in a global ignore file, in
+/// `.git/info/exclude`, or in a `.gitignore` three folders up, and all of those are answers.
+pub fn our_folder_is_ignored(repository: &Repository) -> bool {
+    repository.is_path_ignored(".abstract-tex/build").unwrap_or(false)
+}
+
+/// Add our lines to this repository's `.gitignore`, keeping whatever is already in it.
+///
+/// Only ever called after the author said yes (S10.2a's outcome note, point 3): a repository that
+/// existed before this app has no line for `.abstract-tex/`, and editing someone's `.gitignore`
+/// unasked is the kind of co-author §5.7 is careful not to be.
+pub fn ignore_our_folder(repository: &Repository) -> Result<(), GitError> {
+    let Some(workdir) = repository.workdir() else {
+        return Err(GitError::NotARepository); // a bare repository has no `.gitignore` to write
+    };
+    write_gitignore(workdir)
+}
+
+/// Write the lines, or append them to an existing file.
+///
+/// Appending rather than replacing, because the file may be the author's — and checking for
+/// [`OUR_FOLDER_LINE`] rather than for the whole block, because the block may already have been
+/// added by hand, by a coauthor, or by a previous version of this function.
+fn write_gitignore(dir: &Path) -> Result<(), GitError> {
+    let path = dir.join(".gitignore");
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    if existing.lines().any(|line| line.trim() == OUR_FOLDER_LINE) {
+        return Ok(());
+    }
+    let mut contents = existing;
+    if !contents.is_empty() && !contents.ends_with('\n') {
+        contents.push('\n');
+    }
+    if !contents.is_empty() {
+        contents.push('\n');
+    }
+    contents.push_str(GITIGNORE_LINES);
+    std::fs::write(&path, contents)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -968,6 +1115,117 @@ mod tests {
         let summary = prose_summary(&repository).unwrap();
         assert_eq!(summary.paths, Vec::<String>::new());
         assert_eq!(summary.words_after, 0);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S10.5a: making a folder a repository.
+    // -----------------------------------------------------------------------------------------
+
+    /// A folder with a manuscript, a build folder and no Git at all — which is the state of
+    /// every project this app opens until someone does something about it.
+    fn folder_with_a_manuscript() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("main.tex"), "\\section{Methods}\nWords.\n").unwrap();
+        fs::create_dir_all(tmp.path().join("sections")).unwrap();
+        fs::write(tmp.path().join("sections/intro.tex"), "More words.\n").unwrap();
+        fs::create_dir_all(tmp.path().join(".abstract-tex/build")).unwrap();
+        fs::write(tmp.path().join(".abstract-tex/build/main.pdf"), b"%PDF").unwrap();
+        fs::write(tmp.path().join("main.aux"), "\\relax\n").unwrap();
+        tmp
+    }
+
+    /// Whatever `git ls-tree -r --name-only HEAD` would print, as a sorted list.
+    fn files_in_head(repository: &Repository) -> Vec<String> {
+        let tree = repository.head().unwrap().peel_to_tree().unwrap();
+        let mut names = Vec::new();
+        tree.walk(git2::TreeWalkMode::PreOrder, |root, entry| {
+            if entry.kind() == Some(git2::ObjectType::Blob) {
+                names.push(format!("{root}{}", entry.name().unwrap_or_default()));
+            }
+            git2::TreeWalkResult::Ok
+        })
+        .unwrap();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_folder_becomes_a_repository_whose_first_commit_is_the_manuscript() {
+        let tmp = folder_with_a_manuscript();
+        let done = initialise(tmp.path()).unwrap();
+        assert!(done.first_commit.is_some(), "a machine with an identity commits");
+        assert!(!done.needs_identity);
+
+        let repository = open(tmp.path()).unwrap();
+        assert_eq!(files_in_head(&repository), vec![".gitignore", "main.tex", "sections/intro.tex"]);
+        // The two things that must not be in it: our folder, and a stray `.aux`.
+        assert!(our_folder_is_ignored(&repository));
+        assert!(repository.is_path_ignored("main.aux").unwrap());
+        // And the panel is clean immediately afterwards, which is the point of ignoring first.
+        assert_eq!(changes(&repository), Status::default());
+    }
+
+    #[test]
+    fn a_machine_with_no_identity_gets_a_repository_a_staged_tree_and_a_sentence() {
+        let tmp = folder_with_a_manuscript();
+        let repository = Repository::init(tmp.path()).unwrap();
+        write_gitignore(tmp.path()).unwrap();
+
+        // The state under test, reached through this repository's *own* config rather than by
+        // taking the machine's identity away: libgit2 refuses to sign with an empty name, which
+        // is the same refusal a machine with no `user.name` at all produces.
+        let mut config = repository.config().unwrap();
+        config.set_str("user.name", "").unwrap();
+        config.set_str("user.email", "").unwrap();
+
+        let done = stage_and_commit_everything(&repository).unwrap();
+        assert_eq!(done.first_commit, None);
+        assert!(done.needs_identity, "the author is told, rather than signed for");
+
+        // Everything is staged, so their own first commit is one `git config` away.
+        let status = changes(&repository);
+        let staged: Vec<&str> = status.staged.iter().map(|change| change.path.as_str()).collect();
+        assert_eq!(staged, vec![".gitignore", "main.tex", "sections/intro.tex"]);
+    }
+
+    #[test]
+    fn an_empty_folder_becomes_a_repository_with_nothing_in_it_and_no_complaint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let done = initialise(tmp.path()).unwrap();
+        // The `.gitignore` is the only thing there, so there *is* a commit — the point of this
+        // test is that the path does not error on a folder with no manuscript yet.
+        assert!(done.first_commit.is_some());
+        assert!(!done.needs_identity);
+    }
+
+    #[test]
+    fn a_folder_already_inside_a_repository_is_refused_by_name() {
+        let (tmp, _repository) = repo();
+        let paper = tmp.path().join("paper");
+        fs::create_dir(&paper).unwrap();
+
+        let error = initialise(&paper).unwrap_err();
+        assert!(matches!(error, GitError::AlreadyARepository(_)), "{error}");
+        assert!(error.to_string().contains("already inside a Git repository"), "{error}");
+    }
+
+    #[test]
+    fn an_existing_gitignore_is_added_to_and_never_replaced() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join(".gitignore"), "# mine\nscratch/\n").unwrap();
+        assert!(!our_folder_is_ignored(&repository), "a repository that predates this app");
+
+        ignore_our_folder(&repository).unwrap();
+
+        let written = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert!(written.starts_with("# mine\nscratch/\n"), "the author's lines come first: {written}");
+        assert!(written.contains(".abstract-tex/"));
+        assert!(our_folder_is_ignored(&repository));
+
+        // Asked twice, written once: no duplicate block.
+        ignore_our_folder(&repository).unwrap();
+        let again = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
+        assert_eq!(again.matches(".abstract-tex/").count(), 1, "{again}");
     }
 
     #[test]

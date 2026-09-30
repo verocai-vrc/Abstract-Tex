@@ -12,6 +12,8 @@
     claimCommitMessage,
     commitStaged,
     discardChange,
+    ignoreOurFolder,
+    initialiseRepository,
     loadMoreCommits,
     openFile,
     openVerificationPage,
@@ -147,12 +149,20 @@
   {#if !app.project}
     <p class="hint">Open a folder to see its changes.</p>
   {:else if !git.isRepository}
-    <p class="hint">
-      This folder is not a Git repository, so there is no history to show. Running
-      <code>git init</code> in it is enough; doing that from here, with a remote, arrives in a
-      later version.
-    </p>
+    <!-- S10.5a: the sentence S10.3a left here is a button now. What it does not do yet is the
+         remote — that needs an account, and S10.5b. -->
+    <p class="hint">This folder is not a Git repository, so there is no history to show.</p>
+    <div class="sign-in">
+      <button class="primary" disabled={git.initialising} onclick={() => void initialiseRepository()}>
+        {git.initialising ? 'Creating…' : 'Create a Git repository here'}
+      </button>
+      <p class="hint">
+        Adds a <code>.gitignore</code> for the build folder and makes a first commit of what is
+        here. Nothing leaves this machine.
+      </p>
+    </div>
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
+    {#if git.readError}<p class="hint error">{git.readError}</p>{/if}
     {@render signIn()}
   {:else}
     <div class="sidebar-head">
@@ -179,8 +189,25 @@
       {/if}
     </div>
 
+    {#if git.readError}<p class="hint error">{git.readError}</p>{/if}
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
     {#if git.lastDiscard}<p class="hint">{git.lastDiscard}</p>{/if}
+    {#if git.needsIdentity}
+      <!-- S10.5a: the repository is made and everything is staged; the first commit is theirs to
+           make, because this app does not sign a history with a stand-in name (S10.2b). -->
+      <p class="hint">
+        The repository is ready and everything is staged. Git does not know who you are yet — set
+        <code>git config --global user.name</code> and <code>user.email</code>, then commit.
+      </p>
+    {/if}
+    {#if git.ourFolderIsIgnored === false}
+      <!-- S10.2a's outcome note coming due: a repository older than this app has no line for our
+           folder, and this offers to add one rather than editing their file unasked. -->
+      <p class="hint">
+        This repository does not ignore <code>.abstract-tex/</code> yet.
+        <button class="ghost" onclick={() => void ignoreOurFolder()}>Add it to .gitignore</button>
+      </p>
+    {/if}
 
     {@render signIn()}
 

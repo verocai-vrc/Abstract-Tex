@@ -650,6 +650,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **A Source Control refusal appeared and then vanished before it could be read.** (29 Sep 2026,
+  found by S10.5a's own tests; the bug was introduced in S10.3a) `git.error` held both a *verb's*
+  refusal — "nothing is staged", "Git does not know who you are", "this folder is already inside
+  a repository" — and a *read's* failure, and `refreshGitStatus` cleared it on every successful
+  read. Since every verb is followed by a refresh, awaited or arriving as `git:status-changed`
+  within 120 ms, the sentence explaining why nothing happened was wiped a moment after appearing.
+  Nobody saw it while clicking, because the panel still looked right; it showed up as an assertion
+  in `controller.test.ts`. **Fixed** by splitting the slots: `git.error` is a verb's refusal,
+  cleared when the next verb *starts* and by nothing else, and `git.readError` is a read's
+  failure, cleared when a read succeeds. Both are pinned by
+  `a refusal outlives the refresh that follows it`.
+
 - **Confirmed: under latexmk, `\write18` (what shell escape runs through) obeys the process's own
   working directory, never `-output-directory`, so it writes into the source tree.** (29 Sep 2026,
   S9.8; confirmed 29 Sep after the maintainer installed TeX Live) `latexmk.rs` runs every build

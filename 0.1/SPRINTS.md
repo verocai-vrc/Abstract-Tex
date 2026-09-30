@@ -4295,6 +4295,117 @@ real thing needs a client id first. What a reader should take from the diff:
    without — because signing in has nothing to do with whether this folder is a repository, and
    S10.5's "create one" button will need an account before it can offer anything.
 
+```
+Loop      S10.5a · Making a folder a repository · M
+Reads     DESIGN.md §5.7 ("one action turns a folder into a repo with a remote, a sensible
+          `.gitignore`, and an initial commit"), §5.8 (`.abstract-tex/` is ours), §2 rule 1;
+          S10.2a's outcome note, point 3 — an *existing* repository needs the same offer
+Depends   S10.2a, S10.3a (the sentence this replaces with a button)
+Files     crates/abstract-tex-git/ (grows), src-tauri/src/commands.rs, src-tauri/src/lib.rs,
+          src/lib/ipc.ts, src/lib/controller.svelte.ts, src/components/SourceControl.svelte
+Build     The local half. The GitHub half — a remote, private by default, with the loud
+          confirmation §5.7 asks for before anything becomes public — is S10.5b, which needs an
+          account and therefore the OAuth app the ledger is waiting on.
+
+          **`init`, a `.gitignore`, stage, and then a commit *if Git knows who you are*.** §5.7
+          asks for one action ending in an initial commit, and S10.2b's rule is that this app
+          never invents an identity. Both hold: the repository and the `.gitignore` are made
+          either way, everything is staged, and the commit happens when `user.name` is set. When
+          it is not, the answer says so and the author's first commit is their own, one `git
+          config` later — a repository with a staged tree and no commit is a real, recoverable
+          state, and a commit signed "Abstract-Tex" is not.
+
+          **A `.gitignore` that is ours plus the junk a hand-run `pdflatex` leaves.**
+          `.abstract-tex/` first, because §5.8 makes it ours and S10.2a already filters it out of
+          the panel — this is the same promise written where `git` itself can read it. Then the
+          `.aux`/`.log`/`.bbl` family: builds from *this* app never write them into the source
+          tree (S9.12), but an author who runs `pdflatex` in a terminal will, and a `Changes`
+          list full of `.aux` files is exactly what §6 means by shouting when nothing is wrong.
+
+          **An existing repository gets the same offer, which is S10.2a's own note coming due.**
+          A folder that was a repository before it met this app has no line for `.abstract-tex/`,
+          and the panel filters it out rather than relying on one. So the panel *offers* to add
+          the lines and never adds them quietly: it is the author's file, in the author's
+          history, and a tool that edits it unasked is the kind of co-author §5.7 is careful not
+          to be.
+
+          **Nothing here touches a folder that is already a repository in any other way.** No
+          second `init`, no branch renamed, no config written. `initialise` on a folder inside an
+          existing repository refuses with the sentence naming the repository it found, because
+          `git init` in a subfolder of a repository is almost never what someone meant and is
+          unpleasant to undo.
+Verify    cargo test -p abstract-tex-git; pnpm test; pnpm check
+Done when a folder with no Git becomes a repository whose first commit holds the manuscript and
+          not the build folder; the same on a machine with no `user.name` leaves a staged tree, a
+          sentence, and no commit; a project already inside a repository is refused with a
+          sentence naming it; an existing repository with no `.abstract-tex/` line is offered the
+          lines and gets them only when asked; and the panel's "not a Git repository" sentence
+          is a button.
+```
+
+**S10.5a (29 September 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 547 passed / 0
+failed (5 new in `abstract-tex-git`), clippy and `cargo doc --workspace -D warnings` clean,
+`pnpm check` 0 errors, Vitest 491/491 (7 new in `controller.test.ts`). `[~]` because rung 4 is
+the maintainer's, as with the rest of this sprint's on-screen work. What a reader should take
+from the diff:
+
+1. **The `.gitignore` is written before anything is staged, and the order is the whole
+   correctness of it.** `add_all` respects the ignore rules that exist when it runs, so staging
+   first and ignoring second would put the build folder in the *first commit* — where
+   `git rm --cached` is the only way out, in a repository the author has just made. The test
+   asserts the committed tree is exactly `.gitignore`, `main.tex` and `sections/intro.tex`, and
+   that the panel is clean immediately afterwards.
+2. **One action, and it still refuses to sign the first commit.** §5.7 asks for an initial
+   commit; S10.2b's rule is that this app never invents an identity. Both hold: the repository,
+   the `.gitignore` and a fully staged tree are made either way, and when Git has no `user.name`
+   the answer says so and the author's own first commit is one `git config` away. A repository
+   with a staged tree and no commit is a real, recoverable state — a commit signed "Abstract-Tex"
+   is not.
+3. **Testing "no identity" without taking the machine's identity away.** The obvious way —
+   pointing `HOME` and libgit2's config search path at an empty folder — mutates process-wide
+   state that every other test in the same binary reads, which is how a suite gets a flake that
+   only appears under parallelism. Instead the commit half of `initialise` is its own function,
+   and the test initialises a repository, sets *its own local* `user.name` to `""` (libgit2
+   refuses to sign with an empty name, exactly as it refuses with none) and calls that.
+4. **A folder already inside a repository is refused by name.** `git init` in a subfolder of a
+   repository is almost never what anyone meant and is unpleasant to undo, and *which* repository
+   was found is the part that tells the author what to do — often one they forgot they had,
+   occasionally a monorepo where the paper is meant to live.
+5. **S10.2a's outstanding note came due.** A repository that existed before this app has no line
+   for `.abstract-tex/`, and the panel has been filtering it out rather than relying on one. The
+   panel now *offers* to add the lines and never adds them quietly: it is the author's file, in
+   the author's history. `is_path_ignored` answers the question rather than a read of
+   `.gitignore`, because the rule may be global, in `.git/info/exclude`, or three folders up.
+6. **The tests found a bug in S10.3a's code, and it is in the ledger.** `git.error` held both a
+   verb's refusal and a read's failure, and every verb is followed by a status refresh — so a
+   successful refresh cleared the sentence explaining why nothing had happened, a moment after it
+   appeared. Nobody would have noticed by clicking, because the panel still looked right. Two
+   slots now: `git.error` is a refusal, cleared when the next verb *starts*; `git.readError` is a
+   read failure, cleared when a read succeeds. Both pinned by a test named after the bug.
+
+```
+Loop      S10.5b · The remote, private by default · M
+Reads     DESIGN.md §5.7 ("private by default, loudly": "pushing a project to a public remote
+          for the first time requires an explicit confirmation that says what it means")
+Depends   S10.5a, S10.4b (an account), and the OAuth app in the ledger
+Files     crates/abstract-tex-github/ (grows: `POST /user/repos`), crates/abstract-tex-git/
+          (a remote), src-tauri/, src/
+Build     Creating the repository on GitHub and pointing the local one at it. `private: true` is
+          not a default in a settings file: it is the only value this app ever sends, and making
+          something public is a separate, deliberate act with the confirmation §5.7 describes —
+          which says what it means in words about *manuscripts*, not about repositories, because
+          the person reading it is about to publish an unpublished paper.
+
+          Pushing is S11.1. `git2` is built here with no `https` feature at all (S10.1's flag,
+          kept in S10.2), so this loop can create a remote and name it and still cannot send
+          anything anywhere — which is a good place for the boundary to sit while the confirmation
+          copy is being argued about.
+Verify    cargo test -p abstract-tex-github; cargo test -p abstract-tex-git
+Done when creating a repository from the app produces a private one, the local repository has it
+          as `origin`, and no code path can create a public repository without the confirmation
+          having been answered yes.
+```
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
@@ -4306,7 +4417,9 @@ S10.3 activity bar and Source Control view, 1:1 VS Code —
 S10.2 was: the pane and its two lists, the commit box and the graph, and the two writer additions
 are three loops' worth of surface. · S10.4
 GitHub device flow to keychain · S10.5 repository creation, private by default, explicit public
-confirmation, and with it the Commit dropdown's *Commit & Push* and the header's ⋯ menu —
+confirmation — **split into S10.5a and S10.5b above, expanded 29 September 2026**: the local
+half needs no account, and the remote half cannot be finished until the OAuth app exists — and
+with it the Commit dropdown's *Commit & Push* and the header's ⋯ menu —
 S10.4 **split into S10.4a and S10.4b above, expanded 29 September 2026**: the flow and the
 keychain are testable with no window, the panel is not ·
 S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`), which is also when *Commit &

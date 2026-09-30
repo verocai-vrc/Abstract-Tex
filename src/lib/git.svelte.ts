@@ -205,9 +205,19 @@ class GitState {
   /** The badge on the Source Control icon. */
   changedCount = $derived(changedFileCount(this.status));
 
-  /** Why the last Git call failed, as a sentence for the panel — a repository Git itself cannot
-   * read, or a verb that could not be carried out. `null` when everything is answering. */
+  /** Why the last *verb* was refused, as a sentence for the panel: a commit with no identity, a
+   * `git init` inside an existing repository, a discard that failed. `null` when nothing has
+   * been refused.
+   *
+   * Separate from [`readError`] because the two have different lifetimes, and conflating them
+   * was a bug (found in S10.5a, ledger): every verb is followed by a status refresh, and a
+   * successful refresh clearing one slot meant the refusal it was reporting vanished a moment
+   * after appearing. A verb's refusal is cleared when the next verb starts, and by nothing else. */
   error = $state<string | null>(null);
+
+  /** Why the last *read* failed — a repository Git itself cannot read. Cleared as soon as a read
+   * succeeds, because unlike a refusal it describes a condition rather than an event. */
+  readError = $state<string | null>(null);
 
   /** What the last discard did, as a line the panel shows until the next refresh. Worth saying
    * out loud because the two outcomes are not equally recoverable. */
@@ -247,6 +257,19 @@ class GitState {
 
   /** Net words of prose added since the last commit — the one number a writer checks. */
   wordsSinceCommit = $derived(this.prose ? this.prose.wordsAfter - this.prose.wordsBefore : 0);
+
+  /** True while `git init` is running (S10.5a), so the button cannot be pressed twice. */
+  initialising = $state(false);
+
+  /** Set when the repository was made but Git has no identity to sign the first commit with:
+   * the sentence names the two commands that fix it, and the tree is staged and waiting. */
+  needsIdentity = $state(false);
+
+  /** Whether this repository already ignores `.abstract-tex/`. `null` where the question does
+   * not arise — no project, or no repository. False is the state S10.2a's note left open: a
+   * repository older than this app, whose build folder the panel filters out rather than
+   * relying on a line for. */
+  ourFolderIsIgnored = $state<boolean | null>(null);
 
   /** How many of the newest rows are not on the upstream yet. */
   outgoing = $derived(outgoingCount(this.branch));

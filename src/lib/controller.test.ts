@@ -83,6 +83,10 @@ let proseOnDisk: ProseSummary = { wordsBefore: 0, wordsAfter: 0, sections: [], p
 let commitError: string | null = null;
 /** The GitHub side (S10.4b): who the keychain says is signed in, what `github_sign_in` does, and
  * the handler the controller registered for `github:sign-in`. */
+/** S10.5a: whether the fake project is a repository, and whether it ignores our folder. */
+let initialiseError: string | null = null;
+let initialiseNeedsIdentity = false;
+let ourFolderIgnoredOnDisk: boolean | null = true;
 let accountOnDisk: { login: string } | null = null;
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
@@ -216,6 +220,19 @@ vi.mock('./ipc', () => ({
       calls.discardQuestions.push(`${path}${untracked ? ' (untracked)' : ''}`);
       return discardAnswer;
     },
+    gitInitialise: async () => {
+      calls.gitVerbs.push('initialise');
+      if (initialiseError) throw new Error(initialiseError);
+      // A folder that was not a repository is one now, with its first commit.
+      gitOnDisk = { staged: [], unstaged: [], conflicted: [] };
+      ourFolderIgnoredOnDisk = true;
+      return { firstCommit: initialiseNeedsIdentity ? null : 'commit1', needsIdentity: initialiseNeedsIdentity };
+    },
+    gitOurFolderIsIgnored: async (): Promise<boolean | null> => (gitOnDisk === null ? null : ourFolderIgnoredOnDisk),
+    gitIgnoreOurFolder: async () => {
+      calls.gitVerbs.push('ignoreOurFolder');
+      ourFolderIgnoredOnDisk = true;
+    },
     gitBranch: async (): Promise<BranchState | null> => (gitOnDisk === null ? null : branchOnDisk),
     gitProseSummary: async (): Promise<ProseSummary | null> => (gitOnDisk === null ? null : proseOnDisk),
     gitLog: async (skip: number, limit: number): Promise<CommitRow[]> => {
@@ -294,6 +311,8 @@ const {
   refreshOutline,
   resolveConflict,
   cancelGitHubSignIn,
+  ignoreOurFolder,
+  initialiseRepository,
   openVerificationPage,
   refreshGitStatus,
   setDrawerFilter,
@@ -311,6 +330,7 @@ const {
   toggleRawLog,
   triggerCompile,
 } = await import('./controller.svelte');
+const { ipc } = await import('./ipc');
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
 const { git } = await import('./git.svelte');
@@ -363,6 +383,9 @@ beforeEach(async () => {
   branchOnDisk = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
   proseOnDisk = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
   commitError = null;
+  initialiseError = null;
+  initialiseNeedsIdentity = false;
+  ourFolderIgnoredOnDisk = true;
   accountOnDisk = null;
   signInError = null;
   calls.githubCalls = [];
@@ -1865,5 +1888,91 @@ describe('signing in to GitHub (S10.4b)', () => {
     await signOutOfGitHub();
     expect(calls.githubCalls).toContain('signOut');
     expect(github.account).toBeNull();
+  });
+});
+
+describe('making a folder a repository (S10.5a)', () => {
+  it('turns a folder with no Git into one, and the panel stops saying there is none', async () => {
+    gitOnDisk = null;
+    await refreshGitStatus();
+    expect(git.isRepository).toBe(false);
+
+    await initialiseRepository();
+    expect(calls.gitVerbs).toEqual(['initialise']);
+    expect(git.isRepository).toBe(true);
+    expect(git.needsIdentity).toBe(false);
+    expect(git.initialising).toBe(false);
+  });
+
+  it('says what to do when Git does not know who the author is', async () => {
+    gitOnDisk = null;
+    initialiseNeedsIdentity = true;
+    await initialiseRepository();
+    // The repository exists either way; what is missing is a name to sign with (S10.2b).
+    expect(git.isRepository).toBe(true);
+    expect(git.needsIdentity).toBe(true);
+  });
+
+  it('a folder already inside a repository is refused with the sentence, and nothing changes', async () => {
+    gitOnDisk = null;
+    initialiseError = 'This folder is already inside a Git repository (/home/ada/thesis).';
+    await initialiseRepository();
+    expect(git.error).toContain('already inside a Git repository');
+    expect(git.isRepository).toBe(false);
+    expect(app.notice).toBeNull();
+  });
+
+  it('offers the .gitignore line for a repository that predates this app, and adds it only when asked', async () => {
+    ourFolderIgnoredOnDisk = false;
+    await refreshGitStatus();
+    expect(git.ourFolderIsIgnored).toBe(false);
+    // Nothing has been written yet: the offer is a button, not an action taken on their file.
+    expect(calls.gitVerbs).toEqual([]);
+
+    await ignoreOurFolder();
+    expect(calls.gitVerbs).toEqual(['ignoreOurFolder']);
+    expect(git.ourFolderIsIgnored).toBe(true);
+  });
+
+  it('asks nothing about ignore rules where there is no repository to ask about', async () => {
+    gitOnDisk = null;
+    await refreshGitStatus();
+    expect(git.ourFolderIsIgnored).toBeNull();
+  });
+});
+
+describe("a refusal outlives the refresh that follows it (S10.5a's bug)", () => {
+  it('keeps a verb’s sentence on screen after the status has been read again', async () => {
+    gitOnDisk = { staged: [], unstaged: [{ path: 'main.tex', kind: 'modified', renamedFrom: null }], conflicted: [] };
+    await refreshGitStatus();
+    gitVerbError = 'main.tex could not be staged.';
+
+    await stageChange('main.tex');
+    expect(git.error).toContain('could not be staged');
+
+    // Every verb is followed by a refresh — the event, or an awaited one. Before the fix, this
+    // read cleared the slot and the sentence vanished a moment after appearing.
+    gitStatusHandler();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(git.error).toContain('could not be staged');
+
+    // The next verb is what clears it, because that is the next thing the author did.
+    gitVerbError = null;
+    await stageChange('main.tex');
+    expect(git.error).toBeNull();
+  });
+
+  it('a read failure is its own slot, and clears itself when reading works again', async () => {
+    const failing = () => {
+      throw new Error('this repository could not be read');
+    };
+    const original = ipc.gitStatus;
+    (ipc as { gitStatus: typeof ipc.gitStatus }).gitStatus = failing as typeof ipc.gitStatus;
+    await refreshGitStatus();
+    expect(git.readError).toContain('could not be read');
+
+    (ipc as { gitStatus: typeof ipc.gitStatus }).gitStatus = original;
+    await refreshGitStatus();
+    expect(git.readError).toBeNull();
   });
 });
