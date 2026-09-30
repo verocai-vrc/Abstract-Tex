@@ -5,9 +5,9 @@
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { git, GRAPH_PAGE, NO_CHANGES, suggestedMessage } from './git.svelte';
-import { applySignInEvent, github } from './github.svelte';
+import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
 import { registerCommand } from './commands';
-import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent } from './ipc';
+import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
@@ -493,6 +493,7 @@ export async function refreshGitStatus(): Promise<void> {
     git.mayHaveMore = false;
     git.prose = null;
     git.ourFolderIsIgnored = null;
+    git.originUrl = null;
     graphBuiltFrom = null;
     return;
   }
@@ -500,6 +501,8 @@ export async function refreshGitStatus(): Promise<void> {
   // ignore rules it has already parsed) and it only changes when someone edits `.gitignore`,
   // which is a file change — so it rides along with the refresh rather than having its own.
   git.ourFolderIsIgnored = await ipc.gitOurFolderIsIgnored().catch(() => null);
+  // S10.5b: and whether it has a remote, which is what decides whether publishing is on offer.
+  git.originUrl = await ipc.gitOriginUrl().catch(() => null);
   // Three questions, one refresh (S10.3b). The lists, the branch line and the graph would
   // otherwise be able to describe two different moments.
   git.branch = await ipc.gitBranch().catch(() => null);
@@ -704,6 +707,48 @@ export async function openVerificationPage(): Promise<void> {
   }
 }
 
+/**
+ * Create a repository on GitHub for this project and set it as `origin` (S10.5b).
+ *
+ * `wantPublic` is a request, not a decision: a public repository asks the §5.7 confirmation
+ * first, and a "keep it private" answer means *nothing happens* rather than a private repository
+ * the author did not ask for — they chose public and were talked out of it, and quietly doing
+ * something else would be the app deciding for them.
+ *
+ * Nothing is pushed. `Sync` is a later loop, and the panel says so rather than leaving the author
+ * to wonder why GitHub shows an empty repository.
+ */
+export async function createGitHubRepository(name: string, wantPublic: boolean): Promise<void> {
+  if (github.creating) return;
+  const trimmed = name.trim();
+  if (!trimmed) {
+    github.createError = 'A repository needs a name.';
+    return;
+  }
+  let visibility: Visibility = { kind: 'private' };
+  if (wantPublic) {
+    if (!(await ipc.confirmPublicRemote(trimmed))) return;
+    visibility = { kind: 'public', confirmed: true };
+  }
+
+  github.creating = true;
+  github.createError = null;
+  try {
+    github.created = await ipc.githubCreateRepository(trimmed, visibility, null);
+  } catch (error) {
+    github.createError = String(error);
+  } finally {
+    github.creating = false;
+  }
+  await refreshGitStatus();
+}
+
+/** The name to offer for a new repository: this project's folder, made into something GitHub
+ * will accept. */
+export function suggestedRemoteName(): string {
+  return suggestedRepositoryName(app.projectName);
+}
+
 /** Forget the token on this machine. */
 export async function signOutOfGitHub(): Promise<void> {
   try {
@@ -782,6 +827,10 @@ export async function openFolder(path?: string): Promise<void> {
     git.prose = null;
     git.needsIdentity = false;
     git.ourFolderIsIgnored = null;
+    git.originUrl = null;
+    // S10.5b: what was created belongs to the project it was created for.
+    github.created = null;
+    github.createError = null;
     graphBuiltFrom = null;
     git.error = null;
     git.readError = null;

@@ -46,6 +46,10 @@ const calls = {
   /** Every GitHub call made, as its verb (S10.4b), and every URL handed to the browser. */
   githubCalls: [] as string[],
   openedUrls: [] as string[],
+  /** Every repository creation asked for, as `'<name> <private|public>'` (S10.5b), and every
+   * time the public confirmation was put to the person. */
+  created: [] as string[],
+  publicQuestions: [] as string[],
 };
 /** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
 let shellEscapeOnDisk = false;
@@ -90,6 +94,11 @@ let ourFolderIgnoredOnDisk: boolean | null = true;
 let accountOnDisk: { login: string } | null = null;
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
+/** S10.5b: what the author answers to the public-repository confirmation, what the fake project's
+ * `origin` is, and what `github_create_repository` was asked for. */
+let publicAnswer = false;
+let originOnDisk: string | null = null;
+let createError: string | null = null;
 let gitStatusHandler: () => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
@@ -269,6 +278,23 @@ vi.mock('./ipc', () => ({
       calls.githubCalls.push('signOut');
       accountOnDisk = null;
     },
+    githubCreateRepository: async (name: string, visibility: { kind: string }) => {
+      calls.created.push(`${name} ${visibility.kind}`);
+      if (createError) throw new Error(createError);
+      const isPrivate = visibility.kind === 'private';
+      originOnDisk = `https://github.com/ada/${name}.git`;
+      return {
+        fullName: `ada/${name}`,
+        cloneUrl: originOnDisk,
+        htmlUrl: `https://github.com/ada/${name}`,
+        private: isPrivate,
+      };
+    },
+    gitOriginUrl: async () => (gitOnDisk === null ? null : originOnDisk),
+    confirmPublicRemote: async (name: string) => {
+      calls.publicQuestions.push(name);
+      return publicAnswer;
+    },
     openInBrowser: async (url: string) => {
       calls.openedUrls.push(url);
     },
@@ -311,6 +337,7 @@ const {
   refreshOutline,
   resolveConflict,
   cancelGitHubSignIn,
+  createGitHubRepository,
   ignoreOurFolder,
   initialiseRepository,
   openVerificationPage,
@@ -388,6 +415,11 @@ beforeEach(async () => {
   ourFolderIgnoredOnDisk = true;
   accountOnDisk = null;
   signInError = null;
+  publicAnswer = false;
+  originOnDisk = null;
+  createError = null;
+  calls.created = [];
+  calls.publicQuestions = [];
   calls.githubCalls = [];
   calls.openedUrls = [];
   calls.gitLogPages = [];
@@ -401,6 +433,9 @@ beforeEach(async () => {
   github.code = null;
   github.error = null;
   github.account = undefined;
+  github.created = null;
+  github.createError = null;
+  github.creating = false;
   app.conflict = null;
   app.notice = null;
   await start();
@@ -1974,5 +2009,66 @@ describe("a refusal outlives the refresh that follows it (S10.5a's bug)", () => 
     (ipc as { gitStatus: typeof ipc.gitStatus }).gitStatus = original;
     await refreshGitStatus();
     expect(git.readError).toBeNull();
+  });
+});
+
+describe('creating the repository on GitHub (S10.5b)', () => {
+  beforeEach(() => {
+    accountOnDisk = { login: 'ada' };
+  });
+
+  it('creates a private one without asking anything, and sets it as origin', async () => {
+    await createGitHubRepository('thesis', false);
+    expect(calls.created).toEqual(['thesis private']);
+    // Private needs no confirmation — it is what the app does unless told otherwise.
+    expect(calls.publicQuestions).toEqual([]);
+    expect(github.created?.fullName).toBe('ada/thesis');
+    expect(github.created?.private).toBe(true);
+    expect(git.originUrl).toBe('https://github.com/ada/thesis.git');
+  });
+
+  it('asks before a public one, and a "keep it private" creates nothing at all', async () => {
+    publicAnswer = false;
+    await createGitHubRepository('thesis', true);
+    expect(calls.publicQuestions).toEqual(['thesis']);
+    // Not a private repository they did not ask for: they chose public and were talked out of
+    // it, and quietly doing something else would be the app deciding for them.
+    expect(calls.created).toEqual([]);
+    expect(github.created).toBeNull();
+    expect(git.originUrl).toBeNull();
+  });
+
+  it('creates a public one once the confirmation is answered yes', async () => {
+    publicAnswer = true;
+    await createGitHubRepository('open-paper', true);
+    expect(calls.publicQuestions).toEqual(['open-paper']);
+    expect(calls.created).toEqual(['open-paper public']);
+    expect(github.created?.private).toBe(false);
+  });
+
+  it('trims the name, and refuses an empty one before asking GitHub', async () => {
+    await createGitHubRepository('   ', false);
+    expect(calls.created).toEqual([]);
+    expect(github.createError).toBe('A repository needs a name.');
+
+    github.createError = null;
+    await createGitHubRepository('  thesis  ', false);
+    expect(calls.created).toEqual(['thesis private']);
+  });
+
+  it('a name GitHub will not take is a sentence in the panel, and nothing was set as origin', async () => {
+    createError = 'GitHub said: Repository creation failed. name already exists on this account';
+    await createGitHubRepository('thesis', false);
+    expect(github.createError).toContain('already exists');
+    expect(github.created).toBeNull();
+    expect(git.originUrl).toBeNull();
+    expect(app.notice).toBeNull();
+  });
+
+  it('will not create two at once', async () => {
+    github.creating = true;
+    await createGitHubRepository('thesis', false);
+    expect(calls.created).toEqual([]);
+    github.creating = false;
   });
 });

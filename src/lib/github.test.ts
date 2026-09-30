@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { SignInEvent } from './ipc';
-import { applySignInEvent, github, timeLeft } from './github.svelte';
+import { applySignInEvent, github, suggestedRepositoryName, timeLeft } from './github.svelte';
 
 const now = Date.UTC(2026, 8, 29, 12, 0, 0);
 
@@ -70,5 +70,24 @@ describe('the end of a sign-in', () => {
     applySignInEvent({ stage: 'code', userCode: 'FIRST', verificationUri: 'B', expiresInSeconds: 900 }, now);
     applySignInEvent({ stage: 'code', userCode: 'SECOND', verificationUri: 'B', expiresInSeconds: 900 }, now);
     expect(github.code?.userCode).toBe('SECOND');
+  });
+});
+
+describe('a name GitHub will take (S10.5b)', () => {
+  it('leaves a name that is already fine alone', () => {
+    expect(suggestedRepositoryName('thesis')).toBe('thesis');
+    expect(suggestedRepositoryName('phd-thesis_2026.v2')).toBe('phd-thesis_2026.v2');
+  });
+
+  it('turns what GitHub would rename into what it will be called', () => {
+    // GitHub does this substitution itself and says nothing, so the field shows the real name.
+    expect(suggestedRepositoryName('My Thesis (final)')).toBe('My-Thesis-final');
+    expect(suggestedRepositoryName('  spaces  everywhere  ')).toBe('spaces-everywhere');
+    expect(suggestedRepositoryName('a//b')).toBe('a-b');
+  });
+
+  it('never offers a name GitHub would reject outright', () => {
+    expect(suggestedRepositoryName('')).toBe('paper');
+    expect(suggestedRepositoryName('!!!')).toBe('paper');
   });
 });

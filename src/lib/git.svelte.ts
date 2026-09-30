@@ -261,6 +261,10 @@ class GitState {
   /** True while `git init` is running (S10.5a), so the button cannot be pressed twice. */
   initialising = $state(false);
 
+  /** The URL of this project's `origin`, or `null` when it has no remote yet (S10.5b). A project
+   * that already has one is not a project to offer publishing to, whatever else is true of it. */
+  originUrl = $state<string | null>(null);
+
   /** Set when the repository was made but Git has no identity to sign the first commit with:
    * the sentence names the two commands that fix it, and the tree is staged and waiting. */
   needsIdentity = $state(false);

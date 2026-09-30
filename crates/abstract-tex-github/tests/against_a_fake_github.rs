@@ -21,6 +21,16 @@ use abstract_tex_github::{DeviceFlow, Endpoints, GitHubError, Poll};
 /// A queue rather than a router, because what these tests are about is the *sequence*: pending,
 /// pending, slow_down, then a token. A router keyed by path could not express that.
 fn fake_github(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
+    fake_github_answering(answers.into_iter().map(|body| (200, body)).collect())
+}
+
+/// The same, for the answers that are not `200` — a revoked token, a name GitHub will not take.
+///
+/// One server implementation and not two, because the first hand-rolled version of these tests
+/// wrote its reply *without reading the request*, which closes the connection while the client is
+/// still sending and comes back as "error sending request" rather than as the status under test.
+/// That is a trap worth having exactly one copy of.
+fn fake_github_answering(answers: Vec<(u16, &'static str)>) -> (String, mpsc::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let (tx, rx) = mpsc::channel();
@@ -55,10 +65,12 @@ fn fake_github(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
             }
             let _ = tx.send(request);
 
+            let (status, body) = answer;
             let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                answer.len(),
-                answer
+                "HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                reason(status),
+                body.len(),
+                body
             );
             let _ = stream.write_all(response.as_bytes());
             let _ = stream.flush();
@@ -66,6 +78,16 @@ fn fake_github(answers: Vec<&'static str>) -> (String, mpsc::Receiver<String>) {
     });
 
     (origin, rx)
+}
+
+/// Enough of a reason phrase to be a valid status line; nothing here reads it.
+fn reason(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        401 => "Unauthorized",
+        422 => "Unprocessable Entity",
+        _ => "Status",
+    }
 }
 
 fn flow(origin: &str) -> DeviceFlow {
@@ -185,22 +207,79 @@ fn a_github_that_is_not_there_is_a_network_error_and_not_a_panic() {
 /// came back unreadable, and the app's reaction differs — forget it, and offer sign-in again.
 #[test]
 fn a_revoked_token_is_rejected_and_not_merely_unreadable() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    std::thread::spawn(move || {
-        if let Some(Ok(mut stream)) = listener.incoming().next() {
-            let body = r#"{"message":"Bad credentials"}"#;
-            let _ = stream.write_all(
-                format!(
-                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(),
-                    body
-                )
-                .as_bytes(),
-            );
-        }
-    });
-
+    let (origin, _requests) = fake_github_answering(vec![(401, r#"{"message":"Bad credentials"}"#)]);
     let error = flow(&origin).account("gho_revoked").unwrap_err();
     assert!(matches!(error, GitHubError::TokenRejected), "{error}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// S10.5b: creating a repository.
+// ---------------------------------------------------------------------------------------------
+
+fn repos(origin: &str) -> abstract_tex_github::Repos {
+    abstract_tex_github::Repos::with_endpoints(Endpoints::under(origin)).unwrap()
+}
+
+fn wanted(name: &str, visibility: abstract_tex_github::Visibility) -> abstract_tex_github::NewRepository {
+    abstract_tex_github::NewRepository { name: name.to_string(), visibility, description: None }
+}
+
+#[test]
+fn a_new_repository_is_private_and_empty_on_the_wire() {
+    let (origin, requests) = fake_github(vec![
+        r#"{"full_name":"ada/thesis","clone_url":"https://github.com/ada/thesis.git","html_url":"https://github.com/ada/thesis","private":true}"#,
+    ]);
+
+    let created = repos(&origin)
+        .create("gho_token", &wanted("thesis", abstract_tex_github::Visibility::Private))
+        .unwrap();
+
+    assert_eq!(created.full_name, "ada/thesis");
+    assert_eq!(created.clone_url, "https://github.com/ada/thesis.git");
+    assert!(created.private, "read back from GitHub's answer, not assumed from the request");
+
+    let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.starts_with("POST /user/repos"), "{request}");
+    assert!(request.contains(r#""private":true"#), "{request}");
+    // `auto_init: false` is load-bearing: a README GitHub made would be a commit the local
+    // history does not have, and the first push would be rejected for reasons nobody can see.
+    assert!(request.contains(r#""auto_init":false"#), "{request}");
+    // No description field at all, rather than one mentioning this app in someone's research.
+    assert!(!request.contains("description"), "{request}");
+}
+
+#[test]
+fn a_public_repository_is_only_sent_once_it_has_been_confirmed() {
+    // Refused before any request is made: nothing is listening on this port, and the test passes
+    // precisely because nothing needed to be.
+    let unconfirmed = repos("http://127.0.0.1:1")
+        .create("gho_token", &wanted("thesis", abstract_tex_github::Visibility::Public { confirmed: false }))
+        .unwrap_err();
+    assert!(matches!(unconfirmed, GitHubError::PublicNotConfirmed), "{unconfirmed}");
+
+    let (origin, requests) = fake_github(vec![
+        r#"{"full_name":"ada/open","clone_url":"https://github.com/ada/open.git","html_url":"https://github.com/ada/open","private":false}"#,
+    ]);
+    let created = repos(&origin)
+        .create("gho_token", &wanted("open", abstract_tex_github::Visibility::Public { confirmed: true }))
+        .unwrap();
+    assert!(!created.private);
+    let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.contains(r#""private":false"#), "{request}");
+}
+
+#[test]
+fn a_name_github_will_not_take_comes_back_as_both_halves_of_its_sentence() {
+    let (origin, _requests) = fake_github_answering(vec![(
+        422,
+        r#"{"message":"Repository creation failed.","errors":[{"field":"name","message":"name already exists on this account"}]}"#,
+    )]);
+
+    let error = repos(&origin)
+        .create("gho_token", &wanted("thesis", abstract_tex_github::Visibility::Private))
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "GitHub said: Repository creation failed. name already exists on this account"
+    );
 }

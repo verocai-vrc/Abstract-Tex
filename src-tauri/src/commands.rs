@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, ProseSummary, Status as GitStatus};
-use abstract_tex_github::Account;
+use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -737,6 +737,33 @@ pub fn github_cancel_sign_in(state: State<'_, AppState>) -> CommandResult<()> {
 #[tauri::command]
 pub fn github_sign_out(state: State<'_, AppState>) -> CommandResult<()> {
     state.github.sign_out().map_err(to_message)
+}
+
+/// Create a repository on GitHub for the open project and set it as `origin` (S10.5b).
+///
+/// `visibility` carries its own confirmation: a public repository cannot be asked for without
+/// the answer to the dialog §5.7 requires, and both this layer and the crate refuse one without
+/// it. Nothing is pushed — `Sync` is S11.1.
+#[tauri::command]
+pub async fn github_create_repository(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+    visibility: Visibility,
+    description: Option<String>,
+) -> CommandResult<GitHubRepository> {
+    let project_dir = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    let wanted = NewRepository { name, visibility, description };
+    let created = crate::github::create_repository(&state.github, project_dir, wanted).await.map_err(to_message)?;
+    git::emit_status_changed(&app);
+    Ok(created)
+}
+
+/// The URL of this project's `origin`, or `None` when it has no remote — and `None` too when
+/// there is no repository at all, which the panel tells apart by `git_status` (S10.5b).
+#[tauri::command]
+pub fn git_origin_url(state: State<'_, AppState>) -> CommandResult<Option<String>> {
+    Ok(git::with_repository(&state, |repository| Ok(abstract_tex_git::origin_url(repository)))?.flatten())
 }
 
 #[cfg(test)]

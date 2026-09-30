@@ -316,6 +316,24 @@ export interface Initialised {
   needsIdentity: boolean;
 }
 
+/** What to make on GitHub (`abstract_tex_github::NewRepository`'s visibility half).
+ *
+ * `public` cannot be asked for without `confirmed`, which is the answer to `confirmPublicRemote`
+ * below — the Rust side refuses a `public` with `confirmed: false`, so "private by default" is a
+ * property of the code rather than of this panel. */
+export type Visibility = { kind: 'private' } | { kind: 'public'; confirmed: boolean };
+
+/** A repository as GitHub made it (`abstract_tex_github::Repository`). */
+export interface GitHubRepository {
+  /** `ada/thesis` — what the panel shows. */
+  fullName: string;
+  /** The `https://` URL now set as the local repository's `origin`. */
+  cloneUrl: string;
+  htmlUrl: string;
+  /** Read back from GitHub's answer rather than assumed from the request. */
+  private: boolean;
+}
+
 /** Whose GitHub account this machine is signed in to (`abstract_tex_github::Account`). */
 export interface GitHubAccount {
   /** The `@handle`. The only field of `GET /user` this app has any use for. */
@@ -483,6 +501,14 @@ export const ipc = {
   /** Forget the token, so the next start is signed out. */
   githubSignOut: () => invoke<void>('github_sign_out'),
 
+  /** S10.5b: create a repository on GitHub for this project and set it as `origin`. Nothing is
+   * pushed — `Sync` is a later loop. Rejects with a sentence: signed out, a name GitHub will not
+   * take, or a public repository whose confirmation was not answered. */
+  githubCreateRepository: (name: string, visibility: Visibility, description: string | null) =>
+    invoke<GitHubRepository>('github_create_repository', { name, visibility, description }),
+  /** The URL of this project's `origin`, or `null` when it has no remote (or no repository). */
+  gitOriginUrl: () => invoke<string | null>('git_origin_url'),
+
   /** Open a URL in the person's own browser (`tauri-plugin-opener`). A webview link cannot do
    * this by itself, which is why sign-in needs it — and why every caller also shows the URL as
    * text, so a machine where this fails is not a machine where the task is impossible (rule 6). */
@@ -497,6 +523,28 @@ export const ipc = {
     listen<FsEvent>('fs:changed', (e) => handler(e.payload)),
   onLsp: (handler: (event: LspEvent) => void): Promise<UnlistenFn> =>
     listen<LspEvent>('lsp', (e) => handler(e.payload)),
+  /** S10.5b: the confirmation DESIGN.md §5.7 requires before a project can become public.
+   *
+   * In words about *manuscripts*, not about repositories: the person reading it is about to
+   * publish an unpublished paper, and "make this repository public?" is not the question they
+   * need answered. The default button is the safe one, and the answer is passed to Rust as data
+   * — a `public` visibility with `confirmed: false` is refused there. */
+  confirmPublicRemote: (name: string): Promise<boolean> =>
+    ask(
+      `Everyone on the internet will be able to read every file in this project, and every ` +
+        `version of it you have ever committed — including drafts, review responses, and any ` +
+        `data you have kept here.\n\n` +
+        `If this paper is unpublished, under embargo, or contains anything you have not yet ` +
+        `chosen to share, make it private. A private repository can be made public later; a ` +
+        `public one cannot be unseen.`,
+      {
+        title: `Publish ${name} publicly?`,
+        kind: 'warning',
+        okLabel: 'Make it public',
+        cancelLabel: 'Keep it private',
+      },
+    ),
+
   /** S10.3a: ask before throwing away work. Two sentences, because a discard is two different
    * operations: a tracked file is restored from Git, an untracked one is deleted outright and
    * Git has never seen it. The default button is the safe one. */

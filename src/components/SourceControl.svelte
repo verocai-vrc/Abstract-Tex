@@ -11,10 +11,12 @@
     cancelGitHubSignIn,
     claimCommitMessage,
     commitStaged,
+    createGitHubRepository,
     discardChange,
     ignoreOurFolder,
     initialiseRepository,
     loadMoreCommits,
+    suggestedRemoteName,
     openFile,
     openVerificationPage,
     refreshGitStatus,
@@ -26,6 +28,21 @@
   import { git, relativeTime, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
   import { app } from '../lib/state.svelte';
+
+  // S10.5b: the publish block's own two fields. `$state` and not `$derived`, because once the
+  // author has typed a name it is theirs — the same rule the commit box follows.
+  let remoteName = $state('');
+  let wantPublic = $state(false);
+  // Filled from the project folder's name when the block first has a project to name, and again
+  // when the project changes; never over something already typed.
+  let namedProject = $state<string | null>(null);
+  $effect(() => {
+    if (app.project && namedProject !== app.project.rootDir) {
+      namedProject = app.project.rootDir;
+      remoteName = suggestedRemoteName();
+      wantPublic = false;
+    }
+  });
 
   /** Copying the code is a web API and not a Tauri plugin, so it lives here rather than in
    * `ipc.ts`. It can fail — an old webview, a denied permission — and the code is on screen in
@@ -145,6 +162,38 @@
   {/if}
 {/snippet}
 
+{#snippet publish()}
+  <!-- S10.5b: creating the repository on GitHub. Offered only where it means something — a
+       project that is already a repository, signed in, with no remote yet. Private is not a
+       default in a settings file: it is what the app sends unless the confirmation in `ipc.ts`
+       has been answered yes. -->
+  {#if github.created}
+    <p class="hint">
+      Created {github.created.fullName}{github.created.private ? ' (private)' : ' (public)'} and set
+      it as this project's origin. Sending your work there arrives with Sync, in a later version.
+    </p>
+  {:else if git.isRepository && github.account && git.originUrl === null}
+    <div class="sign-in">
+      <p class="hint">This project has no remote yet — a copy on GitHub is what makes it a backup.</p>
+      <input class="remote-name" bind:value={remoteName} aria-label="Repository name" />
+      <label class="visibility">
+        <input type="checkbox" bind:checked={wantPublic} />
+        Make it public
+      </label>
+      <button
+        class="primary"
+        disabled={github.creating || remoteName.trim().length === 0}
+        onclick={() => void createGitHubRepository(remoteName, wantPublic)}
+      >
+        {github.creating ? 'Creating…' : wantPublic ? 'Create a public repository' : 'Create a private repository'}
+      </button>
+      {#if github.createError}<p class="hint error">{github.createError}</p>{/if}
+    </div>
+  {:else if git.originUrl}
+    <p class="hint">Remote: {git.originUrl}</p>
+  {/if}
+{/snippet}
+
 <aside class="sidebar source-control">
   {#if !app.project}
     <p class="hint">Open a folder to see its changes.</p>
@@ -210,6 +259,7 @@
     {/if}
 
     {@render signIn()}
+    {@render publish()}
 
     {#if git.conflictedRows.length > 0}
       <!-- A conflicted path is in no other list, so without this section it would vanish from
@@ -433,6 +483,22 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-editor);
+  }
+  .remote-name {
+    font: inherit;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-editor);
+    color: var(--fg);
+    width: 100%;
+  }
+  .visibility {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--fg-muted);
   }
   .prose-count {
     font-size: 11px;

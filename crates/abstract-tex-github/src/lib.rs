@@ -1,8 +1,9 @@
-//! Signing in to GitHub, and where the token lives afterwards (S10.4a, DESIGN.md §5.7).
+//! What this app asks GitHub for: a sign-in, and a repository (S10.4a, S10.5b, DESIGN.md §5.7).
 //!
-//! Owns two things and no more: the OAuth **device flow** ([`device`]) and the OS keychain the
-//! token it earns is kept in ([`store`]). It knows nothing about Tauri, nothing about a window,
-//! and nothing about Git — pushing with the token is `abstract-tex-git`'s job, at S11.1.
+//! Owns three things and no more: the OAuth **device flow** ([`device`]), the OS keychain the
+//! token it earns is kept in ([`store`]), and creating a repository ([`repos`]). It knows nothing
+//! about Tauri, nothing about a window, and nothing about Git — pushing with the token is
+//! `abstract-tex-git`'s job, at S11.1.
 //!
 //! **Why the device flow and not a redirect.** A desktop binary cannot keep a secret: anything
 //! compiled into it can be read out of it. The device flow is the OAuth grant designed for that
@@ -25,10 +26,27 @@
 //! typed errors in a library, `anyhow` only at the app edge.
 
 pub mod device;
+pub mod repos;
 pub mod store;
 
 pub use device::{DeviceCode, DeviceFlow, Endpoints, Poll};
+pub use repos::{NewRepository, Repos, Repository, Visibility};
 pub use store::{Keychain, MemoryStore, SecretStore};
+
+/// The HTTP client every call here uses.
+///
+/// One builder, shared, so that the two things GitHub is asked for cannot end up with different
+/// timeouts or a different user agent — and so the reasons for both are written once.
+pub(crate) fn http_client() -> Result<reqwest::blocking::Client, GitHubError> {
+    Ok(reqwest::blocking::Client::builder()
+        // GitHub's API rejects a request with no user agent, and one that names the app is what
+        // their own documentation asks for.
+        .user_agent(concat!("abstract-tex/", env!("CARGO_PKG_VERSION")))
+        // A person is watching this happen. A request that hangs for a minute has failed as far
+        // as they are concerned, and the sign-in's polling loop will try again anyway.
+        .timeout(std::time::Duration::from_secs(20))
+        .build()?)
+}
 
 /// The OAuth scope the app asks for, and the only one.
 ///
@@ -104,6 +122,12 @@ pub enum GitHubError {
     /// it and show the sign-in offer again, so this is its own variant (S10.4b).
     #[error("GitHub no longer accepts this sign-in. Signing in again fixes it.")]
     TokenRejected,
+
+    /// A public repository was asked for without the confirmation DESIGN.md §5.7 requires having
+    /// been answered. Not a message anyone should ever see: it is the guard that makes "private
+    /// by default" a property of the code rather than of the panel that calls it.
+    #[error("A public repository needs the confirmation to have been answered first.")]
+    PublicNotConfirmed,
 
     /// The keychain refused. On Linux this usually means no Secret Service is running, which is
     /// worth saying plainly rather than as "platform error 0".

@@ -29,6 +29,9 @@ pub struct Endpoints {
     pub device_code: String,
     pub access_token: String,
     pub user: String,
+    /// `POST` here creates a repository (S10.5b). Not part of the device flow, but the same
+    /// struct, so a test points everything at one fake GitHub rather than two.
+    pub repos: String,
 }
 
 impl Endpoints {
@@ -37,6 +40,7 @@ impl Endpoints {
             device_code: "https://github.com/login/device/code".to_string(),
             access_token: "https://github.com/login/oauth/access_token".to_string(),
             user: "https://api.github.com/user".to_string(),
+            repos: "https://api.github.com/user/repos".to_string(),
         }
     }
 
@@ -46,6 +50,7 @@ impl Endpoints {
             device_code: format!("{origin}/login/device/code"),
             access_token: format!("{origin}/login/oauth/access_token"),
             user: format!("{origin}/user"),
+            repos: format!("{origin}/user/repos"),
         }
     }
 }
@@ -93,15 +98,7 @@ impl DeviceFlow {
     }
 
     pub fn with_endpoints(endpoints: Endpoints) -> Result<Self, GitHubError> {
-        let client = reqwest::blocking::Client::builder()
-            // GitHub's API rejects a request with no user agent, and one that names the app is
-            // what their own documentation asks for.
-            .user_agent(concat!("abstract-tex/", env!("CARGO_PKG_VERSION")))
-            // A person is watching this happen. A request that hangs for a minute has failed as
-            // far as they are concerned, and the polling loop will try again anyway.
-            .timeout(Duration::from_secs(20))
-            .build()?;
-        Ok(Self { client, endpoints })
+        Ok(Self { client: crate::http_client()?, endpoints })
     }
 
     /// Step 1: ask for a code.

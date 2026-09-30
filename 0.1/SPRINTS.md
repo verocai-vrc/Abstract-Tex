@@ -4406,6 +4406,65 @@ Done when creating a repository from the app produces a private one, the local r
           having been answered yes.
 ```
 
+**S10.5b (30 September 2026).** `[~]`: rungs 1–3 green — `cargo test --workspace` 559 passed / 0
+failed (12 new: 5 in the github crate's `repos`, 3 against the fake GitHub, 2 in the git crate's
+remote handling, 2 in `src-tauri/src/github.rs`), clippy and `cargo doc --workspace -D warnings`
+clean, `pnpm check` 0 errors, Vitest 500/500 (9 new). Rung 3 is a third `#[ignore]`d real-GitHub
+test, run: `POST /user/repos` with a bogus token comes back `TokenRejected`, which means the URL,
+the method, both headers and the JSON body were all readable by GitHub. `[~]` for the sprint's
+usual reason plus a heavier one: **no repository has ever been created by this code**, because
+that needs a token and the OAuth app is still unregistered (ledger). What a reader should take
+from the diff:
+
+1. **"Private by default" is a type, not a default.** [`Visibility`] is `Private` or
+   `Public { confirmed: bool }`, so a caller cannot ask for public without producing the answer to
+   the confirmation, and `allowed()` refuses `confirmed: false` — checked at the app edge *and*
+   inside the crate, before the token is even read. A `bool` parameter would have been one typo
+   away from publishing somebody's unpublished paper, and §5.7's reason is worth restating: these
+   folders normally contain embargoed results and unblinded data.
+2. **A "keep it private" answer creates nothing**, and there is a test named after it. The
+   tempting alternative — falling back to a private repository — would be the app deciding
+   something the author had just been talked out of; they chose public, were told what that
+   meant, and said no. The right answer to that is to do nothing and leave the panel as it was.
+3. **The confirmation is about manuscripts, not about repositories.** *"Everyone on the internet
+   will be able to read every file in this project, and every version of it you have ever
+   committed — including drafts, review responses, and any data you have kept here."* The word
+   "repository" does not appear in it, because the person reading it is about to publish a paper.
+   **This copy wants the maintainer's eye**: it is the one string in the sprint that cannot be
+   taken back once someone has acted on it.
+4. **`auto_init: false`, which is load-bearing and invisible.** A README that GitHub created
+   would be a commit the local history does not have, and the first push would be rejected as a
+   non-fast-forward for a reason nobody could see from inside this app. A test asserts the flag is
+   on the wire.
+5. **`remote_set_url` rather than delete-and-add.** Deleting a remote also deletes its
+   remote-tracking branches and its fetch refspec, so an author who had one remote and now has
+   another would silently lose what Git knew about the first. A test pins that
+   `refs/remotes/origin/main` survives.
+6. **Two steps that must not be half done.** GitHub makes the repository, and then the local one
+   is pointed at it — and if the second fails the first has still happened, so the error names the
+   repository that now exists instead of inviting the author to press the button again and collect
+   a second empty repository on their account.
+7. **Nothing is pushed, and that is a compiled-in fact rather than a promise.** `git2` is built
+   here with no `https` feature at all (S10.1's flag, kept through S10.2 and S10.5), so this code
+   cannot send a byte anywhere. Naming a remote is a line in `.git/config`. The panel says as
+   much, rather than leaving the author to wonder why GitHub shows an empty repository — `Sync`
+   is S11.1, and that is the loop that turns the feature on deliberately.
+8. **`rename_all(serialize = "camelCase")`**, because this one struct has two lives: deserialised
+   from GitHub's `snake_case`, serialised to the frontend's `camelCase`. The first version had a
+   plain `rename_all` and read GitHub's `full_name` as a missing field — which the fake-GitHub
+   test caught immediately, and a mocked HTTP client would not have.
+9. **One fake server, for every status code.** The first drafts of the 401 and 422 tests wrote
+   their reply *without reading the request*, which closes the connection while the client is
+   still sending and surfaces as "error sending request" rather than as the status under test.
+   Folded into the one server that reads first, with a comment saying why — that trap is worth
+   having exactly one copy of.
+
+**Sprint 10 is now code-complete.** Every card from S10.1 to S10.5b is `[x]` or `[~]`, and the
+two `[~]`s that are not merely "no rung 4" are both waiting on the same external step: the GitHub
+OAuth app in the ledger. Until it exists, nobody can sign in and therefore nobody can create a
+repository from the app, and §7's v0.6 exit demo — a manuscript written on one machine, synced,
+and continued on another — cannot be performed at all.
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,

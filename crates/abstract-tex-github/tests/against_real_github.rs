@@ -61,3 +61,31 @@ fn github_understands_the_poll_this_crate_builds() {
         other => panic!("GitHub did not recognise the poll this crate builds: {other:?}"),
     }
 }
+
+/// S10.5b: the same proof for the call that creates a repository.
+///
+/// It creates nothing — a bogus token cannot — and that is what makes it safe to run against the
+/// real github.com. What it proves is the shape: a request GitHub cannot read answers with an
+/// HTML error page or a 404, while a well-formed one with a token it does not accept answers
+/// `401 Bad credentials`, which this crate turns into `TokenRejected`. Reaching that variant
+/// means the URL, the method, the `Accept` header, the API version header and the JSON body were
+/// all right.
+///
+/// Run on this Linux machine, 30 September 2026: `TokenRejected`, as expected.
+#[test]
+#[ignore]
+fn github_understands_the_create_request_this_crate_builds() {
+    let repos = abstract_tex_github::Repos::new().unwrap();
+    let wanted = abstract_tex_github::NewRepository {
+        // A name that would be refused anyway, in case a token ever became valid by accident.
+        name: "abstract-tex-shape-check-not-a-real-repository".to_string(),
+        visibility: abstract_tex_github::Visibility::Private,
+        description: None,
+    };
+
+    match repos.create("gho_definitely_not_a_valid_token", &wanted) {
+        Err(GitHubError::TokenRejected) => {}
+        Err(GitHubError::Network(error)) => eprintln!("skipped: no network to github.com ({error})"),
+        other => panic!("GitHub did not recognise the create request this crate builds: {other:?}"),
+    }
+}

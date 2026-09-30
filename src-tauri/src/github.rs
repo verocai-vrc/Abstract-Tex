@@ -20,7 +20,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use abstract_tex_github::{Account, DeviceFlow, GitHubError, Keychain, Poll, SecretStore};
+use abstract_tex_github::{
+    Account, DeviceFlow, GitHubError, Keychain, NewRepository, Poll, Repos, Repository, SecretStore,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
@@ -71,6 +73,12 @@ impl GitHubSession {
         self.store.read()
     }
 
+    /// The token, or the sentence for "nobody is signed in". Every call that needs one goes
+    /// through here, so "signed out" is one message rather than one per caller.
+    fn require_token(&self) -> Result<String, GitHubError> {
+        self.token()?.ok_or_else(|| GitHubError::GitHub("Sign in to GitHub first.".to_string()))
+    }
+
     pub fn sign_out(&self) -> Result<(), GitHubError> {
         self.cancel();
         self.store.clear()
@@ -108,6 +116,37 @@ pub async fn account(session: &GitHubSession) -> Result<Option<Account>, GitHubE
         }
         Err(error) => Err(error),
     }
+}
+
+/// Create a repository on GitHub for the open project (S10.5b).
+///
+/// Two steps that must not be half done: GitHub makes the repository, and then the local one is
+/// pointed at it. If the second fails, the first has still happened — so the error says the
+/// repository exists and names it, rather than letting the author press the button again and
+/// collect a second empty repository on their account.
+///
+/// Nothing is pushed here. `git2` is built with no `https` feature (S10.1's flag), so this cannot
+/// send a byte anywhere; `Sync` is S11.1.
+pub async fn create_repository(
+    session: &GitHubSession,
+    project_dir: std::path::PathBuf,
+    wanted: NewRepository,
+) -> Result<Repository, GitHubError> {
+    // Checked before anything else and again inside the crate: "private by default" is a property
+    // of the code, not of the panel (`repos.rs`).
+    wanted.visibility.allowed()?;
+    let token = session.require_token()?;
+
+    let created = tauri::async_runtime::spawn_blocking(move || Repos::new()?.create(&token, &wanted))
+        .await
+        .map_err(|error| GitHubError::Keychain(error.to_string()))??;
+
+    let repository = abstract_tex_git::open(&project_dir)
+        .map_err(|_| GitHubError::GitHub(format!("{} exists, but this folder is not a Git repository — make one here first.", created.full_name)))?;
+    abstract_tex_git::set_origin(&repository, &created.clone_url).map_err(|error| {
+        GitHubError::GitHub(format!("{} was created, but it could not be set as this project's origin: {error}", created.full_name))
+    })?;
+    Ok(created)
 }
 
 /// Start a sign-in. Returns as soon as the thread is running; everything else is events.
@@ -222,7 +261,7 @@ fn poll_until_answered(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use abstract_tex_github::MemoryStore;
+    use abstract_tex_github::{MemoryStore, Visibility};
 
     #[test]
     fn signing_out_empties_the_store() {
@@ -270,6 +309,22 @@ mod tests {
         let failed = serde_json::to_string(&SignInEvent::Failed { message: "no".into(), cancelled: true }).unwrap();
         assert!(failed.contains(r#""stage":"failed""#), "{failed}");
         assert!(failed.contains(r#""cancelled":true"#), "{failed}");
+    }
+
+    /// S10.5b: nothing reaches GitHub without a token, and "signed out" is one sentence.
+    #[test]
+    fn creating_a_repository_while_signed_out_is_refused_before_anything_is_sent() {
+        let session = GitHubSession::with_store(Box::new(MemoryStore::default()));
+        let error = session.require_token().unwrap_err();
+        assert!(error.to_string().contains("Sign in to GitHub first"), "{error}");
+    }
+
+    /// The guard, at this layer too: `create_repository` checks it before it reads the token, so
+    /// an unconfirmed public repository cannot even reach the question of who is signed in.
+    #[test]
+    fn a_public_repository_needs_the_answer_before_anything_else_is_considered() {
+        let unconfirmed = Visibility::Public { confirmed: false };
+        assert!(matches!(unconfirmed.allowed(), Err(GitHubError::PublicNotConfirmed)));
     }
 
     /// The rule this module exists to keep: no serialised event can carry a token.

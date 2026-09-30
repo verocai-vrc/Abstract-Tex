@@ -765,6 +765,40 @@ fn write_gitignore(dir: &Path) -> Result<(), GitError> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------
+// S10.5b: the remote.
+// ---------------------------------------------------------------------------------------------
+
+/// The name Git gives the remote it was cloned from, and the one this app sets.
+pub const ORIGIN: &str = "origin";
+
+/// The URL of `origin`, or `None` when this repository has no remote yet.
+///
+/// What the panel needs to know before it offers to create one: a project that already has a
+/// remote is not a project to publish, whatever else might be true about it.
+pub fn origin_url(repository: &Repository) -> Option<String> {
+    repository.find_remote(ORIGIN).ok().and_then(|remote| remote.url().map(str::to_string))
+}
+
+/// Point this repository at `url` as `origin`, replacing whatever was there.
+///
+/// `remote_set_url` when one exists rather than delete-and-add, because deleting a remote also
+/// deletes its remote-tracking branches (`refs/remotes/origin/*`) and its fetch refspec — and an
+/// author who had a remote and now has a different one should not silently lose what Git knew
+/// about the first.
+///
+/// Nothing is sent anywhere by this: `git2` is built here with no `https` feature at all (S10.1's
+/// flag, kept since), so this repository cannot talk to a network until S11.1 turns that on
+/// deliberately. Naming a remote is a line in `.git/config`.
+pub fn set_origin(repository: &Repository, url: &str) -> Result<(), GitError> {
+    if repository.find_remote(ORIGIN).is_ok() {
+        repository.remote_set_url(ORIGIN, url)?;
+    } else {
+        repository.remote(ORIGIN, url)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1226,6 +1260,35 @@ mod tests {
         ignore_our_folder(&repository).unwrap();
         let again = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
         assert_eq!(again.matches(".abstract-tex/").count(), 1, "{again}");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S10.5b: the remote.
+    // -----------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_fresh_repository_has_no_origin_and_then_has_the_one_it_was_given() {
+        let (_tmp, repository) = repo();
+        assert_eq!(origin_url(&repository), None, "nothing to publish to yet");
+
+        set_origin(&repository, "https://github.com/ada/thesis.git").unwrap();
+        assert_eq!(origin_url(&repository).as_deref(), Some("https://github.com/ada/thesis.git"));
+    }
+
+    #[test]
+    fn setting_origin_twice_changes_the_url_and_keeps_what_git_knew() {
+        let (_tmp, repository) = repo();
+        set_origin(&repository, "https://github.com/ada/first.git").unwrap();
+
+        // A remote-tracking branch, as a fetch would have left behind.
+        let head = repository.head().unwrap().peel_to_commit().unwrap();
+        repository.reference("refs/remotes/origin/main", head.id(), true, "test").unwrap();
+
+        set_origin(&repository, "https://github.com/ada/second.git").unwrap();
+
+        assert_eq!(origin_url(&repository).as_deref(), Some("https://github.com/ada/second.git"));
+        // Delete-and-add would have taken this with it.
+        assert!(repository.find_reference("refs/remotes/origin/main").is_ok(), "tracking refs survive");
     }
 
     #[test]
