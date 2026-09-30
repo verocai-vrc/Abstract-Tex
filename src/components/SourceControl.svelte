@@ -8,17 +8,38 @@
   // not a Git repository — because an empty panel would look like a clean tree, which is a
   // different and much more reassuring thing than "nobody asked Git anything".
   import {
+    cancelGitHubSignIn,
     claimCommitMessage,
     commitStaged,
     discardChange,
     loadMoreCommits,
     openFile,
+    openVerificationPage,
     refreshGitStatus,
+    signInToGitHub,
+    signOutOfGitHub,
     stageChange,
     unstageChange,
   } from '../lib/controller.svelte';
   import { git, relativeTime, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
+  import { github, timeLeft } from '../lib/github.svelte';
   import { app } from '../lib/state.svelte';
+
+  /** Copying the code is a web API and not a Tauri plugin, so it lives here rather than in
+   * `ipc.ts`. It can fail — an old webview, a denied permission — and the code is on screen in
+   * full either way, so a failure only turns the button's own label back. */
+  let copied = $state(false);
+  async function copyCode() {
+    const code = github.code?.userCode;
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      copied = true;
+      setTimeout(() => (copied = false), 1500);
+    } catch {
+      copied = false;
+    }
+  }
 
   /** `Ctrl Enter` commits (DESIGN.md §6), bound on the box and not in `shortcuts.ts`: that table
    * is for chords that mean the same thing wherever focus is, and a global `Ctrl Enter` would
@@ -35,10 +56,13 @@
   const canCommit = $derived(git.status.staged.length > 0 && git.message.trim().length > 0 && !git.committing);
 
   // "4 minutes ago" on a row would otherwise still say that an hour later. One tick a minute,
-  // only while this view is on screen, as the status bar's build clock does it.
+  // only while this view is on screen, as the status bar's build clock does it — and once a
+  // second while a sign-in code is counting down, which is the one thing here that changes
+  // faster than the graph does.
   let now = $state(Date.now());
   $effect(() => {
-    const timer = setInterval(() => (now = Date.now()), 60_000);
+    const every = github.stage === 'waiting' ? 1_000 : 60_000;
+    const timer = setInterval(() => (now = Date.now()), every);
     return () => clearInterval(timer);
   });
 
@@ -85,6 +109,40 @@
   {/if}
 {/snippet}
 
+{#snippet signIn()}
+  <!-- S10.4b: GitHub's device flow. The code is the whole interface — big enough to read off a
+       screen, with one button that copies it and one that opens the browser. Nothing here is
+       required to write a paper: a project with no remote works completely (rule 6). -->
+  {#if github.stage === 'waiting' && github.code}
+    <div class="sign-in">
+      <p class="hint">Type this code into GitHub to finish signing in:</p>
+      <div class="code-row">
+        <code class="user-code">{github.code.userCode}</code>
+        <button class="ghost" onclick={() => void copyCode()}>{copied ? 'Copied' : 'Copy'}</button>
+      </div>
+      <button class="primary" onclick={() => void openVerificationPage()}>Open GitHub</button>
+      <!-- Written out as well as opened: a machine where the opener fails is not a machine where
+           signing in is impossible. -->
+      <p class="hint">
+        {github.code.verificationUri} · {timeLeft(github.code.expiresAt, now)}
+      </p>
+      <button class="ghost" onclick={() => void cancelGitHubSignIn()}>Cancel</button>
+    </div>
+  {:else if github.account}
+    <p class="hint">
+      Signed in to GitHub as {github.account.login}
+      <button class="ghost" onclick={() => void signOutOfGitHub()}>Sign out</button>
+    </p>
+  {:else if github.account === null}
+    <div class="sign-in">
+      <button class="ghost" disabled={github.stage === 'starting'} onclick={() => void signInToGitHub()}>
+        {github.stage === 'starting' ? 'Asking GitHub…' : 'Sign in to GitHub…'}
+      </button>
+      {#if github.error}<p class="hint error">{github.error}</p>{/if}
+    </div>
+  {/if}
+{/snippet}
+
 <aside class="sidebar source-control">
   {#if !app.project}
     <p class="hint">Open a folder to see its changes.</p>
@@ -95,6 +153,7 @@
       later version.
     </p>
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
+    {@render signIn()}
   {:else}
     <div class="sidebar-head">
       <span class="label">Source Control</span>
@@ -122,6 +181,8 @@
 
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
     {#if git.lastDiscard}<p class="hint">{git.lastDiscard}</p>{/if}
+
+    {@render signIn()}
 
     {#if git.conflictedRows.length > 0}
       <!-- A conflicted path is in no other list, so without this section it would vanish from
@@ -323,6 +384,28 @@
   .commit-meta {
     font-size: 11px;
     color: var(--fg-muted);
+  }
+  .sign-in {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 0 10px 8px;
+  }
+  .code-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  /* Big enough to read off a screen and type into a phone, which is what it is for. */
+  .user-code {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    letter-spacing: 0.12em;
+    padding: 2px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-editor);
   }
   .prose-count {
     font-size: 11px;

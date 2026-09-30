@@ -172,6 +172,11 @@ impl DeviceFlow {
     }
 
     /// Step 3: whose account this is.
+    ///
+    /// Also the only way to find out that a token kept in the keychain has stopped working: a
+    /// person can revoke it on github.com, and nothing tells the app. `401` is therefore its own
+    /// error ([`GitHubError::TokenRejected`]) rather than an unreadable body, because the app's
+    /// answer to it is to forget the token rather than to show a sentence about JSON.
     pub fn account(&self, token: &str) -> Result<Account, GitHubError> {
         let response = self
             .client
@@ -181,6 +186,9 @@ impl DeviceFlow {
             // future default cannot change what this parses.
             .header("X-GitHub-Api-Version", "2022-11-28")
             .send()?;
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(GitHubError::TokenRejected);
+        }
         let body = response.text()?;
         let account: Account = read(&body)?;
         if account.login.is_empty() {

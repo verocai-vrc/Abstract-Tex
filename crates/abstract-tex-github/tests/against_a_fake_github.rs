@@ -180,3 +180,27 @@ fn a_github_that_is_not_there_is_a_network_error_and_not_a_panic() {
     assert!(matches!(error, GitHubError::Network(_)), "{error}");
     assert!(error.to_string().starts_with("Could not reach GitHub"), "{error}");
 }
+
+/// S10.4b needs this to be its own answer: a token revoked on github.com is not a token that
+/// came back unreadable, and the app's reaction differs — forget it, and offer sign-in again.
+#[test]
+fn a_revoked_token_is_rejected_and_not_merely_unreadable() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        if let Some(Ok(mut stream)) = listener.incoming().next() {
+            let body = r#"{"message":"Bad credentials"}"#;
+            let _ = stream.write_all(
+                format!(
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .as_bytes(),
+            );
+        }
+    });
+
+    let error = flow(&origin).account("gho_revoked").unwrap_err();
+    assert!(matches!(error, GitHubError::TokenRejected), "{error}");
+}

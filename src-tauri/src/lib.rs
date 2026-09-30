@@ -6,6 +6,7 @@
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
 //! - [`git`]      — which repository the open project is in, for the Source Control view.
+//! - [`github`]   — the GitHub sign-in session: the waiting, and the events it reports through.
 //! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `abstract-tex-synctex`.
 //! - [`bibliography`] — the `.bib` index: files, entries, citations, rebuilt from disk on change.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
@@ -18,6 +19,7 @@ pub mod commands;
 pub mod compile;
 pub mod consent;
 pub mod git;
+pub mod github;
 pub mod lsp;
 pub mod paste;
 pub mod project;
@@ -32,6 +34,7 @@ use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
 use crate::compile::Orchestrator;
+use crate::github::GitHubSession;
 use crate::lsp::LspSession;
 use crate::project::Project;
 use crate::watcher::{ProjectWatcher, WrittenHashes};
@@ -53,6 +56,9 @@ pub struct AppState {
     /// The language server for the open project. Empty until the frontend asks for one: the
     /// editor must open and compile without TexLab (DESIGN.md §2, commitment 6).
     pub lsp: LspSession,
+    /// The GitHub sign-in (S10.4b). Not per project: an account belongs to the person and the
+    /// machine, and its token is in the keychain rather than in here.
+    pub github: GitHubSession,
 }
 
 impl AppState {
@@ -71,6 +77,7 @@ impl AppState {
             watcher: Mutex::new(None),
             written: WrittenHashes::default(),
             lsp: LspSession::default(),
+            github: GitHubSession::default(),
         }
     }
 }
@@ -84,6 +91,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // S10.4b: opening the person's browser at github.com/login/device.
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState::new())
         // S9.8: consent lives in the app's own config folder, which only exists once the app
         // does — hence `setup`, not `AppState::new`. Never in a project (`consent.rs`).
@@ -130,6 +139,10 @@ pub fn run() {
             commands::git_log,
             commands::git_commit,
             commands::git_prose_summary,
+            commands::github_account,
+            commands::github_sign_in,
+            commands::github_cancel_sign_in,
+            commands::github_sign_out,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Abstract-Tex window");

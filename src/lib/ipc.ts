@@ -6,6 +6,7 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ask, open as openDialog } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 export interface TreeNode {
   name: string;
@@ -306,6 +307,23 @@ export interface BranchState {
   head: string | null;
 }
 
+/** Whose GitHub account this machine is signed in to (`abstract_tex_github::Account`). */
+export interface GitHubAccount {
+  /** The `@handle`. The only field of `GET /user` this app has any use for. */
+  login: string;
+}
+
+/** The `github:sign-in` event (S10.4b, `src-tauri/src/github.rs`'s `SignInEvent`).
+ *
+ * Note what is not in here: a token. The webview is told the code to type, where to type it,
+ * and afterwards a name — a token in a webview is a token in every devtools log. */
+export type SignInEvent =
+  | { stage: 'code'; userCode: string; verificationUri: string; expiresInSeconds: number }
+  | { stage: 'signedIn'; login: string }
+  /** `cancelled` when the person stopped it themselves, which the panel puts away quietly
+   * rather than showing as a failure. */
+  | { stage: 'failed'; message: string; cancelled: boolean };
+
 /** What a suggested commit message is built from (`abstract_tex_git::ProseSummary`) — numbers and
  * section names, never the sentence: phrasing belongs where the person reads it (`git.svelte.ts`). */
 export interface ProseSummary {
@@ -437,6 +455,22 @@ export const ipc = {
    * project is not inside a Git repository. */
   gitProseSummary: () => invoke<ProseSummary | null>('git_prose_summary'),
 
+  /** S10.4b: whose GitHub account this machine is signed in to, or `null`. A token GitHub no
+   * longer accepts is forgotten rather than reported, so this answers `null` for it too. */
+  githubAccount: () => invoke<GitHubAccount | null>('github_account'),
+  /** Start the device flow. Resolves once GitHub has issued a code — everything after that
+   * arrives as `github:sign-in` events, because the middle of it happens in a browser. */
+  githubSignIn: () => invoke<void>('github_sign_in'),
+  /** Stop waiting. Not an error when nothing is waiting. */
+  githubCancelSignIn: () => invoke<void>('github_cancel_sign_in'),
+  /** Forget the token, so the next start is signed out. */
+  githubSignOut: () => invoke<void>('github_sign_out'),
+
+  /** Open a URL in the person's own browser (`tauri-plugin-opener`). A webview link cannot do
+   * this by itself, which is why sign-in needs it — and why every caller also shows the URL as
+   * text, so a machine where this fails is not a machine where the task is impossible (rule 6). */
+  openInBrowser: (url: string) => openUrl(url),
+
   /** A URL the webview may fetch for a file inside an allowed scope (the build folder). */
   assetUrl: (absolutePath: string) => convertFileSrc(absolutePath),
 
@@ -467,6 +501,10 @@ export const ipc = {
    * for whichever of its three questions it is currently showing. Never polled. */
   onGitStatusChanged: (handler: () => void): Promise<UnlistenFn> =>
     listen<null>('git:status-changed', () => handler()),
+
+  /** S10.4b: how a sign-in reports itself. One event, one `stage` to switch on. */
+  onGitHubSignIn: (handler: (event: SignInEvent) => void): Promise<UnlistenFn> =>
+    listen<SignInEvent>('github:sign-in', (e) => handler(e.payload)),
 
   /** A `.bib` or `.tex` changed — on disk or through our own `writeFile` — and the index was
    * rebuilt. The payload is the whole new index, so there is nothing to fetch afterwards. */

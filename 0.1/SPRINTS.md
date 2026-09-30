@@ -4251,6 +4251,50 @@ Done when the panel shows a code, copies it, opens the browser at it, and turns 
           keychain and the panel; and a build with no client id says so instead of failing.
 ```
 
+**S10.4b (29 September 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 542 passed / 0
+failed (6 new, in the new `src-tauri/src/github.rs` and one more in the github crate), clippy and
+`cargo doc --workspace -D warnings` clean, `pnpm check` 0 errors, Vitest 484/484 (13 new: 6 in
+the new `github.test.ts`, 7 in `controller.test.ts`). `[~]`, and for a heavier reason than the
+other loops in this sprint: **nobody can sign in with this build**, because nobody has registered
+the OAuth app (the ledger holds that item). The panel, the events, the cancel path and the
+sign-out path are all exercised against a fake GitHub and a fake IPC; the one path that needs the
+real thing needs a client id first. What a reader should take from the diff:
+
+1. **Sign-in is events, not a command that returns**, because the middle of it is a person
+   walking to their browser. `github_sign_in` checks one local thing — does this build have a
+   client id — and then everything, *including asking GitHub for the code*, happens on the
+   spawned thread. That ordering is deliberate: a slow or unreachable GitHub should arrive as a
+   `failed` event in the panel, not as a command the frontend waited twenty seconds to see
+   rejected.
+2. **The token cannot reach the frontend, and a test says so rather than a comment.** The event
+   enum has three shapes and none of them has anywhere to put a token; the webview is told a code
+   to type, a URL to type it into, and afterwards a login name. A token in a webview is a token
+   in every devtools log and every future extension.
+3. **Cancelling is a command, and the sleep is in 200 ms steps because of it.** A person who
+   changes their mind should not wait out the interval GitHub asked for, let alone the fifteen
+   minutes to expiry. The event that follows a cancellation carries `cancelled: true`, and the
+   panel shows *nothing* for it: a decision is not a failure.
+4. **A network failure mid-wait is not the end of the sign-in.** A laptop that drops its wifi
+   while someone types a code into their phone keeps polling until the code actually expires —
+   `Err(Network)` is logged and the loop continues, while every other error ends it. This is the
+   arm that would have been easy to write as `return Err(...)` and would have made the flow
+   fragile in exactly the situation it is for.
+5. **A revoked token is forgotten, not reported.** `GET /user` answering 401 is the only way this
+   app finds out that a token was revoked on github.com, so it became its own error in the crate
+   (`TokenRejected`) and the app's answer is to clear the keychain entry and show the sign-in
+   offer again. An app that kept showing the name would be lying about being signed in.
+6. **Both network commands run on `spawn_blocking`, and the first draft of this loop got that
+   wrong.** `commands.rs` says it: a blocking request on an async worker stalls every other
+   command sharing that thread. `github::account` now reads the keychain (microseconds), awaits
+   the one request off-runtime, and holds no lock across the await.
+7. **`tauri-plugin-opener`, and the URL written out anyway.** A webview link cannot open a
+   browser, so opening `github.com/login/device` needs the plugin and a line in the capability
+   file. The URL is printed next to the button regardless, because rule 6's shape applies here
+   too: a machine where the opener fails is not a machine where signing in is impossible.
+8. **The offer appears in both halves of the panel** — a project with a repository and one
+   without — because signing in has nothing to do with whether this folder is a repository, and
+   S10.5's "create one" button will need an account before it can offer anything.
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,

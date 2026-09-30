@@ -5,6 +5,7 @@
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { git, GRAPH_PAGE, NO_CHANGES, suggestedMessage } from './git.svelte';
+import { applySignInEvent, github } from './github.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -607,6 +608,77 @@ async function runGitVerb<T>(verb: () => Promise<T>): Promise<T | null> {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// S10.4b: signing in to GitHub.
+// ---------------------------------------------------------------------------------------------
+
+/** Ask who is signed in. Once at startup, and again after a sign-out, and never on a timer: an
+ * account does not change by itself, and this call costs a network round trip. */
+export async function refreshGitHubAccount(): Promise<void> {
+  try {
+    github.account = await ipc.githubAccount();
+  } catch (error) {
+    // Being unable to *ask* is not being signed out, but the panel has to say something, and
+    // "we could not reach GitHub" is the truthful version of it.
+    github.account = null;
+    github.error = String(error);
+  }
+}
+
+/**
+ * Start the device flow.
+ *
+ * The call resolves once GitHub has issued a code; everything after that arrives as events,
+ * because the middle of a sign-in is a person walking to their browser. A rejection here is
+ * either "this build has no OAuth app" or "GitHub is unreachable", and both are sentences in
+ * the panel — signing in is not something the rest of the app waits for (rule 6: every feature
+ * has a non-AI path, and every path here works with no account at all).
+ */
+export async function signInToGitHub(): Promise<void> {
+  if (github.stage !== 'idle') return;
+  github.stage = 'starting';
+  github.error = null;
+  try {
+    await ipc.githubSignIn();
+  } catch (error) {
+    github.stage = 'idle';
+    github.error = String(error);
+  }
+}
+
+/** Stop waiting for a code to be typed. */
+export async function cancelGitHubSignIn(): Promise<void> {
+  github.stage = 'idle';
+  github.code = null;
+  github.error = null;
+  await ipc.githubCancelSignIn().catch(() => {});
+}
+
+/** Open the verification page in the person's own browser. The URL is on screen as text too, so
+ * a machine where this fails is not a machine where signing in is impossible. */
+export async function openVerificationPage(): Promise<void> {
+  const url = github.code?.verificationUri;
+  if (!url) return;
+  try {
+    await ipc.openInBrowser(url);
+  } catch {
+    // Nothing to say: the URL is already written out next to the button.
+  }
+}
+
+/** Forget the token on this machine. */
+export async function signOutOfGitHub(): Promise<void> {
+  try {
+    await ipc.githubSignOut();
+    github.account = null;
+    github.code = null;
+    github.stage = 'idle';
+    github.error = null;
+  } catch (error) {
+    github.error = String(error);
+  }
+}
+
 /** Called once from App.svelte. Subscribes to backend events and probes the engine. */
 export async function start(): Promise<void> {
   await ipc.onCompile(handleCompileEvent);
@@ -623,6 +695,11 @@ export async function start(): Promise<void> {
   // index, `HEAD` or a branch. The frontend never polls for status (the Source Control design
   // notes), so this subscription is the only thing that keeps the panel current.
   await ipc.onGitStatusChanged(() => scheduleGitRefresh());
+  // S10.4b: a sign-in reports itself in stages, because it takes as long as a person takes.
+  await ipc.onGitHubSignIn((event) => applySignInEvent(event, Date.now()));
+  // Who is signed in, asked once. Failure is a sentence in the panel, never a notice: nothing
+  // else in the app needs an account.
+  void refreshGitHubAccount();
   try {
     app.engine = await ipc.engineInfo();
   } catch (error) {

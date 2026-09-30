@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_git::{BranchState, CommitRow, Discarded, ProseSummary, Status as GitStatus};
+use abstract_tex_github::Account;
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -669,6 +670,42 @@ pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -
 #[tauri::command]
 pub fn git_prose_summary(state: State<'_, AppState>) -> CommandResult<Option<ProseSummary>> {
     git::with_repository(&state, abstract_tex_git::prose_summary)
+}
+
+// ---------------------------------------------------------------------------------------------
+// S10.4b: signing in to GitHub.
+//
+// Four commands, and none of them ever returns a token: what the window is told is a code to
+// type, a URL to type it into, and afterwards a login name (`github.rs` says why).
+// ---------------------------------------------------------------------------------------------
+
+/// Whose GitHub account this machine is signed in to, or `None`.
+///
+/// `None` rather than an error when nobody has signed in: not being signed in is the normal
+/// state of a fresh install, and the panel shows an offer rather than a problem.
+#[tauri::command]
+pub async fn github_account(state: State<'_, AppState>) -> CommandResult<Option<Account>> {
+    crate::github::account(&state.github).await.map_err(to_message)
+}
+
+/// Start signing in. Returns as soon as GitHub has issued a code; the rest arrives as
+/// `github:sign-in` events, because the middle of this is somebody walking to their browser.
+#[tauri::command]
+pub async fn github_sign_in(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
+    crate::github::start_sign_in(app, &state.github).map_err(to_message)
+}
+
+/// Stop waiting. Not an error when nothing is waiting: the panel can be closed at any moment.
+#[tauri::command]
+pub fn github_cancel_sign_in(state: State<'_, AppState>) -> CommandResult<()> {
+    state.github.cancel();
+    Ok(())
+}
+
+/// Forget the token. The keychain entry is removed, so the next start is signed out.
+#[tauri::command]
+pub fn github_sign_out(state: State<'_, AppState>) -> CommandResult<()> {
+    state.github.sign_out().map_err(to_message)
 }
 
 #[cfg(test)]

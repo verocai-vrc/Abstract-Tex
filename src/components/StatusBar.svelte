@@ -2,6 +2,7 @@
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
   import { branchLabel, git, syncArrows } from '../lib/git.svelte';
+  import { github } from '../lib/github.svelte';
   import { detectZotero, disallowShellEscape, showActivityView, toggleDrawer } from '../lib/controller.svelte';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
@@ -109,6 +110,11 @@
   {#if app.lspMessage}
     <!-- Quiet, not a notice: completion being unavailable does not stop anyone writing. -->
     <span class="muted" title={app.lspMessage}>no language server</span>
+  {/if}
+  {#if github.account}
+    <!-- S10.4b. Only when signed in: an account nobody has asked for is not worth a word in the
+         status bar, and the offer to sign in lives in the panel that needs it. -->
+    <span class="muted" title="Signed in to GitHub as {github.account.login}">{github.account.login}</span>
   {/if}
   <span class={app.engine === null ? 'error' : ''}>{engineLabel}</span>
   <button class={`ghost muted${bibliography.zoteroStatus === 'ready' ? ' ok' : ''}`} onclick={onZoteroClick}>

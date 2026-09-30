@@ -99,6 +99,12 @@ pub enum GitHubError {
     #[error("The sign-in code expired. Starting again gets a new one.")]
     Expired,
 
+    /// The token in the keychain is no longer good — revoked on github.com, most likely, which
+    /// nothing tells the app about until it next tries to use it. The app's answer is to forget
+    /// it and show the sign-in offer again, so this is its own variant (S10.4b).
+    #[error("GitHub no longer accepts this sign-in. Signing in again fixes it.")]
+    TokenRejected,
+
     /// The keychain refused. On Linux this usually means no Secret Service is running, which is
     /// worth saying plainly rather than as "platform error 0".
     #[error("The system keychain could not be used: {0}")]

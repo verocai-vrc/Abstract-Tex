@@ -11,6 +11,7 @@ import type {
   Discarded,
   Finding,
   ProseSummary,
+  SignInEvent,
   FsEvent,
   GitStatus,
   LspEvent,
@@ -42,6 +43,9 @@ const calls = {
   discardQuestions: [] as string[],
   /** Every page of history asked for, as `'<skip>+<limit>'` (S10.3b). */
   gitLogPages: [] as string[],
+  /** Every GitHub call made, as its verb (S10.4b), and every URL handed to the browser. */
+  githubCalls: [] as string[],
+  openedUrls: [] as string[],
 };
 /** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
 let shellEscapeOnDisk = false;
@@ -77,6 +81,11 @@ let proseOnDisk: ProseSummary = { wordsBefore: 0, wordsAfter: 0, sections: [], p
 /** Set to a message to make the next commit be refused, as the crate refuses an empty message,
  * an empty stage or a repository with no `user.name`. */
 let commitError: string | null = null;
+/** The GitHub side (S10.4b): who the keychain says is signed in, what `github_sign_in` does, and
+ * the handler the controller registered for `github:sign-in`. */
+let accountOnDisk: { login: string } | null = null;
+let signInError: string | null = null;
+let signInHandler: (event: SignInEvent) => void = () => {};
 let gitStatusHandler: () => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
@@ -228,6 +237,28 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return id;
     },
+    githubAccount: async () => {
+      calls.githubCalls.push('account');
+      return accountOnDisk;
+    },
+    githubSignIn: async () => {
+      calls.githubCalls.push('signIn');
+      if (signInError) throw new Error(signInError);
+    },
+    githubCancelSignIn: async () => {
+      calls.githubCalls.push('cancel');
+    },
+    githubSignOut: async () => {
+      calls.githubCalls.push('signOut');
+      accountOnDisk = null;
+    },
+    openInBrowser: async (url: string) => {
+      calls.openedUrls.push(url);
+    },
+    onGitHubSignIn: async (handler: (event: SignInEvent) => void) => {
+      signInHandler = handler;
+      return () => {};
+    },
     onGitStatusChanged: async (handler: () => void) => {
       gitStatusHandler = handler;
       return () => {};
@@ -262,8 +293,12 @@ const {
   quickOpenPick,
   refreshOutline,
   resolveConflict,
+  cancelGitHubSignIn,
+  openVerificationPage,
   refreshGitStatus,
   setDrawerFilter,
+  signInToGitHub,
+  signOutOfGitHub,
   showActivityView,
   showRawLogFor,
   stageChange,
@@ -279,6 +314,7 @@ const {
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
 const { git } = await import('./git.svelte');
+const { github } = await import('./github.svelte');
 const { allCommands } = await import('./commands');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
@@ -327,11 +363,21 @@ beforeEach(async () => {
   branchOnDisk = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
   proseOnDisk = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
   commitError = null;
+  accountOnDisk = null;
+  signInError = null;
+  calls.githubCalls = [];
+  calls.openedUrls = [];
   calls.gitLogPages = [];
   calls.gitStatusReads = 0;
   calls.gitVerbs = [];
   calls.discardQuestions = [];
   app.activityView = 'files';
+  // The stores are module-level singletons, so a test that left a sign-in waiting would make the
+  // next one start from there (S10.4b).
+  github.stage = 'idle';
+  github.code = null;
+  github.error = null;
+  github.account = undefined;
   app.conflict = null;
   app.notice = null;
   await start();
@@ -1751,5 +1797,73 @@ describe("the writer's own additions (S10.3c)", () => {
     await openFolder('/proj');
     await vi.advanceTimersByTimeAsync(0);
     expect(git.message).toBe('Revised Methods, +240 words');
+  });
+});
+
+describe('signing in to GitHub (S10.4b)', () => {
+  it('asks once at startup who is signed in, and never again on a timer', async () => {
+    expect(calls.githubCalls).toEqual(['account']);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls.githubCalls).toEqual(['account']);
+  });
+
+  it('starts the flow and shows the code the event brings', async () => {
+    await signInToGitHub();
+    expect(calls.githubCalls).toContain('signIn');
+    expect(github.stage).toBe('starting');
+
+    signInHandler({
+      stage: 'code',
+      userCode: 'WDJB-MJHT',
+      verificationUri: 'https://github.com/login/device',
+      expiresInSeconds: 900,
+    });
+    expect(github.stage).toBe('waiting');
+    expect(github.code?.userCode).toBe('WDJB-MJHT');
+  });
+
+  it('will not start a second sign-in while one is waiting', async () => {
+    await signInToGitHub();
+    signInHandler({ stage: 'code', userCode: 'A', verificationUri: 'B', expiresInSeconds: 900 });
+    calls.githubCalls = [];
+    await signInToGitHub();
+    expect(calls.githubCalls).toEqual([]);
+  });
+
+  it('a build with no OAuth app says so instead of offering a button that cannot work', async () => {
+    signInError = 'Signing in to GitHub is not configured in this build of Abstract-Tex.';
+    await signInToGitHub();
+    expect(github.stage).toBe('idle');
+    expect(github.error).toContain('not configured');
+    expect(app.notice).toBeNull(); // nothing else in the app waits on an account
+  });
+
+  it('opens the verification page in the browser, and the URL is on screen either way', async () => {
+    await signInToGitHub();
+    signInHandler({ stage: 'code', userCode: 'A', verificationUri: 'https://github.com/login/device', expiresInSeconds: 900 });
+    await openVerificationPage();
+    expect(calls.openedUrls).toEqual(['https://github.com/login/device']);
+    expect(github.code?.verificationUri).toBe('https://github.com/login/device');
+  });
+
+  it('cancelling stops the polling and shows no failure', async () => {
+    await signInToGitHub();
+    signInHandler({ stage: 'code', userCode: 'A', verificationUri: 'B', expiresInSeconds: 900 });
+    await cancelGitHubSignIn();
+    expect(calls.githubCalls).toContain('cancel');
+    expect(github.code).toBeNull();
+    expect(github.error).toBeNull();
+
+    // The event Rust sends after a cancel must not put a failure back on screen.
+    signInHandler({ stage: 'failed', message: 'The sign-in was cancelled.', cancelled: true });
+    expect(github.error).toBeNull();
+  });
+
+  it('signing out forgets the account here as well as in the keychain', async () => {
+    signInHandler({ stage: 'signedIn', login: 'ada' });
+    expect(github.account).toEqual({ login: 'ada' });
+    await signOutOfGitHub();
+    expect(calls.githubCalls).toContain('signOut');
+    expect(github.account).toBeNull();
   });
 });

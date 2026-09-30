@@ -21,9 +21,13 @@ tauri-build = { version = "2", features = [] }
 # pushing megabytes through JSON IPC (DESIGN.md §4.1, note 1).
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
+# S10.4b: the one thing the webview cannot do for itself — open the person's own browser at
+# github.com/login/device. A link with target="_blank" in a Tauri window goes nowhere.
+tauri-plugin-opener = "2"
 
 abstract-tex-engine = { path = "../crates/abstract-tex-engine" }
 abstract-tex-git = { path = "../crates/abstract-tex-git" }
+abstract-tex-github = { path = "../crates/abstract-tex-github" }
 abstract-tex-snapshot = { path = "../crates/abstract-tex-snapshot" }
 abstract-tex-includes = { path = "../crates/abstract-tex-includes" }
 abstract-tex-lsp = { path = "../crates/abstract-tex-lsp" }
