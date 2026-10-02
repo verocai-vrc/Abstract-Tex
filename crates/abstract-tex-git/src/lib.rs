@@ -151,6 +151,14 @@ impl Status {
     }
 }
 
+/// S11.3b: one candidate for the Source Control view's "track with Git LFS" banner.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LargeFile {
+    pub path: String,
+    pub size_bytes: u64,
+}
+
 /// The repository a project folder belongs to.
 ///
 /// `discover` and not `open`, for the reason S10.1 gives: a paper is often a subfolder of the
@@ -204,6 +212,42 @@ pub fn status(repository: &Repository) -> Result<Status, GitError> {
         }
     }
     Ok(status)
+}
+
+/// S11.3b: every changed path over `threshold_bytes` that is not already routed through Git LFS.
+///
+/// Reads `status` rather than walking the working tree itself, so this agrees with the three
+/// lists the view already draws and never flags `.abstract-tex/` or a path mid-rename twice.
+/// Deletions are skipped — there is no file left to track. `get_attr` asks the question the
+/// banner actually needs answered, "would a commit of this path go through the `lfs` filter right
+/// now," by resolving `.gitattributes` the same way Git itself would, patterns and precedence
+/// included, rather than this function re-reading and matching the patterns by hand.
+pub fn large_files(repository: &Repository, threshold_bytes: u64) -> Result<Vec<LargeFile>, GitError> {
+    let status = status(repository)?;
+    let Some(workdir) = repository.workdir() else {
+        return Ok(Vec::new()); // a bare repository has no working-tree file to size up
+    };
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut found = Vec::new();
+    for change in status.staged.iter().chain(&status.unstaged).chain(&status.conflicted) {
+        if change.kind == ChangeKind::Deleted || !seen.insert(change.path.clone()) {
+            continue;
+        }
+        let Ok(metadata) = std::fs::metadata(workdir.join(&change.path)) else { continue };
+        if metadata.len() <= threshold_bytes {
+            continue;
+        }
+        let already_tracked = matches!(
+            repository.get_attr(Path::new(&change.path), "filter", git2::AttrCheckFlags::default()),
+            Ok(Some("lfs"))
+        );
+        if !already_tracked {
+            found.push(LargeFile { path: change.path.clone(), size_bytes: metadata.len() });
+        }
+    }
+    found.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(found)
 }
 
 /// The letter for the index half of a status, or `None` when nothing is staged for this path.
@@ -1323,6 +1367,48 @@ mod tests {
         assert_eq!(renamed.len(), 1, "{status:?}");
         assert_eq!(renamed[0].path, "thesis.tex");
         assert_eq!(renamed[0].renamed_from.as_deref(), Some("main.tex"));
+    }
+
+    // --- S11.3b -------------------------------------------------------------------------------
+
+    /// The card's first done-when: an untracked file over the threshold is a candidate, and one
+    /// at or under it is not.
+    #[test]
+    fn an_untracked_file_over_the_threshold_is_a_candidate_and_a_small_one_is_not() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("figure.png"), vec![0u8; 20]).unwrap();
+        fs::write(tmp.path().join("icon.png"), vec![0u8; 5]).unwrap();
+
+        let found = large_files(&repository, 10).unwrap();
+
+        assert_eq!(found, vec![LargeFile { path: "figure.png".to_string(), size_bytes: 20 }]);
+    }
+
+    /// A large file already routed through the `lfs` filter is not a candidate — the whole point
+    /// of the banner is to offer tracking, not to nag about a file that already is tracked.
+    #[test]
+    fn a_large_file_already_covered_by_gitattributes_is_not_a_candidate() {
+        let (tmp, repository) = repo();
+        // `.gitattributes` itself must stay under the threshold too, or it becomes a spurious
+        // candidate of its own — it has no `filter=lfs` line naming itself.
+        fs::write(tmp.path().join(".gitattributes"), "*.png filter=lfs diff=lfs merge=lfs -text\n").unwrap();
+        fs::write(tmp.path().join("figure.png"), vec![0u8; 100]).unwrap();
+
+        assert!(large_files(&repository, 50).unwrap().is_empty());
+    }
+
+    /// A deleted file has no working-tree bytes left to size up, and a staged large file is still
+    /// found exactly once, not once per list it appears in.
+    #[test]
+    fn a_deleted_file_is_never_a_candidate_and_a_staged_one_is_found_once() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("figure.png"), vec![0u8; 20]).unwrap();
+        stage(&repository, "figure.png").unwrap();
+        fs::remove_file(tmp.path().join("main.tex")).unwrap();
+
+        let found = large_files(&repository, 10).unwrap();
+
+        assert_eq!(found, vec![LargeFile { path: "figure.png".to_string(), size_bytes: 20 }]);
     }
 
     // --- S10.2b -----------------------------------------------------------------------------

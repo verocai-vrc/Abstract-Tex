@@ -4973,6 +4973,67 @@ should take from the diff:
    not inside `Display`, so "over 100 MB" in the refusal always means the file really is over the
    limit rather than rounding down to exactly the number that sounds like the edge.
 
+**Two design questions were put to the maintainer before S11.3c was carded** — the same
+precedent S11.2b set rather than guessing at UI: where the LFS prompt surfaces (a dismissible
+banner above *Changes*, not a per-row badge or a blocking dialog at stage time — "figures stay
+out of the way," DESIGN.md §5.7, and nothing here should interrupt Stage, which has never asked a
+question before) and what counts as large enough to ask about (5 MB, well under GitHub's own
+50 MB warning line and the point past which Git's delta compression stops helping a binary diff
+anyway — separate from S11.3a's 100 MB hard push block, which is a different question answered
+for a different reason). S11.3b, below, is the detection the banner will read; S11.3c, the
+banner and the actual `git lfs track` call, is carded once this loop's shape has settled.
+
+```
+Loop      S11.3b · Large-file candidates, in the git crate · S
+Reads     DESIGN.md §5.7 ("Figures stay out of the way. Binary assets over a threshold prompt for
+          Git LFS"); the maintainer's answer above (5 MB, a banner, not a per-row badge)
+Depends   S10.2a (`status`, the three lists this reads)
+Files     crates/abstract-tex-git/src/lib.rs
+Build     `large_files` reads `status` rather than walking the working tree on its own, so it
+          agrees with exactly what the view already draws and never double-counts a path in both
+          `staged` and `unstaged` or flags `.abstract-tex/`. A deletion is skipped — there is no
+          file left to size up. "Already tracked" is answered with `Repository::get_attr(path,
+          "filter", ..)`, which resolves `.gitattributes` the way Git itself would (patterns,
+          precedence, the lot) rather than this function matching glob patterns by hand; a file
+          already routed through the `lfs` filter is not a candidate, because the banner's whole
+          job is to offer tracking a file is not getting yet.
+
+          The threshold is a parameter, not a constant in this crate — 5 MB is the Source Control
+          view's decision (S11.3c), the same way the view, not this crate, decides when to draw a
+          banner at all.
+Verify    cargo test -p abstract-tex-git
+Done when an untracked file over the threshold is a candidate and one at or under it is not; a
+          large file already covered by a `.gitattributes` `filter=lfs` pattern is never a
+          candidate; a deleted file is never a candidate; and a large file that is both staged
+          and still different from the working tree is found exactly once.
+```
+
+**S11.3b (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 582 passed (3
+new) / 0 failed, clippy and `cargo doc --workspace --no-deps` both clean. `[~]` for the usual
+reason: nothing here is on screen, and S11.3c is what puts it there. What a reader should take
+from the diff:
+
+1. **A second attribute mistake would have shipped if the first test had used a smaller fixture.**
+   `.gitattributes` itself is an untracked file the moment it is written, and its own content —
+   `*.png filter=lfs diff=lfs merge=lfs -text\n` — is 42 bytes. A first draft of the "already
+   covered" test used a 10-byte threshold and a 20-byte figure, and failed: not because
+   `get_attr` was wrong (it correctly resolved `figure.png`'s filter to `"lfs"`), but because
+   `.gitattributes` itself, which carries no `filter=lfs` line naming itself, was now also over
+   the tiny threshold and a spurious candidate in its own right. Fixed by raising both numbers so
+   the fixture file clears the threshold and `.gitattributes`'s own bytes do not — a reminder that
+   this function has no special case for `.gitattributes`, `abstract-tex.toml`, or any other
+   project file that happens to be small in real use and was not here.
+2. **The threshold stays out of this crate on purpose.** Nothing here decides what "large" means;
+   `large_files` only answers "over this number, and not already tracked" for whatever number the
+   caller passes. 5 MB is recorded as the Source Control view's decision in S11.3c's own card, not
+   duplicated as a constant here — the same separation `GITHUB_FILE_LIMIT_BYTES` in S11.3a did not
+   need, because that number really is this crate's own (GitHub's, not the view's).
+3. **`get_attr` was the right call precisely because it is not a `.gitattributes` parser.** A
+   pattern like `*.png` or `figures/**` has real precedence rules once more than one line can
+   apply to a path — exactly the rules `git check-attr` and a real commit's filter already use.
+   Matching those by hand here would have been a second, divergent implementation of logic
+   libgit2 already has correct.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
@@ -4997,18 +5058,14 @@ them needs both; Amend needs `git2`'s own amend and tests of its own ·
 S11.2 conflicts
 as two paragraphs — **split into S11.2a above, expanded 1 October 2026**, and the view itself
 (S11.2b), carded once the maintainer has settled what it looks like · S11.3 the oversize catch
-and the LFS prompt — **split into S11.3a above and S11.3b below, expanded 2 October 2026**, the
-same shape as S11.1 and S10.5: the hard limit is a `git2` question with no account and no window;
-the prompt is what the Source Control view does about a large file before it is staged, carded
-once the maintainer has settled what that prompt looks like · S11.4 `latexdiff` review from any
-two graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
-as a CodeMirror merge view, which is what §6's "a click opens a diff" finally means (deferred
-from S10.3a, 29 September 2026: a row that opened a half-built diff is worse than one that opens
-the file).
-
-S11.3b the LFS prompt itself — the Source Control view's answer to a large file, once S11.3a's
-catch exists to build it against — carded once the maintainer has settled what the prompt looks
-like, the same way S11.2b waited on the conflict view's shape.
+and the LFS prompt — **split into S11.3a, S11.3b above and S11.3c below, expanded 2 October
+2026**, the same shape as S11.1 and S10.5: the hard limit (S11.3a) and the candidate detection
+(S11.3b) are `git2` questions with no account and no window; the banner and the actual Git LFS
+subprocess call (S11.3c) need both, and were carded once the maintainer settled the prompt's
+shape — a banner above *Changes*, at 5 MB · S11.4 `latexdiff` review from any two graph rows ·
+S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff as a CodeMirror
+merge view, which is what §6's "a click opens a diff" finally means (deferred from S10.3a,
+29 September 2026: a row that opened a half-built diff is worse than one that opens the file).
 
 **Source Control design notes** (settled 2026-09-17, `DESIGN.md` §6; cards expanded at sprint
 start):
