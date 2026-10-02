@@ -350,12 +350,11 @@
 
     {#if git.conflictedRows.length > 0}
       <!-- A conflicted path is in no other list, so without this section it would vanish from
-           the one panel whose job is to say what changed. S11.2 replaces it with two paragraphs. -->
+           the one panel whose job is to say what changed. Clicking a row opens the conflict view
+           (S11.2b) instead of the plain editor, the same way `openRow` already opens any other
+           file — nothing here has to know that. -->
       {@render section('Merge Changes', git.conflictedRows, false)}
-      <p class="hint">
-        Edit the file to resolve it, then stage it. A conflict shown as two paragraphs rather than
-        as markers arrives in a later version.
-      </p>
+      <p class="hint">Open a file to resolve it as two paragraphs — resolving it stages it.</p>
     {/if}
     {@render section('Staged Changes', git.stagedRows, true)}
     {@render section('Changes', git.unstagedRows, false)}

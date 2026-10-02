@@ -217,7 +217,17 @@ vi.mock('./ipc', () => ({
       if (gitVerbError) throw new Error(gitVerbError);
       calls.gitVerbs.push(`stage ${path}`);
       const moving = gitOnDisk!.unstaged.filter((c) => c.path === path);
-      gitOnDisk = { ...gitOnDisk!, staged: [...gitOnDisk!.staged, ...moving], unstaged: gitOnDisk!.unstaged.filter((c) => c.path !== path) };
+      // S11.2a: staging a conflicted path is what resolves it — the three index stages become
+      // one, same as the real crate. A path that was conflicted lands in `staged` even with no
+      // matching `unstaged` row, the same way an edited-and-fixed file would.
+      const wasConflicted = gitOnDisk!.conflicted.some((c) => c.path === path);
+      const resolved = wasConflicted && moving.length === 0 ? [{ path, kind: 'modified' as const, renamedFrom: null }] : [];
+      gitOnDisk = {
+        ...gitOnDisk!,
+        staged: [...gitOnDisk!.staged, ...moving, ...resolved],
+        unstaged: gitOnDisk!.unstaged.filter((c) => c.path !== path),
+        conflicted: gitOnDisk!.conflicted.filter((c) => c.path !== path),
+      };
       gitStatusHandler();
     },
     gitUnstage: async (path: string) => {
@@ -371,6 +381,7 @@ const {
   quickOpenPick,
   refreshOutline,
   resolveConflict,
+  resolveMergeConflict,
   cancelGitHubSignIn,
   createGitHubRepository,
   ignoreOurFolder,
@@ -1948,6 +1959,43 @@ describe('syncing (S11.1b)', () => {
     expect(git.error).toContain('Both your computer and the remote');
     expect(git.lastSync).toBeNull();
     expect(git.syncing).toBe(false);
+  });
+});
+
+describe('resolving a conflict (S11.2b)', () => {
+  // Not `main.tex`: `openFolder` in `beforeEach` already opened the project's root file before
+  // this test gets to set the disk content it wants, which would make `openFile` below a no-op
+  // short-circuit against a buffer that still holds the `beforeEach` default.
+  const conflictedMarkers = '<<<<<<< HEAD\nmine\n=======\ntheirs\n>>>>>>> origin/main\n';
+
+  it('writes the resolution, stages it, and reopens the file clean rather than from the stale buffer', async () => {
+    disk.set('notes.tex', conflictedMarkers);
+    gitOnDisk = { staged: [], unstaged: [], conflicted: [{ path: 'notes.tex', kind: 'conflicted', renamedFrom: null }] };
+    await refreshGitStatus();
+    await openFile('notes.tex');
+    // The buffer `openFile` made really does hold the raw markers nobody is meant to see — this
+    // is the hazard `resolveMergeConflict` exists to clean up, not a thing anyone reads on screen.
+    expect(app.activeDoc!.text()).toBe(conflictedMarkers);
+
+    await resolveMergeConflict('notes.tex', 'the resolved sentence\n');
+
+    expect(calls.writes).toContainEqual({ path: 'notes.tex', contents: 'the resolved sentence\n' });
+    expect(calls.gitVerbs).toContain('stage notes.tex');
+    expect(app.activePath).toBe('notes.tex');
+    expect(app.activeDoc!.text()).toBe('the resolved sentence\n');
+  });
+
+  it('discards the stale buffer without disturbing whatever tab is actually active', async () => {
+    disk.set('notes.tex', conflictedMarkers);
+    gitOnDisk = { staged: [], unstaged: [], conflicted: [{ path: 'notes.tex', kind: 'conflicted', renamedFrom: null }] };
+    await refreshGitStatus();
+    await openFile('notes.tex');
+    await openFile('main.tex'); // notes.tex's tab stays open, just no longer the active one
+
+    await resolveMergeConflict('notes.tex', 'the resolved sentence\n');
+
+    expect(app.activePath).toBe('main.tex');
+    expect(app.openTabs).not.toContain('notes.tex');
   });
 });
 

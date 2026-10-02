@@ -4727,10 +4727,12 @@ display this session cannot capture. What a reader should take from the diff:
 **S11.2 splits the same way S11.1 did, 1 October 2026** — the real shape of "conflicts as two
 paragraphs" only showed up once the first half was looked at closely: a genuine three-way merge,
 with libgit2's own merge engine, has to exist before there is anything for a conflict view to
-read, and that half needs no Tauri and no screen. S11.2a is below; the view itself — parsing a
-conflict into paragraphs, the choice, writing the resolution back — is carded when it starts,
-after a design question only the maintainer can settle (how much of each paragraph is editable,
-and where the view lives) is put to them.
+read, and that half needs no Tauri and no screen. S11.2a is below. The view itself needed the
+maintainer's own answer on two questions first — where it lives, and how much of each paragraph
+is editable — asked before any of it was built rather than guessed at, the same as S10.5b's
+confirmation copy: **the view replaces the editor pane for that tab** rather than a modal or a
+fourth activity-bar view, and each paragraph is **Keep mine / Keep theirs / edit the combined
+text**, not a plain two-button choice. S11.2b is below that.
 
 ```
 Loop      S11.2a · Real merges, in the git crate · L
@@ -4813,6 +4815,87 @@ this gets without a second machine. What a reader should take from the diff:
    `git.rs`'s own rule, so that no command has to reason about who else might be touching the
    repository at the same moment. `MERGE_HEAD` is one SHA per line by Git's own documented format,
    plain enough that reading it by hand costs less than the signature change would have.
+
+```
+Loop      S11.2b · The conflict view: two paragraphs, a choice · L
+Reads     DESIGN.md §5.7 ("presented as two versions of a paragraph with a choice, not as
+          `<<<<<<<` in the buffer"), §7's exit demo; the maintainer's own answers above
+Depends   S11.2a (real conflict markers to read, `stage` as the resolution verb already)
+Files     src/lib/conflict.ts (new, pure, no Tauri), src/components/ConflictResolver.svelte (new),
+          src/components/Editor.svelte, src/components/SourceControl.svelte,
+          src/lib/controller.svelte.ts
+Build     No new Rust at all — S11.2a's real merge already leaves real markers on disk and
+          `stage` already resolves a conflicted index entry from whatever the file now holds, so
+          this loop is purely what reads the one and calls the other.
+
+          **The markers are parsed, never shown.** `parseConflictMarkers` (`conflict.ts`, pure,
+          tested without a Svelte runtime the way `outline.ts` and `paths.ts` already are) turns
+          a conflicted file's real `<<<<<<<`/`=======`/`>>>>>>>` text into a plain list of clean
+          runs and `{ ours, theirs }` hunks. A file whose conflict it cannot parse — a structural
+          one, not a modify/modify text conflict — says so plainly rather than guessing at one.
+
+          **Opening a conflicted file does not open an editor.** The existing `openFile` still
+          runs (a tab appears, a Y.Doc is made, exactly as for any other file), but `Editor.svelte`
+          never mounts CodeMirror over it while the active path is conflicted — it renders
+          `ConflictResolver` instead, which reads the file itself and never touches the Y.Doc. The
+          markers are real, on disk, for a terminal's sake; nobody using this app ever sees one.
+
+          **Each hunk is three things, not two.** A read-only *Yours* paragraph, a read-only
+          *Theirs* paragraph, and one editable box between them, pre-filled with *Yours* — *Keep
+          mine* and *Keep theirs* each just replace the box's text, and typing is always allowed,
+          which is the maintainer's "edit the combined text" answer. *Mark Resolved* reassembles
+          every hunk's current box text with the clean runs between them, writes the file, and
+          stages it the ordinary way.
+
+          **The stale buffer is discarded, never saved.** `openFile`'s Y.Doc for a conflicted path
+          holds the raw marker text nobody ever saw, and if it were later synced back to disk it
+          would silently reintroduce the conflict as prose. Resolving closes it with `manager`'s
+          own `close`, not `closeTab`'s save-then-close — the one path in this app that discards a
+          buffer on purpose, and it says why.
+Verify    pnpm check && pnpm test
+Done when a real two-way conflict (built by S11.2a's own fixtures) parses into the right clean
+          runs and hunks in the right order; reassembling with a mix of kept-mine, kept-theirs and
+          hand-edited hunks round-trips exactly, including a hunk resolved to nothing leaving no
+          stray blank line; *Mark Resolved* writes and stages so that `abstract_tex_git::status`
+          no longer lists the path as conflicted; and a structural conflict `parseConflictMarkers`
+          cannot read says so rather than showing something wrong.
+```
+
+**S11.2b (1 October 2026).** `[~]`: rungs 1–2 green — `pnpm check` 453 files / 0 errors, Vitest
+524/524 (13 new: 11 for `conflict.ts`'s parse/reassemble pair, 2 for `resolveMergeConflict`'s
+write-stage-discard-reopen flow). No Rust changed, so `cargo test --workspace` stayed at 576. `[~]`
+for rung 4 only — the same display-capture gap every UI loop this session has had, not a smaller
+one for this being "mostly logic": the whole point of this loop was what appears on screen, and
+nobody has looked at it yet. What a reader should take from the diff:
+
+1. **No new Rust, and that was the test of whether S11.2a had actually finished its job.** A real
+   conflict already leaves real markers and a real `MERGE_HEAD`; `stage` already resolves a
+   conflicted index entry from whatever the working-tree file holds. This loop is entirely what
+   reads the first fact and calls the second — if it had needed a new Tauri command or a new crate
+   function, that would have meant S11.2a left something undone.
+2. **The markers are real on disk and invisible on screen, and those are not in tension.**
+   `openFile` runs exactly as it does for any other file — a tab, a `Y.Doc`, the lot — and
+   `Editor.svelte` simply never mounts CodeMirror over it while the active path is conflicted.
+   Nothing had to be taught to *avoid* reading markers; it only had to be given somewhere else to
+   look. A terminal `git diff` on the same file sees precisely what it would after a real
+   `git merge`, because nothing here has touched it.
+3. **The stale buffer is a hazard this loop names and closes rather than one it hopes nobody
+   hits.** `openFile`'s `Y.Doc` for a conflicted path holds the raw marker text for as long as the
+   tab stays open — harmless while nothing reads it, but a live fuse if it were ever saved, since
+   saving would write the conflict straight back as prose. `resolveMergeConflict` discards it with
+   `manager.close`, never `closeTab`'s save-then-close, and a test opens the file, asserts the
+   buffer really does hold the markers, resolves it, and asserts the reopened buffer holds the
+   resolved text instead — not the stale one.
+4. **"Nothing is not a blank line."** An empty resolution — a paragraph deleted outright, not
+   replaced — contributes zero lines to the rebuilt file rather than one, which needed
+   `reassembleConflictSections` to flatten to a line array rather than join already-joined
+   section strings; the first draft joined sections directly and would have left a stray blank
+   line behind every deleted paragraph. Caught while writing the function, before a test had to.
+5. **The maintainer's two answers are both load-bearing, not cosmetic.** "Replace the editor
+   pane" is why there is no new modal component and no new activity-bar view — one `{#if}` in
+   `Editor.svelte` is the entire integration. "Edit the combined text" is why each hunk has a third
+   box beyond the two read-only paragraphs, pre-filled with *Yours* rather than empty, so *Keep
+   mine* needs no special case at the one default state nobody has clicked anything yet.
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,

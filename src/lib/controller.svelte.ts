@@ -999,6 +999,33 @@ export async function closeTab(path: string): Promise<void> {
   tellServer((absolute) => lsp.didClose(absolute), path);
 }
 
+/**
+ * Mark a conflicted file resolved (S11.2b): write the text `ConflictResolver` built, stage it the
+ * ordinary way — the same verb that already clears a conflicted index entry (S11.2a) — and
+ * discard whatever buffer `openFile` made for it while it was conflicted.
+ *
+ * Never `closeTab`'s save-then-close. That buffer holds the raw marker text nobody was ever shown
+ * (`openFile` ran normally when the row was clicked; only `Editor.svelte` declined to mount it),
+ * and saving it would silently put the conflict right back the moment anything touched it. If the
+ * resolved file was the active tab, a fresh `openFile` reopens it afterward — back in the ordinary
+ * editor, reading the clean text that is now actually on disk.
+ */
+export async function resolveMergeConflict(path: string, finalText: string): Promise<void> {
+  await ipc.writeFile(path, finalText);
+  await runGitVerb(() => ipc.gitStage(path));
+  const wasActive = app.activePath === path;
+  if (manager.isOpen(path)) {
+    manager.close(path);
+    tellServer((absolute) => lsp.didClose(absolute), path);
+  }
+  if (wasActive) {
+    app.activePath = null;
+    await openFile(path);
+  } else {
+    syncTabs();
+  }
+}
+
 function closeAllDocuments() {
   manager.closeAll();
   syncTabs();

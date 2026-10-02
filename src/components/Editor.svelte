@@ -16,6 +16,8 @@
   import { diagnosticsForFile } from '../lib/drawer';
   import { citeThenLsp } from '../lib/editor/cite';
   import { lspCompletionSource } from '../lib/editor/completion';
+  import { git } from '../lib/git.svelte';
+  import ConflictResolver from './ConflictResolver.svelte';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
 
@@ -117,6 +119,11 @@
   $effect(() => {
     if (view) applyLspDiagnostics(view, lspRows);
   });
+
+  /** S11.2b: whether the active tab is a conflicted file. `openFile` still opens it normally — a
+   * tab and a `Y.Doc` both exist — but CodeMirror never mounts over it while this is true;
+   * `ConflictResolver` reads the file itself and is what the author sees instead. */
+  const activeIsConflicted = $derived(app.activePath !== null && git.conflictedRows.some((row) => row.path === app.activePath));
 </script>
 
 <section class="editor-column">
@@ -137,7 +144,9 @@
     </div>
   {/if}
 
-  {#if app.activeDoc}
+  {#if activeIsConflicted}
+    <ConflictResolver />
+  {:else if app.activeDoc}
     <div class="editor-host" bind:this={host}></div>
   {:else}
     <div class="empty">
