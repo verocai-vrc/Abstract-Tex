@@ -138,6 +138,7 @@ pub fn run() {
             commands::git_branch,
             commands::git_log,
             commands::git_commit,
+            commands::git_amend,
             commands::git_prose_summary,
             commands::git_initialise,
             commands::git_our_folder_is_ignored,

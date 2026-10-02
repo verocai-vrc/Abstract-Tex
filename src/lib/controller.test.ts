@@ -269,6 +269,17 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return id;
     },
+    gitAmend: async (message: string): Promise<string> => {
+      if (commitError) throw new Error(commitError);
+      calls.gitVerbs.push(`amend ${message}`);
+      // Rewrites the newest commit in place, the same way the crate keeps the same parent.
+      const id = `${commitsOnDisk[0]?.id ?? 'commit1'}-amended`;
+      commitsOnDisk = [{ ...commitsOnDisk[0]!, id, summary: message.split('\n')[0]! }, ...commitsOnDisk.slice(1)];
+      gitOnDisk = { ...gitOnDisk!, staged: [] };
+      branchOnDisk = { ...branchOnDisk, head: id };
+      gitStatusHandler();
+      return id;
+    },
     gitPush: async (): Promise<void> => {
       if (syncError) throw new Error(syncError);
       calls.gitVerbs.push('push');
@@ -337,6 +348,7 @@ vi.mock('./ipc', () => ({
 
 const {
   allowShellEscape,
+  amendCommit,
   applyDiagnosticFix,
   claimCommitMessage,
   commitAndPush,
@@ -1831,6 +1843,45 @@ describe('committing, and the graph (S10.3b)', () => {
     expect(git.branch).toBeNull();
     expect(git.commits).toEqual([]);
     expect(git.outgoing).toBe(0);
+  });
+});
+
+describe('amending (S11.1c)', () => {
+  const staged = { path: 'main.tex', kind: 'modified' as const, renamedFrom: null };
+
+  function putOneCommit(): void {
+    commitsOnDisk = [{ id: 'c1', shortId: 'c1', summary: 'first draft', author: 'Ada', time: 1_760_000_000, tags: [], wordDelta: 5 }];
+    branchOnDisk = { ...branchOnDisk, head: 'c1' };
+  }
+
+  it('rewrites HEAD in place rather than creating a new commit', async () => {
+    putOneCommit();
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    git.message = 'a better first message';
+
+    await amendCommit();
+    // `amendCommit`, like `commitStaged`, relies on the debounced `git:status-changed` refresh
+    // rather than reading the status back itself.
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(calls.gitVerbs).toEqual(['amend a better first message']);
+    expect(git.message).toBe('');
+    expect(git.commits).toHaveLength(1); // rewritten, not added to
+    expect(git.commits[0]?.summary).toBe('a better first message');
+  });
+
+  it('keeps the words in the box when the amend is refused, same as a plain commit', async () => {
+    putOneCommit();
+    await refreshGitStatus();
+    commitError = 'A commit needs a message.';
+    git.message = 'Half a sentence';
+
+    await amendCommit();
+
+    expect(git.error).toContain('A commit needs a message');
+    expect(git.message).toBe('Half a sentence');
+    expect(git.committing).toBe(false);
   });
 });
 

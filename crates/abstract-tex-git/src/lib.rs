@@ -57,6 +57,11 @@ pub enum GitError {
     #[error("Nothing is staged, so there is nothing to commit.")]
     NothingStaged,
 
+    /// S11.1c: `amend` on a repository with no commits yet — an unborn branch has no `HEAD`
+    /// commit to replace, which is a different sentence from an empty message.
+    #[error("There is no commit yet to amend.")]
+    NothingToAmend,
+
     /// S10.5a: `git init` inside a folder that is already in a repository. Names what was found,
     /// because the answer depends on which repository it is — often one the author forgot they
     /// had, occasionally a monorepo where the paper is meant to live.
@@ -490,6 +495,31 @@ pub fn commit(repository: &Repository, message: &str) -> Result<String, GitError
     // `Some("HEAD")` here, unlike the snapshot crate's `None`: this *is* the author's own commit,
     // and it is supposed to move their branch.
     let id = repository.commit(Some("HEAD"), &who, &who, message, &tree, &parents)?;
+    Ok(id.to_string())
+}
+
+/// Replace `HEAD` with a new commit carrying `message` and whatever is staged, keeping the same
+/// parents — the Commit dropdown's *Amend* (S11.1c).
+///
+/// Only one refusal, unlike `commit`: an empty message. Amending with nothing staged is not
+/// nothing — it is a reword, and a reword is the whole reason this exists — so there is no
+/// `NothingStaged` check here. Whether `HEAD` has already been pushed is not this function's
+/// business either: the panel decides that by reading `branch_state`'s `ahead_behind` before it
+/// ever offers the item, the same guardrail the Source Control design notes ask for.
+pub fn amend(repository: &Repository, message: &str) -> Result<String, GitError> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err(GitError::EmptyMessage);
+    }
+    let head_commit = repository.head().map_err(|_| GitError::NothingToAmend)?.peel_to_commit()?;
+    let who = repository.signature().map_err(|_| GitError::NoIdentity)?;
+
+    let mut index = repository.index()?;
+    let tree = repository.find_tree(index.write_tree()?)?;
+
+    // `amend` keeps the original commit's parents untouched — passing a tree and a message but no
+    // parent list is what makes this a reword-or-reshape of the same commit rather than a new one.
+    let id = head_commit.amend(Some("HEAD"), Some(&who), Some(&who), None, Some(message), Some(&tree))?;
     Ok(id.to_string())
 }
 
@@ -1698,5 +1728,83 @@ mod tests {
     fn syncing_with_no_remote_says_so_by_name() {
         let (_tmp, repository) = repo();
         assert!(matches!(sync(&repository, None), Err(GitError::NoRemote)));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S11.1c: amend.
+    // -----------------------------------------------------------------------------------------
+
+    /// The card's first done-when: a reword with nothing staged changes the message and nothing
+    /// about the tree or the parent list.
+    #[test]
+    fn amending_with_nothing_staged_rewords_in_place() {
+        let (tmp, repository) = repo();
+        let before = repository.head().unwrap().peel_to_commit().unwrap();
+
+        let new_id = amend(&repository, "a better first line").unwrap();
+
+        let after = repository.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(after.id().to_string(), new_id, "HEAD moved to the amended commit");
+        assert_ne!(after.id(), before.id(), "amending still writes a new commit object");
+        assert_eq!(after.summary(), Some("a better first line"));
+        assert_eq!(after.tree_id(), before.tree_id(), "nothing was staged, so the tree is untouched");
+        assert_eq!(after.parent_count(), 0, "the root commit is still parentless");
+        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n");
+    }
+
+    /// The card's second done-when: a staged change folds into `HEAD` rather than becoming its
+    /// own commit.
+    #[test]
+    fn amending_with_something_staged_folds_it_into_head() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), "a better manuscript\n").unwrap();
+        stage(&repository, "main.tex").unwrap();
+
+        amend(&repository, "first").unwrap();
+
+        let rows = log(&repository, 0, 10).unwrap();
+        assert_eq!(rows.len(), 1, "no second commit was created: {rows:?}");
+        let tree = repository.head().unwrap().peel_to_tree().unwrap();
+        let blob = tree.get_path(Path::new("main.tex")).unwrap().to_object(&repository).unwrap();
+        assert_eq!(blob.as_blob().unwrap().content(), b"a better manuscript\n");
+        assert!(changes(&repository).staged.is_empty(), "the amend consumed the staged change");
+    }
+
+    /// Amending the newest of several commits must not touch what it is built on.
+    #[test]
+    fn amending_keeps_the_same_parent() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), "second version\n").unwrap();
+        commit_all(&repository, "second");
+        let first_parent = repository.head().unwrap().peel_to_commit().unwrap().parent_id(0).unwrap();
+
+        amend(&repository, "a better second message").unwrap();
+
+        let amended = repository.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(amended.parent_count(), 1);
+        assert_eq!(amended.parent_id(0).unwrap(), first_parent, "amending rewrote what it is built on");
+    }
+
+    /// An empty message is refused exactly like a plain commit's, and refuses before writing
+    /// anything: `HEAD` is still the original commit.
+    #[test]
+    fn amending_with_an_empty_message_is_refused_and_changes_nothing() {
+        let (_tmp, repository) = repo();
+        let before = repository.head().unwrap().peel_to_commit().unwrap().id();
+
+        let error = amend(&repository, "   ").unwrap_err();
+
+        assert!(matches!(error, GitError::EmptyMessage), "{error:?}");
+        assert_eq!(repository.head().unwrap().peel_to_commit().unwrap().id(), before);
+    }
+
+    /// There is nothing for *Amend* to do before the first commit exists, and the sentence says
+    /// so rather than `git2`'s own unborn-`HEAD` error.
+    #[test]
+    fn amending_a_repository_with_no_commits_yet_says_so() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repository = Repository::init(tmp.path()).unwrap();
+
+        assert!(matches!(amend(&repository, "anything"), Err(GitError::NothingToAmend)));
     }
 }

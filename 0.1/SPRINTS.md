@@ -4664,6 +4664,65 @@ closes this rung. What a reader should take from the diff:
    from a machine that has never signed in to GitHub, which is the whole point of this app not
    being GitHub-specific underneath (DESIGN.md §5.7).
 
+```
+Loop      S11.1c · Amend · S
+Reads     DESIGN.md §6 (the Commit dropdown's third item), the Source Control design notes'
+          guardrail ("Amend is hidden once the commit is pushed")
+Depends   S11.1a (`push`, so there is an `ahead` count to hide the item behind)
+Files     crates/abstract-tex-git/src/lib.rs, src-tauri/src/commands.rs, src-tauri/src/lib.rs,
+          src/lib/ipc.ts, src/lib/git.svelte.ts, src/lib/controller.svelte.ts,
+          src/components/SourceControl.svelte
+Build     `git2::Commit::amend`: replace `HEAD`'s tree, message, author and committer, keeping its
+          parents exactly as they were — the one call that is amend rather than a second `commit`.
+
+          **No `NothingStaged` refusal.** `commit`'s refusal exists because an unstaged commit
+          would be a no-op; an amend with nothing staged is not a no-op, it is a reword, and a
+          reword is the whole reason the item exists. The one refusal that carries over is an
+          empty message — a commit, amended or not, is still a sentence about what changed.
+
+          **Hidden, not refused.** The crate itself has no opinion about whether `HEAD` has been
+          pushed; the guardrail is a pure function, `canAmend`, reading the same `ahead_behind`
+          the Sync button already reads — `ahead > 0` or no upstream at all means `HEAD` has
+          never reached a remote and amending it costs nothing; `ahead === 0` with an upstream
+          means it already has, and the item does not render rather than rendering disabled.
+          One function, because the Sync button and this guardrail would otherwise have to agree
+          twice about what `ahead_behind` means.
+Verify    cargo test -p abstract-tex-git; pnpm check && pnpm test
+Done when amending with a new message and nothing staged changes only the message, keeping the
+          same tree and the same parent; amending with something staged folds it into `HEAD`
+          rather than creating a second commit; an empty message is refused exactly like a plain
+          commit's; and the dropdown item is absent the moment `ahead` reads `0` against an
+          upstream, present the instant a new commit makes it `1` again.
+```
+
+**S11.1c (1 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 573 passed / 0
+failed (5 new, all in `abstract-tex-git`), clippy and `cargo doc --workspace -D warnings` clean;
+`pnpm check` 450 files / 0 errors, Vitest 511/511 (4 new: 2 for `canAmend`, 2 for the controller's
+`amendCommit`). `[~]` for the same reason S11.1b is: rung 4, the manual smoke pass, still needs a
+display this session cannot capture. What a reader should take from the diff:
+
+1. **One refusal, not two, and the missing one is the point.** `commit` refuses an unstaged
+   no-op; `amend` does not, because an amend with nothing staged is a reword, and a reword is the
+   entire reason the item exists. Writing `amend` by copying `commit` and deleting a line would
+   have been backwards — the line that is missing had to be decided on purpose, and a test pins
+   it: amending with nothing staged changes the message and leaves the tree alone.
+2. **Hidden, not refused, and reusing the question the Sync button already answers.**
+   `canAmend` and `hasSyncWork` both read `ahead_behind` and both have to agree on what "already
+   shared with a remote" means — `ahead > 0` or no upstream is safe, `ahead === 0` against a real
+   upstream is not. Two functions, not one, because they answer different questions about the
+   same fact (whether there is something to sync vs. whether `HEAD` itself has gone out), but
+   neither could change its reading of `ahead_behind` without the other needing to agree again.
+3. **`git2::Commit::amend` keeps the parents without being told to** — no parent list in its
+   signature at all, unlike `commit`'s explicit one. That absence is what makes it amend rather
+   than graft: a test commits twice and amends the second, and the first commit's id survives as
+   the amended commit's only parent.
+4. **S11.1b's caret button would have made *Amend* unreachable in the one case it exists for.**
+   It disabled on `canCommit` alone, which needs something staged — correct when the only two
+   items behind it both needed that, wrong the moment a third did not. Caught while wiring the
+   markup, before any test ran against it rather than by one: *Amend* would have been reachable
+   only when it was not needed. Fixed with `canOpenCommitMenu`, which opens the menu when *either*
+   a plain commit or an amend could do something, and the two commit-shaped items now carry their
+   own `disabled` rather than inheriting the caret's.
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,

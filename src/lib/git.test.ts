@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import type { BranchState, FileChange, GitStatus, ProseSummary } from './ipc';
 import {
   branchLabel,
+  canAmend,
   changedFileCount,
   hasSyncWork,
   letterFor,
@@ -133,6 +134,21 @@ describe('the Sync button (S11.1b)', () => {
     expect(syncOutcomeSentence({ kind: 'pushed', ahead: 3 })).toBe('Pushed 3 commits.');
     expect(syncOutcomeSentence({ kind: 'fastForwarded', behind: 1 })).toBe('Pulled 1 commit.');
     expect(syncOutcomeSentence({ kind: 'fastForwarded', behind: 2 })).toBe('Pulled 2 commits.');
+  });
+});
+
+describe('the Amend item (S11.1c)', () => {
+  it('is hidden once HEAD already reached a real upstream', () => {
+    expect(canAmend(branch({ aheadBehind: [0, 0] }))).toBe(false);
+    expect(canAmend(branch({ aheadBehind: [0, 3] }))).toBe(false);
+  });
+
+  it('is offered whenever HEAD has not reached the upstream, or there is none to reach', () => {
+    expect(canAmend(branch({ aheadBehind: [1, 0] }))).toBe(true);
+    expect(canAmend(branch({ aheadBehind: [2, 1] }))).toBe(true);
+    // No upstream at all: nothing has ever been shared, so amending costs nothing.
+    expect(canAmend(branch({ aheadBehind: null }))).toBe(true);
+    expect(canAmend(null)).toBe(true);
   });
 });
 

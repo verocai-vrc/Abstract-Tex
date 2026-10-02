@@ -134,6 +134,22 @@ export function hasSyncWork(branch: BranchState | null): boolean {
 }
 
 /**
+ * Whether the Commit dropdown's *Amend* item belongs on screen (S11.1c, the design's own
+ * guardrail: "Amend is hidden once the commit is pushed").
+ *
+ * Reads the same `ahead_behind` [`hasSyncWork`] does, because the two questions share an answer:
+ * `ahead > 0` or no upstream at all means `HEAD` has never reached a remote, and amending it costs
+ * nothing a `git push` would ever notice; `ahead === 0` against a real upstream means `HEAD` is
+ * already there, and rewriting it would diverge local history from a remote someone may have
+ * already pulled. Hidden rather than disabled: an item that only sometimes does what it says is
+ * worse than one that is not there.
+ */
+export function canAmend(branch: BranchState | null): boolean {
+  const drift = branch?.aheadBehind;
+  return !drift || drift[0] > 0;
+}
+
+/**
  * The sentence under the Sync button once it has run (S11.1b) — what `abstract_tex_git::sync`
  * decided, in words, rather than a generic "Synced."
  *
@@ -322,6 +338,9 @@ class GitState {
 
   /** Whether the *Sync Changes* button belongs on screen right now (S11.1b). */
   showSync = $derived(hasSyncWork(this.branch));
+
+  /** Whether the Commit dropdown's *Amend* item belongs on screen right now (S11.1c). */
+  showAmend = $derived(canAmend(this.branch));
 }
 
 export const git = new GitState();

@@ -576,6 +576,23 @@ export async function commitStaged(): Promise<void> {
   }
 }
 
+/**
+ * Replace `HEAD` with a new commit carrying the box's message and whatever is staged — the
+ * Commit dropdown's *Amend* (S11.1c). The panel only ever offers this when `git.showAmend` is
+ * true, so a call here is already believed safe; the refusal path is otherwise identical to a
+ * plain commit's.
+ */
+export async function amendCommit(): Promise<void> {
+  if (git.committing) return;
+  git.committing = true;
+  const amended = await runGitVerb(() => ipc.gitAmend(git.message));
+  git.committing = false;
+  if (amended !== null) {
+    git.message = '';
+    git.messageIsSuggested = true;
+  }
+}
+
 /** The shared shape of the Commit dropdown's *Commit & Push* and *Commit & Sync*: commit, and
  * only on success run `after` — a refused commit (no message, nothing staged, no identity) has
  * nothing to push or sync, and trying anyway would turn one refusal into two under the same box. */

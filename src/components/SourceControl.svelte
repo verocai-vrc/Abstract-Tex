@@ -8,6 +8,7 @@
   // not a Git repository — because an empty panel would look like a clean tree, which is a
   // different and much more reassuring thing than "nobody asked Git anything".
   import {
+    amendCommit,
     cancelGitHubSignIn,
     claimCommitMessage,
     commitAndPush,
@@ -78,8 +79,18 @@
    * the same branch a commit would move, and the two should not race. */
   const canCommit = $derived(git.status.staged.length > 0 && git.message.trim().length > 0 && !git.committing && !git.syncing);
 
-  /** The Commit button's dropdown (DESIGN.md §6: *Commit & Push*, *Commit & Sync*; *Amend* is a
-   * later loop). Closed by choosing an item, by Escape, or by clicking anywhere else. */
+  /** *Amend* (S11.1c) needs none of what `canCommit` needs staged: a reword with nothing staged
+   * is the whole reason the item exists. Only a message, `git.showAmend`'s own guardrail, and the
+   * same "nothing else is already running" check every verb here makes. */
+  const canAmendNow = $derived(git.showAmend && git.message.trim().length > 0 && !git.committing && !git.syncing);
+
+  /** The dropdown opens if either of its two commit-shaped items could actually do something —
+   * otherwise a caret that opens onto two disabled rows would be worse than one that does not
+   * open at all. */
+  const canOpenCommitMenu = $derived(canCommit || canAmendNow);
+
+  /** The Commit button's dropdown (DESIGN.md §6: *Commit & Push*, *Commit & Sync*, *Amend*).
+   * Closed by choosing an item, by Escape, or by clicking anywhere else. */
   let commitMenuOpen = $state(false);
 
   function runCommitMenuItem(action: () => Promise<void>) {
@@ -263,11 +274,9 @@
         <button class="primary commit-main" disabled={!canCommit} onclick={() => void commitStaged()}>
           {git.committing ? 'Committing…' : 'Commit'}
         </button>
-        <!-- S11.1b: Amend is a later loop (it needs its own crate work, not just a button) — the
-             design's third dropdown item, so it is left out rather than wired to nothing. -->
         <button
           class="primary commit-caret"
-          disabled={!canCommit}
+          disabled={!canOpenCommitMenu}
           aria-label="More commit actions"
           aria-haspopup="menu"
           aria-expanded={commitMenuOpen}
@@ -278,11 +287,22 @@
         {#if commitMenuOpen}
           <ul class="commit-menu" role="menu">
             <li role="none">
-              <button role="menuitem" onclick={() => runCommitMenuItem(commitAndPush)}>Commit &amp; Push</button>
+              <button role="menuitem" disabled={!canCommit} onclick={() => runCommitMenuItem(commitAndPush)}>
+                Commit &amp; Push
+              </button>
             </li>
             <li role="none">
-              <button role="menuitem" onclick={() => runCommitMenuItem(commitAndSync)}>Commit &amp; Sync</button>
+              <button role="menuitem" disabled={!canCommit} onclick={() => runCommitMenuItem(commitAndSync)}>
+                Commit &amp; Sync
+              </button>
             </li>
+            {#if git.showAmend}
+              <!-- S11.1c: hidden rather than disabled once HEAD is already pushed — the design's
+                   own guardrail, and the reason this item is not simply always here. -->
+              <li role="none">
+                <button role="menuitem" disabled={!canAmendNow} onclick={() => runCommitMenuItem(amendCommit)}>Amend</button>
+              </li>
+            {/if}
           </ul>
         {/if}
       </div>

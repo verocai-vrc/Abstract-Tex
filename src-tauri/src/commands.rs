@@ -663,6 +663,19 @@ pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -
     Ok(id)
 }
 
+/// Replace `HEAD` with a new commit carrying `message` and whatever is staged — the Commit
+/// dropdown's *Amend* (S11.1c). Disk-only, like `git_commit`, so this needs no `spawn_blocking`.
+///
+/// The panel is what decides whether this item is even offered — `canAmend` in `git.svelte.ts`,
+/// reading the same `ahead_behind` the Sync button does — so a call that reaches here at all is
+/// already believed safe; nothing about "already pushed" is checked again on this side.
+#[tauri::command]
+pub fn git_amend(app: AppHandle, state: State<'_, AppState>, message: String) -> CommandResult<String> {
+    let id = git::in_repository(&state, |repository| abstract_tex_git::amend(repository, &message))?;
+    git::emit_status_changed(&app);
+    Ok(id)
+}
+
 /// What has changed since the last commit, in a writer's units (S10.3c).
 ///
 /// Numbers and section names; the sentence the commit box is filled with is the frontend's, the
