@@ -15,6 +15,19 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **S9.9's draft PDF was probably never loadable in the PDF pane: it sits outside the only folder
+  the asset protocol was allowed to serve.** (2 Oct 2026, found reading `open_project` while
+  building S11.4c) `open_project` allowed `.abstract-tex/build/` and nothing else, and
+  `tauri.conf.json`'s own scope is empty. A draft is written to `.abstract-tex/draft/build/main.pdf`,
+  so the pane's `asset://` request for it would be refused. The status bar would still say
+  "showing a draft", over a PDF that never arrived. Never seen, because S9.9's rung 4 was never
+  walked, and every test of the draft stops at the event. S11.4c's comparison PDF, under
+  `.abstract-tex/latexdiff/`, would have hit the same wall.
+  **Fix landed in S11.4c (2 Oct 2026):** the scope is now the whole `.abstract-tex/` folder
+  (`Project::state_dir`), which holds nothing the author wrote. **Still Open** until a draft is
+  actually seen on screen: the Windows smoke campaign after S11.4d checks it (`fixtures/thesis`,
+  edit a chapter, watch for the draft).
+
 - **A server-side push rejection (`GitError::PushRejected`) has never actually been triggered by a
   test.** (1 Oct 2026, S11.1a) `push`'s `push_update_reference` callback is where libgit2 reports
   a refusal a real server makes — a GitHub branch protection rule, a pre-receive hook — as opposed

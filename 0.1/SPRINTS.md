@@ -5317,6 +5317,53 @@ Done when a live build and a diff build requested together both finish, neither 
           `.abstract-tex/latexdiff/`.
 ```
 
+**S11.4c (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 602 passed (10
+new) / 0 failed, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo doc --workspace
+--no-deps` and `pnpm check` (453 files, 0 errors) clean, Vitest 529/529. Two commits, on the S6.1
+precedent, because one would have been ~710 lines of Rust: `4ae6642` plans a comparison (the git
+helpers, the order of refusals, the one folder), the second adds the lane, the command and the
+event. `[~]` because the card's last verify line is owed: no real `latexdiff` has compiled a real
+comparison yet. This machine has none (the design interview's C6 install is the maintainer's), so
+the whole path has only been proven up to the export, and through the fakes S11.4b built. Rung 4
+belongs to the Windows smoke campaign after S11.4d. What a reader should take from the diff:
+
+1. **Two `Orchestrator`s, not one with an exception.** `compile.rs`'s rule was left exactly as it
+   was; the diff lane is the same struct constructed a second time, and the one test that matters
+   (`the_diff_lane_and_the_live_lane_never_cancel_each_other`) needs no fake of its own beyond a
+   sleeping engine. The one addition to `compile.rs` is `cancel_and_wait`, which the card did not
+   foresee. `cancel` only *asks* an engine to stop, and a comparison about to delete the folder
+   the previous one is still compiling from needs it gone. On Windows, a file another process has
+   open cannot be deleted at all.
+2. **The race the card did not see, and why the lock moved.** The first version locked only the
+   export step. Self-review found the gap: comparison A could pass its "am I still the latest"
+   check, and before A had asked for its compile, comparison B could start clearing folders,
+   deleting the files A's build was about to read. The fix serialises the *whole* comparison
+   behind one `tokio::sync::Mutex`. It has to be Tokio's, because it is held across `.await`s,
+   which a `std` lock must never be. That is also why the flow lives in `latexdiff.rs` and not in
+   the command, whose module rule forbids exactly that. A `Ticket` handles the other half:
+   exporting cannot be cancelled halfway, so a comparison that was asked for again while it
+   waited, or while it rendered, stops without compiling. A test drives three comparisons through
+   one lock to prove it.
+3. **A project in a subfolder of its repository** (`abstract_tex_git::open` discovers upward,
+   S10.1) would have been compared at the wrong path: a commit's tree spells the root file from
+   the repository's top. `plan` works out the prefix, and the engine runs in `new/<prefix>/`.
+   Found by asking where `export_tree` actually puts things, not by a failure.
+4. **Smaller departures from the card, each for a reason.** `abstract-tex-git` gained
+   `older_first` beside `has_path`, ancestry first and time as the fallback: two commits made in
+   the same second have the same timestamp, and so does every pair a test makes. Nothing in the
+   app can tell MiKTeX from TeX Live, so the Perl clause is added on every Windows machine and
+   names both distributions. The command answers `ready` at once for a pair whose PDF is still on
+   disk, and `superseded`, never an error, for a replaced one.
+5. **A bug found on the way, in S9.9, logged before fixing:** the asset protocol only ever
+   allowed `.abstract-tex/build/`, so the draft PDF under `draft/` was probably refused all
+   along, unseen because S9.9's rung 4 was never walked. Widening the scope to `.abstract-tex/`
+   fixes both; the ledger entry stays open until a draft is seen on screen.
+
+**For S11.4d, from this loop:** take `compare_revisions`' answer only for the latest request;
+show a `compile-diff` event only when its generation is that answer's; and treat the diff build's
+diagnostics as the comparison's — their files (`main.tex`) name the export, not the author's tabs,
+and must never be matched to one.
+
 ```
 Loop      S11.4d · Click two Graph rows, read the marked-up PDF · M
 Reads     DESIGN.md §5.7, §6 (*Review changes* row), §2 rules 3 and 5; design-interview.md A4,

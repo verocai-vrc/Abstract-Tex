@@ -88,6 +88,17 @@ export type CompileEvent =
   | { status: 'draft'; generation: number; chapter: string; pdfPath: string; durationMs: number }
   | { status: 'failed'; generation: number; message: string };
 
+/** S11.4c: what `compare_revisions` answers with at once (`src-tauri/src/latexdiff.rs`). The
+ * compile itself then reports as `compile-diff` events in `CompileEvent`'s shape — only those
+ * carrying the `generation` given here belong to this comparison; ignore every other one. `older`
+ * and `newer` are full commit ids, always in that order, whatever order the rows were clicked. */
+export type ComparisonStarted =
+  /** The same pair was compared last time and its PDF is still there. */
+  | { status: 'ready'; older: string; newer: string; pdfPath: string }
+  | { status: 'building'; older: string; newer: string; generation: number }
+  /** A newer comparison was asked for while this one was exporting: say nothing. */
+  | { status: 'superseded' };
+
 /** Anything the language server says without being asked (`src-tauri/src/lsp.rs`).
  *
  * `method` and `params` are LSP's own, passed through untouched: Rust owns the process and the
@@ -542,16 +553,28 @@ export const ipc = {
    * other verb uses. */
   gitTrackWithLfs: (paths: string[]) => invoke<void>('git_track_with_lfs', { paths }),
 
+  /** S11.4c: compare two commits as a marked-up PDF, in a build lane of its own that never
+   * cancels, or is cancelled by, a live build. Rejects with a sentence — `latexdiff` missing, or
+   * a commit without the root file — before anything is written. */
+  compareRevisions: (a: string, b: string) => invoke<ComparisonStarted>('compare_revisions', { a, b }),
+  /** S11.4c: copy that pair's PDF to a path the author picked in the save dialog. */
+  saveComparisonPdf: (older: string, newer: string, destination: string) =>
+    invoke<void>('save_comparison_pdf', { older, newer, destination }),
+
   /** Open a URL in the person's own browser (`tauri-plugin-opener`). A webview link cannot do
    * this by itself, which is why sign-in needs it — and why every caller also shows the URL as
    * text, so a machine where this fails is not a machine where the task is impossible (rule 6). */
   openInBrowser: (url: string) => openUrl(url),
 
-  /** A URL the webview may fetch for a file inside an allowed scope (the build folder). */
+  /** A URL the webview may fetch for a file inside the allowed scope: the project's
+   * `.abstract-tex/` folder, where the live build, S9.9's draft and S11.4c's comparison all are. */
   assetUrl: (absolutePath: string) => convertFileSrc(absolutePath),
 
   onCompile: (handler: (event: CompileEvent) => void): Promise<UnlistenFn> =>
     listen<CompileEvent>('compile', (e) => handler(e.payload)),
+  /** S11.4c: a comparison's compile, in the live build's own event shape but a lane of its own. */
+  onCompileDiff: (handler: (event: CompileEvent) => void): Promise<UnlistenFn> =>
+    listen<CompileEvent>('compile-diff', (e) => handler(e.payload)),
   onFsChanged: (handler: (event: FsEvent) => void): Promise<UnlistenFn> =>
     listen<FsEvent>('fs:changed', (e) => handler(e.payload)),
   onLsp: (handler: (event: LspEvent) => void): Promise<UnlistenFn> =>

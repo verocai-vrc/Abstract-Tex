@@ -328,6 +328,21 @@ impl Orchestrator {
             token.cancel();
         }
     }
+
+    /// Cancel the running build and wait until it has actually stopped (S11.4c). `cancel` only
+    /// *asks*; a comparison about to delete the folder the previous one is still building from
+    /// needs the engine gone first — on Windows, a file another process has open cannot be
+    /// deleted at all. Taking the task out of `last_task` is safe: once it has been awaited here,
+    /// the next `request` has nothing left to wait for.
+    pub async fn cancel_and_wait(&self) {
+        self.cancel();
+        // The guard is a temporary of this one statement, so it is dropped before the `.await`
+        // below: a `std::sync::Mutex` must never be held across one.
+        let previous_task = self.inner.last_task.lock().unwrap().take();
+        if let Some(previous_task) = previous_task {
+            let _ = previous_task.await;
+        }
+    }
 }
 
 /// Write the draft's wrapper and seed its folder, or say why not in the debug log. `None` is the

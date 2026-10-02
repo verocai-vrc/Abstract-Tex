@@ -3,7 +3,7 @@
 //! Module map (each module's own doc comment says what it owns and must never do):
 //! - [`project`]  — a folder on disk: file tree, root `.tex` detection, `abstract-tex.toml`.
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
-//! - [`latexdiff`] — change review between two commits: planning one, and its folder.
+//! - [`latexdiff`] — change review between two commits: the diff lane and its folder.
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
 //! - [`git`]      — which repository the open project is in, for the Source Control view.
@@ -38,6 +38,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::compile::Orchestrator;
 use crate::github::GitHubSession;
+use crate::latexdiff::DiffLane;
 use crate::lsp::LspSession;
 use crate::project::Project;
 use crate::watcher::{ProjectWatcher, WrittenHashes};
@@ -52,6 +53,8 @@ pub struct AppState {
     pub project: Mutex<Option<Project>>,
     /// Runs builds. Constructed once with whatever engine was found at startup.
     pub orchestrator: Orchestrator,
+    /// Runs change-review builds (S11.4c), beside the live ones and never in their way.
+    pub diff_lane: DiffLane,
     /// Keeps the watcher alive; dropping it stops watching.
     pub watcher: Mutex<Option<ProjectWatcher>>,
     /// Content hashes of files *we* wrote, so the watcher can tell our writes from external ones.
@@ -76,7 +79,8 @@ impl AppState {
         };
         Self {
             project: Mutex::new(None),
-            orchestrator: Orchestrator::new(engine),
+            orchestrator: Orchestrator::new(engine.clone()),
+            diff_lane: DiffLane::new(engine),
             watcher: Mutex::new(None),
             written: WrittenHashes::default(),
             lsp: LspSession::default(),
@@ -156,6 +160,8 @@ pub fn run() {
             commands::git_sync,
             commands::git_large_files,
             commands::git_track_with_lfs,
+            commands::compare_revisions,
+            commands::save_comparison_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Abstract-Tex window");

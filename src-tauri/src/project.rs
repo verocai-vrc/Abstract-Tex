@@ -182,6 +182,12 @@ impl Project {
         self.root_dir.join(STATE_DIR).join(LATEXDIFF_SUBDIR)
     }
 
+    /// Everything the app writes for this project, and nothing the author wrote: the only folder
+    /// the PDF pane is allowed to load from (`open_project`).
+    pub fn state_dir(&self) -> PathBuf {
+        self.root_dir.join(STATE_DIR)
+    }
+
     /// The root `.tex`, relative to the project. Configured value first, detection second.
     pub fn root_file(&self) -> Option<PathBuf> {
         if let Some(configured) = &self.config.project.root {

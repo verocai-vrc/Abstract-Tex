@@ -18,6 +18,7 @@ use crate::bibliography::{self, BibliographyIndex, Finding};
 use crate::compile::CompileEvent;
 use crate::consent::ShellEscapeConsent;
 use crate::git;
+use crate::latexdiff::{self, ComparisonRequest, ComparisonStarted};
 use crate::lsp::LspEvent;
 use crate::project::{write_atomically, Project, ProjectInfo};
 use crate::synctex::{self, ForwardQuery, ForwardResult, InverseQuery, InverseResult};
@@ -84,9 +85,11 @@ pub async fn engine_info(state: State<'_, AppState>) -> CommandResult<Option<Eng
 pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<ProjectInfo> {
     let mut project = Project::open(Path::new(&path)).map_err(to_message)?;
 
-    // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope.
+    // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope. The
+    // whole state folder rather than `build/` alone: S9.9's draft PDF is under `draft/` and
+    // S11.4c's comparison under `latexdiff/`, and with only `build/` allowed neither could load.
     app.asset_protocol_scope()
-        .allow_directory(project.build_dir(), true)
+        .allow_directory(project.state_dir(), true)
         .map_err(to_message)?;
 
     let emitter = app.clone();
@@ -113,6 +116,8 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
     // Each project builds with the engine it asks for (S9.4); a running build of the previous
     // project finishes on the engine it started with.
     let (engine, engine_notice) = crate::compile::engine_for(project.config.project.engine.as_deref());
+    // Both lanes: a comparison compiles with the project's own engine too (design interview A2).
+    state.diff_lane.orchestrator.set_engine(engine.clone());
     state.orchestrator.set_engine(engine);
     info.engine_notice = engine_notice;
     // Replace the old watcher *after* the new one exists, so there is never a gap.
@@ -836,6 +841,59 @@ pub async fn git_track_with_lfs(app: AppHandle, state: State<'_, AppState>, path
     crate::lfs::track(&root, &paths).await.map_err(to_message)?;
     git::emit_status_changed(&app);
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// S11.4c: change review between two commits, compiled (DESIGN.md §5.7).
+// ---------------------------------------------------------------------------------------------
+
+/// Compare two commits as a marked-up PDF. `a` and `b` are full commit ids in the order the
+/// author clicked them; the comparison is always older → newer.
+///
+/// Every refusal comes back as this command's error, in a sentence, before anything is written:
+/// no `latexdiff`, no root file in one of the two commits. The compile itself then reports as
+/// `compile-diff` events with the generation this returns. No snapshot here, unlike `compile` —
+/// a marked-up document is not a recoverable state of anything the author wrote.
+#[tauri::command]
+pub async fn compare_revisions(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    consent: State<'_, ShellEscapeConsent>,
+    a: String,
+    b: String,
+) -> CommandResult<ComparisonStarted> {
+    let request = with_project(&state, |project| {
+        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("This project has no root .tex file to compare."))?;
+        Ok(ComparisonRequest {
+            project_dir: project.root_dir.clone(),
+            root_file,
+            latexdiff_dir: project.latexdiff_dir(),
+            shell_escape: consent.allows(&project.root_dir),
+            a,
+            b,
+        })
+    })?;
+    latexdiff::compare(&state.diff_lane, request, move |event| {
+        let _ = app.emit(latexdiff::COMPILE_DIFF, event);
+    })
+    .await
+}
+
+/// Copy the comparison of `older` and `newer` to `destination`, a path the author just picked in
+/// the save dialog (design interview A9). Named by its pair rather than "whatever is showing", so
+/// a comparison replaced while the dialog was open can never be saved under the other one's name.
+#[tauri::command]
+pub fn save_comparison_pdf(state: State<'_, AppState>, older: String, newer: String, destination: String) -> CommandResult<()> {
+    let (latexdiff_dir, root_file) = with_project(&state, |project| {
+        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
+        Ok((project.latexdiff_dir(), root_file))
+    })?;
+    let dirs = latexdiff::ComparisonDirs::new(&latexdiff_dir, latexdiff::parse_commit(&older)?, latexdiff::parse_commit(&newer)?);
+    let pdf = dirs.pdf(&root_file);
+    if !pdf.is_file() {
+        return Err("That comparison is no longer on disk; compare the two commits again, then save.".into());
+    }
+    std::fs::copy(&pdf, &destination).map(|_| ()).map_err(to_message)
 }
 
 #[cfg(test)]
