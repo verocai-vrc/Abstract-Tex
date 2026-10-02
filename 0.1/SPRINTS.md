@@ -4724,6 +4724,96 @@ display this session cannot capture. What a reader should take from the diff:
    a plain commit or an amend could do something, and the two commit-shaped items now carry their
    own `disabled` rather than inheriting the caret's.
 
+**S11.2 splits the same way S11.1 did, 1 October 2026** — the real shape of "conflicts as two
+paragraphs" only showed up once the first half was looked at closely: a genuine three-way merge,
+with libgit2's own merge engine, has to exist before there is anything for a conflict view to
+read, and that half needs no Tauri and no screen. S11.2a is below; the view itself — parsing a
+conflict into paragraphs, the choice, writing the resolution back — is carded when it starts,
+after a design question only the maintainer can settle (how much of each paragraph is editable,
+and where the view lives) is put to them.
+
+```
+Loop      S11.2a · Real merges, in the git crate · L
+Reads     DESIGN.md §5.7 ("Conflicts are shown as prose, not as markers... not as `<<<<<<<` in
+          the buffer"), §7's v0.6 exit demo ("deliberately induce a merge conflict... and resolve
+          it without ever seeing a `<<<<<<<`")
+Depends   S11.1a (`sync`, whose `Diverged` refusal this replaces with the real thing)
+Files     crates/abstract-tex-git/src/lib.rs
+Build     `sync`'s diverged arm stops refusing and calls `Repository::merge` — libgit2's own
+          three-way merge, the same engine `git merge` itself calls, not a hand-rolled one. A
+          clean result (no conflicts) is committed and pushed in the same breath, finishing
+          §5.7's "commit, pull, rebase, push" as one verb; a genuine conflict is left exactly as
+          a terminal `git merge` would leave it — real conflict markers in the working-tree
+          files, a real `MERGE_HEAD` and `MERGE_MSG` — because a future conflict view reading
+          anything *other* than what `git status` already agrees on would be the "two kinds of
+          Git" S10.2's own design notes were written to rule out.
+
+          **`commit` learns one new fact: whether it is finishing a merge.** `repository.state()
+          == Merge` means `HEAD`'s new commit needs two parents, not one — its own and whatever
+          `MERGE_HEAD` names — and the `NothingStaged` refusal does not apply, because a merge
+          commit can have an identical tree to `HEAD` and still be real (nothing further changed,
+          but the two histories are still joined). This is deliberately the *same* function the
+          Commit button already calls, not a second "finish merge" button: an author who has
+          fixed every conflict and pressed Stage on each file presses the one button they already
+          know, exactly as plain `git commit` finishes a merge with no flag of its own.
+
+          **Resolving a conflict needed no new verb.** A conflicted index entry has three stages
+          (ancestor, ours, theirs) and no plain one; `stage`, unchanged since S10.2a, replaces all
+          three with a single entry built from whatever the working-tree file now contains. Fix
+          the file — by hand, or by the view S11.2b has not been carded yet — and the existing
+          Stage button is the resolution. Nothing here had to be taught about conflicts at all.
+
+          **One new refusal.** `commit` while `index.has_conflicts()` is true, before even
+          looking at `repository.state()`: a stray conflicted path outside a merge is not
+          something to build a tree out of and call finished.
+Verify    cargo test -p abstract-tex-git
+Done when two local repositories sharing a bare remote, each committing a different file, sync
+          to a clean merge commit with two parents that reaches the remote with no conflict; the
+          same two repositories each editing the same line sync to real conflict markers, a real
+          `MERGE_HEAD`, and `Conflicted` rather than an error; writing the resolved text and
+          staging it the ordinary way, then committing, produces a two-parent commit and leaves
+          `repository.state()` `Clean` again; and committing while anything is still conflicted
+          is refused by name.
+```
+
+**S11.2a (1 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 576 passed / 0
+failed (4 new net: 4 added, 1 removed — the old `Diverged` test no longer describes what `sync`
+does and was replaced rather than kept alongside a dead error variant), clippy and `cargo doc
+--workspace -D warnings` clean. `[~]`: no rung 4, same as every crate-only loop this sprint — and
+no rung 3 either this time, because this loop's whole subject is a real merge, and the fixture
+tests already check it against real conflict markers and a real `MERGE_HEAD`, which is as real as
+this gets without a second machine. What a reader should take from the diff:
+
+1. **`Repository::merge` is the same engine `git merge` calls, and that was the point of reaching
+   for it instead of writing one.** §5.7's "Conflicts are shown as prose, not as markers" is a
+   promise about a view that does not exist yet (S11.2b); what this loop owes it is a merge that
+   behaves exactly like real Git while nothing is looking, so that whatever reads it later —
+   `git status` in a terminal, or the conflict view once it exists — reads the same true thing.
+   Hand-rolling a three-way text merge would have been a second, worse implementation of
+   something libgit2 already gets right.
+2. **A clean merge and a conflicted one are not two different features — they are what `merge`
+   decides, after the fact.** `Repository::merge` always checks its result out to the working
+   tree before this function ever asks whether there is a conflict; there is no earlier point at
+   which markers could have been kept off disk even if that had been the goal. Which branch runs
+   is decided by `index.has_conflicts()`, read once, after the one call that does the actual work.
+3. **`commit` learned to finish a merge rather than growing a sibling.** The Commit button an
+   author already knows is the same function `sync`'s own clean merges call and the same one an
+   author presses after resolving by hand — `repository.state() == Merge` adds `MERGE_HEAD`'s
+   commits to the parent list and skips the `NothingStaged` refusal (a merge can have nothing left
+   to change and still be real), then cleans the state up once the commit lands. A second "finish
+   merge" button would have been a second thing to teach, for no behaviour Git does not already
+   give the first one for free.
+4. **Resolving a conflict needed nothing new at all.** A conflicted index entry carries three
+   stages and no plain one; `stage`, exactly as S10.2a wrote it, replaces all three with a single
+   entry built from whatever the working-tree file currently holds. The test for this fixes the
+   file with a plain `fs::write` and calls the existing `stage` — not a new function pretending to
+   be one.
+5. **`MERGE_HEAD` is read with a file, not `git2::Repository::mergehead_foreach`.** That method
+   needs `&mut Repository`, and every verb in this crate is handed a shared `&Repository` —
+   `git.rs`'s own rule, so that no command has to reason about who else might be touching the
+   repository at the same moment. `MERGE_HEAD` is one SHA per line by Git's own documented format,
+   plain enough that reading it by hand costs less than the signature change would have.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
@@ -4746,7 +4836,8 @@ due mid-sprint, once Amend turned out to be its own crate work rather than a fla
 button): push, fetch and the sync decision need no account and no window; the button that calls
 them needs both; Amend needs `git2`'s own amend and tests of its own ·
 S11.2 conflicts
-as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
+as two paragraphs — **split into S11.2a above, expanded 1 October 2026**, and the view itself
+(S11.2b), carded once the maintainer has settled what it looks like · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
 graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
 as a CodeMirror merge view, which is what §6's "a click opens a diff" finally means (deferred
 from S10.3a, 29 September 2026: a row that opened a half-built diff is worse than one that opens

@@ -62,6 +62,12 @@ pub enum GitError {
     #[error("There is no commit yet to amend.")]
     NothingToAmend,
 
+    /// S11.2a: `commit` while the index still has a conflicted path in it. Checked before
+    /// `repository.state()` even, because a stray conflict outside a merge is still not
+    /// something to build a tree out of and call finished.
+    #[error("There are unresolved conflicts. Resolve them, then commit.")]
+    UnresolvedConflicts,
+
     /// S10.5a: `git init` inside a folder that is already in a repository. Names what was found,
     /// because the answer depends on which repository it is — often one the author forgot they
     /// had, occasionally a monorepo where the paper is meant to live.
@@ -83,15 +89,6 @@ pub enum GitError {
     /// `Result` — this is that callback's message, turned into a refusal a caller can match on.
     #[error("The remote refused the push: {0}")]
     PushRejected(String),
-
-    /// S11.1a: the branch and its remote have each moved since they last agreed. Combining them
-    /// safely needs the conflict surface S11.2 has not built yet, so `sync` refuses rather than
-    /// guessing, and changes nothing on disk.
-    #[error(
-        "Both your computer and the remote have commits the other does not. Combining them \
-         isn't supported here yet — use `git pull` and `git push` from a terminal."
-    )]
-    Diverged { ahead: usize, behind: usize },
 }
 
 /// What one changed file is, in the words the row in the view uses.
@@ -470,31 +467,56 @@ fn shorthand_of(full: &str) -> String {
 
 /// Commit whatever is staged.
 ///
-/// Two refusals, both because the panel makes the mistake easy and neither is fixed by pressing
-/// the button again: an empty message, and a commit that would change nothing. The identity is
-/// the repository's own `user.name`/`user.email`; when Git has none, this is
-/// [`GitError::NoIdentity`] rather than a commit signed by a stand-in, because a history
-/// attributed to "Abstract-Tex" is worse than one commit that did not happen yet.
+/// Three refusals, all because the panel makes the mistake easy and none of them is fixed by
+/// pressing the button again: an empty message, a commit that would change nothing, and —
+/// S11.2a — anything still conflicted. The identity is the repository's own
+/// `user.name`/`user.email`; when Git has none, this is [`GitError::NoIdentity`] rather than a
+/// commit signed by a stand-in, because a history attributed to "Abstract-Tex" is worse than one
+/// commit that did not happen yet.
+///
+/// **This is also how a merge finishes (S11.2a).** `sync`'s own clean merges call this function
+/// rather than duplicating it, and so does an author who has resolved every conflict and staged
+/// each file — the same button, with no "finish merge" of its own, exactly as plain `git commit`
+/// needs no flag to end a merge either.
 pub fn commit(repository: &Repository, message: &str) -> Result<String, GitError> {
     let message = message.trim();
     if message.is_empty() {
         return Err(GitError::EmptyMessage);
     }
-    let who = repository.signature().map_err(|_| GitError::NoIdentity)?;
-
     let mut index = repository.index()?;
+    if index.has_conflicts() {
+        return Err(GitError::UnresolvedConflicts);
+    }
+    let who = repository.signature().map_err(|_| GitError::NoIdentity)?;
     let tree_id = index.write_tree()?;
     let tree = repository.find_tree(tree_id)?;
 
     let parent = repository.head().ok().and_then(|head| head.peel_to_commit().ok());
-    if parent.as_ref().is_some_and(|commit| commit.tree_id() == tree_id) {
+    let merging = repository.state() == git2::RepositoryState::Merge;
+    if !merging && parent.as_ref().is_some_and(|commit| commit.tree_id() == tree_id) {
         return Err(GitError::NothingStaged);
     }
-    let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
+    let mut parents: Vec<git2::Commit<'_>> = parent.into_iter().collect();
+    if merging {
+        // `MERGE_HEAD` can name more than one commit (an octopus merge), though `sync` only ever
+        // starts one; read whatever is actually there rather than assuming. A plain file read,
+        // not `git2`'s own `mergehead_foreach`, because that needs `&mut Repository` and every
+        // verb in this crate is handed a shared `&Repository` (`git.rs`'s own rule, so that no
+        // command ever has to decide who else might be touching the repository at the same time).
+        let contents = std::fs::read_to_string(repository.path().join("MERGE_HEAD")).unwrap_or_default();
+        for line in contents.lines() {
+            let id = git2::Oid::from_str(line.trim())?;
+            parents.push(repository.find_commit(id)?);
+        }
+    }
+    let parent_refs: Vec<&git2::Commit<'_>> = parents.iter().collect();
 
     // `Some("HEAD")` here, unlike the snapshot crate's `None`: this *is* the author's own commit,
     // and it is supposed to move their branch.
-    let id = repository.commit(Some("HEAD"), &who, &who, message, &tree, &parents)?;
+    let id = repository.commit(Some("HEAD"), &who, &who, message, &tree, &parent_refs)?;
+    if merging {
+        repository.cleanup_state()?;
+    }
     Ok(id.to_string())
 }
 
@@ -867,6 +889,14 @@ pub enum SyncOutcome {
     Pushed { ahead: usize },
     /// Remote commits were fast-forwarded in. Nothing local was waiting to go out.
     FastForwarded { behind: usize },
+    /// S11.2a: both sides had moved, libgit2's merge resolved every file on its own, and the
+    /// result was committed and pushed in the same breath.
+    Merged,
+    /// S11.2a: both sides had moved and at least one file could not be merged automatically.
+    /// Real conflict markers are in the working tree and a real `MERGE_HEAD` is set, the same
+    /// state a terminal `git merge` would leave — `status`'s own `conflicted` list already names
+    /// which files, so this carries nothing further.
+    Conflicted,
 }
 
 /// The branch `HEAD` is on, or [`GitError::NoBranch`] for a detached `HEAD` or a repository with
@@ -988,8 +1018,8 @@ fn fast_forward(repository: &Repository, branch_name: &str, target: git2::Oid) -
 /// dropdown asks for both on their own: `push` alone is *Commit & Push* (an author who knows where
 /// this is going); this function is *Commit & Sync* and the standalone *Sync Changes ↑n ↓m*
 /// button (an author who does not want to think about it). A branch and its remote that have each
-/// moved since they last agreed is refused rather than merged — that needs the conflict surface
-/// S11.2 builds, not this loop guessing at one.
+/// moved since they last agreed is merged with libgit2's own three-way merge (S11.2a) rather than
+/// refused — cleanly if it can be, left as a real conflict for the author if it cannot.
 pub fn sync(repository: &Repository, token: Option<&str>) -> Result<SyncOutcome, GitError> {
     let branch_name = current_branch(repository)?;
     let local = repository.head()?.target().ok_or(GitError::NoBranch)?;
@@ -1015,8 +1045,34 @@ pub fn sync(repository: &Repository, token: Option<&str>) -> Result<SyncOutcome,
             fast_forward(repository, &branch_name, remote_target)?;
             Ok(SyncOutcome::FastForwarded { behind })
         }
-        (ahead, behind) => Err(GitError::Diverged { ahead, behind }),
+        (_, _) => merge(repository, remote_target, token),
     }
+}
+
+/// The diverged case: a real three-way merge, libgit2's own — the same engine `git merge` itself
+/// calls, not a hand-rolled one.
+///
+/// `Repository::merge` always checks the result out to the working tree, whether it resolved
+/// cleanly or not — there is no in-between step where this function could decide to hide a
+/// conflict marker from disk even if it wanted to. A clean result is finished by `commit`, the
+/// very function the Commit button already calls, and pushed back in the same breath; a
+/// conflicted one is left exactly as a terminal `git merge` would leave it, because a future
+/// conflict view reading anything other than what `git status` already agrees on would be two
+/// kinds of Git disagreeing with each other.
+fn merge(repository: &Repository, their_target: git2::Oid, token: Option<&str>) -> Result<SyncOutcome, GitError> {
+    let their_commit = repository.find_annotated_commit(their_target)?;
+    repository.merge(&[&their_commit], None, None)?;
+
+    if repository.index()?.has_conflicts() {
+        return Ok(SyncOutcome::Conflicted);
+    }
+
+    // libgit2 writes `MERGE_MSG` itself as part of `merge`, above — the same sentence `git commit`
+    // would default to ("Merge branch 'origin/main'..."), read back rather than invented again.
+    let message = repository.message().unwrap_or_else(|_| format!("Merge {ORIGIN} into the local branch"));
+    commit(repository, &message)?;
+    push(repository, token)?;
+    Ok(SyncOutcome::Merged)
 }
 
 /// How many commits reach `to` and not `from` — `None` for "the whole history", which is what a
@@ -1670,23 +1726,95 @@ mod tests {
         assert_eq!(bare_tip(bare.path(), &branch), local_head);
     }
 
-    /// The card's fourth done-when: both sides moved, `sync` refuses by name, and nothing on
-    /// either side is touched — no partial push, no partial merge.
+    // -----------------------------------------------------------------------------------------
+    // S11.2a: real merges.
+    // -----------------------------------------------------------------------------------------
+
+    /// Both sides moved but touched different files: libgit2 merges them with no conflict, and
+    /// `sync` finishes the merge commit itself and pushes it on in the same call — §5.7's
+    /// "commit, pull, rebase, push" as one verb, all the way through.
     #[test]
-    fn syncing_when_both_sides_have_moved_refuses_and_changes_nothing() {
+    fn syncing_a_clean_divergence_merges_and_pushes_it_on() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        let remote_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
-        fs::write(tmp.path().join("notes.tex"), "a local addition\n").unwrap();
+        let remote_commit = commit_into_bare(bare.path(), &branch, "notes.tex", "a coauthor's notes\n", "coauthor");
+        fs::write(tmp.path().join("chapter.tex"), "a local chapter\n").unwrap();
         commit_all(&repository, "local edit");
         let local_head = repository.head().unwrap().target().unwrap();
 
-        let error = sync(&repository, None).unwrap_err();
+        let outcome = sync(&repository, None).unwrap();
 
-        assert!(matches!(error, GitError::Diverged { ahead: 1, behind: 1 }), "{error:?}");
-        assert_eq!(repository.head().unwrap().target(), Some(local_head), "the local branch moved");
-        assert_eq!(bare_tip(bare.path(), &branch), remote_commit, "the remote branch moved");
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n");
+        assert_eq!(outcome, SyncOutcome::Merged);
+        let merged = repository.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(merged.parent_count(), 2, "a merge commit has both parents");
+        assert!(merged.parent_ids().any(|id| id == local_head));
+        assert!(merged.parent_ids().any(|id| id == remote_commit));
+        assert_eq!(fs::read_to_string(tmp.path().join("notes.tex")).unwrap(), "a coauthor's notes\n");
+        assert_eq!(fs::read_to_string(tmp.path().join("chapter.tex")).unwrap(), "a local chapter\n");
+        assert_eq!(bare_tip(bare.path(), &branch), merged.id(), "the merge reached the remote");
+        assert_eq!(repository.state(), git2::RepositoryState::Clean);
+    }
+
+    /// Both sides edited the same line: libgit2 cannot resolve it on its own, and `sync` leaves
+    /// exactly the state a terminal `git merge` would — real markers on disk, a real `MERGE_HEAD`,
+    /// nothing committed and nothing pushed.
+    #[test]
+    fn syncing_a_real_conflict_leaves_real_markers_and_merge_head() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        commit_into_bare(bare.path(), &branch, "main.tex", "the coauthor's version\n", "coauthor");
+        fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
+        commit_all(&repository, "local edit");
+
+        let outcome = sync(&repository, None).unwrap();
+
+        assert_eq!(outcome, SyncOutcome::Conflicted);
+        assert_eq!(repository.state(), git2::RepositoryState::Merge);
+        assert!(repository.path().join("MERGE_HEAD").exists());
+        let on_disk = fs::read_to_string(tmp.path().join("main.tex")).unwrap();
+        assert!(on_disk.contains("<<<<<<<"), "a real conflict marker belongs on disk: {on_disk}");
+        assert!(changes(&repository).conflicted.iter().any(|c| c.path == "main.tex"));
+    }
+
+    /// Resolving needs no new verb: fix the file, stage it the ordinary way, commit — and the
+    /// merge finishes with a two-parent commit, `MERGE_HEAD` gone, `state()` clean again.
+    #[test]
+    fn resolving_a_conflict_and_committing_finishes_the_merge() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        let remote_commit = commit_into_bare(bare.path(), &branch, "main.tex", "the coauthor's version\n", "coauthor");
+        fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
+        commit_all(&repository, "local edit");
+        let local_head = repository.head().unwrap().target().unwrap();
+        assert_eq!(sync(&repository, None).unwrap(), SyncOutcome::Conflicted);
+
+        fs::write(tmp.path().join("main.tex"), "the resolved version\n").unwrap();
+        stage(&repository, "main.tex").unwrap();
+        assert!(changes(&repository).conflicted.is_empty(), "staging the fixed file resolves it");
+
+        let id = commit(&repository, "resolve the conflict").unwrap();
+
+        let merged = repository.find_commit(git2::Oid::from_str(&id).unwrap()).unwrap();
+        assert_eq!(merged.parent_count(), 2);
+        assert!(merged.parent_ids().any(|parent_id| parent_id == local_head));
+        assert!(merged.parent_ids().any(|parent_id| parent_id == remote_commit));
+        assert_eq!(repository.state(), git2::RepositoryState::Clean, "MERGE_HEAD should be gone");
+        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the resolved version\n");
+    }
+
+    /// The card's one new refusal: a commit attempted while anything is still conflicted.
+    #[test]
+    fn committing_while_still_conflicted_is_refused() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        commit_into_bare(bare.path(), &branch, "main.tex", "the coauthor's version\n", "coauthor");
+        fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
+        commit_all(&repository, "local edit");
+        assert_eq!(sync(&repository, None).unwrap(), SyncOutcome::Conflicted);
+
+        let error = commit(&repository, "too soon").unwrap_err();
+
+        assert!(matches!(error, GitError::UnresolvedConflicts), "{error:?}");
     }
 
     /// A stale local branch is refused before anything is sent — checked against a real local
