@@ -5118,6 +5118,75 @@ compiled stand-in. What a reader should take from the diff:
    installed is still owed, same as every rung-4 gap this sprint, and worth adding to the ledger if
    it ever turns up a surprise.
 
+**S11.4 splits four ways, 2 October 2026** — by far the largest surface in the sprint, and the
+largest since the git-sync epic began, so it gets the finest-grained split any loop here has had
+rather than one giant commit. The question put to the maintainer first, before any of the four
+were carded (the same precedent S11.2b and S11.3c set): how an author picks two commits to
+compare from the Graph list. Answer: click a row to mark it "from," click a second to mark it
+"to" and render immediately — a small toolbar shows the two marked commits with an `×` to clear,
+no modifier keys and nothing to learn. That settles S11.4d's own shape; the other three needed no
+such question.
+
+- **S11.4a** (below): `export_tree`, a historical commit's whole tree written to disk as real
+  files — needs `git2` and nothing else, and is the one piece of this feature general enough that
+  something other than `latexdiff` could reuse it later.
+- **S11.4b**: a new crate, `abstract-tex-latexdiff` — detects `latexdiff` on `PATH` (never
+  bundled, the same reasoning S11.3c gives for Git LFS: it is a CTAN/TeX-Live tool, not something
+  this app ships, and the zero-setup promise is about *this app*, not about every tool a power
+  feature might reach for) and runs `--flatten` across two exports S11.4a built.
+  Still no Tauri.
+- **S11.4c**: the Tauri wiring — feeding S11.4b's output to `abstract-tex-engine`'s existing
+  compile machinery, under `.abstract-tex/` rather than the project's own files (DESIGN.md §9),
+  and telling the frontend which PDF to show instead of the live build.
+- **S11.4d**: the Graph UI itself — the click-to-mark interaction above, the toolbar, and the
+  preview pane's "comparing two revisions" mode with a way back to the live PDF.
+
+```
+Loop      S11.4a · Exporting a historical tree to disk, in the git crate · S
+Reads     DESIGN.md §5.7 ("pick any two points in history... and get a compiled PDF... via
+          latexdiff")
+Depends   Nothing new — `find_commit`, already used throughout this crate
+Files     crates/abstract-tex-git/src/lib.rs
+Build     `Tree::walk` rather than hand-written recursion: libgit2 already knows how to descend a
+          tree, and the callback's `(root, entry)` pair is already a full relative path with no
+          joining logic of this function's own to get wrong. Only blobs are written — a directory
+          needs no file of its own, and `create_dir_all` on a blob's parent makes every folder
+          along the way. The callback can only answer libgit2 with a `TreeWalkResult`, not a real
+          `Result`, so the first I/O failure is captured in a `RefCell` and read back out once
+          `walk` returns — the same shape `push`'s own `rejected` already uses, for the same
+          reason: an `FnMut` closure already borrowing `dest_dir` cannot also take `&mut` of a
+          plain local.
+Verify    cargo test -p abstract-tex-git
+Done when every file in a commit's tree, nested folders included, lands on disk with that
+          commit's own content; an older commit's export never sees a file a later one added; and
+          a file a commit deleted is absent from its export.
+```
+
+**S11.4a (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 589 passed (3
+new) / 0 failed, clippy and `cargo doc --workspace --no-deps` both clean. `[~]` for the usual
+reason: nothing here is on screen, and nothing in this loop needed it to be. What a reader should
+take from the diff:
+
+1. **One function, reused by a feature this crate otherwise knows nothing about.** `export_tree`
+   has no idea `latexdiff` exists — it answers exactly one question, "write this commit's tree to
+   this folder," which is the same question a future export-as-zip or a from-scratch bisect tool
+   would ask. Keeping it general here, rather than folding the `latexdiff`-specific pieces (two
+   exports, a flatten, a diff) into this crate too, is what let S11.4b start as a crate with no
+   `git2` of its own — it only ever calls back into this one function.
+2. **`Tree::walk`'s callback cannot fail into a `Result`, and pretending otherwise would have
+   been the bug.** libgit2 very deliberately gives the callback only a `TreeWalkResult` to answer
+   with — `Ok`, `Skip`, or `Abort` — because the walk is a C loop with no Rust `?` anywhere inside
+   it. The `RefCell` is not decoration: without it, an `Abort` on a failed write would surface as
+   a generic `git2::Error` ("user cancelled the operation," `GIT_EUSER`'s own text) with the real
+   `io::Error` nowhere to be found. Written the same way `push`'s `rejected` already had to solve
+   the identical problem, so a reader who has seen one has already seen the pattern.
+3. **The second and third tests are what make this "history," not "a copy."** Writing every file
+   in a commit's tree is the easy half; a test that only did that could not tell `export_tree`
+   apart from a function that just copied the working directory. One test exports a commit from
+   *before* a later file was added and asserts it is missing; another exports a commit that
+   *deleted* a file and asserts it is gone too — together they are the actual claim this function
+   makes, that disk and `git log` agree.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
@@ -5146,10 +5215,15 @@ and the LFS prompt — **split into S11.3a, S11.3b above and S11.3c below, expan
 2026**, the same shape as S11.1 and S10.5: the hard limit (S11.3a) and the candidate detection
 (S11.3b) are `git2` questions with no account and no window; the banner and the actual Git LFS
 subprocess call (S11.3c) need both, and were carded once the maintainer settled the prompt's
-shape — a banner above *Changes*, at 5 MB · S11.4 `latexdiff` review from any two graph rows ·
-S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff as a CodeMirror
-merge view, which is what §6's "a click opens a diff" finally means (deferred from S10.3a,
-29 September 2026: a row that opened a half-built diff is worse than one that opens the file).
+shape — a banner above *Changes*, at 5 MB · S11.4 `latexdiff` review from any two graph rows —
+**split into S11.4a, S11.4b, S11.4c and S11.4d, expanded 2 October 2026** — the finest-grained
+split in the sprint: a historical tree exported to disk (S11.4a, below) needs only `git2`;
+detecting and running `latexdiff` itself (S11.4b) needs a new crate but still no Tauri; feeding
+the result to the compiler (S11.4c) needs the app edge; and the Graph list's click-to-mark
+interaction, the maintainer's own answer, is the window (S11.4d) · S11.5 two-machine exit demo;
+GitLab and bare-remote CI test · S11.6 a `.tex` diff as a CodeMirror merge view, which is what
+§6's "a click opens a diff" finally means (deferred from S10.3a, 29 September 2026: a row that
+opened a half-built diff is worse than one that opens the file).
 
 **Source Control design notes** (settled 2026-09-17, `DESIGN.md` §6; cards expanded at sprint
 start):

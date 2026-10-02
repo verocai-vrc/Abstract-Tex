@@ -462,6 +462,58 @@ pub fn log(repository: &Repository, skip: usize, limit: usize) -> Result<Vec<Com
     Ok(rows)
 }
 
+/// Write one commit's entire tree to `dest_dir` as real files — S11.4a, for a `latexdiff` review
+/// between two revisions, which needs each one as a document on disk, not as a diff of blobs.
+///
+/// `Tree::walk` rather than hand-written recursion: libgit2 already knows how to descend a tree,
+/// and the callback sees every entry, files and folders alike, as `(root, entry)` with `root`
+/// already carrying the trailing `/` — `format!("{root}{name}")` is a full relative path with no
+/// joining logic of this function's own to get wrong. Only blobs are written; a directory entry
+/// needs no file of its own, and `create_dir_all` on a blob's own parent is enough to make every
+/// folder along the way.
+///
+/// The callback can only report back to libgit2 itself — a `TreeWalkResult`, not a `Result` of
+/// ours — so the first real error is captured here and read back out once `walk` returns, the
+/// same `RefCell`-into-a-shared-closure shape `push`'s own `rejected` uses, and for the same
+/// reason: an `FnMut` closure already borrowing `dest_dir` and `repository` cannot also take
+/// `&mut` of a plain local without the borrow checker correctly refusing it.
+pub fn export_tree(repository: &Repository, commit: git2::Oid, dest_dir: &Path) -> Result<(), GitError> {
+    let tree = repository.find_commit(commit)?.tree()?;
+    let failure: std::cell::RefCell<Option<std::io::Error>> = std::cell::RefCell::new(None);
+
+    let walked = tree.walk(git2::TreeWalkMode::PreOrder, |root, entry| {
+        if entry.kind() != Some(git2::ObjectType::Blob) {
+            return git2::TreeWalkResult::Ok;
+        }
+        let Some(name) = entry.name() else { return git2::TreeWalkResult::Ok };
+        let full_path = dest_dir.join(format!("{root}{name}"));
+        let write = entry
+            .to_object(repository)
+            .ok()
+            .and_then(|object| object.into_blob().ok())
+            .ok_or_else(|| std::io::Error::other("not a readable blob"))
+            .and_then(|blob| {
+                if let Some(parent) = full_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&full_path, blob.content())
+            });
+        match write {
+            Ok(()) => git2::TreeWalkResult::Ok,
+            Err(error) => {
+                *failure.borrow_mut() = Some(error);
+                git2::TreeWalkResult::Abort
+            }
+        }
+    });
+
+    if let Some(error) = failure.into_inner() {
+        return Err(GitError::Io(error));
+    }
+    walked?;
+    Ok(())
+}
+
 /// Every ref the graph may label a commit with, as `(commit id, short name)`.
 ///
 /// Built by enumerating refs, which is why S10.1's ref needs excluding by name: `git log` never
@@ -1436,6 +1488,56 @@ mod tests {
         let branch = branch_state(&repository).unwrap().name.unwrap();
         assert_eq!(all[0].tags, vec![branch]);
         assert!(all[1].tags.is_empty(), "{:?}", all[1]);
+    }
+
+    // --- S11.4a: exporting a historical tree ------------------------------------------------
+
+    /// The card's first done-when: every file in a commit's tree, nested folders included, lands
+    /// on disk with the content that commit actually has.
+    #[test]
+    fn exporting_a_commit_writes_every_file_in_its_tree() {
+        let (tmp, repository) = repo();
+        fs::create_dir(tmp.path().join("sections")).unwrap();
+        fs::write(tmp.path().join("sections/intro.tex"), "the introduction\n").unwrap();
+        commit_all(&repository, "add a section");
+        let commit = repository.head().unwrap().target().unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        export_tree(&repository, commit, dest.path()).unwrap();
+
+        assert_eq!(fs::read_to_string(dest.path().join("main.tex")).unwrap(), "the manuscript\n");
+        assert_eq!(fs::read_to_string(dest.path().join("sections/intro.tex")).unwrap(), "the introduction\n");
+    }
+
+    /// An older commit's export never sees what a later one added — this is reading history, not
+    /// copying the working tree, which is the entire reason `latexdiff` needs it this way.
+    #[test]
+    fn exporting_an_older_commit_does_not_see_a_later_addition() {
+        let (tmp, repository) = repo();
+        let before = repository.head().unwrap().target().unwrap();
+        fs::write(tmp.path().join("notes.tex"), "added later\n").unwrap();
+        commit_all(&repository, "add notes");
+
+        let dest = tempfile::tempdir().unwrap();
+        export_tree(&repository, before, dest.path()).unwrap();
+
+        assert!(dest.path().join("main.tex").exists());
+        assert!(!dest.path().join("notes.tex").exists());
+    }
+
+    /// A file deleted by the commit being exported is absent from the export — the tree really
+    /// is read as it was at that commit, not merged with whatever came before or after it.
+    #[test]
+    fn exporting_a_commit_that_deleted_a_file_leaves_it_out() {
+        let (tmp, repository) = repo();
+        fs::remove_file(tmp.path().join("main.tex")).unwrap();
+        commit_all(&repository, "remove the manuscript");
+        let commit = repository.head().unwrap().target().unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        export_tree(&repository, commit, dest.path()).unwrap();
+
+        assert!(!dest.path().join("main.tex").exists());
     }
 
     /// A hidden ref that shows up as a tag is not hidden. `log` walks `HEAD` so it never *lists*
