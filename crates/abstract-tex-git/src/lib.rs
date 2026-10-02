@@ -519,6 +519,39 @@ pub fn export_tree(repository: &Repository, commit: git2::Oid, dest_dir: &Path) 
     Ok(())
 }
 
+/// Whether `path` — `/`-separated, relative to the repository's top — names a file in `commit`'s
+/// tree. S11.4c asks this of both revisions before exporting either, so a comparison whose root
+/// file did not exist yet is refused for the price of two tree lookups, not two whole exports.
+pub fn has_path(repository: &Repository, commit: git2::Oid, path: &str) -> Result<bool, GitError> {
+    let tree = repository.find_commit(commit)?.tree()?;
+    // `get_path` errors for "not there", and also for a real failure to read the tree; only the
+    // first is an answer. `NotFound` is how libgit2 spells it.
+    match tree.get_path(Path::new(path)) {
+        Ok(entry) => Ok(entry.kind() == Some(git2::ObjectType::Blob)),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// `a` and `b` as `(older, newer)` — S11.4c's "always older → newer, whatever order they were
+/// clicked in" (DESIGN.md §5.7).
+///
+/// Ancestry first, time only as a fallback: a commit made within the same second as its parent
+/// has the same timestamp, so time alone cannot order the very pair a single-lane graph shows
+/// most often. Two commits neither of which descends from the other (a merge's two sides) have no
+/// ancestry to go by, and there the committer's clock is the only answer there is.
+pub fn older_first(repository: &Repository, a: git2::Oid, b: git2::Oid) -> Result<(git2::Oid, git2::Oid), GitError> {
+    if repository.graph_descendant_of(a, b)? {
+        return Ok((b, a));
+    }
+    if repository.graph_descendant_of(b, a)? {
+        return Ok((a, b));
+    }
+    let a_time = repository.find_commit(a)?.time().seconds();
+    let b_time = repository.find_commit(b)?.time().seconds();
+    Ok(if b_time < a_time { (b, a) } else { (a, b) })
+}
+
 /// Every ref the graph may label a commit with, as `(commit id, short name)`.
 ///
 /// Built by enumerating refs, which is why S10.1's ref needs excluding by name: `git log` never
@@ -1543,6 +1576,39 @@ mod tests {
         export_tree(&repository, commit, dest.path()).unwrap();
 
         assert!(!dest.path().join("main.tex").exists());
+    }
+
+    // --- S11.4c: the two questions a comparison asks before exporting anything ---------------
+
+    /// A file a later commit added is not in an earlier one, a nested path is found by its full
+    /// name, and a folder is not mistaken for a file.
+    #[test]
+    fn has_path_answers_for_the_commit_it_is_asked_about() {
+        let (tmp, repository) = repo();
+        let before = repository.head().unwrap().target().unwrap();
+        fs::create_dir(tmp.path().join("paper")).unwrap();
+        fs::write(tmp.path().join("paper/main.tex"), "moved in later\n").unwrap();
+        commit_all(&repository, "add a paper folder");
+        let after = repository.head().unwrap().target().unwrap();
+
+        assert!(has_path(&repository, before, "main.tex").unwrap());
+        assert!(!has_path(&repository, before, "paper/main.tex").unwrap());
+        assert!(has_path(&repository, after, "paper/main.tex").unwrap());
+        assert!(!has_path(&repository, after, "paper").unwrap(), "a folder is not a root file");
+    }
+
+    /// Whichever order the two are handed over in, the parent comes first — even when both were
+    /// committed within the same second, which is the case a timestamp alone gets wrong.
+    #[test]
+    fn older_first_puts_the_ancestor_first_whatever_the_order() {
+        let (tmp, repository) = repo();
+        let parent = repository.head().unwrap().target().unwrap();
+        fs::write(tmp.path().join("main.tex"), "the manuscript, revised\n").unwrap();
+        commit_all(&repository, "revise");
+        let child = repository.head().unwrap().target().unwrap();
+
+        assert_eq!(older_first(&repository, parent, child).unwrap(), (parent, child));
+        assert_eq!(older_first(&repository, child, parent).unwrap(), (parent, child));
     }
 
     /// A hidden ref that shows up as a tag is not hidden. `log` walks `HEAD` so it never *lists*

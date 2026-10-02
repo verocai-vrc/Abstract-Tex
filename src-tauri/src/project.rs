@@ -26,6 +26,8 @@ pub const STATE_DIR: &str = ".abstract-tex";
 pub const BUILD_SUBDIR: &str = "build";
 /// Beside `build/` under `STATE_DIR`: the one-chapter draft (S9.9).
 pub const DRAFT_SUBDIR: &str = "draft";
+/// Beside `build/` under `STATE_DIR`: the latest change review between two commits (S11.4c).
+pub const LATEXDIFF_SUBDIR: &str = "latexdiff";
 /// The config file's name before the rename (see the module doc).
 pub const LEGACY_CONFIG_FILE: &str = "preamble.toml";
 /// The state folder's name before the rename. Still ignored, so an old project does not show a
@@ -172,6 +174,12 @@ impl Project {
     /// `draft::prepare` insists on, and created by it, not here.
     pub fn draft_dir(&self) -> PathBuf {
         self.root_dir.join(STATE_DIR).join(DRAFT_SUBDIR)
+    }
+
+    /// Where a comparison of two commits is exported and built (S11.4c, DESIGN.md §5.8). Only
+    /// ever one comparison's worth of files: `crate::latexdiff` clears the previous pair first.
+    pub fn latexdiff_dir(&self) -> PathBuf {
+        self.root_dir.join(STATE_DIR).join(LATEXDIFF_SUBDIR)
     }
 
     /// The root `.tex`, relative to the project. Configured value first, detection second.

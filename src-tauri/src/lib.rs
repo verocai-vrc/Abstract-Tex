@@ -3,6 +3,7 @@
 //! Module map (each module's own doc comment says what it owns and must never do):
 //! - [`project`]  — a folder on disk: file tree, root `.tex` detection, `abstract-tex.toml`.
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
+//! - [`latexdiff`] — change review between two commits: planning one, and its folder.
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
 //! - [`git`]      — which repository the open project is in, for the Source Control view.
@@ -20,6 +21,7 @@ pub mod compile;
 pub mod consent;
 pub mod git;
 pub mod github;
+pub mod latexdiff;
 pub mod lfs;
 pub mod lsp;
 pub mod paste;

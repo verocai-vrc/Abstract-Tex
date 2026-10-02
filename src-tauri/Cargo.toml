@@ -46,6 +46,7 @@ tauri-plugin-opener = "2"
 abstract-tex-engine = { path = "../crates/abstract-tex-engine" }
 abstract-tex-git = { path = "../crates/abstract-tex-git" }
 abstract-tex-github = { path = "../crates/abstract-tex-github" }
+abstract-tex-latexdiff = { path = "../crates/abstract-tex-latexdiff" }
 abstract-tex-snapshot = { path = "../crates/abstract-tex-snapshot" }
 abstract-tex-includes = { path = "../crates/abstract-tex-includes" }
 abstract-tex-lsp = { path = "../crates/abstract-tex-lsp" }
@@ -68,6 +69,9 @@ notify-debouncer-mini = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Only to build fixture commits in `latexdiff.rs`'s tests (a signature, an index) — the app
+# itself reaches Git through abstract-tex-git alone.
+git2 = { version = "0.20", default-features = false }
 # The tests implement `Engine` with a fake, which needs the same macro the trait uses.
 async-trait = { workspace = true }
 # The SyncTeX test relocates the committed fixture to this checkout's path and re-gzips it.

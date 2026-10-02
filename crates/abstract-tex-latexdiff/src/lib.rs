@@ -92,6 +92,9 @@ pub fn render_with(
 /// Whether `latexdiff` answers at all, checked fresh on every call — the same reasoning
 /// `src-tauri/src/lfs.rs` gives for Git LFS: an install can change between one call and the
 /// next, and the only honest way to answer "is it here right now" is to ask right now.
-fn is_installed(latexdiff: &Path) -> bool {
+///
+/// `pub` since S11.4c, which asks before it clears the previous comparison's folder: a machine
+/// with no `latexdiff` should lose nothing to a comparison that could never have run.
+pub fn is_installed(latexdiff: &Path) -> bool {
     Command::new(latexdiff).arg("--version").output().is_ok_and(|output| output.status.success())
 }
