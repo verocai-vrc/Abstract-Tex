@@ -148,6 +148,8 @@ pub fn run() {
             commands::github_sign_out,
             commands::github_create_repository,
             commands::git_origin_url,
+            commands::git_push,
+            commands::git_sync,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Abstract-Tex window");

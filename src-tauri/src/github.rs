@@ -69,7 +69,11 @@ impl GitHubSession {
     }
 
     /// The stored token, if this machine has one. Fast: a keychain read and nothing else.
-    fn token(&self) -> Result<Option<String>, GitHubError> {
+    ///
+    /// `pub(crate)` rather than private as of S11.1b: `commands.rs` needs it for `git_push` and
+    /// `git_sync`, which hand it to `abstract_tex_git` as a plain credential and know nothing
+    /// about GitHub otherwise — the same seam `create_repository` below already draws.
+    pub(crate) fn token(&self) -> Result<Option<String>, GitHubError> {
         self.store.read()
     }
 

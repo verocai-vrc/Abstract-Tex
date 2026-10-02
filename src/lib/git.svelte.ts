@@ -7,7 +7,7 @@
 // the same rule `app` follows. The helpers take their input as arguments rather than reading the
 // store, so `git.test.ts` exercises them with literals and no Svelte runtime.
 
-import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus, ProseSummary } from './ipc';
+import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus, ProseSummary, SyncOutcome } from './ipc';
 
 /** An empty answer: what the view shows before the first refresh, and after a project closes. */
 export const NO_CHANGES: GitStatus = { staged: [], unstaged: [], conflicted: [] };
@@ -118,6 +118,37 @@ export function syncArrows(branch: BranchState | null): string {
  * it to go. */
 export function outgoingCount(branch: BranchState | null): number {
   return branch?.aheadBehind?.[0] ?? 0;
+}
+
+/**
+ * Whether the *Sync Changes ↑n ↓m* button belongs on screen (S11.1b, DESIGN.md §6: "whenever the
+ * branch is ahead or behind").
+ *
+ * `[0, 0]` — an upstream the branch agrees with — is not "ahead or behind" and hides the button,
+ * the same distinction `syncArrows` already draws for its own empty string. No upstream at all
+ * (`null`) hides it too: there is nothing here yet for the one-verb path to do.
+ */
+export function hasSyncWork(branch: BranchState | null): boolean {
+  const drift = branch?.aheadBehind;
+  return !!drift && (drift[0] > 0 || drift[1] > 0);
+}
+
+/**
+ * The sentence under the Sync button once it has run (S11.1b) — what `abstract_tex_git::sync`
+ * decided, in words, rather than a generic "Synced."
+ *
+ * Singular/plural spelled out rather than a trailing "(s)", for the same reason `relativeTime`
+ * never shows "1 minutes ago": a sentence a person reads should read like one.
+ */
+export function syncOutcomeSentence(outcome: SyncOutcome): string {
+  switch (outcome.kind) {
+    case 'upToDate':
+      return 'Already up to date.';
+    case 'pushed':
+      return outcome.ahead === 1 ? 'Pushed 1 commit.' : `Pushed ${outcome.ahead} commits.`;
+    case 'fastForwarded':
+      return outcome.behind === 1 ? 'Pulled 1 commit.' : `Pulled ${outcome.behind} commits.`;
+  }
 }
 
 /**
@@ -241,8 +272,19 @@ class GitState {
    * picker by writing `app.zoteroLinkVisible`. */
   message = $state('');
 
-  /** True while a commit is in flight, so the button cannot be pressed twice. */
+  /** True while a commit is in flight, so the button cannot be pressed twice. Also true for the
+   * whole of *Commit & Push* and *Commit & Sync* (S11.1b): the Commit box is what the author sees
+   * as busy, whichever of the three they chose. */
   committing = $state(false);
+
+  /** True while the standalone *Sync Changes* button's own call is in flight (S11.1b) — separate
+   * from [`committing`] because this one is not waiting on a message in the box. */
+  syncing = $state(false);
+
+  /** What the last sync decided, as the sentence `syncOutcomeSentence` built — "Pushed 2
+   * commits.", "Already up to date." `null` before the first one, and cleared like
+   * [`lastDiscard`]: when the next verb starts, and by nothing else. */
+  lastSync = $state<string | null>(null);
 
   /** Whether the box still holds *our* sentence rather than the author's (S10.3c).
    *
@@ -277,6 +319,9 @@ class GitState {
 
   /** How many of the newest rows are not on the upstream yet. */
   outgoing = $derived(outgoingCount(this.branch));
+
+  /** Whether the *Sync Changes* button belongs on screen right now (S11.1b). */
+  showSync = $derived(hasSyncWork(this.branch));
 }
 
 export const git = new GitState();

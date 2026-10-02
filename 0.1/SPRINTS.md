@@ -4465,11 +4465,13 @@ OAuth app in the ledger. Until it exists, nobody can sign in and therefore nobod
 repository from the app, and §7's v0.6 exit demo — a manuscript written on one machine, synced,
 and continued on another — cannot be performed at all.
 
-**Sprint 11 begins here, 1 October 2026, with S11.1 split into S11.1a and S11.1b** — the same
-split S10.5 used, for the same reason: pushing a commit needs no account and no window, and the
-*Sync Changes* button needs both. S11.1a is below; S11.1b (the button, and what it unlocks —
-*Commit & Push*, *Commit & Sync*, and hiding *Amend* once a commit is pushed) is expanded when
-its own loop starts.
+**Sprint 11 begins here, 1 October 2026, with S11.1 split into S11.1a, S11.1b and S11.1c** — the
+first split the same way S10.5 was, for the same reason: pushing a commit needs no account and no
+window, and the *Sync Changes* button needs both. The second split came due once S11.1b was under
+way: *Amend* is not a flag on the button that already exists, it is a Git operation nothing in
+this codebase has written yet (`git2`'s own amend, a refusal once the commit is already on the
+remote, its own tests) — three loops' worth of the S10.2/S10.3 kind of surface wearing one design
+sentence. S11.1a and S11.1b are below; S11.1c (*Amend*) is expanded when its own loop starts.
 
 ```
 Loop      S11.1a · Push, fetch, and sync, in the git crate · M
@@ -4581,6 +4583,87 @@ reader should take from the diff:
    from is S11.1b's problem, the same seam `create_repository` already draws in
    `src-tauri/src/github.rs`.
 
+```
+Loop      S11.1b · The Sync Changes button, and Commit & Push / Commit & Sync · M
+Reads     DESIGN.md §6 (the Commit dropdown, the `Sync Changes ↑n ↓m` button), §5.7 ("Sync as one
+          verb")
+Depends   S11.1a (`push`, `fetch`, `sync`), S10.4b (a token, when this machine has signed in)
+Files     src-tauri/src/github.rs, src-tauri/src/git.rs, src-tauri/src/commands.rs,
+          src-tauri/src/lib.rs, src/lib/ipc.ts, src/lib/git.svelte.ts, src/lib/controller.svelte.ts,
+          src/components/SourceControl.svelte
+Build     Two Tauri commands, `git_push` and `git_sync`, both reached through a new
+          `git::in_repository_blocking` rather than `with_repository`/`in_repository`: those two
+          read a repository off disk in milliseconds, these talk to a network and might take real
+          wall-clock time, so both run on `spawn_blocking` rather than the async worker every other
+          command shares. The repository is opened fresh inside the blocking closure regardless —
+          `git2::Repository` is not `Send` and could not cross that boundary if one were kept.
+
+          The token comes from `GitHubSession` (now `pub(crate)`, for exactly this) and reaches
+          `abstract_tex_git` as a plain string; a signed-out machine passes `None`, which is only
+          wrong for a remote that actually needs one, and that remote says so in a sentence rather
+          than this layer guessing in advance.
+
+          The Commit button grows a dropdown: a small split button, caret and all, closed by
+          picking an item or by a click anywhere else, with *Commit & Push* and *Commit & Sync*.
+          *Amend* is the design's third item and stays out — S11.1c, once it exists, is a Git
+          operation this codebase has not written, not a flag on a button that already has
+          somewhere to point. The standalone *Sync Changes ↑n ↓m* button sits under the commit
+          box, on screen only when `hasSyncWork` says there is something to sync — the same
+          "ahead or behind, not `[0, 0]` and not `null`" distinction `syncArrows` already draws
+          for its own empty string.
+Verify    cargo test -p abstract-tex; pnpm check && pnpm test
+Done when *Commit & Push* calls `git_push` only once the commit it precedes has actually
+          succeeded, and calls neither on a refusal; *Commit & Sync* does the same with `git_sync`
+          and shows what it decided as a sentence; the Sync button appears exactly when the branch
+          is ahead or behind and nowhere else; and a refused push or sync shows its sentence under
+          the button rather than a dialog, exactly like a refused commit — all exercised against a
+          faked IPC layer in `controller.test.ts`, since none of it is testable against a real
+          remote without a window open on screen.
+```
+
+**S11.1b (1 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 568 passed / 0
+failed (unchanged: both new commands are thin glue over S11.1a's already-tested crate, the same
+boundary `git_commit` and `git_initialise` are trusted at), clippy and `cargo doc --workspace -D
+warnings` clean; `pnpm check` 450 files / 0 errors, Vitest 507/507 (7 new: 2 for the pure
+functions behind the Sync button, 5 for the controller's three new flows). `[~]` for a reason
+this sprint has not had yet: **rung 4 — the manual smoke pass, clicking through the actual
+window — was not performed**, and not for the usual "nothing is on screen" reason, since this
+loop puts two new controls on screen. This agent session has no display-capture tool available
+and no way to install one (no `sudo`), so the dropdown and the Sync button's layout have been
+checked by reading the rendered markup and CSS, not by looking at a window. `pnpm tauri dev`
+would open a real one on the maintainer's own desktop; the maintainer's own look at it is what
+closes this rung. What a reader should take from the diff:
+
+1. **Two commands, one new seam.** `git::in_repository_blocking` is `with_repository`'s shape with
+   the one thing that had to change: the repository is opened and used inside a `spawn_blocking`
+   closure instead of on the calling thread, because `push`/`sync` might sit on a network for real
+   time and nothing else sharing that async worker should wait on it. Everything else about "which
+   repository, opened fresh, dropped at the end" stays exactly what `with_repository`'s own doc
+   comment already promises.
+2. **The dropdown's two items can disagree, and that is the feature, not a rough edge.** *Commit &
+   Push* has no fetch in it — `commitAndPush` is `commitThen` plus a bare `ipc.gitPush()` — so it
+   can be refused by a stale branch exactly as a terminal `git push` would be. *Commit & Sync*
+   fetches first through `ipc.gitSync()` and reports what it decided. One function, `commitThen`,
+   commits and then runs whichever the caller asked for, only on success.
+3. **A test found a real bug before anyone clicked anything.** The first draft of `commitThen`
+   called `refreshGitStatus()` after the success check rather than inside it, so it ran on a
+   refusal too — and `refreshGitStatus` rebuilds the suggested commit message whenever
+   `messageIsSuggested` is still true, which silently replaced the author's own half-written
+   sentence with a suggestion the moment a commit was refused. A test asserting the words survive
+   a refusal, the same promise `commitStaged` already keeps, caught it immediately. In the ledger,
+   under *Fixed*.
+4. **The Sync button's visibility is one pure function, tested on its own.** `hasSyncWork` draws
+   the same `[0, 0]` vs. `null` distinction `syncArrows` already draws for its empty string — not
+   duplicated by accident, but because both read `aheadBehind` and both have to agree on what
+   "nothing to show" means, or the button and the arrows next to it would disagree about whether
+   there is anything to sync.
+5. **Signed out is not a reason to refuse before asking.** `git_push`/`git_sync` read `None` from
+   a session with no token and hand it straight to `abstract_tex_git`, which only turns that into
+   a refusal if the remote actually asks for a credential. A project whose remote needs no
+   authentication at all — a departmental server trusted by network, for instance — still syncs
+   from a machine that has never signed in to GitHub, which is the whole point of this app not
+   being GitHub-specific underneath (DESIGN.md §5.7).
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
@@ -4599,8 +4682,10 @@ S10.4 **split into S10.4a and S10.4b above, expanded 29 September 2026**: the fl
 keychain are testable with no window, the panel is not ·
 S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`), which is also when *Commit &
 Sync* and *Amend* become drawable (Amend has to know what is already pushed) —
-**split into S11.1a and S11.1b above, expanded 1 October 2026**: push, fetch and the sync
-decision need no account and no window, and the button that calls them needs both ·
+**split into S11.1a, S11.1b and S11.1c above, expanded 1 October 2026** (the third split came
+due mid-sprint, once Amend turned out to be its own crate work rather than a flag on S11.1b's
+button): push, fetch and the sync decision need no account and no window; the button that calls
+them needs both; Amend needs `git2`'s own amend and tests of its own ·
 S11.2 conflicts
 as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
 graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff

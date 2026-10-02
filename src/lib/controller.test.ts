@@ -16,6 +16,7 @@ import type {
   GitStatus,
   LspEvent,
   ProjectInfo,
+  SyncOutcome,
   TextOp,
 } from './ipc';
 
@@ -85,6 +86,11 @@ let proseOnDisk: ProseSummary = { wordsBefore: 0, wordsAfter: 0, sections: [], p
 /** Set to a message to make the next commit be refused, as the crate refuses an empty message,
  * an empty stage or a repository with no `user.name`. */
 let commitError: string | null = null;
+/** What the next `git_sync` answers with (S11.1b), and a message to make `git_push`/`git_sync`
+ * fail — the server-side refusal or the stale-branch one, `abstract-tex-git`'s own tests tell
+ * apart; this layer only has to carry whichever sentence Rust would have sent. */
+let syncOutcome: SyncOutcome = { kind: 'upToDate' };
+let syncError: string | null = null;
 /** The GitHub side (S10.4b): who the keychain says is signed in, what `github_sign_in` does, and
  * the handler the controller registered for `github:sign-in`. */
 /** S10.5a: whether the fake project is a repository, and whether it ignores our folder. */
@@ -263,6 +269,20 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return id;
     },
+    gitPush: async (): Promise<void> => {
+      if (syncError) throw new Error(syncError);
+      calls.gitVerbs.push('push');
+      // A push is always a plain fast-forward in this fake: whatever was ahead is not any more.
+      branchOnDisk = { ...branchOnDisk, aheadBehind: branchOnDisk.aheadBehind ? [0, branchOnDisk.aheadBehind[1]] : null };
+      gitStatusHandler();
+    },
+    gitSync: async (): Promise<SyncOutcome> => {
+      if (syncError) throw new Error(syncError);
+      calls.gitVerbs.push('sync');
+      branchOnDisk = { ...branchOnDisk, aheadBehind: [0, 0] };
+      gitStatusHandler();
+      return syncOutcome;
+    },
     githubAccount: async () => {
       calls.githubCalls.push('account');
       return accountOnDisk;
@@ -319,8 +339,11 @@ const {
   allowShellEscape,
   applyDiagnosticFix,
   claimCommitMessage,
+  commitAndPush,
+  commitAndSync,
   commitStaged,
   discardChange,
+  syncChanges,
   loadMoreCommits,
   applyFindingFix,
   closeTab,
@@ -410,6 +433,8 @@ beforeEach(async () => {
   branchOnDisk = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
   proseOnDisk = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
   commitError = null;
+  syncOutcome = { kind: 'upToDate' };
+  syncError = null;
   initialiseError = null;
   initialiseNeedsIdentity = false;
   ourFolderIgnoredOnDisk = true;
@@ -1806,6 +1831,72 @@ describe('committing, and the graph (S10.3b)', () => {
     expect(git.branch).toBeNull();
     expect(git.commits).toEqual([]);
     expect(git.outgoing).toBe(0);
+  });
+});
+
+describe('syncing (S11.1b)', () => {
+  const staged = { path: 'main.tex', kind: 'modified' as const, renamedFrom: null };
+
+  it('Commit & Push commits, then pushes, in that order', async () => {
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    git.message = 'Revised the introduction';
+
+    await commitAndPush();
+
+    expect(calls.gitVerbs).toEqual(['commit Revised the introduction', 'push']);
+    expect(git.message).toBe('');
+    expect(git.committing).toBe(false);
+  });
+
+  it('Commit & Sync commits, then syncs, and reports what the sync decided', async () => {
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    syncOutcome = { kind: 'pushed', ahead: 1 };
+    await refreshGitStatus();
+    git.message = 'Revised the introduction';
+
+    await commitAndSync();
+
+    expect(calls.gitVerbs).toEqual(['commit Revised the introduction', 'sync']);
+    expect(git.lastSync).toBe('Pushed 1 commit.');
+  });
+
+  it('a refused commit never reaches push or sync — one refusal, not two', async () => {
+    gitOnDisk = { staged: [staged], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    commitError = 'Git does not know who you are yet.';
+    git.message = 'Half a sentence';
+
+    await commitAndPush();
+
+    expect(calls.gitVerbs).toEqual([]);
+    expect(git.error).toContain('Git does not know who you are');
+    // The same recoverable-mistake rule `commitStaged` already follows: the words survive.
+    expect(git.message).toBe('Half a sentence');
+  });
+
+  it('the standalone Sync button runs sync alone, with nothing to commit first', async () => {
+    branchOnDisk = { ...branchOnDisk, aheadBehind: [0, 1] };
+    syncOutcome = { kind: 'fastForwarded', behind: 1 };
+    await refreshGitStatus();
+
+    await syncChanges();
+
+    expect(calls.gitVerbs).toEqual(['sync']);
+    expect(git.lastSync).toBe('Pulled 1 commit.');
+    expect(git.syncing).toBe(false);
+  });
+
+  it('a refused sync shows the sentence under the button rather than a dialog', async () => {
+    branchOnDisk = { ...branchOnDisk, aheadBehind: [1, 1] };
+    await refreshGitStatus();
+    syncError = 'Both your computer and the remote have commits the other does not.';
+
+    await syncChanges();
+
+    expect(git.error).toContain('Both your computer and the remote');
+    expect(git.lastSync).toBeNull();
+    expect(git.syncing).toBe(false);
   });
 });
 

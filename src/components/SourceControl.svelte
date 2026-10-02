@@ -10,6 +10,8 @@
   import {
     cancelGitHubSignIn,
     claimCommitMessage,
+    commitAndPush,
+    commitAndSync,
     commitStaged,
     createGitHubRepository,
     discardChange,
@@ -23,9 +25,10 @@
     signInToGitHub,
     signOutOfGitHub,
     stageChange,
+    syncChanges,
     unstageChange,
   } from '../lib/controller.svelte';
-  import { git, relativeTime, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
+  import { git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
   import { app } from '../lib/state.svelte';
 
@@ -71,8 +74,36 @@
   }
 
   /** Nothing staged means nothing to commit, and the crate would refuse — so the button says so
-   * before it is pressed rather than after. */
-  const canCommit = $derived(git.status.staged.length > 0 && git.message.trim().length > 0 && !git.committing);
+   * before it is pressed rather than after. Also false mid-sync: a push or a fast-forward touches
+   * the same branch a commit would move, and the two should not race. */
+  const canCommit = $derived(git.status.staged.length > 0 && git.message.trim().length > 0 && !git.committing && !git.syncing);
+
+  /** The Commit button's dropdown (DESIGN.md §6: *Commit & Push*, *Commit & Sync*; *Amend* is a
+   * later loop). Closed by choosing an item, by Escape, or by clicking anywhere else. */
+  let commitMenuOpen = $state(false);
+
+  function runCommitMenuItem(action: () => Promise<void>) {
+    commitMenuOpen = false;
+    void action();
+  }
+
+  // Closes on a click anywhere else or on Escape, the way a native menu would. Only listens while
+  // the menu is actually open, the same `$effect`-with-cleanup shape the clock below uses.
+  $effect(() => {
+    if (!commitMenuOpen) return;
+    function onDocumentClick(event: MouseEvent) {
+      if (!(event.target as HTMLElement).closest('.commit-split')) commitMenuOpen = false;
+    }
+    function onDocumentKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') commitMenuOpen = false;
+    }
+    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onDocumentKeydown);
+    return () => {
+      document.removeEventListener('click', onDocumentClick);
+      document.removeEventListener('keydown', onDocumentKeydown);
+    };
+  });
 
   // "4 minutes ago" on a row would otherwise still say that an hour later. One tick a minute,
   // only while this view is on screen, as the status bar's build clock does it — and once a
@@ -228,15 +259,51 @@
         oninput={claimCommitMessage}
         onkeydown={onMessageKeydown}
       ></textarea>
-      <button class="primary" disabled={!canCommit} onclick={() => void commitStaged()}>
-        {git.committing ? 'Committing…' : 'Commit'}
-      </button>
+      <div class="commit-split">
+        <button class="primary commit-main" disabled={!canCommit} onclick={() => void commitStaged()}>
+          {git.committing ? 'Committing…' : 'Commit'}
+        </button>
+        <!-- S11.1b: Amend is a later loop (it needs its own crate work, not just a button) — the
+             design's third dropdown item, so it is left out rather than wired to nothing. -->
+        <button
+          class="primary commit-caret"
+          disabled={!canCommit}
+          aria-label="More commit actions"
+          aria-haspopup="menu"
+          aria-expanded={commitMenuOpen}
+          onclick={() => (commitMenuOpen = !commitMenuOpen)}
+        >
+          ▾
+        </button>
+        {#if commitMenuOpen}
+          <ul class="commit-menu" role="menu">
+            <li role="none">
+              <button role="menuitem" onclick={() => runCommitMenuItem(commitAndPush)}>Commit &amp; Push</button>
+            </li>
+            <li role="none">
+              <button role="menuitem" onclick={() => runCommitMenuItem(commitAndSync)}>Commit &amp; Sync</button>
+            </li>
+          </ul>
+        {/if}
+      </div>
       {#if git.wordsSinceCommit !== 0}
         <!-- S10.3c: the one number a writer checks, kept visible even after they have replaced
              our sentence with their own. -->
         <span class="prose-count">{wordDeltaLabel(git.wordsSinceCommit)} since the last commit</span>
       {/if}
     </div>
+
+    {#if git.showSync}
+      <!-- S11.1b: DESIGN.md §5.7's one-verb path, on its own — whenever the branch is ahead,
+           behind, or both. Hidden the moment neither is true, the same test `syncArrows` already
+           passes for its own empty string. -->
+      <div class="sync-row">
+        <button class="ghost sync-button" disabled={git.syncing || git.committing} onclick={() => void syncChanges()}>
+          {git.syncing ? 'Syncing…' : `Sync Changes ${syncArrows(git.branch)}`}
+        </button>
+      </div>
+    {/if}
+    {#if git.lastSync}<p class="hint">{git.lastSync}</p>{/if}
 
     {#if git.readError}<p class="hint error">{git.readError}</p>{/if}
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
@@ -441,6 +508,50 @@
     border-radius: var(--radius);
     background: var(--bg-editor);
     color: var(--fg);
+  }
+  /* The Commit button and its dropdown caret read as one control, VS Code's own split-button
+     shape: a shared border with the seam between them the only hint there are two. */
+  .commit-split {
+    position: relative;
+    display: flex;
+  }
+  .commit-main {
+    flex: 1;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .commit-caret {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left-color: var(--accent-fg);
+    padding: 3px 8px;
+  }
+  .commit-menu {
+    position: absolute;
+    bottom: calc(100% + 4px);
+    right: 0;
+    z-index: 1;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    min-width: 160px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-panel);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  .commit-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    padding: 5px 8px;
+  }
+  .sync-row {
+    padding: 0 10px 8px;
+  }
+  .sync-button {
+    width: 100%;
   }
   .commit-list {
     list-style: none;

@@ -70,3 +70,27 @@ pub fn in_repository<T>(
 ) -> Result<T, String> {
     with_repository(state, f)?.ok_or_else(|| GitError::NotARepository.to_string())
 }
+
+/// Same promise as [`in_repository`], for a verb that talks to a network and so might take real
+/// wall-clock time rather than a handful of `stat`s — `push` and `sync` (S11.1b), unlike every
+/// verb above.
+///
+/// `spawn_blocking`: `git2`'s calls are synchronous, and running one on an async worker thread
+/// would stall every other command sharing it for as long as the network takes. The closure reopens
+/// the repository itself rather than being handed one, for the same reason [`with_repository`]
+/// never keeps one between commands — `git2::Repository` is not `Send` in any case, so one made on
+/// this thread could not cross into the spawned one.
+pub async fn in_repository_blocking<T: Send + 'static>(
+    state: &AppState,
+    f: impl FnOnce(&Repository) -> Result<T, GitError> + Send + 'static,
+) -> Result<T, String> {
+    let root = {
+        let guard = state.project.lock().unwrap();
+        let project = guard.as_ref().ok_or_else(|| "No project is open.".to_string())?;
+        project.root_dir.clone()
+    };
+    tauri::async_runtime::spawn_blocking(move || abstract_tex_git::open(&root).and_then(|repository| f(&repository)))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+}

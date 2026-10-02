@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, ProseSummary, Status as GitStatus};
+use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, ProseSummary, Status as GitStatus, SyncOutcome};
 use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
@@ -764,6 +764,39 @@ pub async fn github_create_repository(
 #[tauri::command]
 pub fn git_origin_url(state: State<'_, AppState>) -> CommandResult<Option<String>> {
     Ok(git::with_repository(&state, |repository| Ok(abstract_tex_git::origin_url(repository)))?.flatten())
+}
+
+// ---------------------------------------------------------------------------------------------
+// S11.1b: the Sync Changes button, and the Commit dropdown's *Commit & Push* / *Commit & Sync*.
+//
+// Both talk to a network, so both go through `git::in_repository_blocking` rather than
+// `in_repository` — the distinction that module's own doc comment explains. Both read the token
+// the same way `github_create_repository` does: `None` on a signed-out machine, offered to the
+// remote only if it actually asks for one (`abstract_tex_git`'s own doc comment on `credentials`).
+// ---------------------------------------------------------------------------------------------
+
+/// Push the current branch to `origin` — the Commit dropdown's *Commit & Push*.
+///
+/// No fetch first: an author choosing this over *Commit & Sync* is saying "I know where this
+/// goes." It can still fail — libgit2 refuses a stale branch before sending anything — but it can
+/// never silently discard a coauthor's commit (checked by hand, `abstract-tex-git`'s own tests).
+#[tauri::command]
+pub async fn git_push(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
+    let token = state.github.token().map_err(to_message)?;
+    git::in_repository_blocking(&state, move |repository| abstract_tex_git::push(repository, token.as_deref())).await?;
+    git::emit_status_changed(&app);
+    Ok(())
+}
+
+/// The one-verb path (DESIGN.md §5.7): fetch, then push, fast-forward, or refuse a genuine
+/// divergence. Both the standalone *Sync Changes ↑n ↓m* button and the dropdown's *Commit & Sync*
+/// call this — the panel turns the answer into the sentence that goes under the button.
+#[tauri::command]
+pub async fn git_sync(app: AppHandle, state: State<'_, AppState>) -> CommandResult<SyncOutcome> {
+    let token = state.github.token().map_err(to_message)?;
+    let outcome = git::in_repository_blocking(&state, move |repository| abstract_tex_git::sync(repository, token.as_deref())).await?;
+    git::emit_status_changed(&app);
+    Ok(outcome)
 }
 
 #[cfg(test)]

@@ -59,8 +59,9 @@
 <footer class="statusbar">
   {#if branch}
     <!-- Clicking it opens the panel the branch belongs to, which is what VS Code's does. The
-         arrows are information only: §5.7's one-verb `Sync Changes` button is S11.1, and a verb
-         drawn before it works would be the worst of both. -->
+         arrows stay information only even now that §5.7's one-verb path works (S11.1): the design
+         puts that button in the Source Control view, not here, and drawing two Sync controls
+         would leave them to disagree about whether a sync is already running. -->
     <button class="ghost" title="Source Control (Ctrl Shift G)" onclick={() => showActivityView('source-control')}>
       {branch}{arrows ? ` ${arrows}` : ''}
     </button>

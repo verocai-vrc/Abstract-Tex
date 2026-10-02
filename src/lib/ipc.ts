@@ -370,6 +370,13 @@ export interface ProseSummary {
  * afterwards reports, since an untracked file is *deleted* and a tracked one is restored. */
 export type Discarded = 'restored' | 'deleted';
 
+/** What `git_sync` decided (`abstract_tex_git::SyncOutcome`), S11.1b — the one-verb path's own
+ * answer, which `git.svelte.ts`'s `syncOutcomeSentence` turns into the words under the button. */
+export type SyncOutcome =
+  | { kind: 'upToDate' }
+  | { kind: 'pushed'; ahead: number }
+  | { kind: 'fastForwarded'; behind: number };
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
@@ -508,6 +515,14 @@ export const ipc = {
     invoke<GitHubRepository>('github_create_repository', { name, visibility, description }),
   /** The URL of this project's `origin`, or `null` when it has no remote (or no repository). */
   gitOriginUrl: () => invoke<string | null>('git_origin_url'),
+
+  /** S11.1b: push the current branch to `origin` — the Commit dropdown's *Commit & Push*. Rejects
+   * with a sentence either way a push can be refused: a stale local branch, or a server-side
+   * policy such as a protected branch. */
+  gitPush: () => invoke<void>('git_push'),
+  /** S11.1b: the one-verb path (DESIGN.md §5.7) — fetch, then push, fast-forward, or refuse a
+   * genuine divergence, which this rejects for rather than guessing at a merge. */
+  gitSync: () => invoke<SyncOutcome>('git_sync'),
 
   /** Open a URL in the person's own browser (`tauri-plugin-opener`). A webview link cannot do
    * this by itself, which is why sign-in needs it — and why every caller also shows the URL as

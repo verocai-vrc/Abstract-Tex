@@ -661,6 +661,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **`Commit & Push` and `Commit & Sync` could erase the commit message the moment it was refused.**
+  (1 Oct 2026, found by `controller.test.ts` while writing S11.1b) The first draft of `commitThen`
+  called `refreshGitStatus()` unconditionally, after the `if (committed !== null)` block rather
+  than inside it — so it ran on a refusal too, and `refreshGitStatus` rebuilds the suggested
+  message whenever `messageIsSuggested` is still true, which it is until the author's first
+  keystroke in the box. A refused commit (no identity, nothing staged) left the author's own
+  sentence sitting in the box one line of code away from being silently replaced by a suggestion
+  built from the change they had just failed to commit. Caught immediately: a test asserted the
+  words survive a refusal, the same promise `commitStaged` already keeps, and they did not.
+  **Fixed** by moving the refresh inside the success branch, next to the other two things that
+  already only happen on success (clearing the box, re-arming the suggestion).
 - **A Source Control refusal appeared and then vanished before it could be read.** (29 Sep 2026,
   found by S10.5a's own tests; the bug was introduced in S10.3a) `git.error` held both a *verb's*
   refusal — "nothing is staged", "Git does not know who you are", "this folder is already inside

@@ -9,6 +9,7 @@ import type { BranchState, FileChange, GitStatus, ProseSummary } from './ipc';
 import {
   branchLabel,
   changedFileCount,
+  hasSyncWork,
   letterFor,
   outgoingCount,
   relativeTime,
@@ -16,6 +17,7 @@ import {
   splitPath,
   suggestedMessage,
   syncArrows,
+  syncOutcomeSentence,
   wordDeltaLabel,
 } from './git.svelte';
 
@@ -110,6 +112,27 @@ describe('the sync arrows (S10.3b)', () => {
   it("counts nothing as outgoing when there is nowhere for it to go", () => {
     expect(outgoingCount(branch({ aheadBehind: null }))).toBe(0);
     expect(outgoingCount(branch({ aheadBehind: [2, 1] }))).toBe(2);
+  });
+});
+
+describe('the Sync button (S11.1b)', () => {
+  it('belongs on screen whenever either side is non-zero, and nowhere else', () => {
+    expect(hasSyncWork(branch({ aheadBehind: [2, 1] }))).toBe(true);
+    expect(hasSyncWork(branch({ aheadBehind: [3, 0] }))).toBe(true);
+    expect(hasSyncWork(branch({ aheadBehind: [0, 4] }))).toBe(true);
+    // The same two "nothing to show" states `syncArrows` already tells apart: an upstream the
+    // branch agrees with, and no upstream at all.
+    expect(hasSyncWork(branch({ aheadBehind: [0, 0] }))).toBe(false);
+    expect(hasSyncWork(branch({ aheadBehind: null }))).toBe(false);
+    expect(hasSyncWork(null)).toBe(false);
+  });
+
+  it('spells out singular and plural, so the sentence reads like one', () => {
+    expect(syncOutcomeSentence({ kind: 'upToDate' })).toBe('Already up to date.');
+    expect(syncOutcomeSentence({ kind: 'pushed', ahead: 1 })).toBe('Pushed 1 commit.');
+    expect(syncOutcomeSentence({ kind: 'pushed', ahead: 3 })).toBe('Pushed 3 commits.');
+    expect(syncOutcomeSentence({ kind: 'fastForwarded', behind: 1 })).toBe('Pulled 1 commit.');
+    expect(syncOutcomeSentence({ kind: 'fastForwarded', behind: 2 })).toBe('Pulled 2 commits.');
   });
 });
 

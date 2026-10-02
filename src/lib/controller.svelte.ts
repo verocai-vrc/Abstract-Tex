@@ -4,7 +4,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
-import { git, GRAPH_PAGE, NO_CHANGES, suggestedMessage } from './git.svelte';
+import { git, GRAPH_PAGE, NO_CHANGES, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent, type Visibility } from './ipc';
@@ -576,6 +576,61 @@ export async function commitStaged(): Promise<void> {
   }
 }
 
+/** The shared shape of the Commit dropdown's *Commit & Push* and *Commit & Sync*: commit, and
+ * only on success run `after` — a refused commit (no message, nothing staged, no identity) has
+ * nothing to push or sync, and trying anyway would turn one refusal into two under the same box. */
+async function commitThen(after: () => Promise<unknown>): Promise<void> {
+  if (git.committing) return;
+  git.committing = true;
+  const committed = await runGitVerb(() => ipc.gitCommit(git.message));
+  if (committed !== null) {
+    git.message = '';
+    git.messageIsSuggested = true;
+    await after();
+    // Only on success: a refused commit changed nothing, and refreshing anyway would overwrite
+    // the author's own words in the box with a fresh suggestion built from the change they have
+    // not managed to commit yet — `commitStaged` avoids the same mistake by not refreshing at all.
+    await refreshGitStatus();
+  }
+  git.committing = false;
+}
+
+/**
+ * Commit what is staged, then push — the Commit dropdown's *Commit & Push* (S11.1b).
+ *
+ * No fetch first: choosing this over *Commit & Sync* is the author saying "I know where this
+ * goes." The push can still be refused — a stale branch, a protected branch on the remote — and
+ * the refusal shows under the box exactly like a refused commit; nothing here pretends a push
+ * happened when it did not.
+ */
+export async function commitAndPush(): Promise<void> {
+  await commitThen(() => runGitVerb(() => ipc.gitPush()));
+}
+
+/**
+ * Commit what is staged, then run the one-verb sync — the Commit dropdown's *Commit & Sync*
+ * (S11.1b), DESIGN.md §5.7's "commit, pull, rebase, push" as a single button.
+ */
+export async function commitAndSync(): Promise<void> {
+  await commitThen(async () => {
+    const outcome = await runGitVerb(() => ipc.gitSync());
+    if (outcome) git.lastSync = syncOutcomeSentence(outcome);
+  });
+}
+
+/**
+ * The standalone *Sync Changes ↑n ↓m* button (S11.1b) — DESIGN.md §5.7's one-verb path with
+ * nothing to commit first, for a branch that is already ahead, behind, or both.
+ */
+export async function syncChanges(): Promise<void> {
+  if (git.syncing) return;
+  git.syncing = true;
+  const outcome = await runGitVerb(() => ipc.gitSync());
+  if (outcome) git.lastSync = syncOutcomeSentence(outcome);
+  git.syncing = false;
+  await refreshGitStatus();
+}
+
 /**
  * Make this folder a Git repository (S10.5a).
  *
@@ -641,6 +696,7 @@ export async function discardChange(path: string, untracked: boolean): Promise<v
 async function runGitVerb<T>(verb: () => Promise<T>): Promise<T | null> {
   git.error = null;
   git.lastDiscard = null;
+  git.lastSync = null;
   try {
     return await verb();
   } catch (error) {
