@@ -4897,6 +4897,82 @@ nobody has looked at it yet. What a reader should take from the diff:
    box beyond the two read-only paragraphs, pre-filled with *Yours* rather than empty, so *Keep
    mine* needs no special case at the one default state nobody has clicked anything yet.
 
+**S11.3 splits the same way S11.1 and S10.5 did, 2 October 2026** — the hard limit is a `git2`
+question with no account and no window, same shape as S11.1a; the prompt is what the Source
+Control view does about a large file *before* it is even staged, which needs both and is carded
+once S11.3a's own shape (what counts as "large," and where `oversized_blobs` already lives) has
+settled. S11.3a is below.
+
+```
+Loop      S11.3a · The oversize catch, in the git crate · M
+Reads     DESIGN.md §5.7 ("A push that would exceed GitHub's per-file limit is caught before it
+          fails, not after"), §10 ("Large figures" — threshold "set by measurement against the
+          golden corpus", settled here: the corpus (`fixtures/corpus`) has no binary asset over a
+          few kilobytes, so there is nothing in it to measure against; the number actually used is
+          GitHub's own documented hard limit, not a figure derived from this repository's fixtures)
+Depends   S11.1a (`push`, which this sits in front of)
+Files     crates/abstract-tex-git/src/lib.rs
+Build     GitHub rejects any pushed file over 100 MiB outright (its documented hard limit; 50 MiB
+          elsewhere on that page is only a warning). `oversized_blobs` walks the same range
+          `commits_since` already counts — commits reaching the local branch and not the remote
+          tracking ref, or the whole history on a branch's first push — diffing each against its
+          first parent the way `word_delta` already does, rather than diffing the two trees
+          directly: a file added and then deleted again within the unpushed range is still a real
+          object the push has to transfer, and a whole-tree diff would never see it. `push` calls
+          it before touching the network and refuses by name by the largest offender if the range
+          holds any.
+
+          The LFS half of the card's own title — prompting to track a large file *before* it is
+          committed — is not here. Deciding what the Source Control view does about a large file
+          needs the view to show something, which is S11.3b, carded once this loop's shape (what
+          "large" means, and that the check already lives in `push`) is settled.
+Verify    cargo test -p abstract-tex-git
+Done when a commit holding a file over 100 MiB, anywhere in the commits a push would send, is
+          refused by `push` with that file's name and size before any network call, even if a
+          later commit in the same unpushed range deletes the file; a file already on the remote
+          is never re-flagged by an unrelated later push; and every existing push/sync test stays
+          green with nothing to change in any of them.
+```
+
+**S11.3a (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 579 passed (3 new)
+/ 0 failed, `cargo clippy --workspace --all-targets -- -D warnings` and
+`cargo doc --workspace --no-deps` both clean. `[~]` for the usual reason every S11 loop in this
+sprint has been: nothing here is on screen, so there is no rung 4 of its own. What a reader
+should take from the diff:
+
+1. **The "measured against the golden corpus" plan in DESIGN.md §10 could not actually be
+   carried out.** The corpus built for the compile-and-performance gate (§8) is eight real
+   documents chosen to stress the *engine* — a thesis, a Beamer deck, TikZ figures, shell escape,
+   non-Latin script, a broken document, a pathological preamble — and none of them carries a
+   binary asset anywhere near large enough to inform a threshold; `fixtures/corpus/tikz-figures`
+   draws its figures in TikZ, not PNG. Measuring against it would have measured nothing. The
+   number used instead, 100 MiB, is GitHub's own stated hard limit, not a figure this repository
+   derived — recorded here rather than quietly substituted, because the design doc's own sentence
+   promised a measurement that was never possible to perform.
+2. **`git2::DiffFile::size()` is always 0 on a tree-to-tree diff, and the first draft trusted it
+   anyway.** Checked by hand only after a test with a tiny limit refused to catch its own fixture
+   file: libgit2 only fills that field from a workdir `stat()`, and a tree entry has no size field
+   at all, only a mode and an id — there was never a size for the diff to have copied. Fixed by
+   reading `Odb::read_header`, which asks the object database for the real length from an object's
+   header without inflating its content; logged in `bugs-issues-fixes.md` since the wrong
+   assumption is exactly the kind of thing a future size check in this crate could repeat.
+3. **Diffing each commit against its own first parent, not the final tree against the remote's,**
+   is what makes a file added and later deleted within the same unpushed range still get caught —
+   a test commits a large file and then removes it two commits later, both still unpushed, and
+   `oversized_blobs` still finds it, because the push still has to send the object even though it
+   is absent from the tree that lands.
+4. **One function change, zero call sites to update.** `push` already builds the remote-tracking
+   ref's name to write it after a successful push; the same name, read one line earlier, is all
+   `oversized_blobs` needed to know what range to check. `sync`'s own two calls to `push` — the
+   plain-ahead case and the clean-merge case — inherit the refusal for free, with no new plumbing
+   and nothing for the Commit dropdown's two buttons to disagree about.
+5. **`GitError::FileTooLarge` needed no new plumbing to reach the view.** `with_repository` and
+   `in_repository` (`src-tauri/src/git.rs`) already turn every `GitError` into its `Display`
+   string for the frontend — the same seam S11.2a's `UnresolvedConflicts` and S11.1a's
+   `PushRejected` already use. The sentence is rounded up to a whole MB at the construction site,
+   not inside `Display`, so "over 100 MB" in the refusal always means the file really is over the
+   limit rather than rounding down to exactly the number that sounds like the edge.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
@@ -4920,11 +4996,19 @@ button): push, fetch and the sync decision need no account and no window; the bu
 them needs both; Amend needs `git2`'s own amend and tests of its own ·
 S11.2 conflicts
 as two paragraphs — **split into S11.2a above, expanded 1 October 2026**, and the view itself
-(S11.2b), carded once the maintainer has settled what it looks like · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
-graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
+(S11.2b), carded once the maintainer has settled what it looks like · S11.3 the oversize catch
+and the LFS prompt — **split into S11.3a above and S11.3b below, expanded 2 October 2026**, the
+same shape as S11.1 and S10.5: the hard limit is a `git2` question with no account and no window;
+the prompt is what the Source Control view does about a large file before it is staged, carded
+once the maintainer has settled what that prompt looks like · S11.4 `latexdiff` review from any
+two graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
 as a CodeMirror merge view, which is what §6's "a click opens a diff" finally means (deferred
 from S10.3a, 29 September 2026: a row that opened a half-built diff is worse than one that opens
 the file).
+
+S11.3b the LFS prompt itself — the Source Control view's answer to a large file, once S11.3a's
+catch exists to build it against — carded once the maintainer has settled what the prompt looks
+like, the same way S11.2b waited on the conflict view's shape.
 
 **Source Control design notes** (settled 2026-09-17, `DESIGN.md` §6; cards expanded at sprint
 start):

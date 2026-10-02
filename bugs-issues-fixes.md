@@ -661,6 +661,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **`git2::DiffFile::size()` reads 0 on a tree-to-tree diff, silently.** (2 Oct 2026, found while
+  writing S11.3a's `oversized_blobs`) The first draft read `change.new_file().size()` straight off
+  a `diff_tree_to_tree` delta, on the assumption libgit2 already has a blob's size from the tree
+  entry it is diffing — it does not: `file_size` in libgit2's `iterator.c` is only ever populated
+  from a workdir `stat()` (`iter->entry.file_size = entry->st.st_size`), and a `git_tree_entry`
+  carries no size field at all, only a mode and an id. Every delta silently reported size 0, which
+  a test with a tiny limit caught immediately — the fixture file never tripped the check. **Fixed**
+  by reading `Odb::read_header(id)` instead, the binding for `git_odb_read_header`, which asks the
+  object database for the object's real length from its header without inflating the full blob.
+  Left as a comment on `oversized_blobs` so nothing else in this crate repeats the same assumption.
 - **`Commit & Push` and `Commit & Sync` could erase the commit message the moment it was refused.**
   (1 Oct 2026, found by `controller.test.ts` while writing S11.1b) The first draft of `commitThen`
   called `refreshGitStatus()` unconditionally, after the `if (committed !== null)` block rather

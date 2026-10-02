@@ -89,6 +89,13 @@ pub enum GitError {
     /// `Result` — this is that callback's message, turned into a refusal a caller can match on.
     #[error("The remote refused the push: {0}")]
     PushRejected(String),
+
+    /// S11.3a: a blob among the commits this push would send is over GitHub's hard per-file
+    /// limit. Caught here, before the network call, rather than left for GitHub to refuse —
+    /// that refusal names no file and leaves the push half-sent. The size is already rounded up
+    /// to a whole MB at the call site, so "100 MB" in the sentence always means "really over."
+    #[error("{0} is over {1} MB — GitHub refuses any file over 100 MB. Push refused; remove it from history or track it with Git LFS first.")]
+    FileTooLarge(String, u64),
 }
 
 /// What one changed file is, in the words the row in the view uses.
@@ -947,6 +954,12 @@ pub fn fetch(repository: &Repository, token: Option<&str>) -> Result<(), GitErro
     Ok(())
 }
 
+/// GitHub rejects any pushed file over this many bytes outright (100 MiB, its documented hard
+/// limit — the 50 MiB figure elsewhere on that page is only a warning). `oversized_blobs` checks
+/// against this before `push` sends anything, so the refusal below names the file instead of
+/// whatever opaque message the server's own rejection would have given.
+const GITHUB_FILE_LIMIT_BYTES: u64 = 100 * 1024 * 1024;
+
 /// Push the current branch to `origin`.
 ///
 /// Sets the upstream tracking relationship on a first push (`git push -u`'s own behaviour), and
@@ -955,6 +968,18 @@ pub fn fetch(repository: &Repository, token: Option<&str>) -> Result<(), GitErro
 pub fn push(repository: &Repository, token: Option<&str>) -> Result<(), GitError> {
     let branch_name = current_branch(repository)?;
     let target = repository.head()?.target().ok_or(GitError::NoBranch)?;
+
+    // S11.3a: checked against exactly the commits this push is about to send — `already_on_remote`
+    // is `None` on a branch's first push, the same "whole history is ahead" case `sync` already
+    // walks in `commits_since`.
+    let remote_ref = format!("refs/remotes/{ORIGIN}/{branch_name}");
+    let already_on_remote = repository.find_reference(&remote_ref).ok().and_then(|r| r.target());
+    let oversized = oversized_blobs(repository, already_on_remote, target, GITHUB_FILE_LIMIT_BYTES)?;
+    if let Some((path, size)) = oversized.into_iter().max_by_key(|(_, size)| *size) {
+        let megabytes = size.div_ceil(1024 * 1024);
+        return Err(GitError::FileTooLarge(path, megabytes));
+    }
+
     let mut remote = origin(repository)?;
 
     // A stale local branch is caught by libgit2 itself, before anything is sent, and arrives
@@ -1084,6 +1109,58 @@ fn commits_since(repository: &Repository, from: Option<git2::Oid>, to: git2::Oid
         walk.hide(from)?;
     }
     Ok(walk.count())
+}
+
+/// Every blob, among the commits that reach `to` and not `from`, over `limit_bytes` — the same
+/// range `commits_since` counts, because a blob a push sends is exactly a blob a commit *in that
+/// range* added or changed. Diffed against each commit's first parent, the way `word_delta`
+/// already does, rather than `to`'s tree against `from`'s: a file added and then deleted again
+/// within the unpushed range is still a real object the push has to transfer, and a whole-tree
+/// diff would never see it.
+///
+/// `DiffFile::size` is always 0 here — checked by hand before this was written as a comment
+/// rather than assumed: libgit2 only fills that field from a workdir `stat`, and a tree entry
+/// carries no size at all, only a mode and an id. `Odb::read_header` is the real answer, and the
+/// right one to reach for: it asks the object database for the object's length from its header,
+/// the same few bytes `git cat-file -s` reads, never inflating the blob's full content just to
+/// measure it.
+fn oversized_blobs(
+    repository: &Repository,
+    from: Option<git2::Oid>,
+    to: git2::Oid,
+    limit_bytes: u64,
+) -> Result<Vec<(String, u64)>, GitError> {
+    let mut walk = repository.revwalk()?;
+    walk.push(to)?;
+    if let Some(from) = from {
+        walk.hide(from)?;
+    }
+    let odb = repository.odb()?;
+
+    let mut found = Vec::new();
+    for oid in walk {
+        let commit = repository.find_commit(oid?)?;
+        let new_tree = commit.tree()?;
+        let old_tree = commit.parent(0).ok().and_then(|parent| parent.tree().ok());
+        let diff = repository.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+        for change in diff.deltas() {
+            if change.status() == git2::Delta::Deleted {
+                continue;
+            }
+            let id = change.new_file().id();
+            if id.is_zero() {
+                continue;
+            }
+            let (size, _kind) = odb.read_header(id)?;
+            let size = size as u64;
+            if size > limit_bytes {
+                if let Some(path) = change.new_file().path().map(path_string) {
+                    found.push((path, size));
+                }
+            }
+        }
+    }
+    Ok(found)
 }
 
 #[cfg(test)]
@@ -1835,6 +1912,73 @@ mod tests {
 
         assert!(matches!(error, GitError::Git(_)), "{error:?}");
         assert_eq!(bare_tip(bare.path(), &branch), remote_commit, "the rejected push must not have moved the remote");
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S11.3a: the oversize catch.
+    // -----------------------------------------------------------------------------------------
+
+    /// `oversized_blobs` is tested against a tiny limit rather than GitHub's real 100 MiB one —
+    /// the behaviour under test is the *range* (which commits count) and the *diff-against-parent*
+    /// logic (word_delta's own pattern), neither of which needs a megabyte-scale fixture to prove.
+    #[test]
+    fn a_blob_over_the_limit_is_found_even_if_a_later_unpushed_commit_deletes_it() {
+        let (tmp, repository) = repo();
+        let before_large_file = repository.head().unwrap().target().unwrap();
+
+        fs::write(tmp.path().join("figure.png"), vec![0u8; 20]).unwrap();
+        commit_all(&repository, "add a large figure");
+        fs::remove_file(tmp.path().join("figure.png")).unwrap();
+        commit_all(&repository, "remove it again");
+        let head = repository.head().unwrap().target().unwrap();
+
+        // Still found: the blob was a real object in a commit this range covers, even though the
+        // final tree at `head` no longer contains it — a whole-tree diff would have missed it.
+        let found = oversized_blobs(&repository, Some(before_large_file), head, 10).unwrap();
+        assert_eq!(found, vec![("figure.png".to_string(), 20)]);
+
+        // Not found with the real limit raised above the fixture's size.
+        let none = oversized_blobs(&repository, Some(before_large_file), head, 20).unwrap();
+        assert!(none.is_empty(), "{none:?}");
+    }
+
+    /// `oversized_blobs` walks only the unpushed range — `commits_since`'s own range — so a large
+    /// file already on the remote is never re-flagged on a later, unrelated push.
+    #[test]
+    fn a_blob_already_on_the_remote_is_not_flagged_again() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("figure.png"), vec![0u8; 20]).unwrap();
+        commit_all(&repository, "add a large figure");
+        let already_pushed = repository.head().unwrap().target().unwrap();
+
+        fs::write(tmp.path().join("notes.tex"), "edit\n").unwrap();
+        commit_all(&repository, "later, small edit");
+        let head = repository.head().unwrap().target().unwrap();
+
+        let found = oversized_blobs(&repository, Some(already_pushed), head, 10).unwrap();
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// The card's done-when: a push that would send a file over GitHub's real limit is refused by
+    /// name, before the network call, and the remote is left untouched.
+    #[test]
+    fn pushing_a_file_over_githubs_limit_is_refused_by_name_and_touches_no_remote() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        let oversized = GITHUB_FILE_LIMIT_BYTES as usize + 1;
+        fs::write(tmp.path().join("figure.png"), vec![0u8; oversized]).unwrap();
+        commit_all(&repository, "add an oversized figure");
+
+        let error = push(&repository, None).unwrap_err();
+
+        match error {
+            GitError::FileTooLarge(path, megabytes) => {
+                assert_eq!(path, "figure.png");
+                assert!(megabytes > 100, "{megabytes} MB should read as over the 100 MB limit");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(repository.find_reference(&format!("refs/remotes/origin/{branch}")).is_err(), "a refused push must not update the tracking ref");
+        assert!(Repository::open_bare(bare.path()).unwrap().find_reference(&format!("refs/heads/{branch}")).is_err(), "the bare remote must still have no branch at all");
     }
 
     /// `push` and `fetch` both refuse the same way on a repository with no commits yet — there is
