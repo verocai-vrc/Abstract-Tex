@@ -1,7 +1,23 @@
 # Abstract-Tex — Design Interview Handoff
 
-**2 October 2026 · written at `2487266` (S11.4b) · companion to [`DESIGN.md`](DESIGN.md) and
-[`SPRINTS.md`](SPRINTS.md)**
+**2 October 2026 · written at `fcbd6e2` (S11.4b — `2487266` before the history rewrite, C3) ·
+companion to [`DESIGN.md`](DESIGN.md) and [`SPRINTS.md`](SPRINTS.md)**
+
+> **Interview held 2 October 2026; answers propagated in the commit `Planning: design interview
+> answers recorded`.** Every `Answer:` line below is the maintainer's choice. Where it departs
+> from the recommendation, or the interview turned up a new option, the answer says so. The
+> maintainer gave no reasons beyond their choices.
+>
+> **Corrections found during the interview**, against what this file says below:
+> - §1's "five commits are local only" was already stale: `main` had been pushed, up to and
+>   including this file's own commit.
+> - A1's "S9.9's draft build already proves the orchestrator can run a second job beside the main
+>   one" is not quite right: the draft shares its full build's generation and cancel. The diff
+>   lane is therefore a second `Orchestrator`, which the S11.4c card says.
+> - F5 gained an option the list below does not have (a Git-ref comment store), and that is the
+>   one chosen.
+> - S11.5 and S11.6 below mean the *old* numbering. After block B, sprint 11 runs S11.4c, S11.4d,
+>   S11.5 Clone, S11.6 Snapshots, S11.7 `.tex` merge view, S11.8 HTTP-remote CI + exit demo.
 
 This file is a script for one planning session between the maintainer and an agent. Its job is
 to close every design question that is currently open, scattered, or silently drifting — so the
@@ -83,59 +99,59 @@ sections that follow.
 | ID | Question (short) | Recommendation | Answer |
 |---|---|---|---|
 | **A — the next loop (S11.4c / S11.4d)** | | | |
-| A1 ★ | Does a diff build share the one-build-in-flight lane? | Its own lane; cancels only older diffs | |
-| A2 | Which engine compiles the diff? | The project's configured engine | |
-| A3 | Where do the exports live, and when are they removed? | `.abstract-tex/latexdiff/`, last comparison only | |
-| A4 ★ | Click order or chronological order? | Always older → newer | |
-| A5 | Root file missing or renamed in one revision? | Refuse with a sentence; no picker in v1 | |
-| A6 | What does diff mode look like in the PDF pane? | Banner + "Back to live PDF"; SyncTeX off | |
-| A7 ★ | What happens when the marked-up document fails to compile? | Sentence + the diff build's own diagnostics; latexdiff defaults | |
-| A8 | Markup style | latexdiff's default (`UNDERLINE`) | |
-| A9 ★ | Save the diff PDF somewhere? | *Save as…* in the banner, in v1 | |
-| A10 | Details of click-to-mark, and the keyboard path | Third click restarts; Esc clears; rows focusable | |
-| A11 | Compare against uncommitted work or a tag? | Later card, not S11.4 | |
-| A12 | Where does "latexdiff isn't installed" appear? | Under the Graph toolbar, naming TeX Live/MiKTeX/CTAN | |
+| A1 ★ | Does a diff build share the one-build-in-flight lane? | Its own lane; cancels only older diffs | Own lane |
+| A2 | Which engine compiles the diff? | The project's configured engine | Project's engine |
+| A3 | Where do the exports live, and when are they removed? | `.abstract-tex/latexdiff/`, last comparison only | Last comparison only |
+| A4 ★ | Click order or chronological order? | Always older → newer | Always older → newer |
+| A5 | Root file missing or renamed in one revision? | Refuse with a sentence; no picker in v1 | Refuse with a sentence |
+| A6 | What does diff mode look like in the PDF pane? | Banner + "Back to live PDF"; SyncTeX off | Accepted as described |
+| A7 ★ | What happens when the marked-up document fails to compile? | Sentence + the diff build's own diagnostics; latexdiff defaults | Defaults + diagnostics |
+| A8 | Markup style | latexdiff's default (`UNDERLINE`) | UNDERLINE, no setting |
+| A9 ★ | Save the diff PDF somewhere? | *Save as…* in the banner, in v1 | Save as… in S11.4d |
+| A10 | Details of click-to-mark, and the keyboard path | Third click restarts; Esc clears; rows focusable | Accepted, palette included |
+| A11 | Compare against uncommitted work or a tag? | Later card, not S11.4 | Two commits only |
+| A12 | Where does "latexdiff isn't installed" appear? | Under the Graph toolbar, naming TeX Live/MiKTeX/CTAN | Accepted |
 | **B — finishing v0.6** | | | |
-| B1 ★ | Register the GitHub OAuth app — who owns it, when? | Maintainer's account, before S11.5 | |
-| B2 ★ | Clone from inside the app (missing, needed by the exit demo) | New card before S11.5 | |
-| B3 ★ | Restore a snapshot without a terminal? | Small read-only card before S11.5 | |
-| B4 | Branch create/switch | Out of v0.6 | |
-| B5 | Pull-request review (promised, never carded) | Drop from the app; the S16.2 Action is the PR story | |
-| B6 | Sync is a merge, not a rebase — confirm | Confirm merge; fix DESIGN.md | |
-| B7 | S11.5 CI against GitLab | Bare remote in CI; GitLab once, by hand | |
-| B8 | S11.6 merge view scope | Changes row → working tree vs index | |
-| B9 | v0.6 exit demo logistics | Windows ↔ this Linux machine, after B1–B3 | |
+| B1 ★ | Register the GitHub OAuth app — who owns it, when? | Maintainer's account, before S11.5 | **Deferred** to the start of S11.8 |
+| B2 ★ | Clone from inside the app (missing, needed by the exit demo) | New card before S11.5 | New card (S11.5) |
+| B3 ★ | Restore a snapshot without a terminal? | Small read-only card before S11.5 | New card (S11.6) |
+| B4 | Branch create/switch | Out of v0.6 | Out of v0.6 |
+| B5 | Pull-request review (promised, never carded) | Drop from the app; the S16.2 Action is the PR story | Drop from the app |
+| B6 | Sync is a merge, not a rebase — confirm | Confirm merge; fix DESIGN.md | Merge, confirmed |
+| B7 | S11.5 CI against GitLab | Bare remote in CI; GitLab once, by hand | HTTP bare remote in CI |
+| B8 | S11.6 merge view scope | Changes row → working tree vs index | As recommended (S11.7) |
+| B9 | v0.6 exit demo logistics | Windows ↔ this Linux machine, after B1–B3 | Decide at S11.8 |
 | **C — process** | | | |
-| C1 ★ | Clearing the rung-4 backlog | One smoke campaign on Windows; make this machine able to look | |
-| C1b | `[~]` vs `[x]` for loops with no UI | `[x]` once their own rungs are green | |
-| C2 | Finish v0.6 before sprint 12? | Yes | |
-| C3 | Three pushed commits carry attribution lines | Leave them | |
-| C4 | Ledger: Fixed entries still under *Open* | Move them | |
-| C5 | `rustfmt` | One whole-repo format commit + `cargo fmt --check` in verify | |
-| C6 | Install `latexdiff`, `git-lfs`, WebKitGTK here; fix `PATH` | Yes to the tools; `PATH` is your call | |
-| C7 | Windows DNS / security-suite blocking | Add an exception; record it | |
-| C8 | Publish `texlog` / `texbib` | Your call on timing | |
+| C1 ★ | Clearing the rung-4 backlog | One smoke campaign on Windows; make this machine able to look | Both |
+| C1b | `[~]` vs `[x]` for loops with no UI | `[x]` once their own rungs are green | `[x]` when own rungs green |
+| C2 | Finish v0.6 before sprint 12? | Yes | Yes |
+| C3 | Three pushed commits carry attribution lines | Leave them | **Rewrite and force-push** |
+| C4 | Ledger: Fixed entries still under *Open* | Move them | Move them |
+| C5 | `rustfmt` | One whole-repo format commit + `cargo fmt --check` in verify | Yes, width 110 |
+| C6 | Install `latexdiff`, `git-lfs`, WebKitGTK here; fix `PATH` | Yes to the tools; `PATH` is your call | All four |
+| C7 | Windows DNS / security-suite blocking | Add an exception; record it | Add exception, record |
+| C8 | Publish `texlog` / `texbib` | Your call on timing | After E1, before v0.9 |
 | **D — documentation drift (confirm, the agent fixes)** | | | |
-| D1–D7 | Stale rows, wrong cross-refs, stale CLAUDE.md layout | Fix all | |
+| D1–D7 | Stale rows, wrong cross-refs, stale CLAUDE.md layout | Fix all | Accept all |
 | **E — deferred technical decisions from the ledger** | | | |
-| E1 | Diagnostics that land inside a package file | Carry the nearest project file | |
-| E2 | Biber: bundle or not? | Not bundled; record it | |
-| E3 | BibTeX `.blg` rule | Defer, low priority | |
-| E4 | Include-graph robustness (five small gaps) | One sweep card | |
-| E5 | Shell-escape working-folder limits | Accept, document | |
-| E6 | System-engine speed is never gated | Wall-clock gate | |
-| E7 | Fragile-command fix for long section titles | Frontend card, later | |
-| E8 | One "ledger sweep" loop for the small fixes | Yes | |
+| E1 | Diagnostics that land inside a package file | Carry the nearest project file | Ship the stack |
+| E2 | Biber: bundle or not? | Not bundled; record it | Not bundled; recorded |
+| E3 | BibTeX `.blg` rule | Defer, low priority | Defer, low priority |
+| E4 | Include-graph robustness (five small gaps) | One sweep card | One sweep card |
+| E5 | Shell-escape working-folder limits | Accept, document | Accept, document |
+| E6 | System-engine speed is never gated | Wall-clock gate | Wall-clock gate |
+| E7 | Fragile-command fix for long section titles | Frontend card, later | Frontend card, later |
+| E8 | One "ledger sweep" loop for the small fixes | Yes | Start of sprint 12 |
 | **F — later sprints (decide by the sprint noted)** | | | |
-| F1 ★ | Assistant: which providers, and is "subscription sign-in" in scope? | Anthropic + OpenAI-compatible (covers local models); no subscription sign-in | |
-| F2 | Assistant opt-in and keys: where stored | Per machine, never in the project | |
-| F3 | Model fallback for compile errors: consent per call? | Per call, shown payload | |
-| F4 | Which citation commands the guard scans | Every cite-family command texbib knows | |
-| F5 ★ | Comments after a live session: where do they persist? | Open — needs real discussion | |
-| F6 | Relay hosting and session joining | Self-host binary; invite link with a secret | |
-| F7 | Code signing budget | Decide by sprint 14 | |
-| F8 | Updater and crash reports vs "host nothing ourselves" | GitHub Releases; crash report = prefilled issue | |
-| F9 | Companion GitHub Action | Separate repository, Tectonic + latexdiff | |
+| F1 ★ | Assistant: which providers, and is "subscription sign-in" in scope? | Anthropic + OpenAI-compatible (covers local models); no subscription sign-in | Keys + compatible; no sub |
+| F2 | Assistant opt-in and keys: where stored | Per machine, never in the project | Per machine + folder |
+| F3 | Model fallback for compile errors: consent per call? | Per call, shown payload | Per call, payload shown |
+| F4 | Which citation commands the guard scans | Every cite-family command texbib knows | One shared list |
+| F5 ★ | Comments after a live session: where do they persist? | Open — needs real discussion | **Spike a Git-ref store** |
+| F6 | Relay hosting and session joining | Self-host binary; invite link with a secret | Invite link + E2E |
+| F7 | Code signing budget | Decide by sprint 14 | Decide by sprint 14 |
+| F8 | Updater and crash reports vs "host nothing ourselves" | GitHub Releases; crash report = prefilled issue | GitHub Releases + prefilled issue |
+| F9 | Companion GitHub Action | Separate repository, Tectonic + latexdiff | Own repo, shared flags |
 
 ---
 
@@ -172,7 +188,11 @@ next save cancels it; if it does not, the rule needs an explicit exception.
 draft build already proves the orchestrator can run a second job beside the main one with its
 own event. The `DESIGN.md` §5.1 wording needs one sentence added.
 
-**Answer:**
+**Answer:** **(a), own lane** (2 Oct 2026, the recommendation). Diff builds have their own
+generation counter and cancel only older diff builds; live builds carry on. Found while carding
+S11.4c: S9.9's draft build is *not* a second lane (it shares its full build's generation and
+cancel), so the lane is a second `Orchestrator` — the same struct, constructed twice. `DESIGN.md`
+§5.1 has the sentence.
 
 ### A2 · Which engine compiles the marked-up document?
 
@@ -186,7 +206,7 @@ the bundled Tectonic has no Biber.
 engine than the document is written for would be a confusing failure, and the code path
 already exists.
 
-**Answer:**
+**Answer:** **(a), the project's configured engine** (2 Oct 2026, the recommendation).
 
 ### A3 · Where do the exports live, and when are they removed?
 
@@ -204,7 +224,9 @@ of a thesis with figures can be large.
 **Recommendation: (a).** Same drive as the project (matters on Windows), visible and deletable
 with the rest of `.abstract-tex/`, and bounded to one comparison's worth of disk.
 
-**Answer:**
+**Answer:** **(a)** (2 Oct 2026, the recommendation):
+`.abstract-tex/latexdiff/<from7>-<to7>/{old,new,build}`, only the most recent comparison kept, the
+same pair reused. Added to `DESIGN.md` §5.8's tree.
 
 ### A4 ★ · Click order, or always older → newer?
 
@@ -220,7 +242,8 @@ reading shows the newer text as deleted.
 **Recommendation: (a)**, with (c) as a later addition if anyone ever asks. A reverse diff is
 almost always a mis-click, and it would read as "everything I wrote was deleted".
 
-**Answer:**
+**Answer:** **(a), always older → newer** (2 Oct 2026, the recommendation). The ⇄ swap is an
+unplaced card, built only if anyone asks.
 
 ### A5 · What if the root file does not exist in one of the two revisions?
 
@@ -232,7 +255,8 @@ root per revision; (c) search the old tree for a `\documentclass` file.
 
 **Recommendation: (a)** for v1. (c) is guessing, and (b) is UI for a rare case.
 
-**Answer:**
+**Answer:** **(a), refuse with a sentence naming the commit** (2 Oct 2026, the recommendation). No
+picker in v1.
 
 ### A6 · What does "diff mode" look like in the PDF pane?
 
@@ -246,7 +270,8 @@ marked-up document's lines do not correspond to any file the author can edit). L
 running underneath (A1) and are shown the moment the author returns. Leaving diff mode also
 clears the Graph's marks.
 
-**Answer:** (accept, or describe changes)
+**Answer:** **Accepted as described** (2 Oct 2026): banner, SyncTeX off, live builds continue,
+leaving diff mode clears the Graph's marks.
 
 ### A7 ★ · What happens when the marked-up document fails to compile?
 
@@ -266,7 +291,9 @@ default `new-only`). This is the most likely way the feature disappoints people.
 **Recommendation: (a) now, (b) as the first follow-up card** — once a real `latexdiff` has been
 run on the corpus (C6), we will know which flags actually matter on real documents.
 
-**Answer:**
+**Answer:** **(a)** (2 Oct 2026, the recommendation): latexdiff's defaults; on failure a sentence
+in the banner plus the diff build's own diagnostics, raw log one click away. *Try again with
+simpler markup* is the first follow-up card (unplaced, `SPRINTS.md`).
 
 ### A8 · Markup style
 
@@ -275,7 +302,7 @@ and coloured) matches `DESIGN.md` §5.7's description word for word. Alternative
 (changes in a different font), `CHANGEBAR` (margin bars). **Recommendation:** the default, no
 setting in v1.
 
-**Answer:**
+**Answer:** **The default `UNDERLINE`, no setting** (2 Oct 2026, the recommendation).
 
 ### A9 ★ · Should the diff PDF be saveable?
 
@@ -289,7 +316,7 @@ the app. With A3's cleanup policy, the file disappears on the next comparison.
 **Recommendation: (a), in S11.4d.** It is one button and a dialog the app already has the
 plugin for, and without it the headline use case needs a file manager and a hidden folder.
 
-**Answer:**
+**Answer:** **(a), *Save as…* in the diff banner, in S11.4d** (2 Oct 2026, the recommendation).
 
 ### A10 · Click-to-mark details, and the keyboard path
 
@@ -305,7 +332,8 @@ plugin for, and without it the headline use case needs a file manager and a hidd
 - While rendering, the toolbar says so and the PDF pane shows progress; a second request replaces
   the first (A1).
 
-**Answer:**
+**Answer:** **Accepted in full** (2 Oct 2026), the palette entry *Compare with previous commit*
+included in S11.4d.
 
 ### A11 · Compare against uncommitted work, or a named version?
 
@@ -315,7 +343,8 @@ keep S11.4 to two commits; add a later card for "compare working tree against a 
 `export_tree` needed for one side) and for tags ("Sent to supervisor, 3 Oct"), which would also
 need a way to create a tag.
 
-**Answer:**
+**Answer:** **Two commits only in S11.4** (2 Oct 2026, the recommendation). Working tree vs commit,
+and tags, are an unplaced card.
 
 ### A12 · Where does "latexdiff isn't installed" appear?
 
@@ -329,7 +358,8 @@ bundles one).
 mentioning Perl when MiKTeX is the detected distribution. It is checked when the second row is
 marked, so nobody waits for an export to learn it.
 
-**Answer:**
+**Answer:** **Accepted** (2 Oct 2026, the recommendation): under the Graph toolbar via `git.error`,
+a MiKTeX/Perl line on Windows, checked before any export.
 
 ---
 
@@ -356,7 +386,12 @@ When? Where should the id live for dev builds (a local `.env` that is git-ignore
 **Recommendation.** Your account now; move to an organisation only if the project gets one.
 Record the id in `DESIGN.md` §10 as a ship-time decision.
 
-**Answer:**
+**Answer:** **Deferred** (2 Oct 2026) — to the start of the exit-demo card. The maintainer's first
+answer was "until S11.5 starts", given while S11.5 still meant the exit demo; after the renumbering
+below they confirmed it means the exit demo (now **S11.8**), not the clone card. Owner and name are
+decided then. No reason given. Consequence, checked in code during the interview: the device-flow
+token is the only credential `abstract-tex-git` offers (`credentials()`), so nothing can push to an
+authenticated remote from the app until then. Recorded as a `DESIGN.md` §10 row.
 
 ### B2 ★ · Clone from inside the app
 
@@ -373,7 +408,8 @@ which cannot pass as written.
 **Recommendation: (a).** Without it, the "no terminal" promise breaks at the very first step on
 machine two, and it is mostly existing pieces (sign-in, credentials, open-folder).
 
-**Answer:**
+**Answer:** **(a), a new card before the exit demo** (2 Oct 2026, the recommendation) — now **S11.5
+Clone a repository**. Its account-list rung waits on B1.
 
 ### B3 ★ · Recovering a snapshot without a terminal
 
@@ -392,7 +428,8 @@ plus "no terminal" reads as needing an in-app path.
 **Recommendation: (a)**, kept small. The audience who never presses commit is exactly the
 audience who will never type `git show`.
 
-**Answer:**
+**Answer:** **(a), a small read-only card** (2 Oct 2026, the recommendation) — now **S11.6
+Snapshots**.
 
 ### B4 · Branch create and switch
 
@@ -400,7 +437,7 @@ Nothing in the app creates or switches branches; the Graph is single-lane by des
 §6 notes). **Recommendation:** out of v0.6. Record it as a post-v0.6 card candidate, since
 "compare a branch against `main`" (A11) and any PR workflow would need it.
 
-**Answer:**
+**Answer:** **Out of v0.6** (2 Oct 2026, the recommendation); an unplaced card candidate.
 
 ### B5 · Pull-request review — promised, never carded
 
@@ -415,7 +452,8 @@ Action (S16.2) rendering a latexdiff PDF per PR.
 **Recommendation: (a) or (c).** In-app PR review is a large surface (branches, review comments,
 GitHub API) and §1.3 warns against becoming a Git replacement.
 
-**Answer:**
+**Answer:** **(a), drop in-app pull-request review** (2 Oct 2026, the recommendation). The S16.2
+Action is the PR story; the three `DESIGN.md` mentions are edited.
 
 ### B6 · Sync is a merge, not a rebase — confirm and fix the docs
 
@@ -426,7 +464,8 @@ S11.2b's conflict view is built on that. The docs were never updated.
 
 **Recommendation:** confirm merge; change the three sentences to "commit, pull, merge, push".
 
-**Answer:**
+**Answer:** **Confirmed: merge** (2 Oct 2026, the recommendation). `DESIGN.md` §5.7, §6 and §7 now
+say "commit, pull, merge, push".
 
 ### B7 · S11.5's "GitLab and bare-remote CI test"
 
@@ -441,7 +480,8 @@ GitLab job with a token secret. (c) Bare remote only.
 
 **Recommendation: (a).**
 
-**Answer:**
+**Answer:** **(a)** (2 Oct 2026, the recommendation): a bare remote over smart HTTP in CI; GitLab
+checked by hand once per release. Now part of **S11.8**.
 
 ### B8 · S11.6 — the `.tex` merge view's scope
 
@@ -454,7 +494,10 @@ read-only) — exactly what *Stage* would change. A *Staged Changes* row opens i
 both read-only. `.tex` and `.bib` get the merge view; anything else opens as today. Add the
 dependency.
 
-**Answer:**
+**Answer:** **As recommended** (2 Oct 2026), adding `@codemirror/merge`. Now **S11.7**.
+**Renumbering** decided in the same breath (2 Oct 2026, the recommendation): nothing past S11.4b
+was built, so the remaining cards became S11.5 Clone · S11.6 Snapshots · S11.7 `.tex` merge view ·
+S11.8 HTTP bare-remote CI + exit demo.
 
 ### B9 · v0.6 exit demo logistics
 
@@ -464,7 +507,8 @@ resolve in the conflict view; finally delete the working tree's last edit and re
 Record the outcome in `SPRINTS.md` the way S6.4's torture demo was recorded. Which two machines,
 and when?
 
-**Answer:**
+**Answer:** **The script is recorded; which machines and when are decided when S11.8 starts** (2
+Oct 2026).
 
 ---
 
@@ -495,7 +539,9 @@ sprint 2 on most UI loops; the reasons vary per outcome paragraph. Roughly:
 **Recommendation: (c).** (a) closes the backlog once; (b) stops it regrowing. Several UI loops this
 sprint (S11.2b's conflict view especially) have never been seen by anyone.
 
-**Answer:**
+**Answer:** **(c), both** (2 Oct 2026, the recommendation). The Windows smoke campaign runs **after
+S11.4d**, so it walks S11.4c/d too. On this machine, WebKitGTK turned out to be installed already;
+Xvfb still needs the maintainer's `apt` (C6).
 
 **C1b · What does `[~]` mean for a loop with nothing on screen?** Crate-only loops — S11.1a,
 S11.2a, S11.3a, S11.3b, S11.4a, S11.4b — are `[~]` today only because "no rung 4", which they can
@@ -504,7 +550,9 @@ one situation makes the tick boxes less useful as a record. **Recommendation:** 
 names no UI is `[x]` once its own rungs are green; `[~]` is kept for "something this loop owes is
 still undone", and the outcome paragraph says what.
 
-**Answer:**
+**Answer:** **Accepted** (2 Oct 2026, the recommendation). Applied per outcome paragraph: S11.2a,
+S11.3a, S11.3b and S11.4a re-marked `[x]`; S11.1a stays `[~]` (still owes a real GitHub push, B1)
+and S11.4b stays `[~]` (still owes a real `latexdiff` run).
 
 ### C2 · Finish v0.6 before starting sprint 12?
 
@@ -512,7 +560,9 @@ still undone", and the outcome paragraph says what.
 argues storage before convenience. **Recommendation:** yes — S11.4c/d, the B-block cards, S11.5,
 S11.6, and the exit demo before any assistant work.
 
-**Answer:**
+**Answer:** **Yes** (2 Oct 2026, the recommendation). Order recorded in `SPRINTS.md`: S11.4c →
+S11.4d → Windows smoke campaign → S11.5 → S11.6 → S11.7 → S11.8, then the rustfmt commit (C5), then
+sprint 12.
 
 ### C3 · Three pushed commits carry attribution lines
 
@@ -520,7 +570,15 @@ Memory note: `33a4b36`, `3cc1855`, `5af6dcd` (all S3.2) on `origin/main` still h
 `Co-Authored-By` line. Removing them means rewriting published history and a force push.
 **Recommendation:** leave them; the rule is enforced going forward.
 
-**Answer:**
+**Answer:** **Rewrite history** (2 Oct 2026) — the maintainer chose this *over* the recommendation,
+then confirmed it when told the cost (every SHA from `5af6dcd` on changes; cited SHAs go stale;
+other clones must hard-reset). Done in this session with `git filter-branch --msg-filter`, deleting
+only `Co-Authored-By:` lines (authors, dates and trees untouched; the tree diff against the old
+history is empty), and rewording `80163cd`'s generic subject to
+`Planning: design interview handoff` at the same time. The three commits are now `81c1e3d`,
+`3b1b15c` and `0b4a513`; every SHA cited in `SPRINTS.md` and the ledger was remapped. The old
+history is kept on the local branch `backup/pre-rewrite-2026-10-02` until the maintainer has
+force-pushed (block G).
 
 ### C4 · Ledger hygiene
 
@@ -530,7 +588,9 @@ never moved to the *Fixed* section, so the section header no longer tells the tr
 whose status is Fixed into *Fixed* (newest first, as the file asks), leaving *Open* with only the
 genuinely open ones (listed in block E and C7).
 
-**Answer:**
+**Answer:** **Move them** (2 Oct 2026, the recommendation). Done: the 17, plus two entries this
+interview closed (the `zig cc` one, C6; the relative `ABSTRACT_TEX_OPEN` one, D7), are under
+*Fixed*; E5's two are under *Won't fix*.
 
 ### C5 · `rustfmt`
 
@@ -540,7 +600,8 @@ with a chosen width, then `cargo fmt --check` in `pnpm verify`; (b) no formatter
 **Recommendation: (a)**, at a quiet moment (between sprints), as its own commit — the learner
 benefits from never thinking about formatting again. Your call on width (100 default vs 110).
 
-**Answer:**
+**Answer:** **Yes, `max_width = 110`** (2 Oct 2026). One whole-repo `cargo fmt` commit between
+S11.8 and sprint 12, then `cargo fmt --check` joins `pnpm verify:rust`.
 
 ### C6 · Tools and `PATH` on this Linux machine
 
@@ -554,7 +615,10 @@ benefits from never thinking about formatting again. Your call on width (100 def
 
 **Recommendation:** install the first three; `PATH` is your call (the env prefix works fine).
 
-**Answer:**
+**Answer:** **All four** (2 Oct 2026): `latexdiff`, `git-lfs`, WebKitGTK + Xvfb, and fix `PATH`.
+Done here: the four `zig cc` wrappers moved to `~/.local/zig-wrappers/` (a clean `libgit2-sys`
+rebuild then succeeded with no `CC=`), and WebKitGTK was already installed. `sudo` needs a password
+this session cannot give, so `latexdiff`, `git-lfs` and Xvfb are a block G item.
 
 ### C7 · Windows: DNS blocked per process
 
@@ -566,7 +630,8 @@ once. **Recommendation:** add an exception for `target\debug\*.exe`/`target\rele
 the existing WebView2 one), confirm, and record the outcome in the ledger — if a stranger's
 security suite does the same thing, v0.9's stranger test will find it.
 
-**Answer:**
+**Answer:** **Add the exception and record the outcome** (2 Oct 2026, the recommendation) — during
+the Windows smoke campaign.
 
 ### C8 · Publishing `texlog` and `texbib`
 
@@ -574,7 +639,8 @@ S6.5 and S8.5 are `[~]` waiting on `cargo publish`. The licence split (MIT for t
 `DESIGN.md` §10. **Question:** publish now, at v0.9, or at v1.0? **Recommendation:** your call;
 nothing else is blocked by it.
 
-**Answer:**
+**Answer:** **After E1 lands, before v0.9** (2 Oct 2026), so the first public `texlog` already has
+E1's changed `Diagnostic`.
 
 ---
 
@@ -590,7 +656,9 @@ nothing else is blocked by it.
 | D6 | `CLAUDE.md`, *Commands* / *Working solo* | "On this Windows machine cargo lives at …" is half the story; nothing about the Linux machine | Add the Linux notes (`CC=/usr/bin/cc …`, cannot push) |
 | D7 | `fixtures/*/SMOKE.md`; `.claude/skills/run-stable-build/SKILL.md` | SMOKE scripts give a relative `ABSTRACT_TEX_OPEN` that opens nothing (ledger, *Open*); the skill still says "Preamble app" | Absolute-path form; rename |
 
-**Answer:** (accept all, or list exceptions)
+**Answer:** **Accept all** (2 Oct 2026), plus §1's stale "five commits local only" (they were
+pushed). Done: D1–D4 in `DESIGN.md`, D5–D6 in `CLAUDE.md` (and the same crate list in
+`DEVELOPMENT.md`), D7 in every `fixtures/*/SMOKE.md` and the `run-stable-build` skill.
 
 ---
 
@@ -610,7 +678,8 @@ the whole stack over IPC and let the frontend pick the first file the project ha
 **Recommendation: (b)** — the frontend already has the include graph, so no heuristic. Changes
 `texlog`'s public type, so it lands before or with C8's publish.
 
-**Answer:**
+**Answer:** **(b), ship the whole stack** (2 Oct 2026, the recommendation); lands before C8's
+publish.
 
 ### E2 · Biber: bundle it or not?
 
@@ -620,7 +689,7 @@ Biber at all. **Recommendation:** record "not bundled; system engine path (S9.4)
 in `DESIGN.md` §4, consistent with §1.3's "no TeX distribution". This also explains why `texlog`
 has no `biblatex` rule.
 
-**Answer:**
+**Answer:** **Not bundled; recorded in `DESIGN.md` §4** (2 Oct 2026, the recommendation).
 
 ### E3 · A BibTeX `.blg` rule
 
@@ -629,7 +698,8 @@ health checks already cover most of it; what is left is a missing `.bst` and sty
 recorded: with `\include`, every chapter's `.blg` carries three spurious errors. **Recommendation:**
 defer, low priority; when built, read only the root's `.blg`.
 
-**Answer:**
+**Answer:** **Deferred, low priority** (2 Oct 2026, the recommendation); when built, the root's
+`.blg` only.
 
 ### E4 · Include-graph robustness — five small gaps
 
@@ -641,7 +711,8 @@ are invisible. The one real design question inside: **should the graph follow `.
 files' own `\input`s?** **Recommendation:** one sweep card for the five, with `.sty`/`.cls`
 following *out* of scope (`\usepackage` already is) and the module doc narrowed to say so.
 
-**Answer:**
+**Answer:** **One sweep card, `.sty`/`.cls` following out of scope** (2 Oct 2026, the
+recommendation); unplaced.
 
 ### E5 · Shell-escape working-folder limits
 
@@ -651,7 +722,8 @@ toggling shell-escape consent forces one full latexmk rebuild. Neither has a gen
 **Recommendation:** accept both as documented limitations (a line in `DEVELOPMENT.md`), revisit
 only if minted v3's `\inputminted` turns out not to work either once a machine can run it.
 
-**Answer:**
+**Answer:** **Accepted and documented** (2 Oct 2026, the recommendation): two bullets in
+`DEVELOPMENT.md`; both ledger entries moved to *Won't fix* with that reason.
 
 ### E6 · System-engine speed is never gated
 
@@ -660,7 +732,8 @@ the bundled Tectonic only, while its doc comment claims "one ceiling per corpus 
 **Recommendation:** a wall-clock-only ceiling for system engines in CI where one is installed,
 and fix the doc comment now.
 
-**Answer:**
+**Answer:** **A wall-clock gate** (2 Oct 2026, the recommendation). The doc-comment fix goes in
+that card rather than in this docs-only session.
 
 ### E7 · The fragile-command fix vanishes for long section titles
 
@@ -669,7 +742,7 @@ TeX truncates the error context at 50 characters from the left, so `\footnote` i
 `texlog` (which never reads source). **Recommendation:** a small frontend card that searches the
 diagnosed source line for a fragile command when the rule matched but named none.
 
-**Answer:**
+**Answer:** **A frontend card, later** (2 Oct 2026, the recommendation); unplaced.
 
 ### E8 · One "ledger sweep" loop
 
@@ -678,7 +751,7 @@ Several open entries are one-line fixes waiting for an owner: the maths preview'
 place; a controller-level test for `shouldCompileFor`. **Recommendation:** one S-sized loop at the
 start of sprint 12 (or between sprints), each fix with its test.
 
-**Answer:**
+**Answer:** **The first thing in sprint 12** (2 Oct 2026, the recommendation).
 
 *Not asked, noted:* the Graph's word counts are recomputed per page (~111 ms / 200 rows, no
 cache) — the ledger's own conclusion is "leave until measured otherwise"; `latexminted` 0.6.0
@@ -701,7 +774,8 @@ sign-in is a different thing: it would mean signing in to a consumer chat subscr
 third-party app, which providers generally do not offer for this use. **Recommendation:** API key
 + OpenAI-compatible endpoint (local models included); drop "subscription sign-in" from §6.
 
-**Answer:**
+**Answer:** **API key + OpenAI-compatible endpoints (local models included); no subscription
+sign-in** (2 Oct 2026, the recommendation). `DESIGN.md` §5.5 and §6.
 
 ### F2 · Where the opt-in and keys live
 
@@ -711,7 +785,8 @@ agreed. S9.8 already solved the identical problem for shell escape: consent per 
 project folder, outside the source tree. **Recommendation:** the same shape — machine-local opt-in
 per project folder; keys in the keychain; nothing in the project.
 
-**Answer:**
+**Answer:** **Per machine and per project folder, the S9.8 shape; keys in the keychain** (2 Oct
+2026, the recommendation). `abstract-tex.toml`'s comment in §5.8 no longer says "AI opt-in".
 
 ### F3 · Model fallback for unmatched compile errors
 
@@ -722,7 +797,8 @@ automatic; a drawer card offers *"Ask the assistant"* with the payload shown fir
 machine-local under `.abstract-tex/`. The §8 "zero outbound requests with no key" test covers the
 rest.
 
-**Answer:**
+**Answer:** **Per call, payload shown first; cache machine-local** (2 Oct 2026, the
+recommendation).
 
 ### F4 · Which citation commands the fabrication guard scans
 
@@ -731,7 +807,7 @@ rest.
 cite-family command the project's citation completion already recognises, from one shared list, so
 the guard and completion can never disagree.
 
-**Answer:**
+**Answer:** **One shared list with citation completion** (2 Oct 2026, the recommendation).
 
 ### F5 ★ · Where do comments live after a live session? (decide by sprint 14)
 
@@ -752,7 +828,12 @@ comments anywhere without breaking one of those.
 **Recommendation:** none yet — this needs a real conversation, possibly with a small spike. If
 forced: (a) for v0.8 with an honest message, (b) as an opt-in export.
 
-**Answer:**
+**Answer:** **Spike a Git-ref comment store before sprint 14** (2 Oct 2026). This option was not in
+the list above. It came up during the interview from the snapshot precedent: comments in
+`refs/abstract-tex/comments`, pushed and fetched by *Sync* with an explicit refspec, anchored by
+quoted text + context, re-anchored on load, orphans listed. The source tree stays untouched (rule
+1), it works with any host (§9), and the relay still stores nothing. If the spike fails, the
+fallback is (a), session-only, said plainly. `DESIGN.md` §5.6 and §10.
 
 ### F6 · Relay hosting and joining a session (decide by sprint 14)
 
@@ -762,14 +843,15 @@ Is the traffic end-to-end encrypted, given the relay operator could read manuscr
 **Recommendation:** invite link with a random room secret; end-to-end encryption of updates with a
 key derived from that secret, so a relay operator sees only ciphertext. Confirm the §10 position.
 
-**Answer:**
+**Answer:** **Invite link with a random room secret, end-to-end encryption from a key derived from
+it** (2 Oct 2026, the recommendation). §10's host-nothing position confirmed.
 
 ### F7 · Code signing (decide by sprint 14)
 
 `DESIGN.md` §10: required for v0.9's stranger test to be honest. Apple Developer ~$99/yr; Azure
 Trusted Signing on Windows. **Question:** budget it, or accept SmartScreen/Gatekeeper warnings?
 
-**Answer:**
+**Answer:** **Still open; decide by sprint 14** (2 Oct 2026).
 
 ### F8 · Updater and crash reports vs "host nothing ourselves"
 
@@ -778,7 +860,8 @@ hosted service. **Recommendation:** the updater reads a manifest from GitHub Rel
 our own); "crash reporting" means a local report plus a prefilled GitHub issue the user submits
 themselves, never an automatic upload.
 
-**Answer:**
+**Answer:** **Updater manifest from GitHub Releases; crash report = local report + a prefilled
+issue** (2 Oct 2026, the recommendation).
 
 ### F9 · The companion GitHub Action (sprint 16)
 
@@ -786,7 +869,8 @@ themselves, never an automatic upload.
 Tectonic and latexdiff, reusing `abstract-tex-latexdiff`'s flags so the PR PDF and the in-app PDF
 agree. Also the answer to B5's PR story.
 
-**Answer:**
+**Answer:** **Its own repository, the same flags as `abstract-tex-latexdiff`** (2 Oct 2026, the
+recommendation).
 
 ---
 
@@ -794,14 +878,31 @@ agree. Also the answer to B5's PR story.
 
 Not questions — a checklist to walk through at the end, with dates.
 
-- [ ] Register the GitHub OAuth app (B1) and put the client id in the release build environment.
-- [ ] Push the five local commits from another machine; read the CI run (S2.8, S9.5).
-- [ ] Smoke campaign on Windows (C1a).
-- [ ] Security-suite exception for compiled binaries on Windows (C7).
-- [ ] Install `latexdiff`, `git-lfs`, WebKitGTK/Xvfb on this Linux machine, or say not to (C6).
-- [ ] `cargo publish -p texlog`, `cargo publish -p texbib` when ready (C8).
-- [ ] The forty-reference exit demo, S8.4 (needs Zotero and a network).
-- [ ] The v0.6 exit demo, after B1–B3 (B9).
+*Updated 2 October 2026, at the end of the interview, with each item's date.*
+
+- [ ] **Now: force-push the rewritten history (C3).** Get this machine's `main` to the machine
+  that pushes, however commits normally travel. Then run
+  `git push --force-with-lease=main:80163cd origin main`; the lease refuses if anyone pushed in
+  the meantime. On every other clone (the Windows machine included), first check for unpushed
+  local work with `git log origin/main..main`. If there is none, run
+  `git fetch && git reset --hard origin/main`. If there is some, run
+  `git rebase --onto origin/main 80163cd main` after fetching. Once that's done, the local branch
+  `backup/pre-rewrite-2026-10-02` here can be deleted. The old commits stay reachable on GitHub
+  by direct URL until GitHub's own cleanup.
+- [ ] **Now: read the CI run for the push of `80163cd`** (S2.8's first green run, S9.5's
+  performance gate). `gh` is not installed on this machine, so the agent could not look.
+- [ ] **Now: install the missing tools on this Linux machine (C6).**
+  `sudo apt install texlive-extra-utils git-lfs xvfb`. `sudo` needs a password the agent could
+  not give. WebKitGTK is already installed, and the `PATH` fix is done.
+- [ ] **After S11.4d: the smoke campaign on Windows (C1),** walking every `fixtures/*/SMOKE.md`,
+  S11.4c/d included. In the same session, add the security-suite exception for
+  `target\debug\*.exe` / `target\release\*.exe` (C7) and record whether it cures the DNS
+  failures.
+- [ ] **At the start of S11.8: register the GitHub OAuth app (B1)** and put the client id in the
+  release build environment (`ABSTRACT_TEX_GITHUB_CLIENT_ID`).
+- [ ] **At S11.8: the v0.6 exit demo (B9).** Choose the machines then.
+- [ ] **After E1, before v0.9:** `cargo publish -p texlog`, `cargo publish -p texbib` (C8).
+- [ ] **The forty-reference exit demo, S8.4** (needs Zotero and a network). No date set.
 
 ---
 

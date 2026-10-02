@@ -9,8 +9,8 @@ Launch:
 
 ```
 pnpm tauri dev                        # then Ctrl+O and pick fixtures/thesis
-ABSTRACT_TEX_OPEN=fixtures/thesis pnpm tauri dev    # opens it on start (bash / CI)
-$env:ABSTRACT_TEX_OPEN='fixtures/thesis'; pnpm tauri dev   # PowerShell
+ABSTRACT_TEX_OPEN="$PWD/fixtures/thesis" pnpm tauri dev    # opens it on start (bash / CI)
+$env:ABSTRACT_TEX_OPEN="$PWD\fixtures\thesis"; pnpm tauri dev   # PowerShell
 ```
 
 On the maintainer's machine Tectonic needs the DNS workaround the first time a package is

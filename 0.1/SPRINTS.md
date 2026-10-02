@@ -1041,7 +1041,7 @@ still needs a real webview.
 
 **S4.5 (14 September 2026, outcome backfilled 16 September 2026).** `[~]`: this row's own
 outcome paragraph was never written at the time — a scribing gap in the loop that built it; the
-commit message (`85fdfca`) carries what should have landed here. `pnpm verify:web` was green at
+commit message (`4169c3c`) carries what should have landed here. `pnpm verify:web` was green at
 the time: 0 errors, 263 vitest (13 new); no Rust touched. `src/lib/editor/focus.ts` dims every
 paragraph but the one under the cursor (`currentParagraphRange` is the pure, testable core —
 walks `docText` with `indexOf`/`lastIndexOf` rather than materialising a line array, so the cost
@@ -1566,8 +1566,8 @@ established) rather than trusting the matcher's own logic by inspection. No fixt
 for any of the four; DESIGN.md §5.2's own "about forty" was always approximate, and the sprint's
 real exit criterion is S6.4's twenty-error torture document, not a rule count.
 
-**Final tally for the loop.** `crates/texlog` CATALOG: 6 → 36 rules across four commits (`27e18c3`,
-`29c9ecd`, `48938c0`, `dfaf5c2`, `92b6468`), each with a real Tectonic 0.17.0 capture, none
+**Final tally for the loop.** `crates/texlog` CATALOG: 6 → 36 rules across four commits (`eb69539`,
+`8837820`, `8bd3d87`, `65db74a`, `fb94375`), each with a real Tectonic 0.17.0 capture, none
 hand-typed. `cargo test -p texlog`: 139 passed (97 lib, 42 fixture). Not done, and each named as
 such at the point it was found rather than glossed over: `biblatex`/BibTeX bibliography rules
 (structurally blocked — their diagnostic text lives in `.blg`, a file this crate is never given, a
@@ -2235,7 +2235,7 @@ or gutter to a bibliography finding, or the reverse — the two panels are fully
 **S8.3 follow-up (28 September 2026).** Three corrections to the outcome above, found by running
 the full gate before planning the rest of sprint 8. (a) The committed tree's numbers are
 `pnpm check` 443 files / **1 error** and Vitest **399**/399 (4 new, not 7), not 445 / 0 / 402: the
-outcome was written against a working tree that differs from what `8dfefd5` landed, and one test
+outcome was written against a working tree that differs from what `8a55f20` landed, and one test
 indexed `groups[0]` unguarded. Fixed; `pnpm check` is 443 / 0. (b) The table row above was still
 `[ ]`; now `[x]`. (c) The commit went in as `feat: …` instead of `S8.3: …` and carried ~520 lines
 of Rust, past the ~400 CLAUDE.md sets — the loop was one piece too large (the three
@@ -2496,7 +2496,7 @@ Done when pasting the same DOI twice yields one entry and two identical `\cite`s
 fixture tests), `cargo clippy -p texbib --all-targets -- -D warnings` clean, `RUSTDOCFLAGS="-D
 warnings" cargo doc -p texbib` clean, rest of the workspace untouched (one new member in the root
 `Cargo.toml`, no other crate depends on it yet). No rung-4 gate: a library crate with no caller.
-Two commits, as with S6.1: the parser and its unit tests (`6b355fa`), then the harness and
+Two commits, as with S6.1: the parser and its unit tests (`4acea84`), then the harness and
 fixtures, because together they run past the ~400-line guideline and the split is a real seam.
 
 1. **The grammar is BibTeX's own, with one deliberate narrowing.** Names (types, keys, fields,
@@ -4532,13 +4532,14 @@ Done when pushing a fresh commit to a local bare "remote" moves its branch and i
           credential callback invoked.
 ```
 
-**S11.1a (1 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 568 passed / 0
-failed (9 new, all in this crate), clippy and `cargo doc --workspace -D warnings` clean. No rung
-3 of its own: the existing `against_real_git.rs` suite is untouched and still green, but nothing
-in *this* loop has a real remote to run against yet — a local bare repository stands in for one,
-which proves the push/fetch/merge mechanics and nothing about GitHub specifically. `[~]` for that
-reason, same as S10.4a and S10.5b: no rung 4 either, since nothing here is on screen. What a
-reader should take from the diff:
+**S11.1a (1 October 2026).** `[~]` (kept on 2 October 2026 under design interview C1b's rule: it
+still owes a push against a real GitHub remote, which waits on the OAuth app at S11.8): rungs 1–2
+green — `cargo test --workspace` 568 passed / 0 failed (9 new, all in this crate), clippy and
+`cargo doc --workspace -D warnings` clean. No rung 3 of its own: the existing `against_real_git.rs`
+suite is untouched and still green, but nothing in *this* loop has a real remote to run against yet
+— a local bare repository stands in for one, which proves the push/fetch/merge mechanics and
+nothing about GitHub specifically. `[~]` for that reason, same as S10.4a and S10.5b: no rung 4
+either, since nothing here is on screen. What a reader should take from the diff:
 
 1. **`push` and `sync` are two different functions because the design asks for two different
    buttons.** The Commit dropdown's *Commit & Push* is "I know where this goes" — push, and fail
@@ -4778,13 +4779,15 @@ Done when two local repositories sharing a bare remote, each committing a differ
           is refused by name.
 ```
 
-**S11.2a (1 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 576 passed / 0
-failed (4 new net: 4 added, 1 removed — the old `Diverged` test no longer describes what `sync`
-does and was replaced rather than kept alongside a dead error variant), clippy and `cargo doc
---workspace -D warnings` clean. `[~]`: no rung 4, same as every crate-only loop this sprint — and
-no rung 3 either this time, because this loop's whole subject is a real merge, and the fixture
-tests already check it against real conflict markers and a real `MERGE_HEAD`, which is as real as
-this gets without a second machine. What a reader should take from the diff:
+**S11.2a (1 October 2026).** `[x]` (re-marked 2 October 2026 from `[~]`: a loop whose card names no
+UI is done once its own rungs are green — design interview C1b): rungs 1–2 green —
+`cargo test --workspace` 576 passed / 0 failed (4 new net: 4 added, 1 removed — the old `Diverged`
+test no longer describes what `sync` does and was replaced rather than kept alongside a dead error
+variant), clippy and `cargo doc --workspace -D warnings` clean. It was `[~]` for having no rung 4,
+same as every crate-only loop this sprint — and no rung 3 either this time, because this loop's
+whole subject is a real merge, and the fixture tests already check it against real conflict markers
+and a real `MERGE_HEAD`, which is as real as this gets without a second machine. What a reader
+should take from the diff:
 
 1. **`Repository::merge` is the same engine `git merge` calls, and that was the point of reaching
    for it instead of writing one.** §5.7's "Conflicts are shown as prose, not as markers" is a
@@ -4934,11 +4937,12 @@ Done when a commit holding a file over 100 MiB, anywhere in the commits a push w
           green with nothing to change in any of them.
 ```
 
-**S11.3a (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 579 passed (3 new)
-/ 0 failed, `cargo clippy --workspace --all-targets -- -D warnings` and
-`cargo doc --workspace --no-deps` both clean. `[~]` for the usual reason every S11 loop in this
-sprint has been: nothing here is on screen, so there is no rung 4 of its own. What a reader
-should take from the diff:
+**S11.3a (2 October 2026).** `[x]` (re-marked 2 October 2026 from `[~]`: a loop whose card names no
+UI is done once its own rungs are green — design interview C1b): rungs 1–2 green —
+`cargo test --workspace` 579 passed (3 new) / 0 failed,
+`cargo clippy --workspace --all-targets -- -D warnings` and `cargo doc --workspace --no-deps` both
+clean. It was `[~]` for the usual reason every S11 loop in this sprint had been: nothing
+here is on screen, so there is no rung 4 of its own. What a reader should take from the diff:
 
 1. **The "measured against the golden corpus" plan in DESIGN.md §10 could not actually be
    carried out.** The corpus built for the compile-and-performance gate (§8) is eight real
@@ -5008,10 +5012,11 @@ Done when an untracked file over the threshold is a candidate and one at or unde
           and still different from the working tree is found exactly once.
 ```
 
-**S11.3b (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 582 passed (3
-new) / 0 failed, clippy and `cargo doc --workspace --no-deps` both clean. `[~]` for the usual
-reason: nothing here is on screen, and S11.3c is what puts it there. What a reader should take
-from the diff:
+**S11.3b (2 October 2026).** `[x]` (re-marked 2 October 2026 from `[~]`: a loop whose card names no
+UI is done once its own rungs are green — design interview C1b): rungs 1–2 green —
+`cargo test --workspace` 582 passed (3 new) / 0 failed, clippy and
+`cargo doc --workspace --no-deps` both clean. It was `[~]` for the usual reason: nothing here is on
+screen, and S11.3c is what puts it there. What a reader should take from the diff:
 
 1. **A second attribute mistake would have shipped if the first test had used a smaller fixture.**
    `.gitattributes` itself is an untracked file the moment it is written, and its own content —
@@ -5162,10 +5167,11 @@ Done when every file in a commit's tree, nested folders included, lands on disk 
           a file a commit deleted is absent from its export.
 ```
 
-**S11.4a (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 589 passed (3
-new) / 0 failed, clippy and `cargo doc --workspace --no-deps` both clean. `[~]` for the usual
-reason: nothing here is on screen, and nothing in this loop needed it to be. What a reader should
-take from the diff:
+**S11.4a (2 October 2026).** `[x]` (re-marked 2 October 2026 from `[~]`: a loop whose card names no
+UI is done once its own rungs are green — design interview C1b): rungs 1–2 green —
+`cargo test --workspace` 589 passed (3 new) / 0 failed, clippy and
+`cargo doc --workspace --no-deps` both clean. It was `[~]` for the usual reason: nothing here is on
+screen, and nothing in this loop needed it to be. What a reader should take from the diff:
 
 1. **One function, reused by a feature this crate otherwise knows nothing about.** `export_tree`
    has no idea `latexdiff` exists — it answers exactly one question, "write this commit's tree to
@@ -5221,11 +5227,13 @@ Done when a machine with no `latexdiff` is refused by name before either revisio
           when it refuses the files it was given.
 ```
 
-**S11.4b (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 592 passed (3
-new) / 0 failed, clippy and `cargo doc --workspace --no-deps` both clean. `[~]` for the usual
-reason S11.4a was, plus one more: the success path has only ever run against a fake that prints a
-fixed string, never against a real `latexdiff` producing real markup — there is none on this
-machine to compile a single real diff against.
+**S11.4b (2 October 2026).** `[~]` (kept on 2 October 2026 under design interview C1b's rule: a
+real `latexdiff` run is still owed — it is not installed on this machine yet): rungs 1–2 green —
+`cargo test --workspace` 592 passed (3 new) / 0 failed, clippy and
+`cargo doc --workspace --no-deps` both clean. `[~]` for a reason S11.4a, now `[x]`, did not have:
+the success path has only ever run against a fake that prints a fixed string, never against a real
+`latexdiff` producing real markup — there is none on this machine to compile a single real diff
+against.
 
 1. **`abstract-tex-latexdiff` has no `git2` of its own, and that was the point of S11.4a.** Every
    Git question this crate asks — export this commit's tree — goes through one function in
@@ -5250,6 +5258,104 @@ machine to compile a single real diff against.
    machine has even less chance of actually having.** `--version`, `--flatten` succeeding, and
    `--flatten` refusing all needed different, deterministic answers; a shell script could not
    stand in for `latexdiff` on Windows either, one of the three platforms this app ships on.
+
+**S11.4c and S11.4d carded 2 October 2026**, from the design interview's block A
+(`0.1/design-interview.md` — every answer there is the maintainer's, with the reason given). One
+finding from that session shapes S11.4c: S9.9's draft build is *not* a second lane — it shares its
+full build's generation and cancel on purpose (`compile.rs`'s module doc) — so the diff lane is a
+second `Orchestrator`, not a draft-shaped special case.
+
+```
+Loop      S11.4c · Compiling the marked-up document, in a lane of its own · M
+Reads     DESIGN.md §5.1 (one live build and at most one diff build in flight, settled 2 October
+          2026), §5.7 (change review, settled for the first version), §5.8 (`.abstract-tex/
+          latexdiff/`); design-interview.md A1–A5, A7, A8, A12
+Depends   S11.4b (`abstract_tex_latexdiff::render`)
+Files     src-tauri/src/latexdiff.rs (new), src-tauri/src/lib.rs (`AppState.diff_orchestrator`,
+          commands registered), src-tauri/src/commands.rs (opening a project sets the engine on
+          both orchestrators), src-tauri/src/project.rs (`latexdiff_dir`),
+          crates/abstract-tex-git/src/lib.rs (a small `has_path(commit, path)`), src/lib/ipc.ts
+Build     **A second lane is a second `Orchestrator`, not a new rule.** `compile.rs` owns one rule —
+          one build in flight, a newer request cancels the older — and that is exactly the rule a
+          diff lane needs *within itself*. What it must never do is cancel a live build, or be
+          cancelled by one. So `AppState` gains `diff_orchestrator`, the same struct constructed a
+          second time, and nothing in `compile.rs` changes. Opening a project calls `set_engine`
+          on both, so a comparison compiles with the project's own engine (A2) — a biblatex+Biber
+          thesis on a system engine is diffed on that engine.
+
+          `compare_revisions(from, to)`, `async`, in this order — every refusal is a sentence, and
+          every refusal happens before anything is written to disk:
+          1. Order the pair older → newer by commit time, whatever order it arrived in (A4).
+          2. The root file must exist in both commits' trees (`has_path`); if not, refuse with a
+             sentence naming the commit that lacks it (A5). No picker, no guessing.
+          3. Resolve `.abstract-tex/latexdiff/<from7>-<to7>/`. The same pair as last time with a
+             PDF already there → answer with it at once. A different pair → remove the previous
+             comparison's folder first; only the latest comparison is ever kept (A3).
+          4. `render` (S11.4b) inside `spawn_blocking`, exporting into `old/` and `new/`. It
+             already refuses a missing `latexdiff` before exporting anything; that sentence goes
+             back as the command's error, plus one line on Windows when the detected system TeX
+             is MiKTeX — its `latexdiff` needs a separate Perl install (A12).
+          5. A `BuildJob` on `new/`, `out_dir` = `build/`, `synctex: false` (no line of the
+             marked-up file is one the author can edit, A6), `shell_escape` as this machine's
+             consent for the project folder says — the export is that folder's own history, the
+             same trust a sync already gives it — handed to the diff orchestrator.
+          Events go out as `compile-diff` in the existing `CompileEvent` shape, so the frontend
+          reuses its decoding; a failed build carries its own `texlog` diagnostics (A7).
+          latexdiff's defaults throughout: `--flatten` is the only flag of ours (A7, A8). No
+          snapshot: `take_snapshot` stays on the live lane — a diff build is not a recoverable
+          state of anything.
+
+          `save_comparison_pdf(dest)` copies the current comparison's PDF to a path the frontend
+          got from the dialog plugin's `save` (A9).
+Verify    cargo test -p abstract-tex -- latexdiff; cargo test -p abstract-tex-git; pnpm verify;
+          on a machine with `latexdiff`, one real comparison in a scratch repository holding
+          fixtures/thesis and one edited commit on top of it
+Done when a live build and a diff build requested together both finish, neither cancelling the
+          other; a second diff request cancels the first; newer-then-older yields the same folder
+          and PDF as older-then-newer; a missing `latexdiff` or a missing root file is refused
+          with nothing exported; and after a second comparison only its own folder remains under
+          `.abstract-tex/latexdiff/`.
+```
+
+```
+Loop      S11.4d · Click two Graph rows, read the marked-up PDF · M
+Reads     DESIGN.md §5.7, §6 (*Review changes* row), §2 rules 3 and 5; design-interview.md A4,
+          A6, A7, A9, A10, A12
+Depends   S11.4c
+Files     src/lib/compare.svelte.ts + compare.test.ts (new: the marking state),
+          src/components/SourceControl.svelte (rows become buttons, the toolbar),
+          src/components/PdfPane.svelte (the diff banner), src/lib/state.svelte.ts,
+          src/lib/commands.ts (palette entry), src/lib/ipc.ts
+Build     Marking is a small state machine in its own module, so Vitest drives it without a DOM:
+          nothing marked → first click marks *from* → second click marks *to* and starts the
+          render → a third click on any row starts a new *from*. Clicking a marked row unmarks
+          it; `Esc` clears both. Rows become `<button>`s, so `Tab` reaches them and
+          `Enter`/`Space` mark exactly like a click (rule 5). The toolbar above the Graph shows
+          the pair older → newer with an `×`; while rendering it says so, and a new pair replaces
+          the one in flight (S11.4c's lane).
+
+          Diff mode in the PDF pane is a louder signal than the draft's status-bar note, because
+          an author who forgets they are in it will think their paper is full of red
+          strike-throughs: a banner across the top — *"Comparing a1b2c3d (3 days ago) → e4f5a6b
+          (today) · Save as… · Back to live PDF"*. SyncTeX clicks are off. Live builds keep
+          running underneath, and the newest live PDF is on screen the moment the author goes
+          back; going back also clears the Graph's marks (A6). *Save as…* is the dialog plugin's
+          `save`, then S11.4c's copy (A9).
+
+          A failed comparison: a sentence in the banner, and the diff build's own diagnostics in
+          the drawer under a heading that says they belong to the comparison, raw log one click
+          away (rule 3, A7); leaving diff mode brings the live diagnostics back untouched. The
+          not-installed and missing-root refusals appear under the Graph toolbar in `git.error`,
+          the slot the LFS refusal already uses (A12).
+
+          Palette: *Compare with previous commit* — `HEAD~1` → `HEAD` in one keystroke (A10).
+Verify    pnpm verify (Vitest for compare.svelte.ts); rung 4 in the Windows smoke campaign that
+          follows this loop (design interview C1)
+Done when two clicks or two `Enter`s render a comparison; a third click starts over and `Esc`
+          clears; the banner cannot be missed; *Back to live PDF* shows a PDF at least as new as
+          the last live build and the live diagnostics; *Save as…* writes the file where the
+          author chose; and the palette entry compares the last two commits.
+```
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
@@ -5284,10 +5390,33 @@ shape — a banner above *Changes*, at 5 MB · S11.4 `latexdiff` review from any
 split in the sprint: a historical tree exported to disk (S11.4a, below) needs only `git2`;
 detecting and running `latexdiff` itself (S11.4b) needs a new crate but still no Tauri; feeding
 the result to the compiler (S11.4c) needs the app edge; and the Graph list's click-to-mark
-interaction, the maintainer's own answer, is the window (S11.4d) · S11.5 two-machine exit demo;
-GitLab and bare-remote CI test · S11.6 a `.tex` diff as a CodeMirror merge view, which is what
-§6's "a click opens a diff" finally means (deferred from S10.3a, 29 September 2026: a row that
-opened a half-built diff is worse than one that opens the file).
+interaction, the maintainer's own answer, is the window (S11.4d) — **both carded above, 2 October
+2026** · the rest of the sprint **renumbered and extended 2 October 2026 by the design interview**
+(`0.1/design-interview.md` block B): the exit demo needs a clone flow and an in-app snapshot
+recovery that no card had, so both were added, and the demo moved to the end. Nothing past S11.4b
+was built, so no outcome paragraph changed number · S11.5 clone a repository from inside the app
+— after sign-in, the account's repositories plus a field for any URL; pick a folder; open it;
+libgit2's clone with the credential callback push and fetch already use (B2; the account list's
+real-account rung waits on the OAuth app, S11.8) · S11.6 *Snapshots*, read-only — a list in Source
+Control (time, word count); opening one shows that version's file read-only with *Restore this
+file* (B3) · S11.7 a `.tex` diff as a CodeMirror merge view, which is what §6's "a click opens a
+diff" finally means (deferred from S10.3a, 29 September 2026: a row that opened a half-built diff
+is worse than one that opens the file): a *Changes* row opens the working tree (right, editable)
+against the index (left, read-only) — exactly what *Stage* would change; a *Staged Changes* row
+opens the index against `HEAD`, both read-only; `.tex` and `.bib` only, anything else opens as
+today; adds `@codemirror/merge` (B8) · S11.8 a bare remote served over smart HTTP in CI, so the
+real transport runs on every push (a GitLab remote is checked by hand once per release, B7), then
+the two-machine exit demo. The GitHub OAuth app is registered at the start of this card (B1,
+deferred to here). The script (B9): write on one machine, sync, clone on the second through S11.5,
+continue, sync back; edit one paragraph on both and resolve it in the conflict view; delete the
+last edit and recover it through S11.6 — recorded here the way S6.4's torture demo was. Which two
+machines, and when, is decided as the card starts.
+
+**Order to the end of v0.6** (design interview C2, 2 October 2026): S11.4c → S11.4d → the Windows
+smoke campaign (C1: every `fixtures/*/SMOKE.md`, S11.4c/d included, failures into the ledger) →
+S11.5 → S11.6 → S11.7 → S11.8. Nothing from sprint 12 starts before S11.8's exit demo is recorded.
+Between S11.8 and sprint 12, as its own commit: one whole-repository `cargo fmt` with a
+`rustfmt.toml` of `max_width = 110`, after which `cargo fmt --check` joins `pnpm verify:rust` (C5).
 
 **Source Control design notes** (settled 2026-09-17, `DESIGN.md` §6; cards expanded at sprint
 start):
@@ -5318,6 +5447,15 @@ start):
 
 ### Sprint 12–13 — v0.7 assistant
 
+**First, before S12.1** (design interview E8, 2 October 2026; numbered when the sprint is
+expanded): one S-sized ledger sweep, each fix with its test — the maths preview reading a `$`
+inside a `%` comment (plus KaTeX `strict: 'ignore'`), drive-letter case of LSP URIs normalised in
+one place, a controller-level test for `shouldCompileFor`. Settled for this sprint's cards
+(`DESIGN.md` §5.5): providers are an API key or any OpenAI-compatible endpoint, which covers local
+models — no subscription sign-in; the opt-in is per machine and per project folder, never in the
+project; the model fallback is per call with the payload shown; the fabrication guard scans every
+cite command citation completion knows, from one shared list.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain · S12.2
 **citation-fabrication guard with adversarial tests, written first** · S12.3 selection-scoped
 diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint ·
@@ -5326,15 +5464,47 @@ S13.4 no-network test: zero outbound requests with no key.
 
 ### Sprint 14–15 — v0.8 live
 
+**First, before S14.1**: a spike on where comments persist after a session — a Git ref of
+their own, `refs/abstract-tex/comments`, anchored by quoted text and re-anchored on load
+(`DESIGN.md` §5.6, open; design interview F5). Its outcome decides what S14.3 and S15.2 carry.
+
 S14.1 y-websocket relay binary · S14.2 awareness, cursors · S14.3 comments on relative
 positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end commits · S15.3
-two-author exit demo · decisions: code signing, relay hosting (`DESIGN.md` §10).
+two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10); relay hosting is
+settled (2 October 2026) — an invite link carrying the relay URL and a random room secret, updates
+end-to-end encrypted with a key derived from it, so a relay operator sees only ciphertext.
 
 ### Sprint 16 — v0.9 ship
 
-S16.1 signed installers and updater · S16.2 companion GitHub Action · S16.3 opt-in crash
-reporting · S16.4 accessibility pass · S16.5 docs, contributor guide, templates · S16.6 stranger
-test.
+S16.1 signed installers and updater, whose manifest is read from GitHub Releases · S16.2 companion
+GitHub Action, in its own repository, passing the same flags as `abstract-tex-latexdiff` so the
+PR's PDF and the app's agree · S16.3 opt-in crash reporting: a local report and a prefilled GitHub
+issue the author submits, never an upload (all three settled 2 October 2026, `DESIGN.md` §7 v0.9) ·
+S16.4 accessibility pass · S16.5 docs, contributor guide, templates · S16.6 stranger test.
+
+### Unplaced cards
+
+Decided in the 2 October 2026 design interview, not yet given a sprint. Each is expanded when it
+is placed; the letter-number is its question in `0.1/design-interview.md`.
+
+- **Try again with simpler markup** (A7) — the first follow-up to S11.4: a one-click rerun with
+  `--math-markup=whole --graphics-markup=none` when a comparison fails to compile. Placed once a
+  real `latexdiff` has run on the corpus and shown which flags matter.
+- **Compare the working tree, or a tag** (A11) — the working tree against a commit (one side
+  needs no export), and named versions ("Sent to supervisor, 3 Oct"), which need tag creation too.
+- **⇄ swap in the comparison toolbar** (A4) — only if anyone asks for a reversed diff.
+- **Branch create and switch** (B4) — out of v0.6; needed by "a branch against `main`".
+- **`texlog::Diagnostic` carries the whole open-file stack** (E1) — the frontend picks the first
+  file the project has, so an error inside `babel.sty` lands on the author's line. Changes
+  texlog's public type, so it lands **before** `texlog` and `texbib` are published (C8: after E1,
+  before v0.9).
+- **Include-graph sweep** (E4) — the five gaps from S4.1's review in one card; following a
+  `.sty`/`.cls` file's own `\input`s stays out of scope, and the module doc says so.
+- **Wall-clock gate for system engines** (E6) — a ceiling in CI where a system TeX is installed,
+  and the S9.5 doc comment narrowed to what it actually gates.
+- **Fragile-command source search** (E7) — when the fragile-command rule matched but TeX's
+  50-character context cut the command off, the frontend searches the diagnosed source line.
+- **A BibTeX `.blg` rule** (E3, low priority) — read only the root's `.blg`.
 
 ---
 

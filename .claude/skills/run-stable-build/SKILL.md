@@ -1,7 +1,7 @@
 ---
 name: run-stable-build
 description: >
-  Launch the actual Preamble app (Tauri window, not just a test command) at the last known-good
+  Launch the actual Abstract-Tex app (Tauri window, not just a test command) at the last known-good
   commit, for a person to click through by hand. Use this whenever the user wants to "user test",
   "try it out", "click around", "see it working", "run the app", or "give me a build" — as opposed
   to running automated tests. In this project a plain `git log -1` or the current working tree can

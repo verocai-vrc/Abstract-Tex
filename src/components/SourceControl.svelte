@@ -130,7 +130,7 @@
   });
 
   /** A deleted file has nothing to open, so its row is not a button. §6's "a click opens a diff"
-   * arrives with the merge view (S11.6); until then a click opens the file itself. */
+   * arrives with the merge view (S11.7); until then a click opens the file itself. */
   function openRow(row: ChangeRow) {
     if (row.kind !== 'deleted') void openFile(row.path);
   }

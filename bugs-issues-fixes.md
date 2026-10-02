@@ -25,6 +25,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   repository can exercise this path. Believed correct from the libgit2 source, not yet proven.
   What closes it: a rung-3 test against a real repository once the OAuth app exists (same
   blocker as the entry below), pushing to a branch with protection turned on.
+  **Re-dated (2 Oct 2026, design interview B1):** the OAuth app is registered at the start of
+  S11.8, so this closes there at the earliest.
 
 - **Nobody has registered a GitHub OAuth app, so sign-in cannot be finished by code alone.** (29
   Sep 2026, S10.4a) The device flow needs a client id from an OAuth app registered on GitHub —
@@ -36,6 +38,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   build's environment, and record it in `DESIGN.md` §10 with the other ship-time decisions. Until
   then S10.4b's panel can be exercised only against the fake GitHub in
   `crates/abstract-tex-github/tests/`, and the exit demo for v0.6 cannot be performed.
+  **Deferred (2 Oct 2026, design interview B1):** registered at the start of S11.8 (the HTTP-remote
+  CI and exit-demo card); owner and name are decided then. Until it exists nothing can push to an
+  authenticated remote from the app — the device-flow token is the only credential
+  `abstract-tex-git` offers. `DESIGN.md` §10 carries the row.
 
 - **The graph's word counts are rebuilt a whole page at a time, and nothing caches them.** (29
   Sep 2026, found measuring S10.3c) `log` computes each row's `word_delta` from a tree diff and a
@@ -50,17 +56,6 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   delta can never change — which was deliberately not written yet because the `HEAD` comparison
   made it unnecessary and a cache is state that can go stale.
 
-- **Turning shell-escape consent on or off makes the next latexmk build a full one.** (29 Sep
-  2026, found verifying S9.12) `.fdb_latexmk` is latexmk's own dependency database, and it
-  records every source file by the path latexmk saw — relative (`"main.tex"`) from the project
-  folder, absolute (`"/home/ada/thesis/main.tex"`) from the build folder. S9.12 moves the working
-  folder on exactly that toggle, so every path in the database changes at once and latexmk
-  reruns everything: `Rule 'pdflatex': Reasons for rerun`, measured directly. Bounded and rare —
-  consent is answered once per project folder (S9.8), not per build — so it is logged rather than
-  worked around. The fix, if it ever matters, is to run *every* latexmk build from the build
-  folder and pay S9.12's log-name cost everywhere; that trade was considered in S9.12 and
-  declined, and this entry is the evidence for reconsidering it.
-
 - **Nothing measures a system engine's speed: `latexmk` builds report zero passes and always
   `full`.** (29 Sep 2026, noted while writing S9.12) `BuildSteps { single_passes: 0, full: true }`
   is what `latexmk.rs` returns for every build, because latexmk decides its own rerun loop and
@@ -72,21 +67,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   gate's own doc comment claims "one ceiling per corpus document" without saying "on one engine".
   Worth a card if sprint 10 leaves room: either parse latexmk's `Run number N of rule` lines,
   which it prints with `-verbose`, or gate on wall-clock alone for system engines.
-
-- **A shell command handed a project-relative path finds nothing, on either engine.** (29 Sep
-  2026, S9.12; split out of the entry above, which had it as a footnote) Both engines run the
-  document's shell commands in the build folder — Tectonic through `-Z shell-escape-cwd` (S9.8),
-  `latexmk` through the process's own working directory (S9.12) — because that is the only way to
-  keep what they write out of the source tree. The cost is symmetric: `\write18{cat code/x.py}`,
-  and `\inputminted{python}{code/x.py}`, which is the same command with a friendlier name, now
-  resolve `code/x.py` against the build folder and find nothing. Pinned by
-  `a_shell_command_given_a_project_relative_path_finds_nothing` so it cannot change unnoticed.
-  Not fixed because there is no general fix: a shell command's arguments are opaque to us, and
-  neither engine offers a way to run the commands in one folder and resolve their arguments in
-  another. What would close it is minted-specific — minted v3 resolves input paths through
-  `latexrestricted`, whose readable roots include `TEXMF_OUTPUT_DIRECTORY` and the kpathsea
-  paths, so `\inputminted` may already work where a raw `\write18` does not. Unverified here:
-  minted v3 cannot run on this machine at all (next entry).
+  **Decided (2 Oct 2026, design interview E6):** a wall-clock-only ceiling for system engines in CI
+  where one is installed, with S9.5's doc comment narrowed in the same card (*Unplaced cards*,
+  `SPRINTS.md`).
 
 - **`latexminted` 0.6.0, which minted v3 needs, crashes on this machine's Python 3.14.** (29 Sep
   2026, S9.12) `latexminted --version` dies in `argparse` with `ArgParser.__init__() got an
@@ -99,171 +82,6 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `\write18` fixture rather than with minted, and it is why the corpus's `minted` document
   cannot be built here under `latexmk` even though the bundled Tectonic (whose bundle carries
   minted v2, which shells straight out to `pygmentize`) builds it fine.
-
-- **Every diagnostic from a system engine missed its tab: the log says `./main.tex` where the
-  project says `main.tex`.** (29 Sep 2026, found in S9.12 while checking what the moved working
-  folder does to a log) `texlog` hands file names on exactly as TeX printed them, and
-  `diagnosticTarget` (`src/lib/drawer.ts`) matches them against the include graph's
-  project-relative paths. Tectonic writes `main.tex` and matches; `pdflatex` writes `./main.tex`
-  and never did, so since S9.4 every diagnostic from a `latexmk` build fell back to the root file
-  in the drawer and the gutter, with nothing to say it had. **Fixed** in the same loop:
-  `as_the_project_spells_it` in `compile.rs` — the first place that knows where the project is —
-  strips a leading `./` and, for shell-escape builds, the project folder's own absolute prefix. A
-  name outside the project (`/usr/share/texlive/…/report.cls`) is left exactly as the log had it.
-
-- **`cc` on this Linux machine is `zig cc`, which rejects the target triple `cc-rs` passes, so
-  `src-tauri` cannot build.** (29 Sep 2026, S9.12) `~/.local/bin/cc` execs `zig cc`, and
-  `--target=x86_64-unknown-linux-gnu` — which `cc-rs` adds to every compile — fails with `unable
-  to parse target query 'x86_64-unknown-linux-gnu': UnknownOperatingSystem`; zig spells it
-  `x86_64-linux-gnu`. This kills `ring`, and with it `cargo build -p abstract-tex`, `cargo test
-  --workspace` and `pnpm verify`. Not a bug in this project and nothing in the repo changed, so
-  it is here as a note for the next session rather than a fix: run the gate with `CC` pointing at
-  a wrapper that rewrites the triple. A real fix is to install a normal clang or gcc, or to put
-  `[target.x86_64-unknown-linux-gnu] linker`/`CC` in the environment properly; the maintainer's
-  other machine is unaffected.
-  **There is a real gcc on this machine, found in S10.3a** (29 Sep 2026): `/usr/bin/gcc` exists
-  and works; `~/.local/bin/cc` merely shadows it on `PATH`. So the whole gate runs with
-  `CC=/usr/bin/gcc CXX=/usr/bin/g++ pnpm verify` and needs no wrapper and no
-  `-fno-sanitize=undefined` — both zig defaults below stop applying, because zig is not involved.
-  That is the recommended incantation for a session on this machine until `PATH` is fixed.
-  **A second `zig cc` default, found in S10.1** (29 Sep 2026): it turns UndefinedBehaviorSanitizer
-  on in debug builds and *traps*. libgit2's bundled `sha1dc` does unaligned 32-bit loads — UB by
-  the letter of C, fine on x86, and present in every libgit2 build everywhere — so every `git2`
-  commit died with `SIGABRT` and a stack ending in `sha1_compression_states`. The wrapper also
-  passes `-fno-sanitize=undefined` now. Worth knowing because the symptom looks exactly like a
-  bug in our own code: a clean compile, then an abort inside a C dependency on the first write.
-
-- **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
-  costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes
-  `.abstract-tex-warm` before anything runs and writes it back only after a success
-  (`tectonic.rs`, S9.2), so a build the orchestrator cancels — every save that lands while a
-  build is running — leaves no marker, and the next build starts cold: every BibTeX run and
-  every rerun, 12–25 s on the corpus thesis instead of one 3.3 s pass. That is safe (S9.2's
-  point 3: never trust an `.aux` a half-run pass may have rewritten) but it turns the ordinary
-  typing rhythm into the slowest path there is, and it also means no draft (S9.9) for that
-  build, since `draft::prepare` borrows the same marker. A likely fix: a pass cancelled
-  *before TeX wrote anything* could restore the marker, or the orchestrator could let a warm
-  single pass finish instead of cancelling it, as its cost is bounded. Not fixed in S9.9, which
-  does not change when builds are cancelled.
-  **Fixed** (29 Sep 2026, S9.10): a warm build takes an in-memory checkpoint of the build
-  folder's intermediates and, if cancelled, writes them back and then the marker. The build after
-  a cancel is now one 3.5 s pass on the thesis. Measuring it corrected this entry's premise:
-  Tectonic writes a pass's intermediates only as the pass ends, so a kill almost never
-  half-writes an `.aux`. The marker was what was lost, and the checkpoint is what makes putting
-  it back safe without relying on that.
-
-- **Latent: the LSP bridge does not read while it writes.** (found with the entry below, 28 Sep
-  2026) `bridge::supervise` is one `select!` loop, and inside its outbound branch it awaits
-  `running.send(&body)` to completion, so nothing drains TexLab's stdout during a write. That can
-  only deadlock if TexLab, blocked writing to a full stdout, also stops reading its stdin while a
-  message larger than the pipe (64 KB on Linux) is being sent to it — a whole-file `didOpen` or
-  `didChange` on a long chapter. Not observed; whether TexLab 5.26's I/O threads can block that
-  way is unconfirmed. Recorded so it is checked, not rediscovered: the fix would be separate
-  reader and writer tasks, as TexLab itself has.
-  **Fixed** (29 Sep 2026, S9.11). Confirmed first, with a stand-in rather than TexLab: taught
-  to write a 320 KB burst with blocking writes (which is how TexLab's I/O library behaves, since
-  its threads hand messages to each other unbuffered), `fake-lsp-rpc` and the old bridge hung
-  for good on the second 50 KB `didChange`; the new test timed out every time. The supervisor
-  now never writes: each process gets its own writer task (`spawn_writer`, fed by a channel) and
-  the loop stays free to read. The same test passes 20 runs in 20, and the real-TexLab tests
-  still pass.
-
-- **A linked Zotero collection's entries are indexed but never reach the PDF: the compile does
-  not know about `extra_bib_files`.** (S8.4 preparation, builder, 28 Sep 2026, found writing the
-  exit demo's script) S8.2 records the export path in `preamble.toml`'s `extra_bib_files`, and
-  `bibliography::build_index` indexes it, so `\cite` completion offers its keys and the
-  undefined-citation health check (S8.3) counts them as defined. But BibTeX/Biber read only the
-  files the document itself names (`\bibliography{…}`/`\addbibresource{…}`), and nothing in
-  `compile.rs` or `preamble-engine` reads `extra_bib_files` (grep: only `bibliography.rs`,
-  `commands.rs` and `project.rs` mention it). Result: cite a key from a linked collection and the
-  panel says nothing is wrong while the PDF prints `[?]` — the health check and the engine
-  disagree, the one outcome a health check must not produce. Workaround until fixed: name the
-  export in the document too (`\bibliography{references,zotero/Thesis}`); S8.7's `BibOrigin`
-  then lists it as `named` and everything agrees. Fix is S8.8 in `SPRINTS.md`; it needs a
-  maintainer decision first, because the natural fixes either edit the author's `.tex` (offer to
-  add the export to the document's own command, as a one-click fix like S6.2's) or make the
-  build differ from what the document says (pass extra files to the engine), and DESIGN.md §2
-  rule 1 ("plain files are the truth") argues for the first.
-  **Fixed** (S8.8, 28 Sep 2026) the first way: a `linked-not-named` finding — an error when a
-  citation is defined only in the export — whose one-click fix adds the export to the document's
-  own resource command. Verified by `applying_the_fix_makes_the_export_named_and_the_finding_goes_away`.
-
-- **The workspace `repository` field points at `github.com/verocai-vrc/preamble`, but the
-  repository is `github.com/verocai-vrc/Abstract-Tex`.** (S8.5, builder, 28 Sep 2026, found
-  preparing `texbib` for crates.io) `Cargo.toml`'s `[workspace.package] repository` is inherited
-  by `texlog` and `texbib`, and both READMEs link the same URL, so each crate's crates.io page
-  would link a repository that does not exist under that name. A published crate's metadata
-  cannot be corrected without a new release, so this blocks both `cargo publish` runs (S6.5,
-  S8.5) until settled. Tied to the still-open name decision (S2.9, `DESIGN.md` §10): either the
-  GitHub repository is renamed to `preamble` (GitHub redirects the old URL) or the field and both
-  READMEs change to `Abstract-Tex`. The maintainer's call, not an agent's.
-  **Fixed** (28 Sep 2026): the maintainer settled it — the repository is
-  `github.com/verocai-vrc/Abstract-Tex` and the *Preamble* name is dropped (DESIGN.md §10). The
-  workspace `repository`, both crate READMEs, and the two `acquire` user agents now point there,
-  as part of the whole-codebase rename.
-
-- **`pnpm check` fails on `main`: `src/lib/bibliography.test.ts:75` indexes `groups[0]` without a
-  guard, and `svelte-check` reports "Object is possibly 'undefined'".** (planning review, 28 Sep
-  2026, found running the full verify gate before planning sprint 8's remainder) Introduced by
-  `8dfefd5` (S8.3's work, committed as `feat: add bibliography health checks…` rather than
-  `S8.3: …`). S8.3's outcome paragraph in `SPRINTS.md` records `pnpm check` 445 files / 0 errors
-  and Vitest 402/402; the tree as committed gives 443 files / 1 error and 399/399, so the recorded
-  numbers came from a working tree that differs from what landed. Vitest itself passes — the
-  test runs fine, only the type check rejects it — but `pnpm verify` is red, so every loop from
-  here would start from a failing gate. Likely fix: `groups[0]?.findings` or an
-  `expect(groups).toHaveLength(2)` followed by a non-null assertion. Also worth checking in the
-  same pass: the S8.3 row in `SPRINTS.md`'s sprint 8 table still reads `[ ]` although its outcome
-  says `[x]`.
-  **Fixed** (S8.3 follow-up, 28 Sep 2026): `groups[0]?.findings` — a missing group now fails the
-  `toEqual` rather than the type check. `pnpm check` 443 files / 0 errors; the S8.3 table row is
-  ticked and its outcome's counts corrected.
-
-- **`cargo test -p texbib --features acquire --test fixtures` fails all six real-fixture cases on
-  this machine, purely from CRLF byte-offset drift.** (S8.2, builder, 23 Sep 2026, found running
-  the full `texbib` test suite as this loop's own verification step) Every failure is the same
-  shape: the parsed spans in `left` are consistently larger than the recorded `expected.json`
-  spans in `right`, by exactly the count of `\r` bytes before that point in the file — the
-  fixture `.bib` files are checked out CRLF on this machine, but `expected.json` was recorded
-  against an LF checkout. Confirmed pre-existing and unrelated to this loop's diff: `git stash`
-  (removing every S8.2 change) reproduces the identical six failures with identical `left`/`right`
-  diffs. Likely the same root cause as the synctex real-fixture failure below (a `.gitattributes`
-  gap letting Windows checkouts normalise line endings in fixture text files that must stay
-  byte-for-byte what they were recorded against) — worth checking both under the same fix rather
-  than two separate ones. Does not block this loop: the card's `Verify` line does not run the
-  `fixtures` integration test, and all unit tests (including this loop's new `zotero.rs` and
-  `bibliography.rs` ones) are green.
-  **Fixed** (S8.3 follow-up, 28 Sep 2026) together with the S7.3 entry below: same root cause, a
-  `.gitattributes` fix. The synctex failures turned out *not* to share it (see their own entries).
-
-- **S8.1's `zotero.rs` probed a JSON-RPC method, `item.libraries`, that does not exist in Better
-  BibTeX's real API.** (S8.2, builder, 23 Sep 2026, found checking the real JSON-RPC method list
-  against `retorque.re/zotero-better-bibtex/exporting/json-rpc/` and the project's own
-  `content/json-rpc.ts` source while designing S8.2's collection listing, the same "check live
-  before building on it" step S7.5's outcome recommended after a documented endpoint 404ed in
-  practice) The real method for listing libraries is `user.groups` (optionally
-  `includeCollections: true` to also list each library's collections). Calling the nonexistent
-  `item.libraries` did not break S8.1 itself — Better BibTeX answers an unknown method with a
-  JSON-RPC `error` envelope, and `detect_with` only checks *shape* (any `jsonrpc` + `result`/`error`
-  reply counts as `Ready`), so detection was accidentally still correct.
-  **Fixed** in this loop (S8.2) by switching the probe to `user.groups`, which is both a valid
-  liveness check and the call S8.2 needs anyway for listing collections — one request now does
-  both jobs. Verified by `cargo test -p texbib --features acquire -- zotero` (12 passed).
-
-- **`RUSTDOCFLAGS="-D warnings" cargo doc --workspace` fails on `preamble-synctex`: its module doc
-  links to a private item.** (S7.6, builder, 23 Sep 2026, found running `cargo doc --workspace`
-  as this loop's own final check, since `crates/preamble-synctex` was untouched by the diff)
-  `crates/preamble-synctex/src/lib.rs:6` reads `decompressing and tokenising the SyncTeX text
-  format (see [`parse`])`, and `parse` is a private module-level item — `cargo doc` on this crate
-  alone (`cargo doc -p preamble-synctex`) does not catch it, only a `--workspace` run does,
-  because per-crate doc builds do not turn on `rustdoc::private-intra-doc-links` the same way
-  `-D warnings` does at the workspace level. Not caused by this loop, which touched only
-  `crates/texbib` and `src-tauri`; both build clean under `RUSTDOCFLAGS="-D warnings" cargo doc -p
-  texbib -p preamble --no-deps`. Likely fix: plain backticks for `parse` (the convention
-  `crates/texbib/src/acquire/arxiv.rs`'s own `zero_span` doc comment already uses for the same
-  reason, after S7.5 hit an identical class of error), or `#[allow(rustdoc::private_intra_doc_links)]`
-  if the module doc is meant to describe internals a reader is expected to open the source for.
-  **Fixed** (S8.3 follow-up, 28 Sep 2026): plain backticks for `parse`, the first option above.
-  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` is clean.
 
 - **`reqwest` cannot resolve DNS from inside a Rust-compiled process on this machine, though
   `curl.exe` resolves the identical hostname instantly in the same shell.** (S7.5, builder, 21
@@ -304,52 +122,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   through the proxy; the app itself would show an author the same missing-package error. Worth
   the maintainer checking the security suite's per-process DNS policy, since the app's
   zero-setup promise (DESIGN.md §2 rule 4) depends on the engine reaching the network once.
-
-- **`texbib`'s fixture harness fails on a checkout with `core.autocrlf=true`: six of seven
-  fixtures mismatch on every byte span after the first line ending.** (S7.3, builder, 21 Sep
-  2026, found running `pnpm verify` for an unrelated frontend loop) `crates/texbib/tests/
-  fixtures.rs`'s `run_fixture` reads `main.bib` with `fs::read_to_string` — raw bytes, no
-  normalisation — and compares the parsed spans against a committed `expected.json` computed
-  when the S7.1 fixtures were built and verified on a Linux sandbox session, where line endings
-  are `\n`. This repository has no `.gitattributes`, and this checkout's `git config
-  core.autocrlf` is `true` (a common Git-for-Windows default), so `git checkout` silently
-  rewrote every committed `\n` in the six multi-line fixtures to `\r\n` on disk; `file` confirms
-  it (`ASCII text, with CRLF line terminators`). Every span after the first line ending is then
-  off by however many `\r`s precede it, and `fixture_better_bibtex`, `fixture_biblatex_
-  inheritance`, `fixture_broken_middle`, `fixture_hand_typed`, `fixture_jabref` and `fixture_
-  strings_and_preamble` all fail; the seventh, `fixture_doi_negotiation`, is one line with no
-  terminator (S7.4's own note) and passes untouched. Not caused by S7.3, which touched no Rust
-  and no `crates/texbib` file. Likely fix: a `.gitattributes` marking `crates/**/fixtures/*.bib`
-  (and any other fixture depending on an exact byte layout) `-text` or `eol=lf`, so a fresh
-  checkout matches what `expected.json` was computed against regardless of the checking-out
-  machine's global `autocrlf` setting.
-  **Fixed** (S8.3 follow-up, 28 Sep 2026): a root `.gitattributes` marks `fixtures/**` and
-  `crates/*/fixtures/**` `text eol=lf` (and `*.gz`/`*.pdf`/`*.png` binary), and the fixture files
-  were re-checked-out so this machine's working copy is LF. Scoped to fixtures on purpose — a
-  repo-wide `eol=lf` would have been a whole-tree rewrite for no failing test. All seven
-  `texbib` fixture tests pass under `core.autocrlf=true`.
-
-- **`src-tauri/src/synctex.rs`'s own real-fixture test fails on any checkout path other than the
-  original author's, the same way the already-logged `preamble-synctex` one does.** (S7.3,
-  builder, 21 Sep 2026, found running `pnpm verify` for an unrelated frontend loop)
-  `inverse_search_end_to_end_against_the_real_fixture` (line 138) calls `table.forward_search(&source,
-  3).expect("line 3 is on page 1")`, and the `.expect` panics with exactly that message: the
-  committed `crates/preamble-synctex/fixtures/multi.synctex.gz` bakes in the absolute path Tectonic
-  resolved at capture time (`C:\Users\arthur\Desktop\LaTeX Editor\Abstract Tex\Abstract-Tex\...`),
-  `paths_match` normalises case and separators but not the checkout prefix, and this checkout sits at
-  `C:\Ambiente de Desenvolvimento\Abstract-Tex`. Same root cause as `the_real_fixture_parses_and_both_
-  searches_answer`'s entry below (S4.6, 16 Sep 2026) in the *other* crate's copy of this pattern — this
-  is the sibling failure in `src-tauri`'s own end-to-end test, not a second bug, and not caused by
-  anything in S7.3 (which touched only `src/lib/editor/cite.ts`, its test, and two files wiring it in —
-  no Rust). Same fix candidates apply: look the tag up by the fixture's own recorded `Input:` path, or
-  compare by trailing path components in the test rather than the full resolved path.
-  **Fixed** (S8.3 follow-up, 28 Sep 2026): not a line-ending problem, as the S8.2 entry above
-  guessed, but the recorded absolute path. The test now copies the fixture into a temp folder,
-  rewrites its `Input:1:` line to that folder, re-gzips it (`flate2` added as a dev-dependency)
-  and runs `open` → forward → inverse → `to_relative` against the temp folder as project root —
-  the whole chain on real paths, on every OS. Asking the fixture for its recorded folder instead
-  would have passed on Windows only: `strip_prefix` cannot split a Windows path on Linux/macOS,
-  where CI also runs this test.
+  **Next step decided (2 Oct 2026, design interview C7):** the maintainer adds the security-suite
+  exception for `target\debug\*.exe` and `target\release\*.exe` on the Windows machine, during the
+  smoke campaign that follows S11.4d, and records here whether it cures both `reqwest` and the
+  bundled Tectonic. If a stranger's security suite does the same, v0.9's stranger test finds it.
 
 - **`fragile-command-in-moving-argument`'s one-click fix is only offered when the offending line
   is short: TeX truncates the `l.NN` context from the left, and the command name goes with it.**
@@ -368,6 +144,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   the only place the command survives, and the crate never reads one); a frontend-side
   completion — search the diagnosed source line for a fragile command when the rule matched but
   named none — would be the honest place, and needs its own loop.
+  **Decided (2 Oct 2026, design interview E7):** a frontend card — when the rule matched but named
+  no command, search the diagnosed source line for one (*Unplaced cards*, `SPRINTS.md`).
 
 - **A diagnostic resolved inside a package file gets a file heading and a jump that cannot
   succeed.** (S6.3, builder, 17 Sep 2026) `babel-unknown-language`'s real fixture resolves to
@@ -384,6 +162,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   about what it has. The same shape will hit `font-not-found` (`fontspec.sty`) and any other
   `\PackageError`. Found during S6.3's own review, not fixed there — it changes `texlog`'s public
   `Diagnostic`, a Rust change with fixture regeneration, past an M frontend loop's scope.
+  **Decided (2 Oct 2026, design interview E1):** `Diagnostic` carries the whole open-file stack over
+  IPC, and the frontend picks the first file the project has — it already holds the include graph,
+  so no extension heuristic. This changes `texlog`'s public type, so it lands before `texlog` is
+  published (C8). *Unplaced cards*, `SPRINTS.md`.
 
 - **BibTeX's own error output never reaches `main.log`, so `texlog` cannot see it at all —
   corrects the "biblatex needs biber, not yet bundled" framing from the previous S6.1 commit.**
@@ -409,6 +191,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   the thesis's "errors were issued by BibTeX, but were ignored" comes from on every build. A
   `.blg` rule must read only the root's `.blg`, or drop exactly those three. Still Open, at low
   priority.
+  **Deferred, low priority (2 Oct 2026, design interview E3):** when built, it reads only the root's
+  `.blg`, which sidesteps the `\include` trap above.
 
 - **`unwrap_lines` does not undo a `\PackageError` message's own multi-line continuation, only a
   plain 79-column hard wrap.** (S6.1, builder, 17 Sep 2026) LaTeX's `\PackageError`/`\GenericError`
@@ -429,21 +213,6 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `(packagename)` continuation-line shape specifically, which `unwrap_lines`'s own doc comment does
   not attempt today. Not required; no card owns it.
 
-- **Focus mode rebuilds every line's decoration on every keystroke and cursor move.**
-  (S4.5, deferred reviewer pass, 16 Sep 2026) `src/lib/editor/focus.ts`'s `buildDecorations`
-  iterates every line in the document on every `ViewUpdate` where the doc changed or the
-  selection moved, to rebuild which lines are dimmed. Almost certainly under the <16 ms keystroke
-  budget (DESIGN.md §2) at thesis-length documents — each line costs one `RangeSetBuilder.add` —
-  but the same shape as two findings already logged here (`mergeMarkers` re-running per view
-  update, S3.3b; `Project::info()` re-reading every file per refresh, S4.1), so worth the same
-  "memoize if it ever measures otherwise" note rather than assuming it is fine forever. Not
-  required; no sprint-4 card owns performance work.
-  **Fixed** (S9.6, 28 Sep 2026): focus mode is a `StateField` now. A cursor move inside the lit
-  paragraph returns the same state; typing inside it shifts the existing dimming with the text;
-  only a paragraph change or an edit elsewhere rebuilds. It also stopped copying the whole
-  document into a string per keystroke (`currentParagraphRange` reads CodeMirror's `Text`).
-  `focus.test.ts` counts rebuilds: zero across nine typed characters.
-
 - **`detect_root`'s "no other file includes it" exclusion has no fallback and ignores depth.**
   (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:220-233` removes every candidate that
   the preliminary include scan says another file includes, then picks the first survivor —
@@ -460,6 +229,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   here. Needs: a fallback when exclusion empties `candidates` (fall back to the un-excluded list
   rather than `None`), and depth should still out-rank "not excluded" the way it does among
   never-excluded candidates today.
+  **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
+  S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
 
 - **The include graph's depth cap drops nodes without recording anything.**
   (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs`'s `if depth >= MAX_DEPTH
@@ -470,6 +241,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   comment at the `MAX_DEPTH` constant says as much), but the contract violation is real. Fix
   needs either a new `Unresolved` variant (`DepthLimitReached` or similar) pushed when the cap
   stops a branch, or the module doc's promise narrowed to say what it actually covers.
+  **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
+  S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
 
 - **`build_graph`'s `root_relative` is not normalised before becoming the root node's path.**
   (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs:78-82` calls
@@ -483,6 +256,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   the graph — either `resolve_include_argument`'s `normalize_relative` applied to `root_relative`
   too, or `Project::root_file`/`set_root_file` normalising `./`-prefixed and similar spellings
   before they are ever stored.
+  **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
+  S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
 
 - **Includes reached only through a `.sty`/`.cls`, `\InputIfFileExists`, or `\subimport` are
   invisible *and* leave `is_complete() == true`.** (S4.1, reviewer, 14 Sep 2026) Verified:
@@ -499,6 +274,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   with the same "always unparsed" treatment `\import` gets. Fix for (1) is a bigger design
   question (does the graph need to walk `.sty`/`.cls` files at all, given `\usepackage` itself is
   explicitly out of scope) that the architect should settle before anyone builds it.
+  **Decided (2 Oct 2026, design interview E4):** `\InputIfFileExists` and `\subimport` are in the
+  include-graph sweep card; following a `.sty`/`.cls` file's own `\input`s stays out of scope, as
+  `\usepackage` already is, and the module doc is narrowed to say so.
 
 - **`documentFiles.includes(relative)` is a case-exact string match.**
   (S4.1, reviewer, 14 Sep 2026) `src/lib/paths.ts:40`'s `shouldCompileFor` compares `relative`
@@ -513,6 +291,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   recompiling. Fix likely belongs in `resolve_include_argument`: once a literal or `literal.tex`
   candidate is confirmed to exist, read the real on-disk casing back (e.g. via the directory
   listing `list_tree` already produces) rather than trusting the argument's spelling.
+  **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
+  S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
 
 - **No test covers the S4.1 swap from `isTexSource` to `shouldCompileFor` in the controller.**
   (S4.1, reviewer, 14 Sep 2026) `src/lib/controller.svelte.ts:589`'s `handleFsEvent` now gates
@@ -524,49 +304,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   in `paths.test.ts` for the pure function, but no coverage at the controller/`handleFsEvent`
   integration level. Needs a `controller.test.ts` case with a second, non-included `.tex` tab or
   fixture file and an assertion that changing it does not call `compile`.
-
-- **`Project::info()` re-reads every document file on every debounced tree refresh.**
-  (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:169` calls `preamble_includes::
-  build_graph`, which does a fresh `fs::read_to_string` of every node, on every `refresh_tree`
-  Tauri command — fired on the 250 ms debounce in `controller.svelte.ts`'s
-  `scheduleTreeRefresh` after *any* filesystem event, and `refresh_tree` is a synchronous command
-  (blocks the main Tauri thread while it runs). Reviewer measured 128 ms on a synthetic
-  200-chapter, 4 MB project — comfortably past the <16 ms keystroke budget if it ever runs on the
-  UI thread during typing, though `refresh_tree` is not on that path today. The architect's own
-  risk note on this loop's card already flagged this as "trivial at thesis size, worth a note for
-  sprint 9" — this entry is that note, with a measurement attached.
-  **Fixed** (S9.6, 28 Sep 2026): `Project::info` keeps the graph and a stamp (exists, size,
-  modified time) of every file it walked, missing ones included, and walks again only when a
-  stamp differs — one `metadata` call per document file instead of a read. `info` takes
-  `&mut self` for it. Tested by counting walks: unchanged, and a non-document file changed,
-  cost none; a chapter gaining an include, and a missing file appearing, cost one each.
-
-- **`frames_keep_their_boundaries_under_load` deadlocks on Linux's 64 KB pipe buffer.**
-  `crates/preamble-lsp/tests/process.rs` sends all 50 test frames (~125 KB total) before
-  reading any reply back, and `Running::send`/`Running::recv`
-  (`crates/preamble-lsp/src/server.rs:91-103`) are direct, unbuffered `write_all`/read calls
-  on the child's piped stdin/stdout with no background pump task. Once the OS pipe buffer
-  fills in either direction the write blocks; `fake_lsp_echo.rs`'s stand-in server uses
-  blocking, synchronous `std::io` and echoes every frame the instant it reads one, so once
-  its own stdout pipe back to us fills (we are still inside the `send` loop, not yet
-  reading) its write blocks, it stops draining stdin, and our own `stdin.write_all().await`
-  then never completes either — a classic bidirectional pipe deadlock. Reproduced by running
-  `cargo test --workspace --exclude preamble` on a fresh Ubuntu 26.04 sandbox with no prior
-  cargo cache: the test prints Rust's own "has been running for over 60 seconds" warning and
-  never returns; killed manually after ~7 minutes. Not observed on the Windows sessions this
-  project has run on so far (S3.2/S3.3d recorded this exact suite passing there), which
-  suggests Windows's anonymous pipes tolerate more in-flight data before blocking — an
-  environment difference, not a fix. Real fix is either read-while-writing in the test (pump
-  `recv` concurrently with `send`, e.g. via `tokio::join!` or interleaving one send per read)
-  or making `Running::send`/`recv` route through a buffering task the way the LSP bridge
-  proper does — the test as written assumes an OS pipe with no meaningful capacity limit,
-  which Linux does not give it. Found running the full workspace suite for the first time on
-  Linux, 14 Sep 2026.
-  **Fixed** in the test (28 Sep 2026, commit `b3e0986`; this entry was only updated on 29 Sep):
-  it now sends ten frames at a time and reads their replies before sending more, which stays
-  under one pipe's worth and still keeps several frames in flight. The bridge's own version of
-  the hazard is not fixed, and is the *Latent: the LSP bridge does not read while it writes* entry
-  above.
+  **Scheduled (2 Oct 2026, design interview E8):** the ledger sweep, first thing in sprint 12,
+  each fix with its test.
 
 - **LSP diagnostic lookups can miss on a drive-letter casing mismatch.**
   `src/lib/lsp-diagnostics.ts` keys its map by the server's URI spelling on write
@@ -581,37 +320,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `forPath`. Found by the reviewer, S3.3b, 13 Sep 2026. This is the third Windows-path-
   spelling bug in this subsystem, after the two logged in the S3.1/S3.2 outcomes above — an
   argument for the normalization living in one place rather than at each call site.
-
-- **The gutter's `markers` callback re-merges on every view update.**
-  `src/lib/editor/diagnostics.ts` runs `mergeMarkers` on every CodeMirror view update,
-  allocating two Map/array/RangeSet triples per keystroke on the typing path (DESIGN.md §2
-  commitment 2, <16 ms). Almost certainly under budget at realistic diagnostic counts, so
-  not blocking — logged as the one place in this diff that allocates per key, for a future
-  loop to memoize on the two field values (`markers`, `lspMarkers`) instead of the view
-  update. Found by the reviewer, S3.3b, 13 Sep 2026.
-  **Fixed** (S9.6, 28 Sep 2026): `mergedMarkers`, a `StateField` that merges only when either
-  source is replaced and otherwise shifts with the text; a cursor move returns the identical
-  set (tested by reference). A deleted line break that lands two markers on one line re-merges,
-  the one case shifting alone would get wrong — also tested.
-
-- **`PREAMBLE_OPEN` env var resolves relative to the wrong directory.**
-  `src-tauri/src/commands.rs:42` filters `PREAMBLE_OPEN` through `Path::new(p).is_dir()`,
-  which resolves a relative path against the Tauri process's working directory
-  (`src-tauri/`), not the repository root. `fixtures/paper/SMOKE.md`'s documented invocation
-  `PREAMBLE_OPEN=fixtures/paper pnpm tauri dev` therefore opens no project at all, silently.
-  An absolute path works. Found: 12 Sep 2026. Not yet fixed — small, but it is in the script
-  handed to a new contributor.
-  Still open (28 Sep 2026, now `ABSTRACT_TEX_OPEN` after the rename): `README.md` and
-  `DEVELOPMENT.md` give the absolute-path form and say why; every `fixtures/*/SMOKE.md` still
-  gives the relative one that opens nothing.
-
-- **`cargo build --release` is not the release path.**
-  `tauri.conf.json` sets `devUrl` unconditionally, so even a release binary loads
-  `localhost:1420` and shows a "can't reach this page" error without Vite running.
-  `pnpm tauri build` is the supported route (S2.9). Documentation debt more than a code bug;
-  worth a README note before anyone tests a release binary the quick way.
-  **Fixed** (28 Sep 2026) as the documentation debt it was: `DEVELOPMENT.md`'s *Building and
-  testing* names the trap and the supported route. The `devUrl` behaviour itself is unchanged.
+  **Scheduled (2 Oct 2026, design interview E8):** the ledger sweep, first thing in sprint 12,
+  each fix with its test.
 
 - **No `rustfmt.toml`.** House style runs to ~110 columns; rustfmt defaults to 100. Nothing
   fails today because `pnpm verify` does not run `cargo fmt --check`, but the next
@@ -621,27 +331,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `max_width = 110` still reports 382 diffs, so a one-line config does not match the house style
   either. The choice is between a one-off whole-repo `cargo fmt` commit (and adding
   `cargo fmt --check` to `pnpm verify`) or no formatter; the maintainer's call.
-
-- **`the_real_fixture_parses_and_both_searches_answer` fails on any checkout that is not the
-  original author's Windows path.** (S4.6, builder, 16 Sep 2026) `crates/preamble-synctex/
-  fixtures/multi.synctex.gz` was generated by a real engine run, so its `Input:1:` line is the
-  absolute path of the machine that produced it: `C:\Users\arthur\Desktop\LaTeX Editor\
-  Abstract Tex\Abstract-Tex\crates\preamble-synctex\fixtures\multi.tex`. The test
-  (`crates/preamble-synctex/src/lib.rs:420`) asks `forward_search` for
-  `CARGO_MANIFEST_DIR/fixtures/multi.tex`, which on this Linux box is `/home/arthur/ABSTRACT
-  TEX/CODE/Abstract-Tex/...`; `paths_match` normalises case and separators but not the prefix,
-  so `tag_for_file` finds nothing and the test panics with "line 3 should be on page 1". It
-  passes only where the repo sits at that exact Windows path. Reproduced on clean HEAD
-  (`85fdfca`) with S4.6's changes stashed, so it predates this loop; not caused by anything in
-  S4.6, which touched no Rust. Fix candidates: have the test look the tag up by the
-  fixture's own `Input:` path (the `files` table is already parsed) instead of by
-  `CARGO_MANIFEST_DIR`, or compare by trailing components (`fixtures/multi.tex`) in the test
-  only — `paths_match` itself should stay exact, since a real project can have two files with
-  the same tail. Found running `cargo test --workspace --exclude preamble` for S4.6's gate.
-  **Fixed** (S8.3 follow-up, 28 Sep 2026) by the first candidate above: the test asks the fixture
-  where it recorded `multi.tex` (the input named by the record nearest page 1's top-left) and
-  searches with that path; the check that it *is* `multi.tex` compares normalised strings,
-  since `Path::ends_with` sees a Windows path on Linux as one component. `paths_match` untouched.
+  **Decided (2 Oct 2026, design interview C5):** `rustfmt.toml` with `max_width = 110`, one
+  whole-repository `cargo fmt` commit between S11.8 and sprint 12, then `cargo fmt --check` joins
+  `pnpm verify:rust`. Closes when that commit lands.
 
 - **Maths preview: a `$` inside a `%` comment shifts `$` pairing for the rest of the
   paragraph.** (S4.6, reviewer, 16 Sep 2026) `mathAtOffset` in
@@ -658,8 +350,52 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `strict: 'ignore'`; (2) in `$a$$b$` an offset exactly equal to the first span's end previews
   `a`, not `b`, because the inclusive `<= spanEnd` test wins before the next opener is tried —
   cosmetic.
+  **Scheduled (2 Oct 2026, design interview E8):** the ledger sweep, first thing in sprint 12,
+  each fix with its test.
 
 ## Fixed
+
+- **`cc` on this Linux machine is `zig cc`, which rejects the target triple `cc-rs` passes, so
+  `src-tauri` cannot build.** (29 Sep 2026, S9.12) `~/.local/bin/cc` execs `zig cc`, and
+  `--target=x86_64-unknown-linux-gnu` — which `cc-rs` adds to every compile — fails with `unable
+  to parse target query 'x86_64-unknown-linux-gnu': UnknownOperatingSystem`; zig spells it
+  `x86_64-linux-gnu`. This kills `ring`, and with it `cargo build -p abstract-tex`, `cargo test
+  --workspace` and `pnpm verify`. Not a bug in this project and nothing in the repo changed, so
+  it is here as a note for the next session rather than a fix: run the gate with `CC` pointing at
+  a wrapper that rewrites the triple. A real fix is to install a normal clang or gcc, or to put
+  `[target.x86_64-unknown-linux-gnu] linker`/`CC` in the environment properly; the maintainer's
+  other machine is unaffected.
+  **There is a real gcc on this machine, found in S10.3a** (29 Sep 2026): `/usr/bin/gcc` exists
+  and works; `~/.local/bin/cc` merely shadows it on `PATH`. So the whole gate runs with
+  `CC=/usr/bin/gcc CXX=/usr/bin/g++ pnpm verify` and needs no wrapper and no
+  `-fno-sanitize=undefined` — both zig defaults below stop applying, because zig is not involved.
+  That is the recommended incantation for a session on this machine until `PATH` is fixed.
+  **A second `zig cc` default, found in S10.1** (29 Sep 2026): it turns UndefinedBehaviorSanitizer
+  on in debug builds and *traps*. libgit2's bundled `sha1dc` does unaligned 32-bit loads — UB by
+  the letter of C, fine on x86, and present in every libgit2 build everywhere — so every `git2`
+  commit died with `SIGABRT` and a stack ending in `sha1_compression_states`. The wrapper also
+  passes `-fno-sanitize=undefined` now. Worth knowing because the symptom looks exactly like a
+  bug in our own code: a clean compile, then an abort inside a C dependency on the first write.
+  **Fixed (2 Oct 2026, design interview C6):** the four wrappers (`cc`, `c++`, `gcc`, `g++` —
+  one-line `exec zig cc` scripts from 14 Sep) moved from `~/.local/bin` to `~/.local/zig-wrappers/`,
+  out of `PATH`; nothing was deleted, so moving them back undoes it. Verified: `which cc` is
+  `/usr/bin/cc`, and a clean rebuild of `libgit2-sys` (C, statically linked) succeeds with no `CC=`
+  prefix.
+
+- **`PREAMBLE_OPEN` env var resolves relative to the wrong directory.**
+  `src-tauri/src/commands.rs:42` filters `PREAMBLE_OPEN` through `Path::new(p).is_dir()`,
+  which resolves a relative path against the Tauri process's working directory
+  (`src-tauri/`), not the repository root. `fixtures/paper/SMOKE.md`'s documented invocation
+  `PREAMBLE_OPEN=fixtures/paper pnpm tauri dev` therefore opens no project at all, silently.
+  An absolute path works. Found: 12 Sep 2026. Not yet fixed — small, but it is in the script
+  handed to a new contributor.
+  Still open (28 Sep 2026, now `ABSTRACT_TEX_OPEN` after the rename): `README.md` and
+  `DEVELOPMENT.md` give the absolute-path form and say why; every `fixtures/*/SMOKE.md` still
+  gives the relative one that opens nothing.
+  **Fixed (2 Oct 2026, design interview D7)** as the documentation debt it was: every
+  `fixtures/*/SMOKE.md` now gives `"$PWD/fixtures/<name>"` (bash) and `"$PWD\fixtures\<name>"`
+  (PowerShell). The code still resolves a relative path against `src-tauri/`, which
+  `DEVELOPMENT.md` already says; an absolute path is the documented form.
 
 - **`anyhow::Context::context()` silently hid Git LFS's own error message from the author.**
   (2 Oct 2026, found while writing S11.3c's `lfs::run`) The first draft ran `git lfs track` and,
@@ -675,6 +411,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   **Fixed** by building one complete sentence in `run` itself — action and stderr together — so
   there is only ever one frame for `Display` to show, and reserving `.context()` for the rarer
   spawn-failure path, where losing detail matters less.
+
 - **`git2::DiffFile::size()` reads 0 on a tree-to-tree diff, silently.** (2 Oct 2026, found while
   writing S11.3a's `oversized_blobs`) The first draft read `change.new_file().size()` straight off
   a `diff_tree_to_tree` delta, on the assumption libgit2 already has a blob's size from the tree
@@ -685,6 +422,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   by reading `Odb::read_header(id)` instead, the binding for `git_odb_read_header`, which asks the
   object database for the object's real length from its header without inflating the full blob.
   Left as a comment on `oversized_blobs` so nothing else in this crate repeats the same assumption.
+
 - **`Commit & Push` and `Commit & Sync` could erase the commit message the moment it was refused.**
   (1 Oct 2026, found by `controller.test.ts` while writing S11.1b) The first draft of `commitThen`
   called `refreshGitStatus()` unconditionally, after the `if (committed !== null)` block rather
@@ -696,6 +434,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   words survive a refusal, the same promise `commitStaged` already keeps, and they did not.
   **Fixed** by moving the refresh inside the success branch, next to the other two things that
   already only happen on success (clearing the box, re-arming the suggestion).
+
 - **A Source Control refusal appeared and then vanished before it could be read.** (29 Sep 2026,
   found by S10.5a's own tests; the bug was introduced in S10.3a) `git.error` held both a *verb's*
   refusal — "nothing is staged", "Git does not know who you are", "this folder is already inside
@@ -744,6 +483,55 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   the next entry, which is now its own thing rather than a footnote to this one. MiKTeX itself
   stays unverified: there is still no MiKTeX machine here.
 
+- **Every diagnostic from a system engine missed its tab: the log says `./main.tex` where the
+  project says `main.tex`.** (29 Sep 2026, found in S9.12 while checking what the moved working
+  folder does to a log) `texlog` hands file names on exactly as TeX printed them, and
+  `diagnosticTarget` (`src/lib/drawer.ts`) matches them against the include graph's
+  project-relative paths. Tectonic writes `main.tex` and matches; `pdflatex` writes `./main.tex`
+  and never did, so since S9.4 every diagnostic from a `latexmk` build fell back to the root file
+  in the drawer and the gutter, with nothing to say it had. **Fixed** in the same loop:
+  `as_the_project_spells_it` in `compile.rs` — the first place that knows where the project is —
+  strips a leading `./` and, for shell-escape builds, the project folder's own absolute prefix. A
+  name outside the project (`/usr/share/texlive/…/report.cls`) is left exactly as the log had it.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **Latent: the LSP bridge does not read while it writes.** (found with the entry below, 28 Sep
+  2026) `bridge::supervise` is one `select!` loop, and inside its outbound branch it awaits
+  `running.send(&body)` to completion, so nothing drains TexLab's stdout during a write. That can
+  only deadlock if TexLab, blocked writing to a full stdout, also stops reading its stdin while a
+  message larger than the pipe (64 KB on Linux) is being sent to it — a whole-file `didOpen` or
+  `didChange` on a long chapter. Not observed; whether TexLab 5.26's I/O threads can block that
+  way is unconfirmed. Recorded so it is checked, not rediscovered: the fix would be separate
+  reader and writer tasks, as TexLab itself has.
+  **Fixed** (29 Sep 2026, S9.11). Confirmed first, with a stand-in rather than TexLab: taught
+  to write a 320 KB burst with blocking writes (which is how TexLab's I/O library behaves, since
+  its threads hand messages to each other unbuffered), `fake-lsp-rpc` and the old bridge hung
+  for good on the second 50 KB `didChange`; the new test timed out every time. The supervisor
+  now never writes: each process gets its own writer task (`spawn_writer`, fed by a channel) and
+  the loop stays free to read. The same test passes 20 runs in 20, and the real-TexLab tests
+  still pass.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **A cancelled warm build makes the next build a full one: saving during a 3 s thesis build
+  costs the next save ~12 s.** (29 Sep 2026, found designing S9.9) `Tectonic::build` removes
+  `.abstract-tex-warm` before anything runs and writes it back only after a success
+  (`tectonic.rs`, S9.2), so a build the orchestrator cancels — every save that lands while a
+  build is running — leaves no marker, and the next build starts cold: every BibTeX run and
+  every rerun, 12–25 s on the corpus thesis instead of one 3.3 s pass. That is safe (S9.2's
+  point 3: never trust an `.aux` a half-run pass may have rewritten) but it turns the ordinary
+  typing rhythm into the slowest path there is, and it also means no draft (S9.9) for that
+  build, since `draft::prepare` borrows the same marker. A likely fix: a pass cancelled
+  *before TeX wrote anything* could restore the marker, or the orchestrator could let a warm
+  single pass finish instead of cancelling it, as its cost is bounded. Not fixed in S9.9, which
+  does not change when builds are cancelled.
+  **Fixed** (29 Sep 2026, S9.10): a warm build takes an in-memory checkpoint of the build
+  folder's intermediates and, if cancelled, writes them back and then the marker. The build after
+  a cancel is now one 3.5 s pass on the thesis. Measuring it corrected this entry's premise:
+  Tectonic writes a pass's intermediates only as the pass ends, so a kill almost never
+  half-writes an `.aux`. The marker was what was lost, and the checkpoint is what makes putting
+  it back safe without relying on that.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
 - **A draft's SyncTeX names its root `…/.abstract-tex/draft/../../main.tex`, so neither search
   direction would match the root file while a draft was on screen.** (29 Sep 2026, found in
   S9.9's spike before any app code was written) TeX records a file by the path it was asked to
@@ -791,6 +579,262 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   pipe buffering hid. A test bug, not a transport bug: fixed by sending and draining ten frames
   at a time, which stays under one pipe's worth and still has several frames in flight. The
   bridge's own version of the pattern is the latent entry under Open.
+
+- **Focus mode rebuilds every line's decoration on every keystroke and cursor move.**
+  (S4.5, deferred reviewer pass, 16 Sep 2026) `src/lib/editor/focus.ts`'s `buildDecorations`
+  iterates every line in the document on every `ViewUpdate` where the doc changed or the
+  selection moved, to rebuild which lines are dimmed. Almost certainly under the <16 ms keystroke
+  budget (DESIGN.md §2) at thesis-length documents — each line costs one `RangeSetBuilder.add` —
+  but the same shape as two findings already logged here (`mergeMarkers` re-running per view
+  update, S3.3b; `Project::info()` re-reading every file per refresh, S4.1), so worth the same
+  "memoize if it ever measures otherwise" note rather than assuming it is fine forever. Not
+  required; no sprint-4 card owns performance work.
+  **Fixed** (S9.6, 28 Sep 2026): focus mode is a `StateField` now. A cursor move inside the lit
+  paragraph returns the same state; typing inside it shifts the existing dimming with the text;
+  only a paragraph change or an edit elsewhere rebuilds. It also stopped copying the whole
+  document into a string per keystroke (`currentParagraphRange` reads CodeMirror's `Text`).
+  `focus.test.ts` counts rebuilds: zero across nine typed characters.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`Project::info()` re-reads every document file on every debounced tree refresh.**
+  (S4.1, reviewer, 14 Sep 2026) `src-tauri/src/project.rs:169` calls `preamble_includes::
+  build_graph`, which does a fresh `fs::read_to_string` of every node, on every `refresh_tree`
+  Tauri command — fired on the 250 ms debounce in `controller.svelte.ts`'s
+  `scheduleTreeRefresh` after *any* filesystem event, and `refresh_tree` is a synchronous command
+  (blocks the main Tauri thread while it runs). Reviewer measured 128 ms on a synthetic
+  200-chapter, 4 MB project — comfortably past the <16 ms keystroke budget if it ever runs on the
+  UI thread during typing, though `refresh_tree` is not on that path today. The architect's own
+  risk note on this loop's card already flagged this as "trivial at thesis size, worth a note for
+  sprint 9" — this entry is that note, with a measurement attached.
+  **Fixed** (S9.6, 28 Sep 2026): `Project::info` keeps the graph and a stamp (exists, size,
+  modified time) of every file it walked, missing ones included, and walks again only when a
+  stamp differs — one `metadata` call per document file instead of a read. `info` takes
+  `&mut self` for it. Tested by counting walks: unchanged, and a non-document file changed,
+  cost none; a chapter gaining an include, and a missing file appearing, cost one each.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **The gutter's `markers` callback re-merges on every view update.**
+  `src/lib/editor/diagnostics.ts` runs `mergeMarkers` on every CodeMirror view update,
+  allocating two Map/array/RangeSet triples per keystroke on the typing path (DESIGN.md §2
+  commitment 2, <16 ms). Almost certainly under budget at realistic diagnostic counts, so
+  not blocking — logged as the one place in this diff that allocates per key, for a future
+  loop to memoize on the two field values (`markers`, `lspMarkers`) instead of the view
+  update. Found by the reviewer, S3.3b, 13 Sep 2026.
+  **Fixed** (S9.6, 28 Sep 2026): `mergedMarkers`, a `StateField` that merges only when either
+  source is replaced and otherwise shifts with the text; a cursor move returns the identical
+  set (tested by reference). A deleted line break that lands two markers on one line re-merges,
+  the one case shifting alone would get wrong — also tested.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`frames_keep_their_boundaries_under_load` deadlocks on Linux's 64 KB pipe buffer.**
+  `crates/preamble-lsp/tests/process.rs` sends all 50 test frames (~125 KB total) before
+  reading any reply back, and `Running::send`/`Running::recv`
+  (`crates/preamble-lsp/src/server.rs:91-103`) are direct, unbuffered `write_all`/read calls
+  on the child's piped stdin/stdout with no background pump task. Once the OS pipe buffer
+  fills in either direction the write blocks; `fake_lsp_echo.rs`'s stand-in server uses
+  blocking, synchronous `std::io` and echoes every frame the instant it reads one, so once
+  its own stdout pipe back to us fills (we are still inside the `send` loop, not yet
+  reading) its write blocks, it stops draining stdin, and our own `stdin.write_all().await`
+  then never completes either — a classic bidirectional pipe deadlock. Reproduced by running
+  `cargo test --workspace --exclude preamble` on a fresh Ubuntu 26.04 sandbox with no prior
+  cargo cache: the test prints Rust's own "has been running for over 60 seconds" warning and
+  never returns; killed manually after ~7 minutes. Not observed on the Windows sessions this
+  project has run on so far (S3.2/S3.3d recorded this exact suite passing there), which
+  suggests Windows's anonymous pipes tolerate more in-flight data before blocking — an
+  environment difference, not a fix. Real fix is either read-while-writing in the test (pump
+  `recv` concurrently with `send`, e.g. via `tokio::join!` or interleaving one send per read)
+  or making `Running::send`/`recv` route through a buffering task the way the LSP bridge
+  proper does — the test as written assumes an OS pipe with no meaningful capacity limit,
+  which Linux does not give it. Found running the full workspace suite for the first time on
+  Linux, 14 Sep 2026.
+  **Fixed** in the test (28 Sep 2026, commit `1201016`; this entry was only updated on 29 Sep):
+  it now sends ten frames at a time and reads their replies before sending more, which stays
+  under one pipe's worth and still keeps several frames in flight. The bridge's own version of
+  the hazard is not fixed, and is the *Latent: the LSP bridge does not read while it writes* entry
+  above.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **A linked Zotero collection's entries are indexed but never reach the PDF: the compile does
+  not know about `extra_bib_files`.** (S8.4 preparation, builder, 28 Sep 2026, found writing the
+  exit demo's script) S8.2 records the export path in `preamble.toml`'s `extra_bib_files`, and
+  `bibliography::build_index` indexes it, so `\cite` completion offers its keys and the
+  undefined-citation health check (S8.3) counts them as defined. But BibTeX/Biber read only the
+  files the document itself names (`\bibliography{…}`/`\addbibresource{…}`), and nothing in
+  `compile.rs` or `preamble-engine` reads `extra_bib_files` (grep: only `bibliography.rs`,
+  `commands.rs` and `project.rs` mention it). Result: cite a key from a linked collection and the
+  panel says nothing is wrong while the PDF prints `[?]` — the health check and the engine
+  disagree, the one outcome a health check must not produce. Workaround until fixed: name the
+  export in the document too (`\bibliography{references,zotero/Thesis}`); S8.7's `BibOrigin`
+  then lists it as `named` and everything agrees. Fix is S8.8 in `SPRINTS.md`; it needs a
+  maintainer decision first, because the natural fixes either edit the author's `.tex` (offer to
+  add the export to the document's own command, as a one-click fix like S6.2's) or make the
+  build differ from what the document says (pass extra files to the engine), and DESIGN.md §2
+  rule 1 ("plain files are the truth") argues for the first.
+  **Fixed** (S8.8, 28 Sep 2026) the first way: a `linked-not-named` finding — an error when a
+  citation is defined only in the export — whose one-click fix adds the export to the document's
+  own resource command. Verified by `applying_the_fix_makes_the_export_named_and_the_finding_goes_away`.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **The workspace `repository` field points at `github.com/verocai-vrc/preamble`, but the
+  repository is `github.com/verocai-vrc/Abstract-Tex`.** (S8.5, builder, 28 Sep 2026, found
+  preparing `texbib` for crates.io) `Cargo.toml`'s `[workspace.package] repository` is inherited
+  by `texlog` and `texbib`, and both READMEs link the same URL, so each crate's crates.io page
+  would link a repository that does not exist under that name. A published crate's metadata
+  cannot be corrected without a new release, so this blocks both `cargo publish` runs (S6.5,
+  S8.5) until settled. Tied to the still-open name decision (S2.9, `DESIGN.md` §10): either the
+  GitHub repository is renamed to `preamble` (GitHub redirects the old URL) or the field and both
+  READMEs change to `Abstract-Tex`. The maintainer's call, not an agent's.
+  **Fixed** (28 Sep 2026): the maintainer settled it — the repository is
+  `github.com/verocai-vrc/Abstract-Tex` and the *Preamble* name is dropped (DESIGN.md §10). The
+  workspace `repository`, both crate READMEs, and the two `acquire` user agents now point there,
+  as part of the whole-codebase rename.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`cargo build --release` is not the release path.**
+  `tauri.conf.json` sets `devUrl` unconditionally, so even a release binary loads
+  `localhost:1420` and shows a "can't reach this page" error without Vite running.
+  `pnpm tauri build` is the supported route (S2.9). Documentation debt more than a code bug;
+  worth a README note before anyone tests a release binary the quick way.
+  **Fixed** (28 Sep 2026) as the documentation debt it was: `DEVELOPMENT.md`'s *Building and
+  testing* names the trap and the supported route. The `devUrl` behaviour itself is unchanged.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`pnpm check` fails on `main`: `src/lib/bibliography.test.ts:75` indexes `groups[0]` without a
+  guard, and `svelte-check` reports "Object is possibly 'undefined'".** (planning review, 28 Sep
+  2026, found running the full verify gate before planning sprint 8's remainder) Introduced by
+  `8a55f20` (S8.3's work, committed as `feat: add bibliography health checks…` rather than
+  `S8.3: …`). S8.3's outcome paragraph in `SPRINTS.md` records `pnpm check` 445 files / 0 errors
+  and Vitest 402/402; the tree as committed gives 443 files / 1 error and 399/399, so the recorded
+  numbers came from a working tree that differs from what landed. Vitest itself passes — the
+  test runs fine, only the type check rejects it — but `pnpm verify` is red, so every loop from
+  here would start from a failing gate. Likely fix: `groups[0]?.findings` or an
+  `expect(groups).toHaveLength(2)` followed by a non-null assertion. Also worth checking in the
+  same pass: the S8.3 row in `SPRINTS.md`'s sprint 8 table still reads `[ ]` although its outcome
+  says `[x]`.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): `groups[0]?.findings` — a missing group now fails the
+  `toEqual` rather than the type check. `pnpm check` 443 files / 0 errors; the S8.3 table row is
+  ticked and its outcome's counts corrected.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`cargo test -p texbib --features acquire --test fixtures` fails all six real-fixture cases on
+  this machine, purely from CRLF byte-offset drift.** (S8.2, builder, 23 Sep 2026, found running
+  the full `texbib` test suite as this loop's own verification step) Every failure is the same
+  shape: the parsed spans in `left` are consistently larger than the recorded `expected.json`
+  spans in `right`, by exactly the count of `\r` bytes before that point in the file — the
+  fixture `.bib` files are checked out CRLF on this machine, but `expected.json` was recorded
+  against an LF checkout. Confirmed pre-existing and unrelated to this loop's diff: `git stash`
+  (removing every S8.2 change) reproduces the identical six failures with identical `left`/`right`
+  diffs. Likely the same root cause as the synctex real-fixture failure below (a `.gitattributes`
+  gap letting Windows checkouts normalise line endings in fixture text files that must stay
+  byte-for-byte what they were recorded against) — worth checking both under the same fix rather
+  than two separate ones. Does not block this loop: the card's `Verify` line does not run the
+  `fixtures` integration test, and all unit tests (including this loop's new `zotero.rs` and
+  `bibliography.rs` ones) are green.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026) together with the S7.3 entry below: same root cause, a
+  `.gitattributes` fix. The synctex failures turned out *not* to share it (see their own entries).
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`RUSTDOCFLAGS="-D warnings" cargo doc --workspace` fails on `preamble-synctex`: its module doc
+  links to a private item.** (S7.6, builder, 23 Sep 2026, found running `cargo doc --workspace`
+  as this loop's own final check, since `crates/preamble-synctex` was untouched by the diff)
+  `crates/preamble-synctex/src/lib.rs:6` reads `decompressing and tokenising the SyncTeX text
+  format (see [`parse`])`, and `parse` is a private module-level item — `cargo doc` on this crate
+  alone (`cargo doc -p preamble-synctex`) does not catch it, only a `--workspace` run does,
+  because per-crate doc builds do not turn on `rustdoc::private-intra-doc-links` the same way
+  `-D warnings` does at the workspace level. Not caused by this loop, which touched only
+  `crates/texbib` and `src-tauri`; both build clean under `RUSTDOCFLAGS="-D warnings" cargo doc -p
+  texbib -p preamble --no-deps`. Likely fix: plain backticks for `parse` (the convention
+  `crates/texbib/src/acquire/arxiv.rs`'s own `zero_span` doc comment already uses for the same
+  reason, after S7.5 hit an identical class of error), or `#[allow(rustdoc::private_intra_doc_links)]`
+  if the module doc is meant to describe internals a reader is expected to open the source for.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): plain backticks for `parse`, the first option above.
+  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` is clean.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`texbib`'s fixture harness fails on a checkout with `core.autocrlf=true`: six of seven
+  fixtures mismatch on every byte span after the first line ending.** (S7.3, builder, 21 Sep
+  2026, found running `pnpm verify` for an unrelated frontend loop) `crates/texbib/tests/
+  fixtures.rs`'s `run_fixture` reads `main.bib` with `fs::read_to_string` — raw bytes, no
+  normalisation — and compares the parsed spans against a committed `expected.json` computed
+  when the S7.1 fixtures were built and verified on a Linux sandbox session, where line endings
+  are `\n`. This repository has no `.gitattributes`, and this checkout's `git config
+  core.autocrlf` is `true` (a common Git-for-Windows default), so `git checkout` silently
+  rewrote every committed `\n` in the six multi-line fixtures to `\r\n` on disk; `file` confirms
+  it (`ASCII text, with CRLF line terminators`). Every span after the first line ending is then
+  off by however many `\r`s precede it, and `fixture_better_bibtex`, `fixture_biblatex_
+  inheritance`, `fixture_broken_middle`, `fixture_hand_typed`, `fixture_jabref` and `fixture_
+  strings_and_preamble` all fail; the seventh, `fixture_doi_negotiation`, is one line with no
+  terminator (S7.4's own note) and passes untouched. Not caused by S7.3, which touched no Rust
+  and no `crates/texbib` file. Likely fix: a `.gitattributes` marking `crates/**/fixtures/*.bib`
+  (and any other fixture depending on an exact byte layout) `-text` or `eol=lf`, so a fresh
+  checkout matches what `expected.json` was computed against regardless of the checking-out
+  machine's global `autocrlf` setting.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): a root `.gitattributes` marks `fixtures/**` and
+  `crates/*/fixtures/**` `text eol=lf` (and `*.gz`/`*.pdf`/`*.png` binary), and the fixture files
+  were re-checked-out so this machine's working copy is LF. Scoped to fixtures on purpose — a
+  repo-wide `eol=lf` would have been a whole-tree rewrite for no failing test. All seven
+  `texbib` fixture tests pass under `core.autocrlf=true`.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`src-tauri/src/synctex.rs`'s own real-fixture test fails on any checkout path other than the
+  original author's, the same way the already-logged `preamble-synctex` one does.** (S7.3,
+  builder, 21 Sep 2026, found running `pnpm verify` for an unrelated frontend loop)
+  `inverse_search_end_to_end_against_the_real_fixture` (line 138) calls `table.forward_search(&source,
+  3).expect("line 3 is on page 1")`, and the `.expect` panics with exactly that message: the
+  committed `crates/preamble-synctex/fixtures/multi.synctex.gz` bakes in the absolute path Tectonic
+  resolved at capture time (`C:\Users\arthur\Desktop\LaTeX Editor\Abstract Tex\Abstract-Tex\...`),
+  `paths_match` normalises case and separators but not the checkout prefix, and this checkout sits at
+  `C:\Ambiente de Desenvolvimento\Abstract-Tex`. Same root cause as `the_real_fixture_parses_and_both_
+  searches_answer`'s entry below (S4.6, 16 Sep 2026) in the *other* crate's copy of this pattern — this
+  is the sibling failure in `src-tauri`'s own end-to-end test, not a second bug, and not caused by
+  anything in S7.3 (which touched only `src/lib/editor/cite.ts`, its test, and two files wiring it in —
+  no Rust). Same fix candidates apply: look the tag up by the fixture's own recorded `Input:` path, or
+  compare by trailing path components in the test rather than the full resolved path.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026): not a line-ending problem, as the S8.2 entry above
+  guessed, but the recorded absolute path. The test now copies the fixture into a temp folder,
+  rewrites its `Input:1:` line to that folder, re-gzips it (`flate2` added as a dev-dependency)
+  and runs `open` → forward → inverse → `to_relative` against the temp folder as project root —
+  the whole chain on real paths, on every OS. Asking the fixture for its recorded folder instead
+  would have passed on Windows only: `strip_prefix` cannot split a Windows path on Linux/macOS,
+  where CI also runs this test.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **`the_real_fixture_parses_and_both_searches_answer` fails on any checkout that is not the
+  original author's Windows path.** (S4.6, builder, 16 Sep 2026) `crates/preamble-synctex/
+  fixtures/multi.synctex.gz` was generated by a real engine run, so its `Input:1:` line is the
+  absolute path of the machine that produced it: `C:\Users\arthur\Desktop\LaTeX Editor\
+  Abstract Tex\Abstract-Tex\crates\preamble-synctex\fixtures\multi.tex`. The test
+  (`crates/preamble-synctex/src/lib.rs:420`) asks `forward_search` for
+  `CARGO_MANIFEST_DIR/fixtures/multi.tex`, which on this Linux box is `/home/arthur/ABSTRACT
+  TEX/CODE/Abstract-Tex/...`; `paths_match` normalises case and separators but not the prefix,
+  so `tag_for_file` finds nothing and the test panics with "line 3 should be on page 1". It
+  passes only where the repo sits at that exact Windows path. Reproduced on clean HEAD
+  (`4169c3c`) with S4.6's changes stashed, so it predates this loop; not caused by anything in
+  S4.6, which touched no Rust. Fix candidates: have the test look the tag up by the
+  fixture's own `Input:` path (the `files` table is already parsed) instead of by
+  `CARGO_MANIFEST_DIR`, or compare by trailing components (`fixtures/multi.tex`) in the test
+  only — `paths_match` itself should stay exact, since a real project can have two files with
+  the same tail. Found running `cargo test --workspace --exclude preamble` for S4.6's gate.
+  **Fixed** (S8.3 follow-up, 28 Sep 2026) by the first candidate above: the test asks the fixture
+  where it recorded `multi.tex` (the input named by the record nearest page 1's top-left) and
+  searches with that path; the check that it *is* `multi.tex` compares normalised strings,
+  since `Path::ends_with` sees a Windows path on Linux as one component. `paths_match` untouched.
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
+
+- **S8.1's `zotero.rs` probed a JSON-RPC method, `item.libraries`, that does not exist in Better
+  BibTeX's real API.** (S8.2, builder, 23 Sep 2026, found checking the real JSON-RPC method list
+  against `retorque.re/zotero-better-bibtex/exporting/json-rpc/` and the project's own
+  `content/json-rpc.ts` source while designing S8.2's collection listing, the same "check live
+  before building on it" step S7.5's outcome recommended after a documented endpoint 404ed in
+  practice) The real method for listing libraries is `user.groups` (optionally
+  `includeCollections: true` to also list each library's collections). Calling the nonexistent
+  `item.libraries` did not break S8.1 itself — Better BibTeX answers an unknown method with a
+  JSON-RPC `error` envelope, and `detect_with` only checks *shape* (any `jsonrpc` + `result`/`error`
+  reply counts as `Ready`), so detection was accidentally still correct.
+  **Fixed** in this loop (S8.2) by switching the probe to `user.groups`, which is both a valid
+  liveness check and the call S8.2 needs anyway for listing collections — one request now does
+  both jobs. Verified by `cargo test -p texbib --features acquire -- zotero` (12 passed).
+  *(Moved from Open to Fixed on 2 Oct 2026 — design interview C4; its status already said Fixed.)*
 
 - **A diagnostic inside an extensionless `\input{sections/foo}` matched no tab: the click, the
   one-click fix and the gutter all missed it.** (S6.4, builder, 17 Sep 2026) `\include` always
@@ -1019,6 +1063,38 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   construction* was the fabricated part.
 
 ## Won't fix
+
+- **Turning shell-escape consent on or off makes the next latexmk build a full one.** (29 Sep
+  2026, found verifying S9.12) `.fdb_latexmk` is latexmk's own dependency database, and it
+  records every source file by the path latexmk saw — relative (`"main.tex"`) from the project
+  folder, absolute (`"/home/ada/thesis/main.tex"`) from the build folder. S9.12 moves the working
+  folder on exactly that toggle, so every path in the database changes at once and latexmk
+  reruns everything: `Rule 'pdflatex': Reasons for rerun`, measured directly. Bounded and rare —
+  consent is answered once per project folder (S9.8), not per build — so it is logged rather than
+  worked around. The fix, if it ever matters, is to run *every* latexmk build from the build
+  folder and pay S9.12's log-name cost everywhere; that trade was considered in S9.12 and
+  declined, and this entry is the evidence for reconsidering it.
+  **Won't fix (2 Oct 2026, design interview E5):** accepted as a documented limitation —
+  `DEVELOPMENT.md` says so — with no general fix available. Revisit only if minted v3's
+  `\inputminted` turns out not to work either once a machine can run it.
+
+- **A shell command handed a project-relative path finds nothing, on either engine.** (29 Sep
+  2026, S9.12; split out of the entry above, which had it as a footnote) Both engines run the
+  document's shell commands in the build folder — Tectonic through `-Z shell-escape-cwd` (S9.8),
+  `latexmk` through the process's own working directory (S9.12) — because that is the only way to
+  keep what they write out of the source tree. The cost is symmetric: `\write18{cat code/x.py}`,
+  and `\inputminted{python}{code/x.py}`, which is the same command with a friendlier name, now
+  resolve `code/x.py` against the build folder and find nothing. Pinned by
+  `a_shell_command_given_a_project_relative_path_finds_nothing` so it cannot change unnoticed.
+  Not fixed because there is no general fix: a shell command's arguments are opaque to us, and
+  neither engine offers a way to run the commands in one folder and resolve their arguments in
+  another. What would close it is minted-specific — minted v3 resolves input paths through
+  `latexrestricted`, whose readable roots include `TEXMF_OUTPUT_DIRECTORY` and the kpathsea
+  paths, so `\inputminted` may already work where a raw `\write18` does not. Unverified here:
+  minted v3 cannot run on this machine at all (next entry).
+  **Won't fix (2 Oct 2026, design interview E5):** accepted as a documented limitation —
+  `DEVELOPMENT.md` says so — with no general fix available. Revisit only if minted v3's
+  `\inputminted` turns out not to work either once a machine can run it.
 
 - **TexLab's own README claims a `texlab.rootDirectory` setting that does not exist in the
   pinned 5.26.0 binary.** (S3.6, 13 Sep 2026) The card asked for "root file, build dir"

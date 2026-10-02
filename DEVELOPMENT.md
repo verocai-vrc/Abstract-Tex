@@ -73,9 +73,14 @@ crates/abstract-tex-reconcile/  text diff → CRDT operations, with property tes
 crates/abstract-tex-includes/   the \input/\include graph
 crates/abstract-tex-synctex/    .synctex.gz parser, forward and inverse search
 crates/abstract-tex-lsp/        TexLab process and JSON-RPC bridge
+crates/abstract-tex-git/        the project's Git repository on libgit2: status, commit, push, sync, merge
+crates/abstract-tex-github/     GitHub device-flow sign-in, repository creation, the keychain token
+crates/abstract-tex-snapshot/   a snapshot of the project on every successful compile, as real Git objects
+crates/abstract-tex-latexdiff/  a latexdiff-marked-up document between two Git revisions
 crates/abstract-tex-sidecar/    finds the bundled helper binaries
 crates/texlog/                  TeX log parser and rule catalog (MIT, published separately)
 crates/texbib/                  .bib parser, health checks, acquisition (MIT, published separately)
+crates/texwords/                prose word counts and section lookup for a LaTeX file
 src-tauri/                      the Tauri app crate `abstract-tex`: project model, orchestrator, watcher, commands
 src/                            Svelte 5 frontend (src/lib/ipc.ts is the only place that talks to Rust)
 fixtures/                       real documents used by tests and manual smoke scripts
@@ -111,6 +116,14 @@ Things that trip people up:
 - **The engine downloads packages on a document's first build**, so real-engine tests need a
   network the first time. On a machine where Tectonic cannot resolve DNS by itself, run
   `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1:3128`.
+- **Shell commands run in the build folder, not the project folder.** With shell escape allowed,
+  `\write18` (and `minted` through it) runs with the build folder as its working directory, on
+  either engine, so its output stays out of the source tree. The cost: a command handed a
+  project-relative path — `\write18{cat code/x.py}` — finds nothing. There is no general fix; it
+  is a known limitation (ledger, *Won't fix*).
+- **Turning shell-escape consent on or off makes the next latexmk build a full one.** The consent
+  changes the engine's command line, so a system-engine build starts from scratch once. Expected,
+  not a bug (ledger, *Won't fix*).
 
 [`.github/workflows/verify.yml`](.github/workflows/verify.yml) runs on Linux, Windows and macOS
 for every push: it fetches the sidecars, builds the frontend, runs `pnpm verify` and the

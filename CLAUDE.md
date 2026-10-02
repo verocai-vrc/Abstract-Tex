@@ -14,9 +14,14 @@ crates/abstract-tex-reconcile/  text diff → CRDT ops, proptest            (no 
 crates/abstract-tex-includes/   \input/\include graph
 crates/abstract-tex-synctex/    .synctex.gz parser, forward/inverse search
 crates/abstract-tex-lsp/        TexLab process + JSON-RPC bridge
+crates/abstract-tex-git/        the project's Git repo on libgit2: status, commit, push, sync, merge
+crates/abstract-tex-github/     GitHub device-flow sign-in, repo creation, keychain token
+crates/abstract-tex-snapshot/   snapshot on every successful compile, as real Git objects
+crates/abstract-tex-latexdiff/  latexdiff-marked-up document between two Git revisions
 crates/abstract-tex-sidecar/    finds bundled helper binaries
 crates/texlog/                  TeX log parser + rule catalog (MIT, published separately)
 crates/texbib/                  .bib parser, health checks, acquisition (MIT, published separately)
+crates/texwords/                prose word counts and section lookup
 src-tauri/                      the Tauri app crate `abstract-tex`: project model, orchestrator, watcher, commands
 src/                            Svelte 5 frontend (lib/ipc.ts is the only place that calls invoke)
 fixtures/                       real documents used by tests and manual smoke scripts
@@ -46,7 +51,17 @@ If a task genuinely calls for a different profile (e.g. a second opinion, a fres
 design question), ask for it explicitly in a separate session rather than spawning a subagent
 mid-session.
 
-On this Windows machine cargo lives at `%USERPROFILE%\.cargo\bin`; new shells may need it on PATH.
+## Machines
+
+- **Windows** (where the app's webview has been walked by hand since 11 Sep): cargo lives at
+  `%USERPROFILE%\.cargo\bin`, and new shells may need it on `PATH`. A security suite there blocks
+  DNS for compiled binaries, so real-network tests need `scripts/dev-proxy.py` until the exception
+  in `bugs-issues-fixes.md` is in place.
+- **Linux** (agent sessions): cargo is at `~/.cargo/bin`. **It cannot push to GitHub** — commit
+  locally, and the maintainer pushes from another machine. Native builds use the system
+  `/usr/bin/cc`: the `zig cc` wrappers that used to shadow it were moved to
+  `~/.local/zig-wrappers/` on 2 Oct 2026, so no `CC=` prefix is needed any more. WebKitGTK is
+  installed; `latexdiff`, `git-lfs` and Xvfb are not yet (the maintainer has the `apt` command).
 
 ## Rust is written for a learner
 

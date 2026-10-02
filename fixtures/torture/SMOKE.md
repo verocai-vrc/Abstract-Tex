@@ -11,7 +11,7 @@ Launch:
 
 ```
 pnpm tauri dev                          # then Ctrl+O and pick fixtures/torture
-ABSTRACT_TEX_OPEN=fixtures/torture pnpm tauri dev
+ABSTRACT_TEX_OPEN="$PWD/fixtures/torture" pnpm tauri dev
 ```
 
 The engine halts at the first `!` error (`crates/texlog/fixtures/README.md`), so the twenty

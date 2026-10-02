@@ -185,10 +185,10 @@ why this wasn't done the obvious way.
 | **Shell** | Tauri 2 | Rust core for filesystem, process spawning and watching; WebView2 already ships on Windows 11, so the bundle is ~10 MB against Electron's ~150 MB, with a fraction of the idle memory. The engine, the LSP and the CRDT all have first-class Rust crates — one toolchain. <br/>*Rejected:* Electron — bundle size and RAM for no benefit here. A native toolkit (Qt/GTK) — CodeMirror alone is worth the webview. |
 | **Editor** | CodeMirror 6 | Holds a 400-page thesis without stutter, has a composable extension model rather than a plugin API, and ships a maintained collaborative-editing binding we need at v0.8. Its `EditorState` is immutable and transactional, which composes cleanly with a CRDT. <br/>*Rejected:* Monaco — heavier, shaped around VS Code's assumptions, mutable model with a bolted-on collab story. Ace — ageing, weaker large-document performance. |
 | **Language intel** | TexLab (LSP) | A mature LaTeX language server in Rust: completion for `\ref`/`\cite`/`\label`, hover, go-to-definition across `\input`, document symbols, rename. Months of work we get for a subprocess and a JSON-RPC client. <br/>*Rejected:* Writing our own — a quarter of work to reach parity. Digestif — drags a Lua runtime into the bundle. |
-| **Engine** | Tectonic, bundled | Self-contained, fetches only the packages a document actually uses, and needs no TeX Live install. This single choice is what makes "zero setup to first PDF" achievable. System TeX Live / MiKTeX is detected and offered as an alternative from v0.5 for documents Tectonic cannot handle. <br/>*Rejected:* Bundling TeX Live — multi-gigabyte installer. Requiring a system install — reintroduces the barrier we exist to remove. |
+| **Engine** | Tectonic, bundled | Self-contained, fetches only the packages a document actually uses, and needs no TeX Live install. This single choice is what makes "zero setup to first PDF" achievable. System TeX Live / MiKTeX is detected and offered as an alternative from v0.5 for documents Tectonic cannot handle. Biber is not bundled either (**settled 2 October 2026**): a biblatex document that needs Biber is handed to the detected system TeX (S9.4), which ships its own — the same reasoning as not bundling a TeX distribution (§1.3). <br/>*Rejected:* Bundling TeX Live — multi-gigabyte installer. Requiring a system install — reintroduces the barrier we exist to remove. |
 | **Document model** | Yjs + y-codemirror.next | A CRDT costs almost nothing single-user and cannot be retrofitted cheaply. Also gives us robust undo and stable anchors for comments. The file on disk stays plain text — see §5.6, this constraint is the interesting part. <br/>*Rejected:* A plain buffer — guarantees a rewrite at v0.8. Loro / Automerge — good Rust CRDTs, but their CodeMirror bindings are younger, and the CRDT lives frontend-side anyway where Rust-native buys little. |
 | **PDF view** | pdf.js | Text layer gives us search, selection and copy for free, and coordinate mapping we need for SyncTeX. No native dependency to build per-platform. <br/>*Rejected:* pdfium bindings — faster, but a per-platform build burden that buys little at these page counts. |
-| **Storage & history** | libgit2 + GitHub API | Real Git, no shell dependency, no invented history format — and the remote doubles as the filestore, so we never build one. GitHub gets first-class treatment (device-flow sign-in, repo creation, pull requests) because that is where researchers already have accounts; any other Git remote works untouched. `latexdiff` renders marked-up change PDFs, which Overleaf puts behind a subscription. <br/>*Rejected:* A bespoke sync service — makes us a filestore operator, contradicting §1.3. A snapshot format — locks history inside the app, violating §2. |
+| **Storage & history** | libgit2 + GitHub API | Real Git, no shell dependency, no invented history format — and the remote doubles as the filestore, so we never build one. GitHub gets first-class treatment (device-flow sign-in, repository creation, cloning from the account's repository list) because that is where researchers already have accounts; any other Git remote works untouched. Pull requests are reviewed on GitHub itself, with the companion Action (§5.7) rendering a marked-up PDF per pull request — the app has no pull-request review of its own (**settled 2 October 2026**; §1.3, not a Git replacement). `latexdiff` renders marked-up change PDFs, which Overleaf puts behind a subscription. <br/>*Rejected:* A bespoke sync service — makes us a filestore operator, contradicting §1.3. A snapshot format — locks history inside the app, violating §2. |
 | **AI** | Bring-your-own key | Anthropic Messages API, defaulting to `claude-sonnet-5` and escalating to `claude-opus-5` for review-grade tasks; any OpenAI-compatible endpoint, including a local Ollama, is configurable. The user's key means no inference bill and therefore no pressure toward a paid tier. <br/>*Rejected:* Bundling a local model — adds gigabytes for materially worse prose. A hosted proxy — makes us a service, contradicting §1.3. |
 
 ### 4.1 The rest of the stack
@@ -256,6 +256,11 @@ Trusted Signing is the cheap route). Decide by sprint 14, not sprint 16.
 Engines sit behind one trait — `probe()` to report availability and capability, `build(job)` to
 produce artifacts — so Tectonic, a system `latexmk`, and whatever comes next are interchangeable.
 One build in flight per project; a new keystroke burst cancels and restarts rather than queueing.
+The one exception is a change-review build (§5.7), which runs in a lane of its own: at most one
+*live* build and at most one *diff* build in flight, each cancelling only an older build of its
+own kind — a 30-second marked-up thesis is never thrown away by the next save, and the live PDF
+keeps building underneath, ready the moment the author leaves the comparison (settled 2 October
+2026, S11.4c).
 
 Speed work is deliberately sequenced. Each rung costs more than the last, so climb only as far as
 the budget in §2 requires:
@@ -414,8 +419,11 @@ forty-page manuscript re-read it at a fraction of the cost.
 > ### Hard constraint — not negotiable
 >
 > **The assistant may never introduce a citation that does not already exist in the project's
-> `.bib`.** Every model response is scanned for `\cite`, `\autocite` and `\parencite` keys before
-> it reaches the buffer. Any unknown key blocks the hunk and offers a reference lookup instead.
+> `.bib`.** Every model response is scanned for citation keys before it reaches the buffer —
+> every cite-family command, not only `\cite`, `\autocite` and `\parencite` but natbib's
+> `\citep`/`\citet`, biblatex's `\textcite`/`\footcite` and the rest, taken from the one list
+> citation completion already uses, so the guard and completion can never disagree. Any unknown key blocks the hunk
+> and offers a reference lookup instead.
 >
 > Fabricated citations are the characteristic failure mode of language models in academic
 > writing, and the consequences land on the author, at review, in public. A text editor for
@@ -423,7 +431,20 @@ forty-page manuscript re-read it at a fraction of the cost.
 > in sprint 12 and covered by tests from the day the feature exists.
 
 Everything is opt-in per project, nothing is sent without an explicit action, and the exact
-payload is inspectable before it leaves the machine.
+payload is inspectable before it leaves the machine. Settled 2 October 2026, so sprint 12 starts
+without re-asking:
+
+- **Providers:** an API key for the Anthropic Messages API, or any OpenAI-compatible endpoint —
+  which is also how a local model (Ollama, LM Studio, a llama.cpp server) is reached. There is no
+  "subscription sign-in": providers generally do not offer consumer chat subscriptions for use
+  from a third-party app.
+- **Where the opt-in lives:** per machine *and* per project folder, outside the source tree — the
+  shape S9.8 already uses for shell-escape consent. An opt-in written into `abstract-tex.toml`
+  would travel with the repository and switch the assistant on for a coauthor who never agreed.
+  Keys live in the OS keychain. Nothing assistant-related is ever written into the project.
+- **Model fallback for an unmatched compile error** is never automatic: the drawer offers *Ask the
+  assistant*, shows the exact log excerpt it would send, and sends only on that click. Answers are
+  cached by log signature, machine-local, under `.abstract-tex/cache/`.
 
 ### 5.6 Document model, and the road to collaboration
 
@@ -445,6 +466,16 @@ At v0.8 the same Yjs document gains a network provider: a small self-hostable We
 presence and cursors through the awareness protocol, and comments anchored to relative positions
 so they survive edits made while the commenter was away. The relay stores nothing durable — every
 participant keeps the real files locally.
+
+**Open — where comments go when the session ends** (decide by sprint 14). The relay stores
+nothing, the source tree holds nothing but plain files (§5.8), and `.abstract-tex/` does not travel,
+so a comment has nowhere obvious to persist. The leading candidate, to be tested by a spike before
+sprint 14: comments live in a Git ref of their own, `refs/abstract-tex/comments` — the same
+precedent as the snapshot ref (§5.7) — pushed and fetched by *Sync* with an explicit refspec,
+anchored by the quoted text and its surroundings, re-anchored on load, with any comment whose text
+has gone listed as orphaned rather than silently dropped. The source tree stays untouched, it
+works with any Git host, and the relay still stores nothing. The fallback if the spike fails:
+comments are session-only, said plainly at session end.
 
 ### 5.7 Storage, history and change review
 
@@ -469,7 +500,9 @@ bare repository on a departmental server all work, because it is only ever Git.
   a project to a public remote for the first time requires an explicit confirmation that says
   what it means.
 - **Sync as one verb.** Authors who do not want to learn Git get a single *Sync* action — commit,
-  pull, rebase, push — with a plain-language summary of what moved. Authors who do want Git get
+  pull, merge, push — with a plain-language summary of what moved. A merge rather than a rebase
+  (S11.2a, confirmed 2 October 2026): a rebase can stop once per commit with a conflict, a merge
+  stops at most once. Authors who do want Git get
   the whole thing, and the two never disagree, because there is only one repository.
 - **Conflicts are shown as prose, not as markers.** A conflicted `.tex` is presented as two
   versions of a paragraph with a choice, not as `<<<<<<<` in the buffer. We also gently encourage
@@ -478,7 +511,11 @@ bare repository on a departmental server all work, because it is only ever Git.
 - **Figures stay out of the way.** Binary assets over a threshold prompt for Git LFS. A push that
   would exceed GitHub's per-file limit is caught before it fails, not after.
 - **Snapshot on every successful compile**, to a hidden ref. There is always a recoverable state,
-  even from an author who has never once pressed commit.
+  even from an author who has never once pressed commit — and it is recoverable from inside the
+  app (a read-only *Snapshots* list with *Restore this file*), because the author who never
+  presses commit is exactly the author who will never type `git show`.
+- **Clone from inside the app.** On a second machine, sign in, pick one of the account's
+  repositories (or paste any URL), pick a folder, and the project opens — no terminal.
 
 **Two kinds of sharing, and why both exist.** Git sync and the live relay at v0.8 sound like the
 same feature and are not. Conflating them is how this gets designed badly:
@@ -510,11 +547,21 @@ points in history — two commits, a branch against `main`, or the version your 
 `latexdiff`. This is what a supervisor asks for, what a coauthor needs, and what journals request
 on resubmission.
 
+Settled for the first version (S11.4, 2 October 2026): any two commits in the Graph, always shown
+older → newer whatever order they were clicked in (a reversed diff reads as "everything I wrote
+was deleted"); latexdiff's own default markup, no setting; the marked-up PDF replaces the live one
+behind a banner that says so, with *Save as…* — the PDF has to leave the app for every one of the
+uses above — and *Back to live PDF*. A branch against `main`, the working tree against a commit,
+and a named version (a tag such as "Sent to supervisor, 3 Oct") are later cards.
+
 Pull requests make that better rather than more complicated: a coauthor's changes arrive as a
 branch, and the review surface is a marked-up PDF instead of a diff full of backslashes. A small
 reusable GitHub Action that renders that PDF on every pull request is worth shipping alongside
 the app — it costs a day and it makes the workflow legible to people who have never opened the
-editor.
+editor. It lives in its own small repository (Actions are referenced by repository), runs
+Tectonic and `latexdiff`, and passes the same flags `abstract-tex-latexdiff` does, so the PDF on
+the pull request and the one in the app agree. That Action *is* the pull-request story: the app
+itself has no pull-request review (settled 2 October 2026).
 
 ### 5.8 On disk
 
@@ -529,13 +576,14 @@ thesis/
 │   └── results.tex
 ├── figures/
 ├── refs.bib
-├── abstract-tex.toml   # engine, root file, output dir, bib source, AI opt-in
+├── abstract-tex.toml   # engine, root file, output dir, bib source — never a consent (§5.5)
 ├── .gitignore          # written on init; excludes .abstract-tex/ and build junk
 ├── .git/               # the storage layer — remote is your GitHub repo
 └── .abstract-tex/      # gitignored, disposable, never in the source tree
     ├── build/          # .aux .bbl .pdf .synctex.gz
     ├── draft/          # one-chapter draft: \includeonly wrapper + its own build/ (§5.1 rung 4)
     ├── formats/        # precompiled preamble dumps, keyed by hash
+    ├── latexdiff/      # the latest comparison only: <from>-<to>/{old,new,build} (§5.7)
     ├── crdt/           # Yjs update log, comment anchors
     └── cache/          # diagnostics, bib index, model responses
 ```
@@ -554,13 +602,13 @@ conscience: never empty when something is wrong, never shouting when it isn't, a
 a raw log.
 
 **An activity bar, borrowed from VS Code.** The left pane is hosted by a narrow vertical strip of
-icons, exactly as in VS Code, and each icon swaps what the pane shows: **Files** (file icon —
-the tree and outline that exist today), **Source Control** (the VS Code graph icon, with a badge
-counting changed files), **Assistant** (robot head — the v0.7 home; the author chooses an API
-key, a subscription sign-in or a local model, per §5.6), and **Settings** (gear). Copying the
-layout is deliberate: it is the chrome a large share of the audience already has muscle memory
-for, and there is nothing to gain from a novel one. Shortcuts follow VS Code too — `Ctrl Shift E`
-for Files, `Ctrl Shift G` for Source Control.
+icons, exactly as in VS Code, and each icon swaps what the pane shows: **Files** (file icon — the
+tree and outline that exist today), **Source Control** (the VS Code graph icon, with a badge
+counting changed files), **Assistant** (robot head — the v0.7 home; the author chooses an API key
+or an OpenAI-compatible endpoint, which covers a local model, per §5.5), and **Settings** (gear).
+Copying the layout is deliberate: it is the chrome a large share of the audience already has
+muscle memory for, and there is nothing to gain from a novel one. Shortcuts follow VS Code too —
+`Ctrl Shift E` for Files, `Ctrl Shift G` for Source Control.
 
 **The Source Control view is a 1:1 copy of VS Code's**, because that view is the "authors who
 want Git get the whole thing" half of §5.7, and the one-verb *Sync* is the other half; both
@@ -587,8 +635,8 @@ init so *Changes* never fills with `.aux` files.
 | **Write loop** | Typing | Compile on 700 ms idle. The PDF pane holds its scroll position and does not flash. A failed compile leaves the last good PDF on screen — never a blank pane. |
 | **Fix an error** | Compile fails | Drawer opens with a sentence, not a log. Click jumps to the line. Where the fix is unambiguous, one action applies it. |
 | **Add a citation** | Paste a DOI | Entry fetched, deduplicated, appended to `.bib`, `\cite` inserted at the cursor. No browser, no dialog. |
-| **Review changes** | Pick two revisions | A `latexdiff` PDF opens in the preview pane with additions and deletions marked. |
-| **Sync** | One action | Commit, pull, rebase, push — reported as a sentence about what moved, not a Git transcript. On another machine, clone and everything works, because the project is just files (§5.8). |
+| **Review changes** | Click two Graph rows | A `latexdiff` PDF, older → newer, opens in the preview pane with additions and deletions marked, behind a banner with *Save as…* and *Back to live PDF*. |
+| **Sync** | One action | Commit, pull, merge, push — reported as a sentence about what moved, not a Git transcript. On another machine, clone from inside the app and everything works, because the project is just files (§5.8). |
 | **Track progress** | Open Source Control | Changed files with status letters, a pre-filled commit message, and a graph of past commits each showing its word-count delta. Committing is a sentence and `Ctrl Enter`. |
 
 ---
@@ -684,7 +732,10 @@ gate tracks.
 - GitHub device-flow sign-in; credentials to the OS keychain
 - Repository creation from inside the app, private by default, with an explicit confirmation
   before any first push to a public remote
-- One-action *Sync* (commit, pull, rebase, push) with a plain-language summary
+- One-action *Sync* (commit, pull, merge, push) with a plain-language summary
+- Clone a repository from inside the app — the account's list, or any URL — so the second machine
+  needs no terminal either
+- Snapshots recoverable from inside the app: a read-only list, *Restore this file*
 - Conflict resolution shown as two paragraphs and a choice, never as conflict markers in the
   buffer
 - Git LFS prompt for oversized figures; oversize pushes caught before they fail
@@ -719,9 +770,12 @@ ten minutes, keeps writing, reconnects, and loses nothing.
 
 ### v0.9 — It ships · Sprint 16
 
-- Signed installers: MSI/NSIS, DMG, AppImage — plus auto-update
-- Companion GitHub Action that renders a `latexdiff` PDF on every pull request
-- Opt-in crash reporting; no telemetry by default, ever
+- Signed installers: MSI/NSIS, DMG, AppImage — plus auto-update, whose manifest is read from
+  GitHub Releases (no server of our own, §1.3)
+- Companion GitHub Action that renders a `latexdiff` PDF on every pull request, in its own
+  repository (§5.7)
+- Opt-in crash reporting, meaning a local report plus a prefilled GitHub issue the author submits
+  themselves — never an automatic upload; no telemetry by default, ever
 - Accessibility pass: keyboard traversal, focus states, screen-reader labels, contrast
 - Documentation, a contributor guide, and issue templates
 
@@ -772,7 +826,7 @@ the application is fully functional and makes zero outbound requests.
 | **Tectonic cannot compile real documents** | High | Breaks the zero-setup promise, which is the acquisition story. Shell-escape packages like `minted` and some font paths are the known gaps. (S9.8: `minted` builds on the bundled engine once the author allows shell escape for that folder: a consent kept per machine, never in the project, asked for from the diagnostic that needs it.) Detect the failure class specifically and offer a one-click switch to a detected system TeX inline — bring the v0.5 engine-switching work forward if v0.1 testing exposes this early. |
 | **Scope creep toward WYSIWYG** | High | It is the most requested feature and it has consumed better-resourced teams. It is a stated non-goal in §1.3. Re-read that list at every sprint planning session; that is what it is for. |
 | **Solo maintainer burnout** | High | The realistic ending for most projects of this shape. Structural defence: every milestone is independently useful, so stopping at any point leaves a working tool rather than a ruin. v0.3 in particular is worth using even if nothing after it is ever built. |
-| **GitHub becomes a dependency or a chokepoint** | Medium | Structurally contained: the storage layer is Git, and GitHub is one remote among many. Outages, policy changes or an account ban cost the convenience features — device-flow sign-in, repo creation, pull-request review — and nothing else. The full history is already on the author's disk. Test against a GitLab and a bare remote in CI so the generic path never rots. |
+| **GitHub becomes a dependency or a chokepoint** | Medium | Structurally contained: the storage layer is Git, and GitHub is one remote among many. Outages, policy changes or an account ban cost the convenience features — device-flow sign-in, repo creation, cloning from the account's list — and nothing else. The full history is already on the author's disk. CI pushes to and fetches from a bare remote served over smart HTTP, so the real transport — not only libgit2's local one — is exercised on every run; a GitLab remote is checked by hand once per release (a GitLab token cannot reach CI runs from forks). |
 | **TexLab has gaps we need filled** | Medium | Rust and permissively licensed, so a fork is cheap and upstreaming is realistic. Keep our LSP client generic enough to layer our own providers over it. |
 | **Nobody switches** | Medium | Overleaf's real lock-in is collaborators, not features. Hence v0.8, and hence Git-native sharing before it. Distribution plan: post the v0.3 error-translation demo where researchers actually are, and let that carry it. |
 
@@ -780,18 +834,22 @@ the application is fully functional and makes zero outbound requests.
 
 ## 10. Still undecided
 
-Four questions that do not block sprint 1, and should be settled before the sprint noted against
-each.
+Questions that do not block sprint 1, and should be settled before the sprint noted against
+each. A settled row says when; the 2 October 2026 design interview (`0.1/design-interview.md`)
+settled or re-dated several.
 
 | Question | Decide by | Position |
 |---|---|---|
 | **Licence** | Sprint 1 | AGPL-3.0 for the application — it prevents a proprietary hosted fork, which is the specific threat here. Publish the log parser and bibliography libraries separately under MIT so the wider TeX ecosystem can use the most valuable work. |
 | **Frontend framework** | Sprint 1 | Svelte 5 is the recommendation (§4.1): compile-time, no VDOM, small output, and it will not fight CodeMirror for DOM ownership. SolidJS is a defensible substitute. The decision is cheap now and expensive at sprint 8. |
 | **Name** | Sprint 2 — **settled 28 September 2026** | ***Abstract-Tex***, after the repository. *Preamble* was the working name until then; it is dropped everywhere except where the word means a LaTeX document's preamble. Projects written by the old build (`preamble.toml`, `.preamble/`) still open: the config is read and moved to `abstract-tex.toml` on first save (`src-tauri/src/project.rs`). |
-| **Git remote scope** | Sprint 10 | Any Git remote works from day one, since the layer underneath is only ever libgit2. GitHub alone gets the convenience wrapper — device-flow sign-in, repository creation, pull-request review — because that is where the accounts already are. Revisit GitLab-specific support only if asked for; the generic path already works. |
-| **Large figures** | Sprint 10 — hard limit **settled 2 October 2026** (S11.3a), LFS prompt still open | The "measured against the golden corpus" plan could not be carried out: the corpus (§8) has no binary asset over a few kilobytes, so there was nothing in it to measure. The hard catch uses GitHub's own documented 100 MiB per-file limit instead, caught in `abstract-tex-git::push` before the network call. The LFS prompt itself — what the Source Control view does about a large file *before* it is pushed — is S11.3b, not yet carded. Open sub-question, unchanged: whether to offer keeping `figures/` out of Git entirely for authors generating hundred-megabyte plots. Probably not — it breaks the "clone and it works" guarantee. |
-| **Code signing** | Sprint 14 | Required for v0.9's exit criterion to be honest. Apple Developer ~$99/yr; Azure Trusted Signing is the cheap Windows route. Budget it or accept SmartScreen warnings on every download. |
-| **Relay hosting** | Sprint 14 | Ship the binary and a Docker image, document a $5 VPS deployment, host nothing ourselves. Hosting anything makes us a service, which §1.3 forbids. |
+| **Git remote scope** | Sprint 10 — **settled 2 October 2026**, built as written | Any Git remote works from day one, since the layer underneath is only ever libgit2. GitHub alone gets the convenience wrapper — device-flow sign-in, repository creation, cloning from the account's list — because that is where the accounts already are. No in-app pull-request review: the companion Action (§5.7) is the pull-request story. Revisit GitLab-specific support only if asked for; the generic path already works. |
+| **Large figures** | Sprint 10 — **settled 2 October 2026** (hard limit S11.3a, LFS banner S11.3c) | The "measured against the golden corpus" plan could not be carried out: the corpus (§8) has no binary asset over a few kilobytes, so there was nothing in it to measure. The hard catch uses GitHub's own documented 100 MiB per-file limit instead, caught in `abstract-tex-git::push` before the network call. The LFS prompt is a dismissible banner above *Changes* for any file over 5 MB (S11.3c). Open sub-question, unchanged: whether to offer keeping `figures/` out of Git entirely for authors generating hundred-megabyte plots. Probably not — it breaks the "clone and it works" guarantee. |
+| **GitHub OAuth app** | Start of S11.8 (deferred 2 October 2026) | Device-flow sign-in needs a client id from an OAuth app registered with *Device flow* enabled; the id is public, ships in the binary, and is read from `ABSTRACT_TEX_GITHUB_CLIENT_ID` at build time. Until it exists, nothing can push to an authenticated remote from the app — the device-flow token is the only credential `abstract-tex-git` offers. Owner and name are decided when it is registered, at the start of the v0.6 exit-demo card. |
+| **Code signing** | Sprint 14 (re-confirmed 2 October 2026) | Required for v0.9's exit criterion to be honest. Apple Developer ~$99/yr; Azure Trusted Signing is the cheap Windows route. Budget it or accept SmartScreen warnings on every download. |
+| **Relay hosting** | Sprint 14 — position **settled 2 October 2026** | Ship the binary and a Docker image, document a $5 VPS deployment, host nothing ourselves. Hosting anything makes us a service, which §1.3 forbids. A coauthor joins through an invite link carrying the relay URL and a random room secret; updates are end-to-end encrypted with a key derived from that secret, so whoever runs the relay sees only ciphertext. |
+| **Comments after a live session** | Sprint 14 | Open — see §5.6. A spike on a Git-ref comment store comes first. |
+| **Updater and crash reports** | Sprint 16 — **settled 2 October 2026** | The updater's manifest is read from GitHub Releases; crash reporting is a local report plus a prefilled GitHub issue the author submits themselves. Neither needs a server of our own (§1.3). |
 
 ---
 
