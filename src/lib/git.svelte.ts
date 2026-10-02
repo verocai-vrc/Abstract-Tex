@@ -7,7 +7,7 @@
 // the same rule `app` follows. The helpers take their input as arguments rather than reading the
 // store, so `git.test.ts` exercises them with literals and no Svelte runtime.
 
-import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus, ProseSummary, SyncOutcome } from './ipc';
+import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus, LargeFile, ProseSummary, SyncOutcome } from './ipc';
 
 /** An empty answer: what the view shows before the first refresh, and after a project closes. */
 export const NO_CHANGES: GitStatus = { staged: [], unstaged: [], conflicted: [] };
@@ -235,6 +235,14 @@ function subjectOf(summary: ProseSummary): string {
   return '';
 }
 
+/**
+ * A byte count as the LFS banner shows it (S11.3c) — one decimal place, because "5 MB" and
+ * "5.0 MB" would read as two different precisions for the same threshold the banner tests against.
+ */
+export function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 class GitState {
   /** Whether the open project is inside a Git repository. False before the first answer, and for
    * a folder nobody has run `git init` in — which is a sentence in the view, not an error, and
@@ -341,6 +349,21 @@ class GitState {
 
   /** Whether the Commit dropdown's *Amend* item belongs on screen right now (S11.1c). */
   showAmend = $derived(canAmend(this.branch));
+
+  /** Large-file candidates for the "track with Git LFS" banner (S11.3c), read alongside the
+   * three lists on every refresh. */
+  largeFiles = $state.raw<LargeFile[]>([]);
+
+  /** Paths the author has dismissed from the banner this session. Not persisted anywhere and
+   * not pruned when a path leaves [`largeFiles`] — the same throwaway lifetime `commitMenuOpen`
+   * has in the component, since a stale entry sitting unused in the set costs nothing. */
+  dismissedLargeFiles = $state<Set<string>>(new Set());
+
+  /** What the banner actually shows: candidates minus whatever was dismissed. */
+  visibleLargeFiles = $derived(this.largeFiles.filter((file) => !this.dismissedLargeFiles.has(file.path)));
+
+  /** True while a *Track with Git LFS* call is in flight. */
+  trackingLfs = $state(false);
 }
 
 export const git = new GitState();

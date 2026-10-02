@@ -13,6 +13,24 @@ rust-version.workspace = true
 name = "abstract_tex_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "fake-git-lfs-installed"
+path = "src/bin/fake_git_lfs_installed.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fake-git-lfs-missing"
+path = "src/bin/fake_git_lfs_missing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fake-git-lfs-track-fails"
+path = "src/bin/fake_git_lfs_track_fails.rs"
+test = false
+doc = false
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

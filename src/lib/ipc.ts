@@ -263,6 +263,12 @@ export interface FileChange {
   kind: ChangeKind;
 }
 
+/** One candidate for the "track with Git LFS" banner (`abstract_tex_git::LargeFile`, S11.3c). */
+export interface LargeFile {
+  path: string;
+  sizeBytes: number;
+}
+
 /** What has changed, in the three lists the Source Control view draws (`abstract_tex_git::Status`).
  *
  * Three lists and not one with a flag per row: a file staged and then edited again is in `staged`
@@ -527,6 +533,14 @@ export const ipc = {
   /** S11.1b: the one-verb path (DESIGN.md §5.7) — fetch, then push, fast-forward, or refuse a
    * genuine divergence, which this rejects for rather than guessing at a merge. */
   gitSync: () => invoke<SyncOutcome>('git_sync'),
+
+  /** S11.3c: large-file candidates for the Source Control view's Git LFS banner, over the
+   * panel's own 5 MB threshold. `null` when the project is not inside a Git repository. */
+  gitLargeFiles: () => invoke<LargeFile[] | null>('git_large_files'),
+  /** S11.3c: track every path with Git LFS and stage the result. Rejects with a sentence — most
+   * often that Git LFS is not installed on this machine — through the same refusal slot every
+   * other verb uses. */
+  gitTrackWithLfs: (paths: string[]) => invoke<void>('git_track_with_lfs', { paths }),
 
   /** Open a URL in the person's own browser (`tauri-plugin-opener`). A webview link cannot do
    * this by itself, which is why sign-in needs it — and why every caller also shows the URL as

@@ -20,6 +20,7 @@ pub mod compile;
 pub mod consent;
 pub mod git;
 pub mod github;
+pub mod lfs;
 pub mod lsp;
 pub mod paste;
 pub mod project;
@@ -151,6 +152,8 @@ pub fn run() {
             commands::git_origin_url,
             commands::git_push,
             commands::git_sync,
+            commands::git_large_files,
+            commands::git_track_with_lfs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Abstract-Tex window");

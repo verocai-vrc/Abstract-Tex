@@ -5034,6 +5034,90 @@ from the diff:
    Matching those by hand here would have been a second, divergent implementation of logic
    libgit2 already has correct.
 
+```
+Loop      S11.3c · The Git LFS banner, and the subprocess call behind it · M
+Reads     DESIGN.md §5.7 ("Binary assets over a threshold prompt for Git LFS"); the maintainer's
+          two answers, settled before this card was written: a dismissible banner above
+          *Changes*, never a per-row badge or a dialog that would interrupt Stage; 5 MB
+Depends   S11.3b (`large_files`, what the banner reads)
+Files     src-tauri/src/lfs.rs (new), src-tauri/src/bin/fake_git_lfs_{installed,missing,
+          track_fails}.rs (new, test doubles), src-tauri/src/commands.rs, src-tauri/src/lib.rs,
+          src-tauri/tests/lfs.rs (new), src-tauri/Cargo.toml, src/lib/ipc.ts, src/lib/git.svelte.ts,
+          src/lib/controller.svelte.ts, src/components/SourceControl.svelte
+Build     Git LFS is never bundled the way Tectonic and TexLab are (`abstract-tex-sidecar`): it is
+          optional, and an author who never writes a large figure should never pay for carrying
+          it. `lfs::track` shells out to whatever `git-lfs` a search of `PATH` finds — `git lfs
+          install --local` then `git lfs track <literal paths>`, never a glob built from one,
+          because the banner only ever speaks for files it has actually found — and finishes with
+          `abstract_tex_git::stage` on `.gitattributes` and each path, reusing S10.2a's already-
+          tested verb rather than a second implementation of "add this to the index."
+
+          Tested against three tiny compiled stand-ins (`fake-git-lfs-installed`,
+          `-missing`, `-track-fails`), the same `fake-lsp-echo` pattern `abstract-tex-lsp` already
+          uses, rather than against whatever this build machine happens to have: GitHub-hosted CI
+          runners ship Git LFS by default and this development machine does not, so a test against
+          the real `git` would be flaky in one place or the other. `CARGO_BIN_EXE_*` is only set
+          for integration tests, which is why `tests/lfs.rs` exists rather than an inline
+          `#[cfg(test)]` module.
+
+          The Tauri command (`git_track_with_lfs`) and the read (`git_large_files`, the 5 MB
+          threshold) need no new refusal plumbing — `commands.rs`'s existing `to_message` and the
+          panel's existing `git.error`/`runGitVerb` already carry whichever sentence this produces,
+          the same seam every other verb already uses.
+Verify    cargo test -p abstract-tex --manifest-path src-tauri/Cargo.toml && pnpm check && pnpm test
+Done when a large untracked file makes the banner appear with its name and size; *Track with Git
+          LFS* on a machine with no Git LFS shows the sentence under the box and changes nothing;
+          on a machine with it, the file and `.gitattributes` are both staged and the banner
+          clears on the next refresh; *Dismiss* hides the banner for the session without tracking
+          anything; and Git LFS's own stderr, not a generic phrase, reaches that sentence when
+          tracking itself fails.
+```
+
+**S11.3c (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 586 passed (4
+new, all in the new `tests/lfs.rs`) / 0 failed, clippy and `cargo doc --workspace --no-deps` both
+clean; `pnpm check` 453 files / 0 errors; Vitest 529/529 (5 new: 4 for the banner's own refresh,
+track and dismiss paths, 1 for `formatMegabytes`). `[~]` for the usual reason every UI loop this
+sprint has been: nothing here has been seen on a real screen, and on top of that, the *success*
+half of `lfs::track` has never run against a real `git-lfs` binary at all — only against the
+compiled stand-in. What a reader should take from the diff:
+
+1. **A second message-swallowing bug, this time in `anyhow` rather than in a test fixture.** The
+   first draft of `lfs::run` built `bail!("{stderr}")` on a failed exit and then wrapped the whole
+   call with `.context("tracking the file with Git LFS")` — and `anyhow::Error`'s `Display`, which
+   is exactly what `commands.rs`'s `to_message` sends the frontend, only ever shows the outermost
+   context, never the source underneath it. Git LFS's own reason for refusing — the one piece of
+   information this banner exists to relay — would have reached the author as a generic phrase
+   with the real detail silently dropped one layer down. Caught by a test against
+   `fake-git-lfs-track-fails`, logged in `bugs-issues-fixes.md`, and fixed by building one complete
+   sentence in `run` itself rather than splitting it across a wrapper and its source.
+2. **Three tiny compiled binaries, not one configurable one, and not a shell script.** `git lfs
+   version`/`install`/`track` needed three different answers to test properly — succeeds quietly,
+   fails as "not a git command," succeeds at the first two and refuses the third — and a shell
+   script would not run as `git` on Windows, one of this project's three CI platforms. Three
+   `[[bin]]` targets, each answering one way, is exactly `abstract-tex-lsp`'s own `fake-lsp-echo`
+   precedent, applied three times rather than bent into one binary with a mode flag.
+3. **`is_installed` is checked by running `git lfs version` itself, not by trusting a cached
+   answer or a different host fact.** A machine's Git LFS install can change between one call and
+   the next — more realistically here, because this development machine has none and a CI runner
+   has one — and the only honest way to answer "is it installed right now" is to ask right now,
+   the same reasoning S9.8's shell-escape consent already applies per machine rather than caching
+   it in memory.
+4. **The banner's two buttons agree on what "this banner" means.** *Track with Git LFS* and
+   *Dismiss* both act on `git.visibleLargeFiles` — whatever the banner is showing at the moment of
+   the click — rather than one of them silently covering a candidate the other already hid. A
+   single `dismissLargeFiles(paths)` rather than one call per path for the same reason
+   `trackLargeFilesWithLfs` takes a list: the banner already is the batch.
+5. **The refusal slot needed no new field.** `git.error`, documented in `git.svelte.ts` as "a
+   verb's refusal," is exactly what an LFS-track refusal is — reusing it, through the same
+   `runGitVerb` every other verb already goes through, was the point of that documentation rather
+   than a reason to look for an exception.
+6. **The one thing this loop could not test is the one thing it most needed to.** The real
+   `git-lfs` binary writing a real pointer file and a real `.gitattributes` pattern, checked
+   against this machine's actual install, has never run — there is none on this machine to run it
+   against. Left as `[~]` rather than claimed: a manual smoke pass on a machine with Git LFS
+   installed is still owed, same as every rung-4 gap this sprint, and worth adding to the ledger if
+   it ever turns up a surprise.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

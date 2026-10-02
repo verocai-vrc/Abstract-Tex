@@ -661,6 +661,20 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **`anyhow::Context::context()` silently hid Git LFS's own error message from the author.**
+  (2 Oct 2026, found while writing S11.3c's `lfs::run`) The first draft ran `git lfs track` and,
+  on a non-zero exit, built `bail!("{stderr}")` — the real, actionable message — then wrapped the
+  call with `.context("tracking the file with Git LFS")`. `anyhow::Error`'s `Display` (what
+  `commands.rs`'s `to_message` sends the frontend, since it takes `impl Display`) only ever shows
+  the outermost context, never the source it wraps; the sentence that would have reached the
+  author was the generic one, and git-lfs's own reason — the one piece of information the banner
+  exists to relay — was silently discarded one layer down. Caught by a test built against
+  `fake-git-lfs-track-fails` (a compiled stand-in, not a mock, the same pattern
+  `abstract-tex-lsp`'s `tests/process.rs` already uses for a subprocess that must fail in a
+  specific way): it asserted the surfaced message contained the fake's stderr, and it did not.
+  **Fixed** by building one complete sentence in `run` itself — action and stderr together — so
+  there is only ever one frame for `Display` to show, and reserving `.context()` for the rarer
+  spawn-failure path, where losing detail matters less.
 - **`git2::DiffFile::size()` reads 0 on a tree-to-tree diff, silently.** (2 Oct 2026, found while
   writing S11.3a's `oversized_blobs`) The first draft read `change.new_file().size()` straight off
   a `diff_tree_to_tree` delta, on the assumption libgit2 already has a blob's size from the tree

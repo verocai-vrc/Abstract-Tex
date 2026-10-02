@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, ProseSummary, Status as GitStatus, SyncOutcome};
+use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, LargeFile, ProseSummary, Status as GitStatus, SyncOutcome};
 use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
@@ -606,6 +606,17 @@ pub fn git_status(state: State<'_, AppState>) -> CommandResult<Option<GitStatus>
     git::with_repository(&state, abstract_tex_git::status)
 }
 
+/// S11.3c: large-file candidates for the Source Control view's "track with Git LFS" banner.
+///
+/// 5 MB is this panel's own decision, settled with the maintainer alongside the banner's shape —
+/// well under GitHub's 50 MB warning line and `abstract_tex_git`'s own 100 MB hard push block
+/// (S11.3a), which answers a different question for a different reason and stays where it is.
+#[tauri::command]
+pub fn git_large_files(state: State<'_, AppState>) -> CommandResult<Option<Vec<LargeFile>>> {
+    const LFS_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
+    git::with_repository(&state, |repository| abstract_tex_git::large_files(repository, LFS_THRESHOLD_BYTES))
+}
+
 /// Add one path to the index, or record its deletion there.
 #[tauri::command]
 pub fn git_stage(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<()> {
@@ -810,6 +821,21 @@ pub async fn git_sync(app: AppHandle, state: State<'_, AppState>) -> CommandResu
     let outcome = git::in_repository_blocking(&state, move |repository| abstract_tex_git::sync(repository, token.as_deref())).await?;
     git::emit_status_changed(&app);
     Ok(outcome)
+}
+
+// ---------------------------------------------------------------------------------------------
+// S11.3c: the Source Control view's "track with Git LFS" banner action.
+// ---------------------------------------------------------------------------------------------
+
+/// Track every path in `paths` with Git LFS. Rejects with a sentence — usually that Git LFS is
+/// not installed on this machine — through the same refusal slot every other verb uses; the
+/// banner is not a dialog, and neither is what happens when it is wrong.
+#[tauri::command]
+pub async fn git_track_with_lfs(app: AppHandle, state: State<'_, AppState>, paths: Vec<String>) -> CommandResult<()> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    crate::lfs::track(&root, &paths).await.map_err(to_message)?;
+    git::emit_status_changed(&app);
+    Ok(())
 }
 
 #[cfg(test)]

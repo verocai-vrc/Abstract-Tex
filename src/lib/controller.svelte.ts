@@ -473,6 +473,7 @@ export async function refreshGitStatus(): Promise<void> {
   if (!app.project) {
     git.isRepository = false;
     git.status = NO_CHANGES;
+    git.largeFiles = [];
     return;
   }
   try {
@@ -494,6 +495,7 @@ export async function refreshGitStatus(): Promise<void> {
     git.prose = null;
     git.ourFolderIsIgnored = null;
     git.originUrl = null;
+    git.largeFiles = [];
     graphBuiltFrom = null;
     return;
   }
@@ -503,6 +505,9 @@ export async function refreshGitStatus(): Promise<void> {
   git.ourFolderIsIgnored = await ipc.gitOurFolderIsIgnored().catch(() => null);
   // S10.5b: and whether it has a remote, which is what decides whether publishing is on offer.
   git.originUrl = await ipc.gitOriginUrl().catch(() => null);
+  // S11.3c: large-file candidates for the LFS banner — a few `stat`s and attribute lookups over
+  // paths `status` already named, cheap enough to ride along with every other per-refresh read.
+  git.largeFiles = (await ipc.gitLargeFiles().catch(() => null)) ?? [];
   // Three questions, one refresh (S10.3b). The lists, the branch line and the graph would
   // otherwise be able to describe two different moments.
   git.branch = await ipc.gitBranch().catch(() => null);
@@ -700,6 +705,28 @@ export async function discardChange(path: string, untracked: boolean): Promise<v
   const done = await runGitVerb(() => ipc.gitDiscard(path));
   if (done === 'deleted') git.lastDiscard = `Deleted ${path}.`;
   else if (done === 'restored') git.lastDiscard = `${path} is back to its last committed version.`;
+}
+
+/**
+ * Track every currently-visible large-file candidate with Git LFS (S11.3c) — the banner's one
+ * action, covering whatever it is showing right now rather than asking the author to click once
+ * per file. Refused the same way every other verb is, under the box rather than a dialog; most
+ * often that is Git LFS not being installed on this machine.
+ */
+export async function trackLargeFilesWithLfs(paths: string[]): Promise<void> {
+  if (git.trackingLfs || paths.length === 0) return;
+  git.trackingLfs = true;
+  await runGitVerb(() => ipc.gitTrackWithLfs(paths));
+  git.trackingLfs = false;
+}
+
+/** Dismiss the banner for these paths, for this session only (S11.3c) — the same "whatever it is
+ * showing right now" scope `trackLargeFilesWithLfs` uses, so the two buttons agree on what
+ * "this banner" means. */
+export function dismissLargeFiles(paths: string[]): void {
+  const next = new Set(git.dismissedLargeFiles);
+  for (const path of paths) next.add(path);
+  git.dismissedLargeFiles = next;
 }
 
 /**

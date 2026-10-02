@@ -16,6 +16,7 @@
     commitStaged,
     createGitHubRepository,
     discardChange,
+    dismissLargeFiles,
     ignoreOurFolder,
     initialiseRepository,
     loadMoreCommits,
@@ -27,9 +28,10 @@
     signOutOfGitHub,
     stageChange,
     syncChanges,
+    trackLargeFilesWithLfs,
     unstageChange,
   } from '../lib/controller.svelte';
-  import { git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
+  import { formatMegabytes, git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
   import { app } from '../lib/state.svelte';
 
@@ -357,6 +359,39 @@
       <p class="hint">Open a file to resolve it as two paragraphs — resolving it stages it.</p>
     {/if}
     {@render section('Staged Changes', git.stagedRows, true)}
+
+    {#if git.visibleLargeFiles.length > 0}
+      <!-- S11.3c, the maintainer's own shape for this: a dismissible banner above Changes, never
+           a per-row badge or a dialog that would interrupt Stage — Stage has never asked a
+           question before, and this is not the loop that teaches it to. -->
+      <div class="lfs-banner">
+        <p class="hint">
+          {#if git.visibleLargeFiles.length === 1 && git.visibleLargeFiles[0]}
+            {@const only = git.visibleLargeFiles[0]}
+            {only.path} is {formatMegabytes(only.sizeBytes)}.
+          {:else}
+            {git.visibleLargeFiles.length} files are 5 MB or larger.
+          {/if}
+          Git stores every version of a binary file in full, which makes the repository grow fast.
+        </p>
+        <div class="lfs-actions">
+          <button
+            class="ghost"
+            disabled={git.trackingLfs}
+            onclick={() => void trackLargeFilesWithLfs(git.visibleLargeFiles.map((file) => file.path))}
+          >
+            {git.trackingLfs ? 'Tracking…' : 'Track with Git LFS'}
+          </button>
+          <button
+            class="ghost"
+            disabled={git.trackingLfs}
+            onclick={() => dismissLargeFiles(git.visibleLargeFiles.map((file) => file.path))}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    {/if}
     {@render section('Changes', git.unstagedRows, false)}
 
     {#if git.changedCount === 0}
@@ -571,6 +606,21 @@
   }
   .sync-button {
     width: 100%;
+  }
+  /* S11.3c: advisory, not an error — `--warn`, the same border `ConflictResolver`'s own box uses
+     rather than `--error`'s red, since nothing here is wrong yet. */
+  .lfs-banner {
+    margin: 0 10px 8px;
+    padding: 8px;
+    border: 1px solid var(--warn);
+    border-radius: var(--radius);
+  }
+  .lfs-banner .hint {
+    padding: 0 0 6px;
+  }
+  .lfs-actions {
+    display: flex;
+    gap: 6px;
   }
   .commit-list {
     list-style: none;

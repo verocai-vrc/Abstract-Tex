@@ -14,6 +14,7 @@ import type {
   SignInEvent,
   FsEvent,
   GitStatus,
+  LargeFile,
   LspEvent,
   ProjectInfo,
   SyncOutcome,
@@ -91,6 +92,11 @@ let commitError: string | null = null;
  * apart; this layer only has to carry whichever sentence Rust would have sent. */
 let syncOutcome: SyncOutcome = { kind: 'upToDate' };
 let syncError: string | null = null;
+/** S11.3c: the LFS banner's own candidates, and a message to make `git_track_with_lfs` fail —
+ * most often "Git LFS isn't installed", which is a sentence and not a thrown shape this fake
+ * needs to distinguish from any other verb's refusal. */
+let largeFilesOnDisk: LargeFile[] = [];
+let lfsError: string | null = null;
 /** The GitHub side (S10.4b): who the keychain says is signed in, what `github_sign_in` does, and
  * the handler the controller registered for `github:sign-in`. */
 /** S10.5a: whether the fake project is a repository, and whether it ignores our folder. */
@@ -304,6 +310,13 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return syncOutcome;
     },
+    gitLargeFiles: async (): Promise<LargeFile[] | null> => (gitOnDisk === null ? null : largeFilesOnDisk),
+    gitTrackWithLfs: async (paths: string[]): Promise<void> => {
+      if (lfsError) throw new Error(lfsError);
+      calls.gitVerbs.push(`trackWithLfs ${paths.join(',')}`);
+      largeFilesOnDisk = largeFilesOnDisk.filter((file) => !paths.includes(file.path));
+      gitStatusHandler();
+    },
     githubAccount: async () => {
       calls.githubCalls.push('account');
       return accountOnDisk;
@@ -365,6 +378,7 @@ const {
   commitAndSync,
   commitStaged,
   discardChange,
+  dismissLargeFiles,
   syncChanges,
   loadMoreCommits,
   applyFindingFix,
@@ -401,6 +415,7 @@ const {
   toggleDrawer,
   toggleQuickOpen,
   toggleRawLog,
+  trackLargeFilesWithLfs,
   triggerCompile,
 } = await import('./controller.svelte');
 const { ipc } = await import('./ipc');
@@ -458,6 +473,8 @@ beforeEach(async () => {
   commitError = null;
   syncOutcome = { kind: 'upToDate' };
   syncError = null;
+  largeFilesOnDisk = [];
+  lfsError = null;
   initialiseError = null;
   initialiseNeedsIdentity = false;
   ourFolderIgnoredOnDisk = true;
@@ -1959,6 +1976,55 @@ describe('syncing (S11.1b)', () => {
     expect(git.error).toContain('Both your computer and the remote');
     expect(git.lastSync).toBeNull();
     expect(git.syncing).toBe(false);
+  });
+});
+
+describe('the Git LFS banner (S11.3c)', () => {
+  const figure = { path: 'figure.png', sizeBytes: 6_000_000 };
+
+  it('a refresh picks up large-file candidates alongside the three lists', async () => {
+    largeFilesOnDisk = [figure];
+    await refreshGitStatus();
+    expect(git.largeFiles).toEqual([figure]);
+    expect(git.visibleLargeFiles).toEqual([figure]);
+  });
+
+  it('tracking stages the file through Rust and the banner clears on the next refresh', async () => {
+    largeFilesOnDisk = [figure];
+    await refreshGitStatus();
+
+    await trackLargeFilesWithLfs(['figure.png']);
+    // `gitTrackWithLfs`'s fake emits the same `git:status-changed` event the real command does,
+    // which only schedules a refresh (`scheduleGitRefresh`'s own 120 ms coalescing window) —
+    // advancing past it is what makes the clearing a real refresh and not this test's bookkeeping.
+    await vi.advanceTimersByTimeAsync(120);
+
+    expect(calls.gitVerbs).toEqual(['trackWithLfs figure.png']);
+    expect(git.largeFiles).toEqual([]);
+    expect(git.trackingLfs).toBe(false);
+  });
+
+  it('a refusal — usually Git LFS not being installed — shows under the box, and the candidate stays', async () => {
+    largeFilesOnDisk = [figure];
+    await refreshGitStatus();
+    lfsError = "Git LFS isn't installed on this machine. Install it from https://git-lfs.com, then try again.";
+
+    await trackLargeFilesWithLfs(['figure.png']);
+
+    expect(git.error).toContain("isn't installed");
+    expect(git.largeFiles).toEqual([figure]);
+  });
+
+  it('dismissing hides the candidate without tracking it, for this session only', async () => {
+    largeFilesOnDisk = [figure];
+    await refreshGitStatus();
+
+    dismissLargeFiles(['figure.png']);
+
+    expect(git.visibleLargeFiles).toEqual([]);
+    // Nothing was actually tracked — the file is still a candidate on the next real refresh.
+    expect(git.largeFiles).toEqual([figure]);
+    expect(calls.gitVerbs).toEqual([]);
   });
 });
 

@@ -10,6 +10,7 @@ import {
   branchLabel,
   canAmend,
   changedFileCount,
+  formatMegabytes,
   hasSyncWork,
   letterFor,
   outgoingCount,
@@ -220,5 +221,12 @@ describe('the suggested commit message (S10.3c)', () => {
       'Revised Methods',
     );
     expect(wordDeltaLabel(0)).toBe('');
+  });
+});
+
+describe('the LFS banner size label (S11.3c)', () => {
+  it('shows one decimal place', () => {
+    expect(formatMegabytes(5 * 1024 * 1024)).toBe('5.0 MB');
+    expect(formatMegabytes(5.5 * 1024 * 1024)).toBe('5.5 MB');
   });
 });
