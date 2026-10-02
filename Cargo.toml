@@ -14,6 +14,7 @@ members = [
     "crates/abstract-tex-git",
     "crates/abstract-tex-github",
     "crates/abstract-tex-includes",
+    "crates/abstract-tex-latexdiff",
     "crates/abstract-tex-lsp",
     "crates/abstract-tex-reconcile",
     "crates/abstract-tex-snapshot",

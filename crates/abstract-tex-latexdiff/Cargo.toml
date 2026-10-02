@@ -1,0 +1,36 @@
+[package]
+name = "abstract-tex-latexdiff"
+description = "Renders a latexdiff-marked-up document between two Git revisions, ready to compile."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+abstract-tex-git = { path = "../abstract-tex-git" }
+
+[[bin]]
+name = "fake-latexdiff-installed"
+path = "src/bin/fake_latexdiff_installed.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fake-latexdiff-missing"
+path = "src/bin/fake_latexdiff_missing.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fake-latexdiff-fails"
+path = "src/bin/fake_latexdiff_fails.rs"
+test = false
+doc = false
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# Only to build a fixture repository in tests/render.rs (Signature, raw commits) — the crate
+# itself never names git2 directly, reusing abstract-tex-git's own re-exported `Oid`.
+git2 = { version = "0.20", default-features = false }

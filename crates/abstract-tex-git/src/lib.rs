@@ -26,6 +26,11 @@ use git2::{Status as GitStatus, StatusOptions};
 /// asks goes through this crate, so libgit2 stays one crate's business and one crate's version.
 pub use git2::Repository;
 
+/// A commit id, re-exported for the same reason `Repository` is — `abstract-tex-latexdiff`
+/// (S11.4b) names one in [`export_tree`]'s own signature and should not need its own `git2`
+/// dependency just to spell the type its only Git dependency already hands it.
+pub use git2::Oid;
+
 /// Folders whose contents are never part of the author's changes, whatever Git thinks.
 ///
 /// `.abstract-tex` is ours by DESIGN.md §5.8 — the build folder, the draft folder, the warm

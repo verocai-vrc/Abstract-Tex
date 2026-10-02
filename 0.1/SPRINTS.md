@@ -5187,6 +5187,70 @@ take from the diff:
    *deleted* a file and asserts it is gone too — together they are the actual claim this function
    makes, that disk and `git log` agree.
 
+```
+Loop      S11.4b · The abstract-tex-latexdiff crate: detecting and running latexdiff · M
+Reads     DESIGN.md §5.7 ("via latexdiff... what a supervisor asks for, what a coauthor needs");
+          §1.3 (no TeX distribution — why this is detected, never bundled, same as S11.3c's Git
+          LFS)
+Depends   S11.4a (`export_tree`)
+Files     crates/abstract-tex-latexdiff/{Cargo.toml, src/lib.rs, src/bin/fake_latexdiff_{installed,
+          missing,fails}.rs, tests/render.rs} (new crate), Cargo.toml (workspace members),
+          crates/abstract-tex-git/src/lib.rs (`pub use git2::Oid`)
+Build     `render_with(latexdiff, repository, old, new, root_file, old_dir, new_dir)` checks
+          `latexdiff --version` first, exports both revisions with S11.4a's `export_tree`, then
+          runs `latexdiff --flatten <old_dir>/<root_file> <new_dir>/<root_file>` and writes its
+          stdout back over `new_dir`'s own copy of `root_file` — which is what lets everything
+          else `root_file` depends on (figures, a bibliography, a document class) stay sitting
+          exactly where the compiler would look for them, because they were exported right beside
+          it. `--flatten` inlines whatever `\input`/`\include` each revision's root file already
+          has; this crate adds no pattern of its own.
+
+          A new re-export, `abstract_tex_git::Oid`, alongside the existing `Repository` one and
+          for the identical reason: this crate names a commit id in its own public signature and
+          should not need its own `git2` dependency — one version, one crate's business — just to
+          spell a type its only Git dependency already hands it.
+
+          Tested against three compiled stand-ins (`fake-latexdiff-installed/-missing/-fails`),
+          `abstract-tex-lsp`'s own pattern, rather than the real `latexdiff` — this machine has
+          Perl but no `latexdiff`, and most CI images will not either, so a test against the real
+          tool would simply never run anywhere.
+Verify    cargo test -p abstract-tex-latexdiff
+Done when a machine with no `latexdiff` is refused by name before either revision is exported;
+          both revisions are exported and the diff lands over the *new* one's copy, the old one
+          left untouched; and `latexdiff`'s own stderr, not a generic phrase, reaches the error
+          when it refuses the files it was given.
+```
+
+**S11.4b (2 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 592 passed (3
+new) / 0 failed, clippy and `cargo doc --workspace --no-deps` both clean. `[~]` for the usual
+reason S11.4a was, plus one more: the success path has only ever run against a fake that prints a
+fixed string, never against a real `latexdiff` producing real markup — there is none on this
+machine to compile a single real diff against.
+
+1. **`abstract-tex-latexdiff` has no `git2` of its own, and that was the point of S11.4a.** Every
+   Git question this crate asks — export this commit's tree — goes through one function in
+   `abstract-tex-git`; the only reason it needs to name `git2::Oid` at all is to pass an id
+   through to that function, which is exactly what the new `pub use git2::Oid` re-export is for.
+   Had `export_tree` been written latexdiff-specific instead of general, this crate would have
+   needed its own libgit2 and its own opinion about how to walk a tree — the "one crate's
+   business" rule `abstract-tex-git`'s own `Repository` re-export already states would have been
+   broken on its first real test.
+2. **The diff replaces the *new* revision's file, never the old one's, and a test pins down why
+   that is not arbitrary.** Compiling the result needs every asset `root_file` depends on sitting
+   beside it — and only the newly exported tree is guaranteed to still be there once this function
+   returns; the old export exists only long enough for `latexdiff` to read from it. A test asserts
+   the old export's copy is still the plain, undiffed first version, which is what proves nothing
+   here quietly diffs the wrong file by accident.
+3. **The not-installed refusal is checked before either tree is exported, not after.** A machine
+   with no `latexdiff` should cost nothing beyond the one failed `--version` call — no temp
+   directories populated and then abandoned. The test for this path asserts both export
+   directories are still empty afterwards, which is the same "refused costs nothing" shape
+   S11.3c's own Git LFS check already has.
+4. **Three fakes, not one — the same reasoning S11.3c gave for Git LFS, now for a tool this
+   machine has even less chance of actually having.** `--version`, `--flatten` succeeding, and
+   `--flatten` refusing all needed different, deterministic answers; a shell script could not
+   stand in for `latexdiff` on Windows either, one of the three platforms this app ships on.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
