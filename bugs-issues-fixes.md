@@ -15,6 +15,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **A server-side push rejection (`GitError::PushRejected`) has never actually been triggered by a
+  test.** (1 Oct 2026, S11.1a) `push`'s `push_update_reference` callback is where libgit2 reports
+  a refusal a real server makes — a GitHub branch protection rule, a pre-receive hook — as opposed
+  to a stale local branch, which libgit2 catches itself before sending anything and which *is*
+  tested. Confirmed by writing a `pre-receive` hook into the local bare repository every other test
+  here uses, and that hook was never invoked: libgit2's local transport does not run server-side
+  hooks the way a real `git-receive-pack` subprocess would, so nothing short of a real GitHub
+  repository can exercise this path. Believed correct from the libgit2 source, not yet proven.
+  What closes it: a rung-3 test against a real repository once the OAuth app exists (same
+  blocker as the entry below), pushing to a branch with protection turned on.
+
 - **Nobody has registered a GitHub OAuth app, so sign-in cannot be finished by code alone.** (29
   Sep 2026, S10.4a) The device flow needs a client id from an OAuth app registered on GitHub —
   public, not secret, which is why it ships in the binary — and Abstract-Tex has none. The crate

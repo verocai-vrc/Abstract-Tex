@@ -62,6 +62,31 @@ pub enum GitError {
     /// had, occasionally a monorepo where the paper is meant to live.
     #[error("This folder is already inside a Git repository ({0}).")]
     AlreadyARepository(String),
+
+    /// S11.1a: `HEAD` is detached, or this is a repository with no commits yet. Neither has a
+    /// branch to push, fetch or sync, and that is a different sentence from "no remote".
+    #[error("There is no branch checked out to sync.")]
+    NoBranch,
+
+    /// S11.1a: this project has no `origin` yet. The panel should never ask — `branch_state`'s
+    /// `ahead_behind` is `None` until a remote exists — but the crate still answers in a sentence
+    /// rather than `GitError::Git`'s "remote 'origin' does not exist".
+    #[error("This project has no remote named \"origin\" to sync with.")]
+    NoRemote,
+
+    /// S11.1a: libgit2 reports a rejected push through a callback, not through `push`'s own
+    /// `Result` — this is that callback's message, turned into a refusal a caller can match on.
+    #[error("The remote refused the push: {0}")]
+    PushRejected(String),
+
+    /// S11.1a: the branch and its remote have each moved since they last agreed. Combining them
+    /// safely needs the conflict surface S11.2 has not built yet, so `sync` refuses rather than
+    /// guessing, and changes nothing on disk.
+    #[error(
+        "Both your computer and the remote have commits the other does not. Combining them \
+         isn't supported here yet — use `git pull` and `git push` from a terminal."
+    )]
+    Diverged { ahead: usize, behind: usize },
 }
 
 /// What one changed file is, in the words the row in the view uses.
@@ -787,9 +812,8 @@ pub fn origin_url(repository: &Repository) -> Option<String> {
 /// author who had a remote and now has a different one should not silently lose what Git knew
 /// about the first.
 ///
-/// Nothing is sent anywhere by this: `git2` is built here with no `https` feature at all (S10.1's
-/// flag, kept since), so this repository cannot talk to a network until S11.1 turns that on
-/// deliberately. Naming a remote is a line in `.git/config`.
+/// Nothing is sent anywhere by this: it only ever writes a line to `.git/config`. `push` and
+/// `sync`, below, are what actually talk to the network this points at.
 pub fn set_origin(repository: &Repository, url: &str) -> Result<(), GitError> {
     if repository.find_remote(ORIGIN).is_ok() {
         repository.remote_set_url(ORIGIN, url)?;
@@ -797,6 +821,183 @@ pub fn set_origin(repository: &Repository, url: &str) -> Result<(), GitError> {
         repository.remote(ORIGIN, url)?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// S11.1a: push, fetch, and the sync decision.
+// ---------------------------------------------------------------------------------------------
+
+/// What [`sync`] did, so the panel can say the true thing rather than a generic "synced".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum SyncOutcome {
+    /// Nothing to push and nothing to pull: the branch and its remote already agree.
+    UpToDate,
+    /// Local commits went to the remote. No commits came back, so nothing moved here.
+    Pushed { ahead: usize },
+    /// Remote commits were fast-forwarded in. Nothing local was waiting to go out.
+    FastForwarded { behind: usize },
+}
+
+/// The branch `HEAD` is on, or [`GitError::NoBranch`] for a detached `HEAD` or a repository with
+/// no commits yet — neither has anything to push, fetch, or sync.
+fn current_branch(repository: &Repository) -> Result<String, GitError> {
+    let head = repository.head().map_err(|_| GitError::NoBranch)?;
+    head.shorthand().filter(|_| head.is_branch()).map(str::to_string).ok_or(GitError::NoBranch)
+}
+
+/// `origin`, or [`GitError::NoRemote`] rather than `git2`'s "remote 'origin' does not exist" —
+/// one more sentence the panel never has to translate.
+fn origin(repository: &Repository) -> Result<git2::Remote<'_>, GitError> {
+    repository.find_remote(ORIGIN).map_err(|_| GitError::NoRemote)
+}
+
+/// Offer `token` to a remote only when it actually asks for one. A `file://` remote, which is
+/// every test in this module, never does — so every one of them runs with `token: None` and
+/// still proves the credential path is never touched by accident.
+fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
+    let token = token.map(str::to_string);
+    let mut callbacks = git2::RemoteCallbacks::new();
+    callbacks.credentials(move |_url, _username_from_url, allowed| {
+        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+            if let Some(token) = &token {
+                // GitHub's own convention for an OAuth token offered over HTTPS: the token is the
+                // username or the password, not both at once as a real login would be. Nothing
+                // here is GitHub-specific otherwise, but this is the one place a comment has to
+                // say which convention it followed.
+                return git2::Cred::userpass_plaintext(token, "x-oauth-basic");
+            }
+        }
+        Err(git2::Error::from_str("this remote asked for a credential and none was given"))
+    });
+    callbacks
+}
+
+/// Update `origin`'s remote-tracking ref for the current branch, without touching anything else.
+///
+/// Only the current branch, not every branch `origin` has: this crate is one repository's one
+/// working branch, not a general mirroring tool, and fetching branches nobody asked about would
+/// cost time on every sync for refs the view never shows.
+pub fn fetch(repository: &Repository, token: Option<&str>) -> Result<(), GitError> {
+    let branch_name = current_branch(repository)?;
+    let mut remote = origin(repository)?;
+    let mut options = git2::FetchOptions::new();
+    options.remote_callbacks(credentials(token));
+    remote.fetch(&[&branch_name], Some(&mut options), None)?;
+    Ok(())
+}
+
+/// Push the current branch to `origin`.
+///
+/// Sets the upstream tracking relationship on a first push (`git push -u`'s own behaviour), and
+/// updates `refs/remotes/origin/<branch>` to match — so `branch_state`'s ahead/behind reads right
+/// immediately afterwards, with no second fetch needed before the Sync button's arrows catch up.
+pub fn push(repository: &Repository, token: Option<&str>) -> Result<(), GitError> {
+    let branch_name = current_branch(repository)?;
+    let target = repository.head()?.target().ok_or(GitError::NoBranch)?;
+    let mut remote = origin(repository)?;
+
+    // A stale local branch is caught by libgit2 itself, before anything is sent, and arrives
+    // through the `?` below as an ordinary `GitError::Git`. This callback is for the other kind
+    // of refusal: a server-side policy (a protected branch, a pre-receive hook) that `push`'s own
+    // `Result` says nothing about — it comes back `Ok` while the remote quietly refused the ref,
+    // and only this per-ref status says so. Checked by hand against a real local remote, because
+    // the two refusals read alike in the docs and do not behave alike.
+    // `RefCell`: the callback below is an `Fn` closure (libgit2 may call it more than once) that
+    // needs to write into this from inside a shared, non-`mut` borrow — ordinary field mutation
+    // cannot do that, so the check that would normally happen at compile time happens at
+    // `borrow_mut()` instead. Safe here because nothing else touches `rejected` while it runs.
+    let rejected = std::cell::RefCell::new(None);
+    let mut callbacks = credentials(token);
+    callbacks.push_update_reference(|_refname, status| {
+        if let Some(message) = status {
+            *rejected.borrow_mut() = Some(message.to_string());
+        }
+        Ok(())
+    });
+    let mut options = git2::PushOptions::new();
+    options.remote_callbacks(callbacks);
+    let refspec = format!("refs/heads/{branch_name}:refs/heads/{branch_name}");
+    remote.push(&[&refspec], Some(&mut options))?;
+    // `options` holds the closure borrowing `rejected`; it has to go before `rejected` can be
+    // read back out, or the borrow checker sees a destructor that might still touch it.
+    drop(options);
+    if let Some(message) = rejected.into_inner() {
+        return Err(GitError::PushRejected(message));
+    }
+
+    repository.reference(
+        &format!("refs/remotes/{ORIGIN}/{branch_name}"),
+        target,
+        true,
+        "abstract-tex: push",
+    )?;
+
+    let mut branch = repository.find_branch(&branch_name, git2::BranchType::Local)?;
+    if branch.upstream().is_err() {
+        branch.set_upstream(Some(&format!("{ORIGIN}/{branch_name}")))?;
+    }
+    Ok(())
+}
+
+/// Move the current branch, and the working tree, straight to `target` — safe only because the
+/// branch has no commit of its own that this would throw away.
+///
+/// `checkout_tree`'s default strategy refuses rather than overwrites a file with an uncommitted
+/// change in it, the same refusal `git pull --ff-only` gives — this never forces past it.
+fn fast_forward(repository: &Repository, branch_name: &str, target: git2::Oid) -> Result<(), GitError> {
+    let commit = repository.find_commit(target)?;
+    repository.checkout_tree(commit.as_object(), None)?;
+    repository.reference(&format!("refs/heads/{branch_name}"), target, true, "abstract-tex: sync")?;
+    Ok(())
+}
+
+/// The one-verb path (DESIGN.md §5.7): fetch, then do whatever that leaves to do.
+///
+/// Composed of two other public functions rather than its own push, because the design's Commit
+/// dropdown asks for both on their own: `push` alone is *Commit & Push* (an author who knows where
+/// this is going); this function is *Commit & Sync* and the standalone *Sync Changes ↑n ↓m*
+/// button (an author who does not want to think about it). A branch and its remote that have each
+/// moved since they last agreed is refused rather than merged — that needs the conflict surface
+/// S11.2 builds, not this loop guessing at one.
+pub fn sync(repository: &Repository, token: Option<&str>) -> Result<SyncOutcome, GitError> {
+    let branch_name = current_branch(repository)?;
+    let local = repository.head()?.target().ok_or(GitError::NoBranch)?;
+    fetch(repository, token)?;
+
+    let remote_ref = format!("refs/remotes/{ORIGIN}/{branch_name}");
+    let Some(remote_target) = repository.find_reference(&remote_ref).ok().and_then(|r| r.target()) else {
+        // `origin` exists, but has never seen this branch: everything local is "ahead", counted
+        // by walking it, the same way `log`'s own paging does.
+        let ahead = commits_since(repository, None, local)?;
+        push(repository, token)?;
+        return Ok(SyncOutcome::Pushed { ahead });
+    };
+
+    let (ahead, behind) = repository.graph_ahead_behind(local, remote_target)?;
+    match (ahead, behind) {
+        (0, 0) => Ok(SyncOutcome::UpToDate),
+        (ahead, 0) => {
+            push(repository, token)?;
+            Ok(SyncOutcome::Pushed { ahead })
+        }
+        (0, behind) => {
+            fast_forward(repository, &branch_name, remote_target)?;
+            Ok(SyncOutcome::FastForwarded { behind })
+        }
+        (ahead, behind) => Err(GitError::Diverged { ahead, behind }),
+    }
+}
+
+/// How many commits reach `to` and not `from` — `None` for "the whole history", which is what a
+/// branch `origin` has never seen is ahead by.
+fn commits_since(repository: &Repository, from: Option<git2::Oid>, to: git2::Oid) -> Result<usize, GitError> {
+    let mut walk = repository.revwalk()?;
+    walk.push(to)?;
+    if let Some(from) = from {
+        walk.hide(from)?;
+    }
+    Ok(walk.count())
 }
 
 #[cfg(test)]
@@ -1308,5 +1509,194 @@ mod tests {
         assert_eq!(rows[1].word_delta, 2);
         // The root commit has no parent, so everything in it is new.
         assert_eq!(rows[2].word_delta, 3);
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S11.1a: push, fetch, and the sync decision.
+    //
+    // A bare repository stands in for GitHub: a real transport (local, not `file://`, but the
+    // same push/fetch machinery any transport uses), with no credentials involved, which is what
+    // lets every test below pass `token: None` and still prove the credential path is never
+    // touched by accident — `credentials()` returns an `Err` the moment it is asked for one it
+    // does not have, so a test that reached that branch would fail loudly, not quietly.
+    // -----------------------------------------------------------------------------------------
+
+    /// A bare repository with nothing in it — the local stand-in for a freshly created GitHub
+    /// repository before anything has ever been pushed to it.
+    fn bare_remote() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        Repository::init_bare(tmp.path()).unwrap();
+        tmp
+    }
+
+    /// A repository with one commit, pointed at an empty bare "remote" named `origin`, and the
+    /// branch name both of them will use (whatever this machine's Git defaults to — never
+    /// hardcoded, the same way `current_branch` never hardcodes it).
+    fn repo_with_empty_remote() -> (tempfile::TempDir, Repository, tempfile::TempDir, String) {
+        let (tmp, repository) = repo();
+        let bare = bare_remote();
+        set_origin(&repository, bare.path().to_str().unwrap()).unwrap();
+        let branch = repository.head().unwrap().shorthand().unwrap().to_string();
+        (tmp, repository, bare, branch)
+    }
+
+    /// Write a commit straight into a bare repository, standing in for a coauthor's `git push` —
+    /// there is no working tree here to `fs::write` into, which is the whole reason this cannot
+    /// just reuse `commit_all`.
+    fn commit_into_bare(bare_path: &Path, branch: &str, file: &str, contents: &str, message: &str) -> git2::Oid {
+        let bare = Repository::open_bare(bare_path).unwrap();
+        let branch_ref = format!("refs/heads/{branch}");
+        let parent = bare.find_reference(&branch_ref).unwrap().peel_to_commit().unwrap();
+        let mut builder = bare.treebuilder(Some(&parent.tree().unwrap())).unwrap();
+        let blob = bare.blob(contents.as_bytes()).unwrap();
+        builder.insert(file, blob, 0o100_644).unwrap();
+        let tree = bare.find_tree(builder.write().unwrap()).unwrap();
+        let who = git2::Signature::now("Coauthor", "coauthor@example.invalid").unwrap();
+        bare.commit(Some(&branch_ref), &who, &who, message, &tree, &[&parent]).unwrap()
+    }
+
+    /// The branch ref a bare repository has, read the same way a real clone would.
+    fn bare_tip(bare_path: &Path, branch: &str) -> git2::Oid {
+        Repository::open_bare(bare_path).unwrap().find_reference(&format!("refs/heads/{branch}")).unwrap().target().unwrap()
+    }
+
+    /// The card's first done-when: a push moves the remote and its own tracking ref, with no
+    /// second fetch, and sets up the tracking relationship `branch_state` reads.
+    #[test]
+    fn pushing_moves_the_remote_and_its_own_tracking_ref_with_no_second_fetch() {
+        let (_tmp, repository, bare, branch) = repo_with_empty_remote();
+        let local_head = repository.head().unwrap().target().unwrap();
+
+        push(&repository, None).unwrap();
+
+        assert_eq!(bare_tip(bare.path(), &branch), local_head, "the remote did not move");
+        let tracking = repository.find_reference(&format!("refs/remotes/origin/{branch}")).unwrap().target();
+        assert_eq!(tracking, Some(local_head), "the local tracking ref was not updated by the push itself");
+
+        // The upstream relationship is set, which is what lets `branch_state` read ahead/behind
+        // at all rather than reporting `None` ("no remote yet" by S10.2b's own distinction).
+        let state = branch_state(&repository).unwrap();
+        assert_eq!(state.ahead_behind, Some((0, 0)));
+    }
+
+    /// `sync` on a branch `origin` has never seen pushes everything, by name, and then has
+    /// nothing left to do — the card's second done-when.
+    #[test]
+    fn syncing_an_unpushed_branch_pushes_everything_and_then_reports_up_to_date() {
+        let (_tmp, repository, _bare, _branch) = repo_with_empty_remote();
+
+        let first = sync(&repository, None).unwrap();
+        assert_eq!(first, SyncOutcome::Pushed { ahead: 1 });
+
+        let second = sync(&repository, None).unwrap();
+        assert_eq!(second, SyncOutcome::UpToDate);
+    }
+
+    /// Fetching moves only the remote-tracking ref. `HEAD`, the branch, and the working tree are
+    /// not `sync`'s to touch — that is the half of the card `fast_forward` owns, tested below.
+    #[test]
+    fn fetching_updates_only_the_remote_tracking_ref() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        let local_head = repository.head().unwrap().target().unwrap();
+        let coauthor_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+
+        fetch(&repository, None).unwrap();
+
+        assert_eq!(repository.head().unwrap().target(), Some(local_head), "HEAD moved on a fetch");
+        let tracking = repository.find_reference(&format!("refs/remotes/origin/{branch}")).unwrap().target();
+        assert_eq!(tracking, Some(coauthor_commit));
+        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n", "the working tree moved on a fetch");
+    }
+
+    /// The card's third done-when: a remote that moved ahead, with nothing local to lose, fast-
+    /// forwards the branch *and* the working tree — not just a ref update nobody can see.
+    #[test]
+    fn syncing_fast_forwards_the_branch_and_the_working_tree_when_only_the_remote_moved() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        let coauthor_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+
+        let outcome = sync(&repository, None).unwrap();
+
+        assert_eq!(outcome, SyncOutcome::FastForwarded { behind: 1 });
+        assert_eq!(repository.head().unwrap().target(), Some(coauthor_commit));
+        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "a coauthor's words\n");
+        assert_eq!(changes(&repository), Status::default(), "a fast-forward must not look like a change");
+    }
+
+    /// The other half of the same decision: nothing to pull, something to push.
+    #[test]
+    fn syncing_pushes_when_only_the_local_side_moved() {
+        let (_tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        fs::write(_tmp.path().join("main.tex"), "a new local sentence\n").unwrap();
+        commit_all(&repository, "local edit");
+        let local_head = repository.head().unwrap().target().unwrap();
+
+        let outcome = sync(&repository, None).unwrap();
+
+        assert_eq!(outcome, SyncOutcome::Pushed { ahead: 1 });
+        assert_eq!(bare_tip(bare.path(), &branch), local_head);
+    }
+
+    /// The card's fourth done-when: both sides moved, `sync` refuses by name, and nothing on
+    /// either side is touched — no partial push, no partial merge.
+    #[test]
+    fn syncing_when_both_sides_have_moved_refuses_and_changes_nothing() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        let remote_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+        fs::write(tmp.path().join("notes.tex"), "a local addition\n").unwrap();
+        commit_all(&repository, "local edit");
+        let local_head = repository.head().unwrap().target().unwrap();
+
+        let error = sync(&repository, None).unwrap_err();
+
+        assert!(matches!(error, GitError::Diverged { ahead: 1, behind: 1 }), "{error:?}");
+        assert_eq!(repository.head().unwrap().target(), Some(local_head), "the local branch moved");
+        assert_eq!(bare_tip(bare.path(), &branch), remote_commit, "the remote branch moved");
+        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n");
+    }
+
+    /// A stale local branch is refused before anything is sent — checked against a real local
+    /// remote (`ffcheck`, by hand, is what found this) rather than assumed from the docs, because
+    /// it is what makes a plain `push` (the Commit dropdown's *Commit & Push*) safe to call
+    /// without fetching first: it can fail, but it can never silently discard a coauthor's commit.
+    #[test]
+    fn pushing_a_stale_branch_is_refused_rather_than_overwriting_the_remote() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        let remote_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+        // A local commit built on the *old* tip, so this push really is non-fast-forward and not
+        // a no-op.
+        fs::write(tmp.path().join("notes.tex"), "a local addition\n").unwrap();
+        commit_all(&repository, "local edit");
+
+        let error = push(&repository, None).unwrap_err();
+
+        assert!(matches!(error, GitError::Git(_)), "{error:?}");
+        assert_eq!(bare_tip(bare.path(), &branch), remote_commit, "the rejected push must not have moved the remote");
+    }
+
+    /// `push` and `fetch` both refuse the same way on a repository with no commits yet — there is
+    /// no branch for either verb to act on.
+    #[test]
+    fn pushing_or_fetching_with_no_branch_checked_out_says_so() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repository = Repository::init(tmp.path()).unwrap();
+        let bare = bare_remote();
+        set_origin(&repository, bare.path().to_str().unwrap()).unwrap();
+
+        assert!(matches!(push(&repository, None), Err(GitError::NoBranch)));
+        assert!(matches!(fetch(&repository, None), Err(GitError::NoBranch)));
+    }
+
+    /// A repository with a branch but no remote gets a sentence of its own, not `git2`'s "remote
+    /// 'origin' does not exist".
+    #[test]
+    fn syncing_with_no_remote_says_so_by_name() {
+        let (_tmp, repository) = repo();
+        assert!(matches!(sync(&repository, None), Err(GitError::NoRemote)));
     }
 }

@@ -8,10 +8,13 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-# libgit2, same flags and same reasons as crates/abstract-tex-snapshot: local objects only, so
-# no `https` and no `ssh`, which would pull in OpenSSL and libssh2. S10.4 turns them on when
-# there is a remote to talk to.
-git2 = { version = "0.20", default-features = false }
+# libgit2. `ssh` stays off, same reasons as crates/abstract-tex-snapshot: nothing in this app
+# offers an SSH remote, and libssh2 is a library with nothing to link it in for. `https` is on
+# (S11.1a) — this is now the one crate in the workspace whose job is talking to a remote. On
+# Linux that needs the system OpenSSL dev headers (already installed for Tauri/WebKitGTK in CI
+# and on a dev machine); on Windows and macOS it costs nothing extra, because libgit2-sys talks
+# to WinHTTP and Secure Transport there instead.
+git2 = { version = "0.20", default-features = false, features = ["https"] }
 # These types cross to the frontend as they are, so they serialise here rather than being
 # restated in src-tauri.
 serde = { workspace = true }

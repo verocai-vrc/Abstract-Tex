@@ -4465,6 +4465,122 @@ OAuth app in the ledger. Until it exists, nobody can sign in and therefore nobod
 repository from the app, and §7's v0.6 exit demo — a manuscript written on one machine, synced,
 and continued on another — cannot be performed at all.
 
+**Sprint 11 begins here, 1 October 2026, with S11.1 split into S11.1a and S11.1b** — the same
+split S10.5 used, for the same reason: pushing a commit needs no account and no window, and the
+*Sync Changes* button needs both. S11.1a is below; S11.1b (the button, and what it unlocks —
+*Commit & Push*, *Commit & Sync*, and hiding *Amend* once a commit is pushed) is expanded when
+its own loop starts.
+
+```
+Loop      S11.1a · Push, fetch, and sync, in the git crate · M
+Reads     DESIGN.md §5.7 ("Sync as one verb... commit, pull, rebase, push... Authors who do want
+          Git get the whole thing, and the two never disagree"), §6 (the Commit dropdown's
+          *Commit & Push* and *Commit & Sync* are two different verbs, not one twice)
+Depends   S10.2b (`branch_state`, the upstream it reads), S10.5b (a remote named `origin`)
+Files     crates/abstract-tex-git/Cargo.toml, crates/abstract-tex-git/src/lib.rs
+Build     The network half S10.5b deliberately left undone. `git2` is built here with `https` on
+          — the one `default-features = false` crate in the workspace that now needs it, because
+          it is the one crate whose whole job just became talking to a remote. `ssh` stays off:
+          nothing in this app offers an SSH remote, and leaving it out is one fewer library to
+          link.
+
+          **Two verbs, because the Commit dropdown needs two.** `push` sends the current branch
+          and nothing else; `sync` fetches first and then decides what `push` alone cannot:
+          nothing to do, a plain push, a fast-forward, or a refusal. The design's dropdown has
+          *Commit & Push* next to *Commit & Sync* precisely because they can disagree — pushing
+          straight after a commit is the author saying "I know where this goes", and `sync` is
+          the one-verb path for an author who does not want to think about it.
+
+          **A push can be refused two different ways, and they arrive by two different paths** —
+          checked by hand against a real local remote rather than assumed, because the two read
+          alike in the libgit2 docs and do not behave alike. A stale local branch (someone else's
+          commit already on the remote) is caught by libgit2 itself before anything is sent and
+          comes back as an ordinary `git2::Error`, which `?` already turns into `GitError::Git`
+          with a sentence libgit2 wrote. A server-side refusal — a protected branch, a pre-receive
+          hook — is different: `push`'s own `Result` comes back `Ok` regardless, and the refusal
+          arrives through `push_update_reference`'s per-ref status instead, which is read here and
+          turned into `GitError::PushRejected`. The second path is real but untestable against a
+          local path remote: libgit2's local transport never runs a receive hook (checked by hand
+          — a `pre-receive` script that unconditionally rejects every push was not invoked), so
+          only a real GitHub repository exercises it, which is the same gap S10.4a and S10.5b are
+          already `[~]` for.
+
+          **Diverged is refused, not merged.** When the branch and its remote have both moved,
+          combining them safely needs the conflict surface S11.2 has not built yet — so `sync`
+          changes nothing on disk and returns `GitError::Diverged`, with a sentence that tells the
+          author to use a terminal rather than one that pretends this version can do it.
+
+          **The remote-tracking ref is kept current by the push itself.** Updating
+          `refs/remotes/origin/<branch>` to the commit just pushed, in the same call, is what lets
+          `branch_state`'s ahead/behind read correctly immediately afterwards — otherwise the
+          Sync button would show stale arrows until something else happened to fetch.
+
+          **The credential is a plain string from nowhere this crate knows.** `push`, `fetch` and
+          `sync` take `token: Option<&str>`, offered to the remote only if it asks
+          (`CredentialType::USER_PASS_PLAINTEXT`) and never otherwise — a `file://` remote, which
+          is every test here, never asks. Where the token comes from (the keychain, by way of
+          `abstract-tex-github`) is S11.1b's business, same as `create_repository` already keeps
+          that line in `src-tauri/src/github.rs`.
+Verify    cargo test -p abstract-tex-git
+Done when pushing a fresh commit to a local bare "remote" moves its branch and its own
+          remote-tracking ref to that commit with no second fetch; pushing again with nothing new
+          reports `UpToDate`; a remote that moved ahead with no local commits fast-forwards the
+          branch and the working tree with no merge; a repository with commits on both sides is
+          refused by name and left byte-for-byte as it was; and a `file://` remote never has its
+          credential callback invoked.
+```
+
+**S11.1a (1 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 568 passed / 0
+failed (9 new, all in this crate), clippy and `cargo doc --workspace -D warnings` clean. No rung
+3 of its own: the existing `against_real_git.rs` suite is untouched and still green, but nothing
+in *this* loop has a real remote to run against yet — a local bare repository stands in for one,
+which proves the push/fetch/merge mechanics and nothing about GitHub specifically. `[~]` for that
+reason, same as S10.4a and S10.5b: no rung 4 either, since nothing here is on screen. What a
+reader should take from the diff:
+
+1. **`push` and `sync` are two different functions because the design asks for two different
+   buttons.** The Commit dropdown's *Commit & Push* is "I know where this goes" — push, and fail
+   loudly if it does not fit; *Commit & Sync* and the standalone *Sync Changes* button are "fetch
+   first, then do whatever that leaves to do." Folding them into one function with a flag would
+   have hidden that these really can disagree, which is the case the two separate dropdown items
+   exist to cover.
+2. **Checked by hand before being written as a comment, and it was worth it.** The card's own
+   draft assumed a non-fast-forward push arrives through `push_update_reference`'s per-ref status,
+   which is what both the libgit2 docs and a skim of other projects suggest. A five-minute scratch
+   program against a real local remote (`/tmp/ffcheck`, not kept) showed the opposite: libgit2
+   catches a stale local branch itself, before sending anything, as a plain `git2::Error` — the
+   callback only ever fires for a refusal the *server* makes, such as a protected branch or a
+   pre-receive hook. Writing the comment from the wrong assumption would have been invisible until
+   someone hit the real case and the code silently took the other path.
+3. **And that distinction is what makes `push` safe to call without fetching first.** `push`
+   alone never checks whether the remote has moved — it has no opinion, and does not pretend to.
+   What makes *Commit & Push* a safe button anyway is that libgit2 itself refuses a stale update
+   before it leaves the machine; a test commits divergent history on both sides and confirms the
+   remote is untouched by the refused push.
+4. **`PushRejected` is real but unverified here, and the ledger says so.** The server-side refusal
+   path — the one a real GitHub branch protection rule would take — could not be exercised: a
+   `pre-receive` hook written into the local bare repository used for every other test here was
+   silently never run, because libgit2's local transport does not invoke receive hooks the way a
+   real `git-receive-pack` subprocess would. Believed correct from the libgit2 source and the
+   `push_update_reference` documentation, but "believed correct" is not "tested," and the ledger
+   has an entry.
+5. **Diverged refuses rather than guesses.** §5.7 says Sync is "commit, pull, rebase, push," which
+   reads as if a diverged branch should rebase automatically — but a rebase can conflict, and
+   S11.2 is what the conflict surface looks like, not this loop. `sync` returns `GitError::Diverged`
+   and touches nothing, which a test confirms down to the byte: the local branch, the remote
+   branch, and the working tree all exactly where they started.
+6. **The remote-tracking ref is updated by `push` itself, not left for the next fetch.**
+   `branch_state`'s ahead/behind reads `refs/remotes/origin/<branch>`, and a push that did not
+   also move that ref would leave the Sync button's arrows stale until something else happened to
+   fetch — an author who just synced and still sees "↑1" would not trust the button. A test pushes
+   once and reads `ahead_behind` straight afterwards, with no fetch in between.
+7. **The credential is a string with its origin deliberately left out of this crate.** `push`,
+   `fetch` and `sync` take `token: Option<&str>`, offered to a remote only if it actually asks —
+   every test here passes `None` and succeeds, which is only possible because a local remote never
+   asks and `credentials()` would hand back an `Err` the moment one did. Where a real token comes
+   from is S11.1b's problem, the same seam `create_repository` already draws in
+   `src-tauri/src/github.rs`.
+
 
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
@@ -4482,7 +4598,10 @@ with it the Commit dropdown's *Commit & Push* and the header's ⋯ menu —
 S10.4 **split into S10.4a and S10.4b above, expanded 29 September 2026**: the flow and the
 keychain are testable with no window, the panel is not ·
 S11.1 one-action Sync with a sentence (`Sync Changes ↑n ↓m`), which is also when *Commit &
-Sync* and *Amend* become drawable (Amend has to know what is already pushed) · S11.2 conflicts
+Sync* and *Amend* become drawable (Amend has to know what is already pushed) —
+**split into S11.1a and S11.1b above, expanded 1 October 2026**: push, fetch and the sync
+decision need no account and no window, and the button that calls them needs both ·
+S11.2 conflicts
 as two paragraphs · S11.3 LFS prompt and oversize catch · S11.4 `latexdiff` review from any two
 graph rows · S11.5 two-machine exit demo; GitLab and bare-remote CI test · S11.6 a `.tex` diff
 as a CodeMirror merge view, which is what §6's "a click opens a diff" finally means (deferred
