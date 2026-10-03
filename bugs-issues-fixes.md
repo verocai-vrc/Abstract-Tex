@@ -15,6 +15,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`Ctrl Shift G` in the editor opened the find panel as well as switching to Source Control; the
+  merge view's "N unchanged lines" bars were white bands in the dark theme.** (3 Oct 2026, found
+  under Xvfb, rung 4 of S10.3a / S11.7b) The first: CodeMirror's search keymap binds `Mod-g` with a
+  `Shift` form (find previous), and a CodeMirror binding does not stop the key reaching the
+  window's handler, so one keypress did two things. **Fixed:** `editorSearchKeymap` drops `Mod-g`
+  (`F3` / `Shift F3` remain); `setup.test.ts` also asserts no search binding collides with an app
+  shortcut. The second: `.cm-collapsedLines` is restyled with the app's own colours in
+  `editor/diff.ts`. Both checked in the running app.
+
 - **On WebKitGTK a document longer than the window pushed the status bar, the outline and every
   scrollbar out of the window.** (3 Oct 2026, found with the entry below, under Xvfb, on a template
   CV and on `fixtures/paper`) The app grid's middle row was `1fr`, whose minimum is `auto`, so it

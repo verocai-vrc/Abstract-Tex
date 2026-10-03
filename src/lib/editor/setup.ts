@@ -58,6 +58,12 @@ const latexHighlight = HighlightStyle.define([
   { tag: tags.variableName, color: 'var(--syn-command)' },
 ]);
 
+/** CodeMirror's search keys, minus `Mod-g` (find next) and its `Shift` form (find previous).
+ * `Ctrl Shift G` is the app's *Source Control* chord (S10.3a), and a binding here does not stop the
+ * key reaching the window, so pressing it in the editor opened the find panel *and* switched the
+ * view. `F3` and `Shift F3` still find next and previous. */
+export const editorSearchKeymap = searchKeymap.filter((binding) => binding.key !== 'Mod-g');
+
 const theme = EditorView.theme({
   '&': { height: '100%', fontSize: '14px', backgroundColor: 'var(--bg-editor)', color: 'var(--fg)' },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.65' },
@@ -162,7 +168,7 @@ export function createEditor(
       keymap.of([
         ...closeBracketsKeymap,
         ...defaultKeymap,
-        ...searchKeymap,
+        ...editorSearchKeymap,
         ...(definitionRequest ? definitionKeymap(definitionRequest) : []),
         ...(forwardSearchRequest ? forwardSearchKeymap(forwardSearchRequest) : []),
         indentWithTab,

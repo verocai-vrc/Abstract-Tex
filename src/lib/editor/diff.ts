@@ -17,6 +17,14 @@ const theme = EditorView.theme({
   '&': { fontSize: '13px', backgroundColor: 'var(--bg-editor)', color: 'var(--fg)' },
   '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.55' },
   '.cm-gutters': { backgroundColor: 'var(--bg-editor)', color: 'var(--fg-muted)', borderRight: '1px solid var(--border)' },
+  // The merge view's "N unchanged lines" bar is a pale gradient by default, which is a white band
+  // across a dark theme. The app's own colours, in both.
+  '.cm-collapsedLines': {
+    background: 'var(--bg-panel)',
+    color: 'var(--fg-muted)',
+    borderTop: '1px solid var(--border)',
+    borderBottom: '1px solid var(--border)',
+  },
 });
 
 /** The same colours the editor's LaTeX highlighting uses would be nicer; this is the small subset
