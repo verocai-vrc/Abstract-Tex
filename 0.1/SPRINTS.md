@@ -6155,6 +6155,44 @@ no "cite" in it, is invisible until `citation_macros` is given that file; the pl
 refuses `(COVID-19, 2020)` and passes the narrative `Smith (2019)` on purpose. Nothing in the app
 calls the guard yet.
 
+```
+Loop      S12.3a · Edits as hunks, applied through the guard, in the assistant crate · M
+Reads     DESIGN.md §5.5 ("selection-scoped and diff-first"); S12.2
+Depends   S12.1a, S12.2
+Files     crates/abstract-tex-assistant/src/edit.rs, tests/edits.rs
+Build     The built-in rewriting actions (tighten, clarify, match the voice, translate) as prompts
+          for a selection, with the document as an optional cached block. The model's answer cleaned
+          into a proposed selection; the difference split into word-level hunks; `Review` asks the
+          guard about each hunk and `apply(choices)` returns the text for exactly those choices —
+          after checking that exact text against the guard as it is at that moment.
+Verify    cargo test -p abstract-tex-assistant
+Done when hunks rebuild both texts exactly for any pair of texts; a hunk that adds a fabricated
+          citation is refused while the others apply; a key typed between existing braces is refused;
+          and, for any texts and any choices, `apply` never returns what the guard would refuse.
+```
+
+**S12.3a (3 October 2026).** `[x]` (a crate-only loop, C1b): `pnpm verify` exit 0 — `cargo test
+--workspace` 738 passed / 0 failed (20 new in `tests/edits.rs`, two of them property tests). What a
+reader should take from the diff:
+
+1. **`Review::apply` is where the rule is enforced, not where it is hoped for.** It re-checks the
+   *exact text it returns* against the guard the caller holds at that moment, so the author's
+   choices cannot combine into a key the guard never saw, and a `.bib` edited since the review was
+   opened is honoured in both directions. The per-hunk refusals the UI will draw come from the same
+   guard, in rounds, because refusing one hunk can change what the guard sees of another.
+2. **Hunks are word-level and merge across whitespace:** "very quickly" → "swiftly" is one
+   decision, not three. `diff_words` (similar's default feature set) splits on whitespace only, so
+   unspaced scripts (Japanese) diff as one token; fine for now, noted for the translate action.
+3. **The prompt asks the model not to cite and to treat the selection as text, not instructions;
+   neither is relied on.** Both are requests; the guard is the rule.
+4. **A cut-off answer is an error (`CutOff`), never a diff:** half a paragraph would show as the
+   deletion of the other half.
+
+Not done, because it is S12.3b's: the menu, the diff drawn in the editor, per-hunk accept and reject
+through the undo stack, and the refusal sentence. That needs S12.1b's settings first (nothing can
+be asked until a provider is chosen and the project has opted in), and rung 4 in a real window.
+Nothing in the app calls this crate yet.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2

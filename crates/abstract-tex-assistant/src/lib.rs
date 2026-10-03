@@ -25,11 +25,13 @@
 //! app's edge flattens them into `anyhow`. Every message here is a sentence a person can act on.
 
 pub mod client;
+pub mod edit;
 pub mod guard;
 pub mod keys;
 pub mod provider;
 
 pub use client::Assistant;
+pub use edit::{build_prompt, hunks, proposed_selection, Action, ApplyError, Hunk, Review};
 pub use guard::{citation_macros, Finding, FindingKind, Guard, Verdict};
 pub use keys::{KeyStore, Keychain, MemoryKeyStore};
 pub use provider::{
@@ -71,6 +73,11 @@ pub enum AssistantError {
 
     #[error("The provider answered with no text.")]
     EmptyAnswer,
+
+    #[error(
+        "The model ran out of room before it finished, so nothing was changed. Try a shorter selection, or ask again."
+    )]
+    CutOff,
 
     #[error("Could not reach the provider: {0}")]
     Network(String),

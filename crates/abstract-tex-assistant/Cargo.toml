@@ -13,6 +13,7 @@ rust-version.workspace = true
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+similar = { workspace = true }
 thiserror = { workspace = true }
 # Only for `is_citation_command`: the one definition of "a citation command" the editor shares with
 # this crate's guard, so the two can never disagree (DESIGN.md §5.5).
