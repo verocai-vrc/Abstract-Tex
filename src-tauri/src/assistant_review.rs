@@ -96,9 +96,9 @@ pub struct ProposalView {
 #[derive(Default)]
 pub struct AssistantReviews {
     /// Built and shown, not yet sent.
-    prepared: Mutex<Option<PreparedRequest>>,
+    pub(crate) prepared: Mutex<Option<PreparedRequest>>,
     active: Mutex<Option<(u64, Review)>>,
-    next_id: AtomicU64,
+    pub(crate) next_id: AtomicU64,
 }
 
 /// The `.bib` keys and the author's citation macros, as they are now: the guard for one request.
@@ -192,7 +192,7 @@ fn show_first(setting: bool, sends_document: bool) -> (bool, bool) {
 }
 
 /// The open project's folder and root file.
-fn project_root(state: &AppState) -> Result<(PathBuf, PathBuf), String> {
+pub(crate) fn project_root(state: &AppState) -> Result<ProjectRoot, String> {
     let project = state.project.lock().unwrap();
     let project = project
         .as_ref()
@@ -200,7 +200,18 @@ fn project_root(state: &AppState) -> Result<(PathBuf, PathBuf), String> {
     let root_file = project
         .root_file()
         .ok_or_else(|| "This project has no root .tex file.".to_string())?;
-    Ok((project.root_dir.clone(), root_file))
+    Ok(ProjectRoot {
+        dir: project.root_dir.clone(),
+        file: root_file,
+    })
+}
+
+/// The open project's folder and its root `.tex` file (relative to the folder). A struct with
+/// names, not a pair of paths: two `PathBuf`s in a tuple can be taken in the wrong order and the
+/// compiler will not say so (a send once checked the opt-in against the *file* name).
+pub(crate) struct ProjectRoot {
+    pub(crate) dir: PathBuf,
+    pub(crate) file: PathBuf,
 }
 
 /// The project's guard, built from disk: the index of the `.bib` files the document names, and the
@@ -231,7 +242,7 @@ fn preamble_of(text: &str) -> &str {
 }
 
 /// Refuse unless every condition for sending holds. Not trusted from the window.
-fn ready_to_send(
+pub(crate) fn ready_to_send(
     settings: &AssistantSettings,
     keys: &dyn KeyStore,
     project_dir: &Path,
@@ -265,19 +276,35 @@ type CommandResult<T> = Result<T, String>;
 
 /// A request that has been built and shown and not yet sent. What `assistant_send` sends is this
 /// prompt, not one built again, so the request a person looked at is the request that leaves.
-struct PreparedRequest {
-    id: u64,
-    provider: abstract_tex_assistant::Provider,
-    prompt: abstract_tex_assistant::Prompt,
-    /// The selection the prompt was made from; the review is built against it.
-    selection: String,
+pub(crate) struct PreparedRequest {
+    pub(crate) id: u64,
+    pub(crate) provider: abstract_tex_assistant::Provider,
+    pub(crate) prompt: abstract_tex_assistant::Prompt,
+    pub(crate) purpose: Purpose,
+}
+
+/// What a prepared request is for, which decides the one command allowed to send it.
+pub(crate) enum Purpose {
+    /// Rewrite this selection; the review is built against it. Sent by `assistant_send`.
+    Rewrite { selection: String },
+    /// Explain a compile error; the answer is remembered under this signature. Sent by
+    /// `assistant_send_explain` (in `assistant_explain.rs`).
+    Explain { signature: String },
 }
 
 /// The prepared request, if it is the one named, removed from the slot so it can be sent once. A
-/// different one stays where it is: a stale click must not cancel a newer request.
-fn take_prepared(slot: &Mutex<Option<PreparedRequest>>, id: u64) -> Option<PreparedRequest> {
+/// different one stays where it is: a stale click must not cancel a newer request. `explain` says
+/// which kind the caller sends: a request is sent only by the command made for its purpose.
+pub(crate) fn take_prepared(
+    slot: &Mutex<Option<PreparedRequest>>,
+    id: u64,
+    explain: bool,
+) -> Option<PreparedRequest> {
     let mut slot = slot.lock().unwrap();
-    if slot.as_ref().is_some_and(|prepared| prepared.id == id) {
+    let matches = |prepared: &PreparedRequest| {
+        prepared.id == id && matches!(prepared.purpose, Purpose::Explain { .. }) == explain
+    };
+    if slot.as_ref().is_some_and(matches) {
         slot.take()
     } else {
         None
@@ -331,8 +358,8 @@ pub fn assistant_prepare(
 
     // The manuscript goes only to an action that needs it, and then it is always shown first.
     let document = if action.needs_document() {
-        let (root_dir, root_file) = project_root(&state)?;
-        Some(document_text(&root_dir, &root_file)?.0)
+        let root = project_root(&state)?;
+        Some(document_text(&root.dir, &root.file)?.0)
     } else {
         None
     };
@@ -344,7 +371,7 @@ pub fn assistant_prepare(
         id,
         provider,
         prompt,
-        selection,
+        purpose: Purpose::Rewrite { selection },
     });
     let (inspect_first, forced) = show_first(settings.inspect_first(), document.is_some());
     Ok(PreparedView {
@@ -369,14 +396,17 @@ pub async fn assistant_send(
     let (guard, project_dir) = project_guard(&state)?;
     // Checked again: the switch may have been turned off between looking and clicking Send.
     ready_to_send(&settings, keys.0.as_ref(), &project_dir)?;
-    let prepared = take_prepared(&reviews.prepared, id)
+    let prepared = take_prepared(&reviews.prepared, id, false)
         .ok_or_else(|| "That request is no longer waiting to be sent. Ask again.".to_string())?;
     let PreparedRequest {
         provider,
         prompt,
-        selection: sent,
+        purpose,
         ..
     } = prepared;
+    let Purpose::Rewrite { selection: sent } = purpose else {
+        unreachable!("take_prepared(.., false) only returns a rewrite");
+    };
 
     let key_store: Arc<dyn KeyStore> = Arc::clone(&keys.0);
     // `spawn_blocking`: the HTTP client is blocking, as for the GitHub calls and the connection test.
@@ -603,24 +633,43 @@ mod tests {
             id,
             provider: abstract_tex_assistant::Provider::anthropic("claude-x"),
             prompt: build_prompt(&Action::Tighten, "Some text.", None).unwrap(),
-            selection: "Some text.".into(),
+            purpose: Purpose::Rewrite {
+                selection: "Some text.".into(),
+            },
         }
     }
 
     #[test]
     fn a_prepared_request_can_be_sent_once_and_only_by_its_own_id() {
         let slot = Mutex::new(Some(prepared(4)));
-        assert!(take_prepared(&slot, 3).is_none(), "an old id is not the request");
+        assert!(
+            take_prepared(&slot, 3, false).is_none(),
+            "an old id is not the request"
+        );
         assert!(
             slot.lock().unwrap().is_some(),
             "and does not discard the real one"
         );
-        assert_eq!(take_prepared(&slot, 4).map(|request| request.id), Some(4));
+        assert_eq!(take_prepared(&slot, 4, false).map(|request| request.id), Some(4));
         assert!(
-            take_prepared(&slot, 4).is_none(),
+            take_prepared(&slot, 4, false).is_none(),
             "a second send has nothing to send"
         );
         assert!(slot.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_request_is_sent_only_by_the_command_made_for_its_purpose() {
+        let slot = Mutex::new(Some(prepared(4)));
+        assert!(
+            take_prepared(&slot, 4, true).is_none(),
+            "a rewrite cannot be sent as an explanation"
+        );
+        assert!(
+            slot.lock().unwrap().is_some(),
+            "and is not consumed by the attempt"
+        );
+        assert!(take_prepared(&slot, 4, false).is_some());
     }
 
     #[test]

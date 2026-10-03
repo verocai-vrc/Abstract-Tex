@@ -166,6 +166,12 @@ export interface AssistantPayload {
   staysOnThisComputer: boolean;
 }
 
+/** S13.2: the answer to "explain this error": a remembered answer (nothing to send), or a request. */
+export interface AssistantExplainPrepared {
+  cachedAnswer: string | null;
+  prepared: AssistantPrepared | null;
+}
+
 /** A request built and not yet sent: what `assistantPrepare` answers. */
 export interface AssistantPrepared {
   id: number;
@@ -661,6 +667,12 @@ export const ipc = {
    * Sends nothing; rejects with a sentence if the assistant is not set up and on for this project. */
   assistantPrepare: (action: AssistantAction, selection: string) =>
     invoke<AssistantPrepared>('assistant_prepare', { action, selection }),
+  /** S13.2: build the request that would explain a compile error no rule recognised, from that
+   * error's own log lines. Sends nothing; answers from memory when it has met the problem before. */
+  assistantPrepareExplain: (rawMessage: string) =>
+    invoke<AssistantExplainPrepared>('assistant_prepare_explain', { rawMessage }),
+  /** S13.2: send the prepared explanation request, once; answers with the model's words. */
+  assistantSendExplain: (id: number) => invoke<string>('assistant_send_explain', { id }),
   /** S12.3b: send the prepared request, once. The one call that sends text out of the machine. */
   assistantSend: (id: number) => invoke<AssistantProposal>('assistant_send', { id }),
   /** Forget a prepared request that was looked at and not sent. */

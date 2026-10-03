@@ -7,9 +7,14 @@
 import type { AssistantPayload, AssistantPayloadPart } from './ipc';
 
 /** What a part is, for the heading above its text. */
-export function partLabel(part: AssistantPayloadPart, position: number, parts: readonly AssistantPayloadPart[]): string {
+export function partLabel(
+  part: AssistantPayloadPart,
+  position: number,
+  parts: readonly AssistantPayloadPart[],
+  kind: 'rewrite' | 'explain' = 'rewrite',
+): string {
   if (part.label) return part.label;
-  if (part.role === 'user') return 'Your request';
+  if (part.role === 'user') return kind === 'explain' ? 'The lines of your build log' : 'Your request';
   if (part.role === 'assistant') return 'An earlier answer';
   const systemBefore = parts.slice(0, position).filter((other) => other.role === 'system').length;
   if (part.cached) return 'Context the provider is asked to remember';

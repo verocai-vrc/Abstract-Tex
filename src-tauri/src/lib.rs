@@ -16,6 +16,7 @@
 //! borrowed by commands as `State<'_, AppState>`.
 
 pub mod assistant;
+pub mod assistant_explain;
 pub mod assistant_review;
 pub mod bibliography;
 pub mod commands;
@@ -143,6 +144,8 @@ pub fn run() {
             assistant::assistant_set_inspect_first,
             assistant::assistant_test,
             assistant_review::assistant_prepare,
+            assistant_explain::assistant_prepare_explain,
+            assistant_explain::assistant_send_explain,
             assistant_review::assistant_send,
             assistant_review::assistant_cancel_prepared,
             assistant_review::assistant_apply,

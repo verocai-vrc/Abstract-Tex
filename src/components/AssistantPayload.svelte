@@ -39,6 +39,9 @@
             It is always shown first.
           {:else if carriesContext(payload)}
             This includes text you did not select, marked below.
+          {:else if prepared.kind === 'explain'}
+            Only these lines of your build log leave, with your folder’s name taken out, and the instructions below; not your
+            document. Nothing is sent until you press Send.
           {:else}
             Only the text you selected leaves, with the instructions below; not the rest of the file, and not your project.
           {/if}
@@ -47,7 +50,7 @@
         <div class="parts">
           {#each payload.parts as part, position (position)}
             <section class="part" class:context={part.cached}>
-              <h3>{partLabel(part, position, payload.parts)}</h3>
+              <h3>{partLabel(part, position, payload.parts, prepared.kind)}</h3>
               <pre>{part.text}</pre>
             </section>
           {/each}
@@ -67,7 +70,9 @@
           <p class="note">Laid out for reading; the bytes sent differ only in whitespace.</p>
         </details>
 
-        {#if prepared.forced}
+        {#if prepared.kind === 'explain'}
+          <p class="note remember">A question about a build error is always shown first.</p>
+        {:else if prepared.forced}
           <p class="note remember">Shown even though you turned this off, because your whole document is in the request.</p>
         {:else}
           <label class="remember">

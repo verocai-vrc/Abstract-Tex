@@ -592,6 +592,8 @@ export async function askAssistant(action: AssistantAction): Promise<void> {
     const prepared = await ipc.assistantPrepare(action, original);
     const request: PreparedState = {
       id: prepared.id,
+      kind: 'rewrite',
+      rawMessage: null,
       path,
       from: selection.from,
       actionLabel: assistantActionLabel(action),
@@ -612,20 +614,62 @@ export async function askAssistant(action: AssistantAction): Promise<void> {
 }
 
 /** Send the request the person has looked at (or chose not to look at), and open the review of the
- * answer. This is the only caller of `assistantSend`. */
+ * answer. The only caller of `assistantSend` and `assistantSendExplain`. */
 export async function sendPrepared(request: PreparedState | null = assistant.prepared): Promise<void> {
   if (!request || request.sending) return;
   // The dialog says "Sending…" only if it is up; with the inspector off there is no dialog to show.
   if (assistant.prepared?.id === request.id) assistant.prepared = { ...request, sending: true };
   assistant.asking = true;
   try {
-    const proposal = await ipc.assistantSend(request.id);
-    assistant.review = reviewFrom(proposal, request.path, request.from, request.actionLabel);
+    if (request.kind === 'explain' && request.rawMessage !== null) {
+      const text = await ipc.assistantSendExplain(request.id);
+      assistant.answers = { ...assistant.answers, [request.rawMessage]: { text, remembered: false } };
+    } else {
+      const proposal = await ipc.assistantSend(request.id);
+      assistant.review = reviewFrom(proposal, request.path, request.from, request.actionLabel);
+    }
   } catch (error) {
     app.notice = String(error);
   } finally {
     assistant.prepared = null;
     assistant.asking = false;
+    if (request.kind === 'explain') assistant.explaining = null;
+  }
+}
+
+/**
+ * S13.2: ask the assistant what a build error means, for an error no rule in the catalog explains.
+ * Never automatic: this builds the request from that error's own log lines and stops at the
+ * payload dialog, which is shown every time. A problem met before is answered from memory, with
+ * nothing sent.
+ */
+export async function explainWithAssistant(diagnostic: Diagnostic): Promise<void> {
+  if (!assistant.ready || diagnostic.rule !== null || diagnostic.severity !== 'error') return;
+  if (assistant.explaining !== null || assistant.asking) return;
+  assistant.explaining = diagnostic.rawMessage;
+  try {
+    const result = await ipc.assistantPrepareExplain(diagnostic.rawMessage);
+    if (result.cachedAnswer !== null) {
+      assistant.answers = { ...assistant.answers, [diagnostic.rawMessage]: { text: result.cachedAnswer, remembered: true } };
+      assistant.explaining = null;
+    } else if (result.prepared) {
+      assistant.prepared = {
+        id: result.prepared.id,
+        kind: 'explain',
+        rawMessage: diagnostic.rawMessage,
+        path: '',
+        from: 0,
+        actionLabel: 'Explain this error',
+        payload: result.prepared.payload,
+        forced: true,
+        sending: false,
+      };
+    } else {
+      assistant.explaining = null;
+    }
+  } catch (error) {
+    app.notice = String(error);
+    assistant.explaining = null;
   }
 }
 
@@ -634,6 +678,7 @@ export function cancelPrepared(): void {
   const request = assistant.prepared;
   if (!request || request.sending) return;
   assistant.prepared = null;
+  assistant.explaining = null;
   void ipc.assistantCancelPrepared(request.id).catch(() => {});
 }
 

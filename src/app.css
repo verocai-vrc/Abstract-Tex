@@ -584,6 +584,26 @@ kbd {
   padding: 2px 8px;
   color: var(--fg-muted);
 }
+/* An assistant's answer about a build error (S13.2): set apart from the catalog's own sentences. */
+.drawer .diag .assistant-answer {
+  grid-column: 2;
+  display: block;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  border-left: 2px solid var(--accent);
+  background: rgba(127, 127, 127, 0.08);
+  cursor: text;
+  user-select: text;
+}
+.drawer .diag .assistant-note {
+  display: block;
+  white-space: normal;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
 .drawer .filtered-out {
   color: var(--fg-muted);
 }

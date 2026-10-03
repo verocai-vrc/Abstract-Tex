@@ -34,6 +34,12 @@ describe('the payload inspector’s wording', () => {
     ]);
   });
 
+  it('calls the user part the build-log lines when the question is about an error', () => {
+    const parts = payload().parts;
+    expect(partLabel(parts[1]!, 1, parts, 'explain')).toBe('The lines of your build log');
+    expect(partLabel(parts[1]!, 1, parts)).toBe('Your request');
+  });
+
   it('says the size as a guess, and never "1 characters"', () => {
     expect(sizeLine(payload())).toBe('1,204 characters (about 402 tokens)');
     expect(sizeLine(payload({ characters: 1, approximateTokens: 1 }))).toBe('1 character (about 1 token)');

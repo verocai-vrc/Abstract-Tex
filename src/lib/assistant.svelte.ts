@@ -41,6 +41,10 @@ export function reviewFrom(proposal: AssistantProposal, path: string, from: numb
 /** A request that has been built and not yet sent (S13.3): the exact payload, waiting for a click. */
 export interface PreparedState {
   id: number;
+  /** What the request is for: rewriting a selection (S13.3) or explaining a build error (S13.2). */
+  kind: 'rewrite' | 'explain';
+  /** For `explain`: the error's own message, which the answer is filed under on the card. */
+  rawMessage: string | null;
   /** Where the selection was, as for a review: carried through to the review that follows. */
   path: string;
   from: number;
@@ -71,6 +75,11 @@ class AssistantState {
   selection = $state.raw<{ from: number; to: number } | null>(null);
   /** An action is waiting on the model. */
   asking = $state(false);
+  /** Explanations of build errors, by the error's message, for this session. A card shows its own. */
+  answers = $state.raw<Record<string, { text: string; remembered: boolean }>>({});
+  /** The error being asked about right now, so its button can say so. */
+  explaining = $state<string | null>(null);
+
   /** A request shown and not yet sent, if any. Nothing has left the machine while this is set. */
   prepared = $state.raw<PreparedState | null>(null);
   /** The suggestion being reviewed, if any. */

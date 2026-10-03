@@ -483,6 +483,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **Sending an explanation checked the assistant's opt-in against the root file's name, not the
+  project folder.** (3 Oct 2026, found walking S13.2 under Xvfb) `assistant_send_explain` took
+  `project_root`'s two paths from a tuple in the wrong order, so `ready_to_send` asked "is the
+  assistant on for `main.tex`?" and answered "not switched on for this project" at the moment of
+  *Send*, after the dialog had been shown. Two `PathBuf`s in a tuple type-check in either order.
+  **Fixed (S13.2):** `project_root` returns a `ProjectRoot { dir, file }`, so the field is named
+  where it is used. The unit tests could not see it (the commands take Tauri state); the walk did.
+
 - **The payload dialog's Send button scrolled out of reach when the exact request was opened.**
   (3 Oct 2026, found walking S13.3 under Xvfb) The whole dialog scrolled, so the footer with *Send*
   and *Cancel* sat below the fold exactly when the person was reading the long request body — the

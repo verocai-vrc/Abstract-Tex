@@ -11,6 +11,7 @@ import type {
   BibliographyIndex,
   BranchState,
   CommitRow,
+  Diagnostic,
   CompileEvent,
   ComparisonStarted,
   GitHubRepository,
@@ -116,9 +117,11 @@ let accountOnDisk: { login: string } | null = null;
 // S12.1b: what the backend would say about the assistant, and what was asked of it.
 let assistantStatusOnDisk: AssistantStatus = { provider: null, hasKey: false, enabled: false, inspectFirst: false };
 let assistantError: string | null = null;
+let explainAnswer: { cached: string | null } | Error = { cached: null };
+let explainSendAnswer: string | Error = 'The data file is missing.';
 let proposalAnswer: AssistantProposal | Error = { id: 1, original: '', hunks: [], unknownKeys: [] };
 let applyAnswer: string | Error = '';
-const reviewCalls = { prepared: [] as Array<[AssistantAction, string]>, proposed: [] as number[], dialogUpAtSend: [] as boolean[], cancelled: [] as number[], applied: [] as Array<[number, boolean[]]>, discarded: [] as number[] };
+const reviewCalls = { explainPrepared: [] as string[], explainSent: [] as number[], prepared: [] as Array<[AssistantAction, string]>, proposed: [] as number[], dialogUpAtSend: [] as boolean[], cancelled: [] as number[], applied: [] as Array<[number, boolean[]]>, discarded: [] as number[] };
 const assistantCalls = { saved: [] as Array<[AssistantProvider, string | null]>, enabled: [] as boolean[], tests: 0, clears: 0 };
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
@@ -474,6 +477,38 @@ vi.mock('./ipc', () => ({
       if (proposalAnswer instanceof Error) throw proposalAnswer;
       return proposalAnswer;
     },
+    assistantPrepareExplain: async (rawMessage: string) => {
+      reviewCalls.explainPrepared.push(rawMessage);
+      if (explainAnswer instanceof Error) throw explainAnswer;
+      if (explainAnswer.cached !== null) return { cachedAnswer: explainAnswer.cached, prepared: null };
+      return {
+        cachedAnswer: null,
+        prepared: {
+          id: 9,
+          inspectFirst: true,
+          forced: false,
+          payload: {
+            destination: 'api.anthropic.com',
+            url: 'https://api.anthropic.com/v1/messages',
+            model: 'claude-x',
+            parts: [
+              { role: 'system' as const, text: 'You help a researcher who writes LaTeX.', label: null, cached: false },
+              { role: 'user' as const, text: `<excerpt>\n! ${rawMessage}\n</excerpt>`, label: null, cached: false },
+            ],
+            headers: [],
+            body: '{}',
+            characters: 60,
+            approximateTokens: 20,
+            staysOnThisComputer: false,
+          },
+        },
+      };
+    },
+    assistantSendExplain: async (id: number) => {
+      reviewCalls.explainSent.push(id);
+      if (explainSendAnswer instanceof Error) throw explainSendAnswer;
+      return explainSendAnswer;
+    },
     assistantCancelPrepared: async (id: number) => {
       reviewCalls.cancelled.push(id);
     },
@@ -601,6 +636,7 @@ const {
   applyReview,
   closeReview,
   cancelPrepared,
+  explainWithAssistant,
   sendPrepared,
   setAssistantInspectFirst,
   toggleReviewHunk,
@@ -728,6 +764,12 @@ beforeEach(async () => {
   assistant.review = null;
   assistant.asking = false;
   reviewCalls.prepared = [];
+  reviewCalls.explainPrepared = [];
+  reviewCalls.explainSent = [];
+  explainAnswer = { cached: null };
+  explainSendAnswer = 'The data file is missing.';
+  assistant.answers = {};
+  assistant.explaining = null;
   reviewCalls.proposed = [];
   reviewCalls.cancelled = [];
   reviewCalls.dialogUpAtSend = [];
@@ -3691,5 +3733,100 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
       await Promise.all([first, second]);
       expect(reviewCalls.proposed).toEqual([3]);
     });
+  });
+});
+
+describe('asking the assistant about a build error no rule explains (S13.2)', () => {
+  const unexplained: Diagnostic = {
+    title: 'TeX reported an error',
+    explanation: 'There is no explanation for this one yet.',
+    line: 14,
+    file: 'main.tex',
+    severity: 'error',
+    rule: null,
+    rawMessage: 'Package pgfplots Error: Could not read the table.',
+    fix: null,
+  };
+
+  async function ready_to_ask() {
+    assistantStatusOnDisk = {
+      provider: { kind: 'anthropic', model: 'claude-x', address: 'https://api.anthropic.com' },
+      hasKey: true,
+      enabled: true,
+      inspectFirst: false, // even with looking switched off, this is always shown
+    };
+    await refreshAssistant();
+  }
+
+  it('does nothing unless the assistant is ready, and only for an unexplained error', async () => {
+    await explainWithAssistant(unexplained);
+    expect(reviewCalls.explainPrepared).toEqual([]);
+
+    await ready_to_ask();
+    await explainWithAssistant({ ...unexplained, rule: 'undefined-control-sequence' });
+    await explainWithAssistant({ ...unexplained, severity: 'warning' });
+    expect(reviewCalls.explainPrepared).toEqual([]);
+  });
+
+  it('builds the request and stops at the dialog, even with looking switched off', async () => {
+    await ready_to_ask();
+    await explainWithAssistant(unexplained);
+
+    expect(reviewCalls.explainPrepared).toEqual([unexplained.rawMessage]);
+    expect(reviewCalls.explainSent).toEqual([]); // nothing has left
+    expect(assistant.prepared).toMatchObject({ id: 9, kind: 'explain', rawMessage: unexplained.rawMessage, sending: false });
+    expect(assistant.prepared?.payload.parts.map((part) => part.text).join('')).not.toContain('\\begin{document}');
+  });
+
+  it('sends on Send, once, and files the answer under the error', async () => {
+    await ready_to_ask();
+    await explainWithAssistant(unexplained);
+    await sendPrepared();
+
+    expect(reviewCalls.explainSent).toEqual([9]);
+    expect(reviewCalls.proposed).toEqual([]); // not the rewrite command
+    expect(assistant.answers[unexplained.rawMessage]).toEqual({ text: 'The data file is missing.', remembered: false });
+    expect(assistant.prepared).toBeNull();
+    expect(assistant.explaining).toBeNull();
+    expect(assistant.review).toBeNull();
+  });
+
+  it('sends nothing when cancelled, and the button is free to ask again', async () => {
+    await ready_to_ask();
+    await explainWithAssistant(unexplained);
+    cancelPrepared();
+
+    expect(reviewCalls.explainSent).toEqual([]);
+    expect(reviewCalls.cancelled).toEqual([9]);
+    expect(assistant.explaining).toBeNull();
+    expect(assistant.answers).toEqual({});
+  });
+
+  it('shows a remembered answer without any request or dialog', async () => {
+    await ready_to_ask();
+    explainAnswer = { cached: 'Seen before: the file is missing.' };
+    await explainWithAssistant(unexplained);
+
+    expect(assistant.prepared).toBeNull();
+    expect(reviewCalls.explainSent).toEqual([]);
+    expect(assistant.answers[unexplained.rawMessage]).toEqual({ text: 'Seen before: the file is missing.', remembered: true });
+    expect(assistant.explaining).toBeNull();
+  });
+
+  it('says why, and frees the button, when the request cannot be built or sent', async () => {
+    await ready_to_ask();
+    explainAnswer = new Error('That error is not in the latest build log. Build again, then ask.');
+    await explainWithAssistant(unexplained);
+    expect(app.notice).toContain('not in the latest build log');
+    expect(assistant.explaining).toBeNull();
+
+    explainAnswer = { cached: null };
+    explainSendAnswer = new Error('The provider did not accept the key. Check it in the assistant’s settings.');
+    await explainWithAssistant(unexplained);
+    await sendPrepared();
+    expect(app.notice).toContain('did not accept the key');
+    expect(assistant.prepared).toBeNull();
+    expect(assistant.explaining).toBeNull();
+    expect(assistant.answers).toEqual({});
   });
 });

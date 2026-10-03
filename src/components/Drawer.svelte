@@ -12,9 +12,11 @@
   // `drawer.ts`, tested; this file only lays it out.
   import { app } from '../lib/state.svelte';
   import { compare } from '../lib/compare.svelte';
+  import { assistant } from '../lib/assistant.svelte';
   import {
     allowShellEscape,
     applyDiagnosticFix,
+    explainWithAssistant,
     jumpToDiagnostic,
     loadComparisonLog,
     setDrawerFilter,
@@ -111,6 +113,10 @@
     event.stopPropagation();
     void allowShellEscape();
   }
+  function onExplain(event: MouseEvent, diagnostic: Diagnostic) {
+    event.stopPropagation();
+    void explainWithAssistant(diagnostic);
+  }
   function onRawLog(event: MouseEvent, diagnostic: Diagnostic) {
     event.stopPropagation();
     void showRawLogFor(diagnostic);
@@ -204,6 +210,7 @@
             </span>
           </h3>
           {#each group.diagnostics as diagnostic, i (i)}
+            {@const answer = assistant.answers[diagnostic.rawMessage]}
             <div
               class="diag"
               class:warning={diagnostic.severity === 'warning'}
@@ -230,10 +237,29 @@
                   <!-- S9.8: not a text fix, a permission; the dialog behind it asks first. -->
                   <button class="ghost fix" onclick={onAllowShellEscape}>Allow for this folder…</button>
                 {/if}
+                {#if assistant.ready && diagnostic.rule === null && diagnostic.severity === 'error'}
+                  <!-- S13.2: never automatic; this only builds the request and shows it. -->
+                  <button
+                    class="ghost fix"
+                    disabled={assistant.explaining !== null || assistant.asking}
+                    title="Show exactly what would be sent, and send it only if you say so"
+                    onclick={(e) => onExplain(e, diagnostic)}
+                  >
+                    {assistant.explaining === diagnostic.rawMessage ? 'Asking…' : 'Ask the assistant'}
+                  </button>
+                {/if}
                 <button class="ghost raw" title="Show what TeX printed for this" onclick={(e) => onRawLog(e, diagnostic)}>
                   Raw log
                 </button>
               </span>
+              {#if answer}
+                <span class="assistant-answer">
+                  {answer.text}
+                  <span class="assistant-note">
+                    From the assistant, so it may be wrong.{#if answer.remembered}{' '}Remembered from earlier on this computer; nothing was sent.{/if}
+                  </span>
+                </span>
+              {/if}
             </div>
           {/each}
         </section>

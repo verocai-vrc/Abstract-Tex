@@ -6352,12 +6352,49 @@ older there than in the selection (the editor saves as you type, so the gap is s
 selection itself is always the buffer's); Anthropic's actual cache hit is unmeasured without an
 account; a manuscript over the limit has no "just the chapter" option yet.
 
+**S13.2 (3 October 2026).** `[x]` — rung 4 walked: `pnpm verify` exit 0, `cargo test --workspace` 783
+passed / 0 failed (13 new: 7 in `abstract-tex-assistant/src/explain.rs`, 6 at the app edge), Vitest
+721/721 (7 new). The model fallback for a compile error no rule recognises. In the window, with
+"show me each request" switched **off**: a document whose `\PackageError` has no rule showed the
+card "TeX reported an error" with a new **Ask the assistant** button; it opened the payload dialog
+(the model server had heard nothing), listing the instructions and **the lines of your build log**
+— the error, TeX's help text and the `l.4 …` line, nothing else, no folder name; *Send* sent one
+request and the answer appeared on the card, set apart and labelled "From the assistant, so it may
+be wrong"; after a restart, asking again answered from memory with **no dialog and no request**.
+What a reader should take from the diff:
+
+1. **Never automatic, and always shown.** Unlike a rewrite, this dialog ignores the "show me each
+   request" setting: the log is not something the person chose to share. The button exists only on
+   an *error* with no rule, only when the assistant is ready; Rust checks again at prepare and
+   again at send.
+2. **The excerpt is the error's own lines.** `log_excerpt` runs from the `! …` line to the `l.NN`
+   line and one more, at most 12 lines and 2,000 characters, stopping before the next error.
+   The project's folder is replaced by `<project>` in both slash directions before anything else
+   happens, so a home-directory user name does not leave. The prompt carries nothing of the document.
+3. **Answers are remembered by the problem, not the line.** The signature turns `l.14` into `l.N`
+   and collapses spaces, so the same mistake on another line is the same entry; the file name is an
+   FNV-1a hash (stable across Rust versions, pinned by a test) and the file carries the whole
+   signature, so a collision is a miss. They live in `.abstract-tex/cache/explain/` — the folder
+   that already ignores itself and may be deleted at any moment. A cut-off answer is not kept; a
+   failure to write one never fails the answer.
+4. **A request is sent only by the command made for it.** `take_prepared(.., explain)` checks the
+   purpose, so a rewrite cannot be sent through the explain command or the reverse; a wrong attempt
+   consumes nothing.
+5. **Rung 4 found a bug the unit tests could not:** the send command checked the opt-in against the
+   root *file's* name (a swapped tuple), so *Send* was refused with "not switched on". Fixed by
+   making `project_root` return a struct with named fields (ledger).
+
+Not done: the answer lives in the drawer card for the session (it is re-read from memory on the
+next ask, not shown automatically after a restart); only errors, not warnings, are offered; an
+answer is plain text, never applied to a document, so the citation guard has nothing to guard
+here; what a real model says about a real obscure package error is unmeasured without an account.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2
 **citation-fabrication guard with adversarial tests, written first** · S12.3 selection-scoped
 diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint (done, above) ·
-S13.2 model fallback for unmatched errors, cached by log signature · S13.3 payload inspector (done, above) ·
+S13.2 model fallback for unmatched errors, cached by log signature (done, above) · S13.3 payload inspector (done, above) ·
 S13.4 no-network test: zero outbound requests with no key.
 
 ### Sprint 14–15 — v0.8 live
