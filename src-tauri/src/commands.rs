@@ -8,7 +8,7 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{BranchState, CommitRow, Discarded, Initialised, LargeFile, ProseSummary, Status as GitStatus, SyncOutcome};
+use abstract_tex_git::{BranchState, CommitRow, DiffSides, Discarded, Initialised, LargeFile, ProseSummary, Status as GitStatus, SyncOutcome};
 use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_reconcile::TextOp;
@@ -673,6 +673,13 @@ pub fn git_stage(app: AppHandle, state: State<'_, AppState>, path: String) -> Co
     git::in_repository(&state, |repository| abstract_tex_git::stage(repository, &path))?;
     git::emit_status_changed(&app);
     Ok(())
+}
+
+/// The two texts a row's side-by-side view compares (S11.7): `staged == false` is the index against
+/// the working tree — what *Stage* would add — and `true` is `HEAD` against the index. Reads only.
+#[tauri::command]
+pub fn git_diff_sides(state: State<'_, AppState>, path: String, staged: bool) -> CommandResult<DiffSides> {
+    git::in_repository(&state, |repository| abstract_tex_git::diff_sides(repository, &path, staged))
 }
 
 /// Put the index entry back to what `HEAD` has, leaving the file on disk alone.

@@ -105,6 +105,17 @@ pub enum GitError {
     #[error("{0} already has files in it, so nothing was downloaded there. Pick an empty folder, or a new name.")]
     DestinationNotEmpty(String),
 
+    /// S11.7: a side-by-side view of a file that is not text. The view is offered for `.tex` and
+    /// `.bib` only, so this is a file that claims to be one and is not valid UTF-8 — a lossy
+    /// decode would show text the file does not contain.
+    #[error("{0} is not a text file, so there is no side-by-side view of it.")]
+    NotText(String),
+
+    /// S11.7: a path that leaves the repository. The frontend only ever passes the paths a row
+    /// gave it; one that is absolute or climbs out is a bug, refused rather than read.
+    #[error("{0} is not a path inside this project.")]
+    OutsideProject(String),
+
     #[error("{0} is over {1} MB — GitHub refuses any file over 100 MB. Push refused; remove it from history or track it with Git LFS first.")]
     FileTooLarge(String, u64),
 }
@@ -1317,6 +1328,73 @@ fn oversized_blobs(
         }
     }
     Ok(found)
+}
+
+// ---------------------------------------------------------------------------------------------
+// S11.7: the two sides of a file's diff, for the side-by-side view.
+// ---------------------------------------------------------------------------------------------
+
+/// The two texts a change row's side-by-side view compares.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffSides {
+    /// The older side: what the other side would replace. Empty for a file that did not exist there.
+    pub before: String,
+    /// The newer side. Empty for a file that no longer exists there.
+    pub after: String,
+}
+
+/// What *Stage* (or *Unstage*) on this path would change, as two texts.
+///
+/// - `staged == false` — a row in *Changes*: the index against the working tree. Exactly what
+///   *Stage* would add to the next commit (design interview B8).
+/// - `staged == true` — a row in *Staged Changes*: `HEAD` against the index. Exactly what the next
+///   commit would contain.
+///
+/// A side that does not exist (an untracked file's index entry, a deleted file's working copy, an
+/// unborn branch's `HEAD`) is empty text, so the view shows a pure addition or a pure removal.
+/// Reads only: nothing here touches the index or the working tree.
+pub fn diff_sides(repository: &Repository, path: &str, staged: bool) -> Result<DiffSides, GitError> {
+    let relative = Path::new(path);
+    let stays_inside = !relative.is_absolute()
+        && relative.components().all(|component| matches!(component, std::path::Component::Normal(_)));
+    if !stays_inside {
+        return Err(GitError::OutsideProject(path.to_string()));
+    }
+
+    let in_index = || -> Result<String, GitError> {
+        let index = repository.index()?;
+        match index.get_path(relative, 0) {
+            Some(entry) => text_of_blob(repository, entry.id, path),
+            None => Ok(String::new()),
+        }
+    };
+
+    if staged {
+        let before = match repository.head().and_then(|head| head.peel_to_tree()) {
+            Ok(tree) => match tree.get_path(relative) {
+                Ok(entry) => text_of_blob(repository, entry.id(), path)?,
+                Err(_) => String::new(),
+            },
+            Err(_) => String::new(), // an unborn branch has no `HEAD` tree
+        };
+        Ok(DiffSides { before, after: in_index()? })
+    } else {
+        let after = match workdir_path(repository, path) {
+            Some(file) if file.is_file() => {
+                String::from_utf8(std::fs::read(&file)?).map_err(|_| GitError::NotText(path.to_string()))?
+            }
+            _ => String::new(),
+        };
+        Ok(DiffSides { before: in_index()?, after })
+    }
+}
+
+/// A blob as text, refusing what is not UTF-8. (`blob_text`, above, is lossy on purpose: it feeds
+/// a word count, where a replacement character costs nothing. Here the text is *shown*.)
+fn text_of_blob(repository: &Repository, id: git2::Oid, path: &str) -> Result<String, GitError> {
+    let blob = repository.find_blob(id)?;
+    String::from_utf8(blob.content().to_vec()).map_err(|_| GitError::NotText(path.to_string()))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2557,5 +2635,92 @@ mod tests {
         assert!(!is_github_https("http://github.com/ada/thesis.git"), "plain http would send it in the clear");
         assert!(!is_github_https("git@github.com:ada/thesis.git"));
         assert!(!is_github_https("/home/ada/thesis.git"));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S11.7: the two sides of a diff.
+    // -----------------------------------------------------------------------------------------
+
+    #[test]
+    fn a_changes_row_compares_the_index_with_the_working_tree() {
+        let (tmp, repository) = repo(); // main.tex = "the manuscript\n", committed
+        fs::write(tmp.path().join("main.tex"), "the manuscript, revised\n").unwrap();
+
+        let sides = diff_sides(&repository, "main.tex", false).unwrap();
+
+        assert_eq!(sides.before, "the manuscript\n");
+        assert_eq!(sides.after, "the manuscript, revised\n");
+    }
+
+    #[test]
+    fn once_staged_the_changes_side_is_empty_and_the_staged_side_has_the_edit() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), "staged edit\n").unwrap();
+        stage(&repository, "main.tex").unwrap();
+
+        let unstaged = diff_sides(&repository, "main.tex", false).unwrap();
+        let staged = diff_sides(&repository, "main.tex", true).unwrap();
+
+        assert_eq!(unstaged.before, unstaged.after, "nothing left to stage");
+        assert_eq!(staged.before, "the manuscript\n");
+        assert_eq!(staged.after, "staged edit\n");
+    }
+
+    #[test]
+    fn a_file_staged_and_edited_again_shows_each_row_its_own_pair() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), "staged\n").unwrap();
+        stage(&repository, "main.tex").unwrap();
+        fs::write(tmp.path().join("main.tex"), "edited again\n").unwrap();
+
+        assert_eq!(diff_sides(&repository, "main.tex", false).unwrap(), DiffSides { before: "staged\n".into(), after: "edited again\n".into() });
+        assert_eq!(diff_sides(&repository, "main.tex", true).unwrap(), DiffSides { before: "the manuscript\n".into(), after: "staged\n".into() });
+    }
+
+    #[test]
+    fn a_new_file_is_a_pure_addition_and_a_deleted_one_a_pure_removal() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("new.tex"), "brand new\n").unwrap();
+        let untracked = diff_sides(&repository, "new.tex", false).unwrap();
+        assert_eq!((untracked.before.as_str(), untracked.after.as_str()), ("", "brand new\n"));
+
+        fs::remove_file(tmp.path().join("main.tex")).unwrap();
+        let deleted = diff_sides(&repository, "main.tex", false).unwrap();
+        assert_eq!((deleted.before.as_str(), deleted.after.as_str()), ("the manuscript\n", ""));
+    }
+
+    #[test]
+    fn a_staged_file_on_an_unborn_branch_has_an_empty_before() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repository = Repository::init(tmp.path()).unwrap();
+        fs::write(tmp.path().join("first.tex"), "first words\n").unwrap();
+        stage(&repository, "first.tex").unwrap();
+
+        let sides = diff_sides(&repository, "first.tex", true).unwrap();
+
+        assert_eq!((sides.before.as_str(), sides.after.as_str()), ("", "first words\n"));
+    }
+
+    #[test]
+    fn diff_sides_reads_without_changing_anything_and_refuses_paths_that_leave_the_project() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), "edited\n").unwrap();
+        let before = changes(&repository);
+
+        diff_sides(&repository, "main.tex", false).unwrap();
+        diff_sides(&repository, "main.tex", true).unwrap();
+
+        assert_eq!(changes(&repository), before, "looking at a diff must not stage anything");
+        for bad in ["../elsewhere.tex", "/etc/passwd", "a/../../b.tex"] {
+            assert!(matches!(diff_sides(&repository, bad, false), Err(GitError::OutsideProject(_))), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_not_utf8_is_refused_rather_than_shown_garbled() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), [0xff, 0xfe, 0x00]).unwrap();
+
+        assert!(matches!(diff_sides(&repository, "main.tex", false), Err(GitError::NotText(_))));
     }
 }

@@ -158,6 +158,7 @@ pub fn run() {
             commands::github_create_repository,
             commands::github_list_repositories,
             commands::git_clone,
+            commands::git_diff_sides,
             commands::snapshot_list,
             commands::snapshot_files,
             commands::snapshot_read,
