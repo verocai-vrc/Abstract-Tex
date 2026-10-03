@@ -15,6 +15,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`credentials()` may offer a rejected token for ever.** (3 Oct 2026, suspected while building
+  S11.5a) libgit2 calls a credential callback again after the server refuses what it returned, until
+  the callback answers with an error. `abstract_tex_git::credentials` returns the same token every
+  time it is asked, so a revoked or wrong token would not produce "authentication failed" but a
+  fetch, push or clone that never finishes. **Not confirmed**: every test remote here is a local
+  path, which never asks for a credential at all. What settles it: S11.8's smart-HTTP bare remote
+  with a deliberately wrong token. The fix, if it loops, is a flag so the token is offered once.
+  **Open.**
+
 - **A comparison's "Raw output" is the engine's stderr, not its `main.log`.** (3 Oct 2026, S11.4d)
   The drawer's comparison section (A7: "raw log one click away") can only show what the
   `compile-diff` `finished` event carries, which is `stderr`. `read_log` reads the *live* build's

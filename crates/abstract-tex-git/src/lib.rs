@@ -99,6 +99,12 @@ pub enum GitError {
     /// limit. Caught here, before the network call, rather than left for GitHub to refuse —
     /// that refusal names no file and leaves the push half-sent. The size is already rounded up
     /// to a whole MB at the call site, so "100 MB" in the sentence always means "really over."
+    /// S11.5a: `clone` into a folder that already has something in it. libgit2 would refuse too,
+    /// but with a message about its own bookkeeping; the author needs to hear which folder, and
+    /// that nothing was touched.
+    #[error("{0} already has files in it, so nothing was downloaded there. Pick an empty folder, or a new name.")]
+    DestinationNotEmpty(String),
+
     #[error("{0} is over {1} MB — GitHub refuses any file over 100 MB. Push refused; remove it from history or track it with Git LFS first.")]
     FileTooLarge(String, u64),
 }
@@ -1297,6 +1303,79 @@ fn oversized_blobs(
     Ok(found)
 }
 
+// ---------------------------------------------------------------------------------------------
+// S11.5a: clone.
+// ---------------------------------------------------------------------------------------------
+
+/// A folder name for a repository URL: its last path segment without `.git`, which is what
+/// `git clone` itself picks. `None` for a URL that has no usable segment (`https://github.com/`),
+/// so the caller asks the author for a name rather than creating a folder called `""`.
+///
+/// Both separators are split on, because a local path on Windows is a repository URL too, and
+/// `scp`-style `host:owner/repo.git` addresses end in the same way.
+pub fn folder_name_for(url: &str) -> Option<String> {
+    let url = url.trim();
+    // `https://host/…`: only what follows the host can name a folder, so `https://github.com/`
+    // has none rather than the host's own name.
+    let path = match url.split_once("://") {
+        Some((_scheme, rest)) => rest.split_once('/').map_or("", |(_host, path)| path),
+        None => url,
+    };
+    let last = path.trim_end_matches(['/', '\\']).rsplit(['/', '\\', ':']).next()?;
+    let name = last.strip_suffix(".git").unwrap_or(last).trim();
+    if name.is_empty() || name == "." || name == ".." {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+/// Download the repository at `url` into `destination`, which must not exist yet or must be empty.
+///
+/// The second half of the exit demo's "continue on another machine, with no terminal": everything
+/// after this is the same project the rest of the crate already knows how to open. `token` is
+/// offered the way `fetch` and `push` offer it, and only when the remote asks.
+///
+/// **Leaves nothing behind on failure.** A clone that stops halfway (a wrong URL, a refused
+/// credential, a network that went away) would otherwise leave a folder with a half-built `.git`
+/// in it, which the next attempt would then refuse as "not empty". A folder this call created is
+/// removed whole; an empty one it was given is emptied and left in place, since it was the
+/// author's.
+///
+/// An *empty* remote (a repository just created on GitHub, nothing pushed) clones fine, into a
+/// repository with no commits: the same unborn state `initialise` can leave, which the rest of
+/// the crate already answers in sentences.
+pub fn clone(url: &str, destination: &Path, token: Option<&str>) -> Result<Repository, GitError> {
+    let existed = destination.exists();
+    if existed && (!destination.is_dir() || std::fs::read_dir(destination)?.next().is_some()) {
+        return Err(GitError::DestinationNotEmpty(destination.display().to_string()));
+    }
+
+    let mut options = git2::FetchOptions::new();
+    options.remote_callbacks(credentials(token));
+    let mut builder = git2::build::RepoBuilder::new();
+    builder.fetch_options(options);
+
+    match builder.clone(url, destination) {
+        Ok(repository) => Ok(repository),
+        Err(error) => {
+            // Best effort, and deliberately silent about its own failure: the clone's error is
+            // the one the author needs, and a cleanup that also failed must not replace it.
+            if existed {
+                if let Ok(entries) = std::fs::read_dir(destination) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        let _ = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
+                    }
+                }
+            } else {
+                let _ = std::fs::remove_dir_all(destination);
+            }
+            Err(error.into())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2337,5 +2416,114 @@ mod tests {
         let repository = Repository::init(tmp.path()).unwrap();
 
         assert!(matches!(amend(&repository, "anything"), Err(GitError::NothingToAmend)));
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S11.5a: clone.
+    // -----------------------------------------------------------------------------------------
+
+    /// A bare repository holding one pushed commit (`main.tex`), standing in for a project a
+    /// coauthor already has on GitHub. Built by pushing a real working repository into it, the
+    /// way the first machine's *Sync* would have.
+    fn published_project() -> (tempfile::TempDir, tempfile::TempDir) {
+        let (work, repository, bare, _branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        (work, bare)
+    }
+
+    #[test]
+    fn clone_brings_down_the_files_and_the_history_and_points_origin_back() {
+        let (_work, bare) = published_project();
+        let parent = tempfile::tempdir().unwrap();
+        let destination = parent.path().join("paper");
+
+        let cloned = clone(bare.path().to_str().unwrap(), &destination, None).unwrap();
+
+        assert_eq!(fs::read_to_string(destination.join("main.tex")).unwrap(), "the manuscript\n");
+        assert_eq!(log(&cloned, 0, 10).unwrap().len(), 1);
+        assert_eq!(origin_url(&cloned).as_deref(), bare.path().to_str());
+        // Tracking is set up, so the Sync button's arrows have something to compare against.
+        assert_eq!(branch_state(&cloned).unwrap().ahead_behind, Some((0, 0)));
+    }
+
+    #[test]
+    fn clone_makes_the_folder_and_its_parents_when_they_are_not_there() {
+        let (_work, bare) = published_project();
+        let parent = tempfile::tempdir().unwrap();
+        let destination = parent.path().join("papers").join("2026").join("thesis");
+
+        clone(bare.path().to_str().unwrap(), &destination, None).unwrap();
+
+        assert!(destination.join("main.tex").exists());
+    }
+
+    #[test]
+    fn clone_into_an_existing_empty_folder_is_fine() {
+        let (_work, bare) = published_project();
+        let destination = tempfile::tempdir().unwrap();
+
+        clone(bare.path().to_str().unwrap(), destination.path(), None).unwrap();
+
+        assert!(destination.path().join("main.tex").exists());
+    }
+
+    #[test]
+    fn clone_refuses_a_folder_with_files_in_it_and_touches_nothing() {
+        let (_work, bare) = published_project();
+        let destination = tempfile::tempdir().unwrap();
+        fs::write(destination.path().join("mine.txt"), "keep me").unwrap();
+
+        let error = clone(bare.path().to_str().unwrap(), destination.path(), None).err().unwrap();
+
+        assert!(matches!(error, GitError::DestinationNotEmpty(_)), "{error:?}");
+        assert_eq!(fs::read_to_string(destination.path().join("mine.txt")).unwrap(), "keep me");
+        assert!(!destination.path().join("main.tex").exists());
+    }
+
+    #[test]
+    fn a_failed_clone_removes_the_folder_it_made() {
+        let parent = tempfile::tempdir().unwrap();
+        let destination = parent.path().join("paper");
+        let nowhere = parent.path().join("no-such-repository");
+
+        let error = clone(nowhere.to_str().unwrap(), &destination, None).err().unwrap();
+
+        assert!(matches!(error, GitError::Git(_)), "{error:?}");
+        assert!(!destination.exists(), "a half-made folder was left behind");
+    }
+
+    #[test]
+    fn a_failed_clone_empties_but_keeps_a_folder_it_was_given() {
+        let parent = tempfile::tempdir().unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let nowhere = parent.path().join("no-such-repository");
+
+        clone(nowhere.to_str().unwrap(), destination.path(), None).err().unwrap();
+
+        assert!(destination.path().is_dir());
+        assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn an_empty_remote_clones_into_a_repository_with_no_commits() {
+        let bare = bare_remote();
+        let parent = tempfile::tempdir().unwrap();
+        let destination = parent.path().join("fresh");
+
+        let cloned = clone(bare.path().to_str().unwrap(), &destination, None).unwrap();
+
+        assert!(branch_state(&cloned).unwrap().unborn);
+    }
+
+    #[test]
+    fn folder_names_follow_what_git_clone_picks() {
+        assert_eq!(folder_name_for("https://github.com/ada/thesis.git").as_deref(), Some("thesis"));
+        assert_eq!(folder_name_for("https://github.com/ada/thesis").as_deref(), Some("thesis"));
+        assert_eq!(folder_name_for("https://github.com/ada/thesis/").as_deref(), Some("thesis"));
+        assert_eq!(folder_name_for("git@github.com:ada/thesis.git").as_deref(), Some("thesis"));
+        assert_eq!(folder_name_for(r"C:\repos\thesis.git").as_deref(), Some("thesis"));
+        assert_eq!(folder_name_for("https://github.com/"), None);
+        assert_eq!(folder_name_for(""), None);
+        assert_eq!(folder_name_for("   "), None);
     }
 }

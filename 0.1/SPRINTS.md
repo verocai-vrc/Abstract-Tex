@@ -5437,6 +5437,41 @@ Windows smoke campaign that follows. What a reader should take from the diff:
    `main.log`; and leaving a comparison does not cancel its build. Neither needed Rust, and
    this loop has none.
 
+**S11.5 splits two ways, 3 October 2026** (the S11.4 shape, and for the reason `CLAUDE.md` gives
+for splitting at all: one commit of crate, GitHub listing, commands and UI would pass ~400 lines of
+Rust). **S11.5a**: `abstract_tex_git::clone`, no Tauri, no account. **S11.5b**: the account's
+repository list in `abstract-tex-github`, the app-edge command, and the Clone window — the part
+whose real-account rung waits on the OAuth app (B1, registered at the start of S11.8). The order to
+the end of v0.6 puts the Windows smoke campaign before S11.5; it needs the maintainer at the
+Windows machine and nothing here depends on its results, so S11.5a was built without it.
+
+```
+Loop      S11.5a · Clone a repository, in the git crate · S
+Reads     DESIGN.md §5.7 (the one-verb path), §7 v0.6 exit; design-interview.md B2
+Depends   S11.1a (`credentials`, the same callback fetch and push use)
+Files     crates/abstract-tex-git/src/lib.rs
+Build     `clone(url, destination, token)`: refuses a destination that has files in it with a
+          sentence naming it (`DestinationNotEmpty`), before anything is written; otherwise
+          libgit2's clone with the credential callback offered only when the remote asks. A failed
+          clone leaves nothing behind — a folder it made is removed whole, an empty one it was
+          given is emptied and kept — because a half-built `.git` would make the next attempt
+          refuse as "not empty". `folder_name_for(url)` is `git clone`'s own choice of folder
+          name, `None` for a URL with nothing usable (so the window asks, not invents).
+Verify    cargo test -p abstract-tex-git -- clone folder_names
+Done when a pushed project clones with its files, history, `origin` and tracking; missing parent
+          folders are made; an empty folder is accepted and a non-empty one refused untouched; a
+          failed clone leaves no folder (or an empty given one); an empty remote clones into an
+          unborn repository.
+```
+
+**S11.5a (3 October 2026).** `[x]` (a crate-only loop, design interview C1b): `cargo test -p
+abstract-tex-git` 62 passed (9 new), clippy and `cargo doc` clean. What a reader should take from
+the diff: the cleanup rule above is the one decision with a reason that is not obvious, and the
+tests drive every branch of it against a local bare repository. What is *not* proven: a clone over
+smart HTTP with a real token. Nothing in this machine's tests exercises `credentials()` at all
+(every remote is local), which S11.8's HTTP bare remote is for. A rejected token may loop in
+libgit2's credential callback; logged in the ledger as a suspicion, not a finding.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
