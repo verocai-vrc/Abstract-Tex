@@ -6280,6 +6280,16 @@ support the claim* answer in prose and have no diff, so they are not here; the l
 promises for a held-back key is a sentence telling the author to add it (the DOI-paste path already
 exists) rather than a button. Untested against a real Anthropic or OpenAI answer.
 
+**Sprint 12 closed (3 October 2026): S12.0, S12.1a, S12.1b, S12.2, S12.3a, S12.3b.** The v0.7 exit
+("no fabricated citation key can reach the buffer under adversarial prompting; every compile error
+not covered by a rule still produces an explanation") is half met: the first half has its tests
+(`tests/citation_guard.rs`, `tests/edits.rs`'s property test that `apply` never returns what the
+guard refuses) and a walk in the real window; the second half is S13.2. Sprint 13 starts with
+S13.3, the payload inspector, **before** S13.1: whole-document context sends a manuscript out, and
+the person must be able to see exactly what before it does. S13.4's no-network test then covers the
+app as a whole (today it holds per piece: the assistant crate connects to nothing until `complete`
+is called, and the app calls it from two places, the test button and a proposal).
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2
