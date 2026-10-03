@@ -4,6 +4,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
+import { clone } from './clone.svelte';
 import {
   compare,
   describeEnd,
@@ -16,7 +17,7 @@ import {
 import { git, GRAPH_PAGE, NO_CHANGES, relativeTime, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
 import { registerCommand } from './commands';
-import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent, type Visibility } from './ipc';
+import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
@@ -558,6 +559,68 @@ async function refreshGitGraph(): Promise<void> {
   }
 }
 
+// ---- Cloning a repository (S11.5b, design interview B2) ----------------------------------------
+
+/** Open the Clone window. Lists the account's repositories when somebody is signed in; the URL
+ * field works with no account at all (rule 6: the account list is a convenience, never a gate). */
+export function showCloneWindow(): void {
+  clone.visible = true;
+  clone.error = null;
+  if (github.account) void loadCloneList();
+}
+
+export function closeCloneWindow(): void {
+  clone.visible = false;
+}
+
+/** Ask GitHub what the account can clone. A rejected sign-in is forgotten by Rust; asking for the
+ * account again is how the window learns that, so it offers sign-in rather than an empty list. */
+export async function loadCloneList(): Promise<void> {
+  if (clone.listing) return;
+  clone.listing = true;
+  clone.listError = null;
+  try {
+    clone.repositories = await ipc.githubListRepositories();
+  } catch (error) {
+    clone.repositories = null;
+    clone.listError = String(error);
+    void refreshGitHubAccount();
+  } finally {
+    clone.listing = false;
+  }
+}
+
+/** Choosing a row only fills in the address: the author can still change the folder's name, and
+ * cloning is its own deliberate press. */
+export function chooseRepositoryToClone(repository: GitHubRepository): void {
+  clone.url = repository.cloneUrl;
+  clone.folderName = '';
+  clone.error = null;
+}
+
+/** *Clone*: pick the folder to put it in, download, and open the result like any project. Nothing
+ * is touched if the author cancels the picker; a failure is a sentence in the window and leaves no
+ * half-made folder (`abstract_tex_git::clone`). */
+export async function cloneRepository(): Promise<void> {
+  if (clone.cloning || clone.url.trim() === '') return;
+  clone.error = null;
+  try {
+    const parent = await ipc.pickParentFolder();
+    if (!parent) return;
+    clone.cloning = true;
+    const folderName = clone.folderName.trim();
+    const folder = await ipc.gitClone(clone.url.trim(), parent, folderName === '' ? null : folderName);
+    clone.visible = false;
+    clone.url = '';
+    clone.folderName = '';
+    await openFolder(folder);
+  } catch (error) {
+    clone.error = String(error);
+  } finally {
+    clone.cloning = false;
+  }
+}
+
 // ---- Comparing two commits (S11.4d, DESIGN.md §5.7) --------------------------------------------
 
 /** Which request for a comparison is the latest. `compare_revisions` answers at once, but two
@@ -1027,7 +1090,11 @@ export async function start(): Promise<void> {
   // notes), so this subscription is the only thing that keeps the panel current.
   await ipc.onGitStatusChanged(() => scheduleGitRefresh());
   // S10.4b: a sign-in reports itself in stages, because it takes as long as a person takes.
-  await ipc.onGitHubSignIn((event) => applySignInEvent(event, Date.now()));
+  await ipc.onGitHubSignIn((event) => {
+    applySignInEvent(event, Date.now());
+    // A sign-in finished with the Clone window open (S11.5b): its list was waiting for exactly this.
+    if (event.stage === 'signedIn' && clone.visible) void loadCloneList();
+  });
   // Who is signed in, asked once. Failure is a sentence in the panel, never a notice: nothing
   // else in the app needs an account.
   void refreshGitHubAccount();
@@ -1363,6 +1430,12 @@ registerCommand({
   run: () => showActivityView('source-control'),
 });
 // S11.4d (A10): the commonest comparison, with no clicking.
+registerCommand({
+  id: 'clone-repository',
+  title: 'Clone a repository…',
+  category: 'action',
+  run: () => showCloneWindow(),
+});
 registerCommand({
   id: 'compare-previous-commit',
   title: 'Compare with previous commit',

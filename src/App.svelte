@@ -4,6 +4,7 @@
   import {
     openFolder,
     saveNow,
+    showCloneWindow,
     showActivityView,
     start,
     toggleCommandPalette,
@@ -20,6 +21,7 @@
   import StatusBar from './components/StatusBar.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+  import CloneWindow from './components/CloneWindow.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
   import BibliographyHealth from './components/BibliographyHealth.svelte';
 
@@ -67,6 +69,7 @@
   <header class="toolbar">
     <span class="title">Abstract-Tex</span>
     <button onclick={() => void openFolder()}>Open folder…</button>
+    <button onclick={() => showCloneWindow()}>Clone…</button>
     <span class="project-name">{app.project ? app.project.rootDir : 'No project open'}</span>
     <button
       class="primary"
@@ -96,5 +99,6 @@
 
 <QuickOpen />
 <CommandPalette />
+<CloneWindow />
 <ZoteroLink />
 <BibliographyHealth />

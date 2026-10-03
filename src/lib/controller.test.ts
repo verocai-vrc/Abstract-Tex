@@ -9,6 +9,7 @@ import type {
   CommitRow,
   CompileEvent,
   ComparisonStarted,
+  GitHubRepository,
   Discarded,
   Finding,
   ProseSummary,
@@ -126,6 +127,11 @@ let compareAnswer: (older: string, newer: string) => Promise<ComparisonStarted> 
   generation: 1,
 });
 let savePathAnswer: string | null = '/out/diff.pdf';
+/** S11.5b: what the Clone window's calls answer with, and what they were asked. */
+let listAnswer: GitHubRepository[] | Error = [];
+let cloneAnswer: string | Error = '/papers/thesis';
+let parentFolderAnswer: string | null = '/papers';
+const clones = { asked: [] as Array<[string, string, string | null]>, lists: 0 };
 const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[] };
 let lspHandler: (event: LspEvent) => void = () => {};
 
@@ -219,6 +225,17 @@ vi.mock('./ipc', () => ({
       return compareAnswer(a, b);
     },
     pickSavePath: async () => savePathAnswer,
+    githubListRepositories: async () => {
+      clones.lists++;
+      if (listAnswer instanceof Error) throw listAnswer;
+      return listAnswer;
+    },
+    pickParentFolder: async () => parentFolderAnswer,
+    gitClone: async (url: string, parent: string, name: string | null) => {
+      clones.asked.push([url, parent, name]);
+      if (cloneAnswer instanceof Error) throw cloneAnswer;
+      return cloneAnswer;
+    },
     saveComparisonPdf: async (_older: string, _newer: string, destination: string) => {
       comparisons.saved.push(destination);
     },
@@ -446,8 +463,14 @@ const {
   compareWithPreviousCommit,
   markGraphRow,
   saveComparisonAs,
+  chooseRepositoryToClone,
+  cloneRepository,
+  closeCloneWindow,
+  loadCloneList,
+  showCloneWindow,
 } = await import('./controller.svelte');
 const { compare } = await import('./compare.svelte');
+const { clone } = await import('./clone.svelte');
 const { ipc } = await import('./ipc');
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
@@ -524,6 +547,11 @@ beforeEach(async () => {
   comparisons.asked = [];
   comparisons.saved = [];
   savePathAnswer = '/out/diff.pdf';
+  listAnswer = [];
+  cloneAnswer = '/papers/thesis';
+  parentFolderAnswer = '/papers';
+  clones.asked = [];
+  clones.lists = 0;
   compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 1 });
   app.activityView = 'files';
   // The stores are module-level singletons, so a test that left a sign-in waiting would make the
@@ -2542,5 +2570,100 @@ describe('comparing two commits (S11.4d)', () => {
     await openFolder('/proj');
     expect(compare.mode).toBe(false);
     expect(compare.marks).toEqual({ from: null, to: null });
+  });
+});
+
+
+describe('cloning a repository (S11.5b)', () => {
+  const thesis: GitHubRepository = {
+    fullName: 'ada/thesis',
+    cloneUrl: 'https://github.com/ada/thesis.git',
+    htmlUrl: 'https://github.com/ada/thesis',
+    private: true,
+  };
+
+  beforeEach(() => {
+    closeCloneWindow();
+    clone.url = '';
+    clone.folderName = '';
+    clone.repositories = null;
+    clone.error = null;
+    clone.listError = null;
+    github.account = null;
+  });
+
+  it('opens with an address field and no account call when nobody is signed in', () => {
+    showCloneWindow();
+    expect(clone.visible).toBe(true);
+    expect(clones.lists).toBe(0);
+  });
+
+  it('lists the account’s repositories when somebody is signed in', async () => {
+    github.account = { login: 'ada' };
+    listAnswer = [thesis];
+    showCloneWindow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(clone.repositories).toEqual([thesis]);
+  });
+
+  it('says why a listing failed and does not keep a stale list', async () => {
+    github.account = { login: 'ada' };
+    clone.repositories = [thesis];
+    listAnswer = new Error('GitHub no longer accepts this sign-in. Signing in again fixes it.');
+    await loadCloneList();
+    expect(clone.listError).toContain('no longer accepts');
+    expect(clone.repositories).toBeNull();
+    expect(clone.listing).toBe(false);
+  });
+
+  it('choosing a row fills in the address and clears a typed folder name', () => {
+    clone.folderName = 'old';
+    chooseRepositoryToClone(thesis);
+    expect(clone.url).toBe(thesis.cloneUrl);
+    expect(clone.folderName).toBe('');
+  });
+
+  it('clones into the chosen folder and opens the result as a project', async () => {
+    clone.url = ' https://github.com/ada/thesis.git ';
+    showCloneWindow();
+    await cloneRepository();
+    expect(clones.asked).toEqual([['https://github.com/ada/thesis.git', '/papers', null]]);
+    expect(clone.visible).toBe(false);
+    expect(clone.url).toBe('');
+    expect(app.project?.rootDir).toBe('/proj'); // the fake `openProject` answers with /proj
+  });
+
+  it('passes a typed folder name on, and an empty one as null', async () => {
+    clone.url = 'https://github.com/ada/thesis.git';
+    clone.folderName = '  draft  ';
+    await cloneRepository();
+    expect(clones.asked[0]![2]).toBe('draft');
+  });
+
+  it('does nothing for an empty address, and nothing once the folder picker is cancelled', async () => {
+    await cloneRepository();
+    expect(clones.asked).toEqual([]);
+
+    clone.url = 'https://github.com/ada/thesis.git';
+    parentFolderAnswer = null;
+    await cloneRepository();
+    expect(clones.asked).toEqual([]);
+    expect(clone.cloning).toBe(false);
+    expect(clone.error).toBeNull();
+  });
+
+  it('keeps the window open with the sentence when the clone is refused', async () => {
+    showCloneWindow();
+    clone.url = 'https://github.com/ada/thesis.git';
+    cloneAnswer = new Error('/papers/thesis already has files in it, so nothing was downloaded there.');
+    await cloneRepository();
+    expect(clone.visible).toBe(true);
+    expect(clone.error).toContain('already has files');
+    expect(clone.cloning).toBe(false);
+    expect(clone.url).toBe('https://github.com/ada/thesis.git');
+  });
+
+  it('is in the palette', () => {
+    expect(allCommands().some((c) => c.id === 'clone-repository' && c.title === 'Clone a repository…')).toBe(true);
   });
 });

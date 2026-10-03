@@ -5504,6 +5504,24 @@ the token), clippy and `cargo doc` clean. `[~]` because no real account has list
 no clone has gone over HTTP; S11.8's HTTP remote and the OAuth app close both. The window is
 S11.5b-2.
 
+**S11.5b-2 (3 October 2026).** `[~]`: rungs 1–2 green — `pnpm verify` exit 0: `cargo test
+--workspace` 619 passed, Vitest 573/573 (13 new: the filter in `clone.test.ts`, the flow in
+`controller.test.ts`), `pnpm check` 458 files / 0 errors / 0 warnings. `[~]` because rung 4 is owed
+and the account list needs a real account, which needs the OAuth app (S11.8, B1): nobody has seen
+the window, listed a repository, or cloned over the network. **S11.5 is done as far as it can be
+without those.** What a reader should take from the diff:
+
+1. **The account is a convenience, never a gate (rule 6).** The address field works with nobody
+   signed in; the list says so in a sentence and offers sign-in right there, showing the code in
+   the window itself. A rejected token is forgotten by Rust, and the window asks for the account
+   again, so it offers sign-in and not an empty list.
+2. **Clone asks where only when it is pressed.** Choosing a row only fills in the address; *Clone…*
+   opens the folder picker, so cancelling the picker does nothing, and a failure leaves the window
+   open with the sentence and the address still in the field.
+3. **Reachable three ways:** a *Clone…* button beside *Open folder…* in the toolbar, the palette's
+   *Clone a repository…*, and — not built — the "empty state" the card mentioned: the app has no
+   empty-state screen to put it on, and the toolbar button is where *Open folder…* already is.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

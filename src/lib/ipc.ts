@@ -471,6 +471,13 @@ export const ipc = {
     return typeof chosen === 'string' ? chosen : null;
   },
 
+  /** S11.5b: the folder a clone goes *into*; the clone makes its own folder inside it. Resolves to
+   * null if the author cancels. */
+  pickParentFolder: async (): Promise<string | null> => {
+    const chosen = await openDialog({ directory: true, multiple: false, title: 'Choose where to put the project' });
+    return typeof chosen === 'string' ? chosen : null;
+  },
+
   /** S11.4d: native *Save as…* for a comparison's PDF (design interview A9). Resolves to null if
    * the author cancels. */
   pickSavePath: async (suggestedName: string): Promise<string | null> => {
@@ -545,6 +552,14 @@ export const ipc = {
    * take, or a public repository whose confirmation was not answered. */
   githubCreateRepository: (name: string, visibility: Visibility, description: string | null) =>
     invoke<GitHubRepository>('github_create_repository', { name, visibility, description }),
+  /** S11.5b: the repositories the signed-in account can clone, most recently pushed first. Rejects
+   * with a sentence when nobody is signed in or GitHub no longer accepts the sign-in. */
+  githubListRepositories: () => invoke<GitHubRepository[]>('github_list_repositories'),
+  /** S11.5b: clone `url` into a new folder inside `parentDir` — named `folderName`, or after the
+   * repository when that is `null` — and answer with the folder to open. Rejects with a sentence
+   * and leaves nothing on disk. */
+  gitClone: (url: string, parentDir: string, folderName: string | null) =>
+    invoke<string>('git_clone', { url, parentDir, folderName }),
   /** The URL of this project's `origin`, or `null` when it has no remote (or no repository). */
   gitOriginUrl: () => invoke<string | null>('git_origin_url'),
 
