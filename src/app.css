@@ -621,3 +621,9 @@ kbd {
 .bar .spacer {
   flex: 1;
 }
+
+/* A dialog takes focus so `Escape` is heard (src/lib/dialog.ts); the ring around the whole box
+   says nothing a person needs. Its controls keep theirs. */
+[role='dialog']:focus {
+  outline: none;
+}

@@ -19,10 +19,12 @@ export function nextFocusIndex(count: number, current: number, backwards: boolea
 
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]';
 
-/** Focus `node` now, keep Tab inside it, and give focus back to what had it when it is removed. */
+/** Focus `node` now — or, if it holds a text field, that, so someone can start typing — keep Tab inside it, and give focus back to what had it when it is removed. */
 export function modalFocus(node: HTMLElement) {
   const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  node.focus();
+  // The dialog itself is only a fallback: it needs to hold focus for `Escape` to be heard, but a
+  // form is better served by putting the caret where the first answer goes.
+  (node.querySelector<HTMLElement>('input[type="text"], input:not([type]), textarea') ?? node).focus();
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key !== 'Tab') return;
