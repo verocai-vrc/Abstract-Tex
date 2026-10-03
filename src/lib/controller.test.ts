@@ -11,6 +11,7 @@ import type {
   ComparisonStarted,
   GitHubRepository,
   SnapshotRow,
+  DiffSides,
   Discarded,
   Finding,
   ProseSummary,
@@ -137,6 +138,9 @@ let snapshotRows: SnapshotRow[] = [];
 let snapshotFilesOnDisk: Record<string, Record<string, string>> = {};
 let snapshotError: string | null = null;
 const restores: Array<[string, string]> = [];
+/** S11.7: what `gitDiffSides` answers with, or throws, and every pair it was asked for. */
+let diffAnswer: DiffSides | Error = { before: 'a', after: 'b' };
+const diffsAsked: Array<[string, boolean]> = [];
 const clones = { asked: [] as Array<[string, string, string | null]>, lists: 0 };
 const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[] };
 let lspHandler: (event: LspEvent) => void = () => {};
@@ -231,6 +235,11 @@ vi.mock('./ipc', () => ({
       return compareAnswer(a, b);
     },
     pickSavePath: async () => savePathAnswer,
+    gitDiffSides: async (path: string, staged: boolean) => {
+      diffsAsked.push([path, staged]);
+      if (diffAnswer instanceof Error) throw diffAnswer;
+      return diffAnswer;
+    },
     snapshotList: async () => {
       if (snapshotError) throw new Error(snapshotError);
       return snapshotRows;
@@ -488,13 +497,17 @@ const {
   closeCloneWindow,
   loadCloneList,
   showCloneWindow,
+  closeDiff,
   closeSnapshot,
+  openChangeRow,
+  openDiffedFile,
   openSnapshot,
   refreshSnapshots,
   restoreSnapshotFile,
   showSnapshotFile,
 } = await import('./controller.svelte');
 const { snapshots } = await import('./snapshots.svelte');
+const { diffView } = await import('./diffview.svelte');
 const { compare } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
 const { ipc } = await import('./ipc');
@@ -577,6 +590,8 @@ beforeEach(async () => {
   snapshotFilesOnDisk = {};
   snapshotError = null;
   restores.length = 0;
+  diffAnswer = { before: 'a', after: 'b' };
+  diffsAsked.length = 0;
   listAnswer = [];
   cloneAnswer = '/papers/thesis';
   parentFolderAnswer = '/papers';
@@ -2795,5 +2810,66 @@ describe('snapshots (S11.6)', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(snapshots.selected).toBeNull();
     expect(snapshots.rows).toEqual([]);
+  });
+});
+
+
+describe('the side-by-side view of a Changes row (S11.7)', () => {
+  beforeEach(() => closeDiff());
+
+  it('opens a .tex row side by side with the two texts Rust sent', async () => {
+    diffAnswer = { before: 'old text', after: 'new text' };
+    await openChangeRow('chapters/a.tex', false, false);
+    expect(diffsAsked).toEqual([['chapters/a.tex', false]]);
+    expect(diffView.open).toEqual({ path: 'chapters/a.tex', staged: false, deleted: false });
+    expect(diffView.sides).toEqual({ before: 'old text', after: 'new text' });
+  });
+
+  it('asks for the staged pair for a Staged Changes row, and for a .bib too', async () => {
+    await openChangeRow('refs.bib', true, false);
+    expect(diffsAsked).toEqual([['refs.bib', true]]);
+  });
+
+  it('opens any other file as before, and a deleted one not at all', async () => {
+    await openChangeRow('figure.png', false, false);
+    expect(diffView.open).toBeNull();
+    expect(diffsAsked).toEqual([]);
+
+    await openChangeRow('figure.png', false, true);
+    expect(diffView.open).toBeNull();
+  });
+
+  it('shows a deleted .tex file as a pure removal and offers no Open file', async () => {
+    diffAnswer = { before: 'what it said', after: '' };
+    await openChangeRow('gone.tex', false, true);
+    expect(diffView.open?.deleted).toBe(true);
+    expect(diffView.sides?.after).toBe('');
+    await openDiffedFile();
+    expect(diffView.open).not.toBeNull(); // nothing to open: the view stays
+  });
+
+  it('says why a file could not be shown, and keeps the view open for the sentence', async () => {
+    diffAnswer = new Error('main.tex is not a text file, so there is no side-by-side view of it.');
+    await openChangeRow('main.tex', false, false);
+    expect(diffView.error).toContain('not a text file');
+    expect(diffView.sides).toBeNull();
+    expect(diffView.open).not.toBeNull();
+  });
+
+  it('drops a slow answer that belongs to a row no longer open', async () => {
+    const first = openChangeRow('a.tex', false, false);
+    diffAnswer = { before: 'b-old', after: 'b-new' };
+    await openChangeRow('b.tex', false, false);
+    await first;
+    expect(diffView.open?.path).toBe('b.tex');
+    expect(diffView.sides).toEqual({ before: 'b-old', after: 'b-new' });
+  });
+
+  it('Open file closes the view and opens the file in the editor', async () => {
+    disk.set('chapters/a.tex', 'chapter text');
+    await openChangeRow('chapters/a.tex', false, false);
+    await openDiffedFile();
+    expect(diffView.open).toBeNull();
+    expect(app.activePath).toBe('chapters/a.tex');
   });
 });

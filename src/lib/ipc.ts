@@ -340,6 +340,12 @@ export interface Initialised {
  * property of the code rather than of this panel. */
 export type Visibility = { kind: 'private' } | { kind: 'public'; confirmed: boolean };
 
+/** The two texts a Changes row's side-by-side view compares (`abstract_tex_git::DiffSides`), S11.7. */
+export interface DiffSides {
+  before: string;
+  after: string;
+}
+
 /** One snapshot of the project (`abstract_tex_snapshot::SnapshotRow`), S11.6. */
 export interface SnapshotRow {
   id: string;
@@ -571,6 +577,9 @@ export const ipc = {
    * and leaves nothing on disk. */
   gitClone: (url: string, parentDir: string, folderName: string | null) =>
     invoke<string>('git_clone', { url, parentDir, folderName }),
+  /** S11.7: the two sides of a row's diff. `staged` false: the index against the working tree (what
+   * *Stage* would add); true: `HEAD` against the index (what the next commit would hold). */
+  gitDiffSides: (path: string, staged: boolean) => invoke<DiffSides>('git_diff_sides', { path, staged }),
   /** S11.6: the newest snapshots, newest first. Works for a folder that is not a Git repository. */
   snapshotList: (limit: number) => invoke<SnapshotRow[]>('snapshot_list', { limit }),
   /** S11.6: the `.tex` and `.bib` files one snapshot holds. */

@@ -5588,6 +5588,52 @@ that.** What a reader should take from the diff:
 3. **Stale answers are dropped:** opening another snapshot, or another file, while one is loading
    never lets the slow answer land in the new view.
 
+**S11.7 splits two ways, 3 October 2026**: **S11.7a** the two texts (Rust) and **S11.7b** the view.
+
+```
+Loop      S11.7a · The two sides of a file's diff · S
+Reads     DESIGN.md §6 ("a click opens a diff"); design-interview.md B8
+Files     crates/abstract-tex-git/src/lib.rs, src-tauri/src/commands.rs, src-tauri/src/lib.rs
+Build     `diff_sides(repository, path, staged)`: a *Changes* row is the index against the working
+          tree (what *Stage* would add); a *Staged Changes* row is `HEAD` against the index. A side
+          that does not exist is empty text. Reads only; refuses non-UTF-8 and paths that leave the
+          repository.
+Verify    cargo test -p abstract-tex-git -- diff_sides
+Done when both pairs are right for a modified, staged, staged-then-edited, new, deleted and
+          unborn-branch file; status is identical before and after; and a bad path or binary file
+          is refused.
+```
+
+**S11.7a (3 October 2026).** `[x]` (no UI, C1b): `cargo test -p abstract-tex-git` 70 passed (7 new),
+clippy and `cargo doc` clean.
+
+```
+Loop      S11.7b · The side-by-side view · M
+Reads     DESIGN.md §6; design-interview.md B8
+Depends   S11.7a
+Files     src/lib/editor/diff.ts, src/lib/diffview.svelte.ts + diffview.test.ts,
+          src/components/DiffView.svelte (all new), SourceControl.svelte, controller.svelte.ts,
+          ipc.ts, App.svelte, package.json (adds `@codemirror/merge`)
+Build     A click on a `.tex` or `.bib` row of either list opens CodeMirror's merge view in a dialog,
+          unchanged runs folded; any other row opens its file as before. *Open file* closes the view
+          and opens the file in the editor.
+Verify    pnpm verify; rung 4 in the Windows smoke campaign
+Done when a modified .tex row shows the two sides with the changes marked; a staged row shows HEAD
+          against the index; a deleted .tex row is a pure removal; a non-text file is a sentence;
+          and any other kind of row opens as it did.
+```
+
+**S11.7b (3 October 2026).** `[~]`: `pnpm verify` exit 0 — `cargo test --workspace` 637 passed,
+Vitest 598/598 (10 new), `pnpm check` 466 files / 0 errors / 0 warnings, `vite build` succeeds
+with the new dependency. `[~]` because rung 4 is owed: nobody has seen the merge view render.
+**A departure from design interview B8, which the maintainer should confirm or overrule:** the
+interview chose the *Changes* row's right side — the working tree — **editable**. Both sides are
+**read-only** here. While a file is open in a tab its `Y.Text` is the file's one editable copy
+(S2.3), so an editable second view would be a second writer with no way to reconcile, and the
+way to bind the merge view to that `Y.Text` (`y-codemirror.next` on the right-hand editor) is a
+change to the editor's own setup, not a view. *Open file* is the way to edit. The follow-up, if the
+maintainer wants it: an unplaced card, "editable right side bound to the open document".
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

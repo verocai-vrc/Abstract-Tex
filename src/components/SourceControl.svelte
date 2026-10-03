@@ -23,9 +23,9 @@
     initialiseRepository,
     loadMoreCommits,
     markGraphRow,
+    openChangeRow,
     openSnapshot,
     suggestedRemoteName,
-    openFile,
     openVerificationPage,
     refreshGitStatus,
     signInToGitHub,
@@ -156,14 +156,16 @@
     return from ? `${from.shortId} marked — click another commit to compare` : null;
   });
 
-  function openRow(row: ChangeRow) {
-    if (row.kind !== 'deleted') void openFile(row.path);
+  /** §6's "a click opens a diff" (S11.7): a `.tex` or `.bib` row opens side by side; any other
+   * row opens its file, and a deleted one has nothing to open. */
+  function openRow(row: ChangeRow, staged: boolean) {
+    void openChangeRow(row.path, staged, row.kind === 'deleted');
   }
 </script>
 
 {#snippet row(item: ChangeRow, staged: boolean)}
   <li class="change-row">
-    <button class="change-open" title={item.renamedFrom ? `Renamed from ${item.renamedFrom}` : item.path} onclick={() => openRow(item)}>
+    <button class="change-open" title={item.renamedFrom ? `Renamed from ${item.renamedFrom}` : item.path} onclick={() => openRow(item, staged)}>
       <span class="change-name" class:gone={item.kind === 'deleted'}>{item.name}</span>
       {#if item.dir}<span class="change-dir">{item.dir}</span>{/if}
     </button>

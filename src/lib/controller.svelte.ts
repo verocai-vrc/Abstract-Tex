@@ -5,6 +5,7 @@
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
+import { diffView, isDiffable } from './diffview.svelte';
 import { defaultFile, snapshots, SNAPSHOT_PAGE } from './snapshots.svelte';
 import {
   compare,
@@ -560,6 +561,41 @@ async function refreshGitGraph(): Promise<void> {
     graphBuiltFrom = null;
     git.readError = String(error);
   }
+}
+
+// ---- The side-by-side view of a Changes row (S11.7, design interview B8) -----------------------
+
+/** Open a row. A `.tex` or `.bib` row shows what *Stage* (or the next commit) would change, side by
+ * side; anything else opens as it always has — the file itself, and nothing for a deleted one. */
+export async function openChangeRow(path: string, staged: boolean, deleted: boolean): Promise<void> {
+  if (!isDiffable(path)) {
+    if (!deleted) await openFile(path);
+    return;
+  }
+  diffView.open = { path, staged, deleted };
+  diffView.sides = null;
+  diffView.error = null;
+  try {
+    const sides = await ipc.gitDiffSides(path, staged);
+    // Another row was opened while this one loaded: its answer is the one to show.
+    if (diffView.open?.path === path && diffView.open.staged === staged) diffView.sides = sides;
+  } catch (error) {
+    if (diffView.open?.path === path && diffView.open.staged === staged) diffView.error = String(error);
+  }
+}
+
+export function closeDiff(): void {
+  diffView.open = null;
+  diffView.sides = null;
+  diffView.error = null;
+}
+
+/** *Open file* in the view: the way to edit, since the view itself is read-only. */
+export async function openDiffedFile(): Promise<void> {
+  const open = diffView.open;
+  if (!open || open.deleted) return;
+  closeDiff();
+  await openFile(open.path);
 }
 
 // ---- Snapshots (S11.6, design interview B3) -----------------------------------------------------

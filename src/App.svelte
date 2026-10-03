@@ -22,6 +22,7 @@
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import CloneWindow from './components/CloneWindow.svelte';
+  import DiffView from './components/DiffView.svelte';
   import SnapshotViewer from './components/SnapshotViewer.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
   import BibliographyHealth from './components/BibliographyHealth.svelte';
@@ -101,6 +102,7 @@
 <QuickOpen />
 <CommandPalette />
 <CloneWindow />
+<DiffView />
 <SnapshotViewer />
 <ZoteroLink />
 <BibliographyHealth />
