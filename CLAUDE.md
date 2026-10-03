@@ -62,7 +62,8 @@ mid-session.
   in `bugs-issues-fixes.md` is in place.
 - **Linux** (agent sessions): rung 4 can be run here: `scripts/xvfb-app.sh <folder copy>` starts the
   app on a virtual display and `scripts/xvfb-ui.py shot|click|key|type` drives and photographs it (see
-  the scripts' headers for limits). Run `cargo fmt --all` before committing Rust: `pnpm verify` fails
+  the scripts' headers for limits); `scripts/network-connects.py` summarises an `strace` capture of a run
+  (S13.4's zero-outbound-requests measurement). Run `cargo fmt --all` before committing Rust: `pnpm verify` fails
   on unformatted code. cargo is at `~/.cargo/bin`. **It cannot push to GitHub** — commit
   locally, and the maintainer pushes from another machine. Native builds use the system
   `/usr/bin/cc`: the `zig cc` wrappers that used to shadow it were moved to

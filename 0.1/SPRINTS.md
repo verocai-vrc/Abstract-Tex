@@ -6389,13 +6389,52 @@ next ask, not shown automatically after a restart); only errors, not warnings, a
 answer is plain text, never applied to a document, so the citation guard has nothing to guard
 here; what a real model says about a real obscure package error is unmeasured without an account.
 
+**S13.4 (3 October 2026).** `[x]` — `pnpm verify` exit 0, `cargo test --workspace` 789 passed / 0
+failed (6 new: 5 in `src-tauri/tests/no_silent_network.rs`, 1 in `assistant.rs`); and a real run
+measured. DESIGN.md §8: "with no API key configured and the network blocked, the application is
+fully functional and makes zero outbound requests." A unit test cannot start the window, so this is
+two halves, both recorded:
+
+1. **Structural (the test).** Which parts of the program *can* reach the network is a list in a
+   file: only `abstract-tex-assistant`, `-github`, `-git` (libgit2 built with `https`) and `texbib`
+   (its optional `acquire` feature) depend on an HTTP client or on libgit2's `https`/`ssh`; each is
+   listed with the action that starts it. `src-tauri` itself has no client; no updater, HTTP,
+   WebSocket or upload plugin is installed or granted to the window; the page's content-security
+   policy allows no remote host; and the frontend's one `fetch` is the PDF viewer reading a local
+   `asset:` URL. I broke each guard on purpose (a `reqwest` line in `src-tauri`, a remote host in
+   the CSP, a new `fetch`, an `updater` plugin) and each made exactly its test fail. A new network
+   dependency now cannot arrive without someone editing that list and defending the line.
+2. **Runtime (the measurement).** Under Xvfb with `strace -f -e trace=connect` on the whole dev
+   run, no assistant settings at all: open a project, type, save, build (0.7 s), open Source Control,
+   the Assistant view and the settings, open the palette (no assistant entry in it). Every internet
+   `connect` was to `127.0.0.1:1420` or `::1:1420` — the Vite dev server — and none to any other
+   address, none to port 53. `scripts/network-connects.py` summarises a capture and exits 1 on
+   anything else (checked against a made-up capture to 93.184.216.34:443).
+3. **At the assistant's own edge,** a test points a provider at a listener on this computer and
+   chooses it, saves a key, switches the project on, turns inspection off, asks for the status and
+   removes the key; the listener never hears from it, and the Test button with no key is refused
+   before a socket exists.
+
+Not done: the measurement is one walk on one machine in dev mode, not a release build, and the
+Tectonic engine's own package downloads (a first build with an empty cache) are the engine's, not
+this app's code, and were not exercised: the cache was warm. Fetching a bundle is an engine
+behaviour the §8 sentence has never covered; say so in the docs when they are written.
+
+**Sprint 13 closed (3 October 2026): S13.1, S13.2, S13.3, S13.4.** v0.7's exit — "no fabricated
+citation key can reach the buffer under adversarial prompting; every compile error not covered by
+a rule still produces an explanation" — is met on this machine against a fake provider: the first
+half by `tests/citation_guard.rs` and `tests/edits.rs`, the second by the *Ask the assistant*
+button on any error with no rule (an explanation, shown after the person sees the request and
+says Send). What remains unmeasured is every real provider: an Anthropic and an OpenAI answer, the
+cache hit on a second *Match the voice*, and what a model says about a truly obscure error.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2
 **citation-fabrication guard with adversarial tests, written first** · S12.3 selection-scoped
 diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint (done, above) ·
 S13.2 model fallback for unmatched errors, cached by log signature (done, above) · S13.3 payload inspector (done, above) ·
-S13.4 no-network test: zero outbound requests with no key.
+S13.4 no-network test: zero outbound requests with no key (done, above).
 
 ### Sprint 14–15 — v0.8 live
 

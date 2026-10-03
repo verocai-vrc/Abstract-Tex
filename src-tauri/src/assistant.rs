@@ -529,4 +529,39 @@ mod tests {
         let sentence = test_connection(&settings, &keys).unwrap_err();
         assert!(sentence.contains("needs an API key"), "{sentence}");
     }
+
+    /// §8's "no silent data paths", for this file: every function here except the Test button's
+    /// opens no socket. The provider's address is a listener on this computer, so a connection
+    /// would be seen.
+    #[test]
+    fn choosing_saving_switching_on_and_asking_for_status_connect_to_nothing() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+
+        let (_config, settings) = settings();
+        let keys = MemoryKeyStore::default();
+        let provider = Provider::Anthropic {
+            model: "claude-x".into(),
+            address: address.clone(),
+        };
+        let project = Path::new("/work/thesis");
+
+        // With a key and the project switched on: everything short of the Test button.
+        save_provider(&settings, &keys, provider.clone(), Some("sk-x".into())).unwrap();
+        set_enabled(&settings, project, true).unwrap();
+        set_inspect_first(&settings, false).unwrap();
+        let _ = status(&settings, &keys, Some(project)).unwrap();
+        clear_key(&settings, &keys).unwrap();
+
+        // And the Test button with no key: refused before a socket exists.
+        let sentence = test_connection(&settings, &keys).unwrap_err();
+        assert!(sentence.contains("needs an API key"), "{sentence}");
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        match listener.accept() {
+            Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
+            Ok(_) => panic!("something connected without being asked to"),
+        }
+    }
 }
