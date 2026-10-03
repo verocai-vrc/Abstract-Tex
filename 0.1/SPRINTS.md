@@ -5708,6 +5708,20 @@ Done when the fixture template instantiates into a temp folder with its fields f
           file the manifest does not list.
 ```
 
+**S11.9 (3 October 2026).** `[x]` (a crate-only loop, C1b): `pnpm verify` exit 0 — `cargo test
+--workspace` 657 passed / 0 failed (20 new, all in `abstract-tex-templates`), Vitest 598/598,
+clippy clean. The catalog is read by `include_dir!` (a new workspace dependency, MIT) from
+`templates/`, with a `build.rs` so an edited template rebuilds the crate; every check in the card
+runs when the catalog loads, so a bad template cannot ship, and `every_shipped_template_passes_every_check`
+is the walk. Two decisions the card did not name: **(1) field values are LaTeX-escaped** on the way
+in (`R&D` becomes `R\&D`), because a title box is typed by someone who does not know `&` is a
+command; a `{{name}}` is only a placeholder when it is lowercase letters, digits and underscores,
+so `\textbf{{\large A}}` is untouched. **(2) The project is built in a hidden folder beside the
+destination and renamed into place**, so a failure leaves nothing behind and the destination is
+either complete or as it was. One template ships now, `templates/blank` (CC0, written here), with a
+preview rendered from a real Tectonic build by `pdftoppm`; S11.10a's script will do that for the
+rest. Not done, because it is S11.10a's: compiling each template on the engine (`-- --ignored`).
+
 ```
 Loop      S11.10a · Starter set, written here: essay, report, letter, paper · M
 Reads     DESIGN.md §2 commitment 3; S11.9's licence rule

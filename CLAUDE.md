@@ -18,12 +18,14 @@ crates/abstract-tex-git/        the project's Git repo on libgit2: status, commi
 crates/abstract-tex-github/     GitHub device-flow sign-in, repo creation, keychain token
 crates/abstract-tex-snapshot/   snapshot on every successful compile, as real Git objects
 crates/abstract-tex-latexdiff/  latexdiff-marked-up document between two Git revisions
+crates/abstract-tex-templates/  starter templates compiled into the app; new project from one
 crates/abstract-tex-sidecar/    finds bundled helper binaries
 crates/texlog/                  TeX log parser + rule catalog (MIT, published separately)
 crates/texbib/                  .bib parser, health checks, acquisition (MIT, published separately)
 crates/texwords/                prose word counts and section lookup
 src-tauri/                      the Tauri app crate `abstract-tex`: project model, orchestrator, watcher, commands
 src/                            Svelte 5 frontend (lib/ipc.ts is the only place that calls invoke)
+templates/                      one folder per starter template (template.toml, files, preview.png)
 fixtures/                       real documents used by tests and manual smoke scripts
 scripts/                        fetch-tectonic.mjs and other tooling
 ```

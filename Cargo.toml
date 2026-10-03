@@ -19,6 +19,7 @@ members = [
     "crates/abstract-tex-reconcile",
     "crates/abstract-tex-snapshot",
     "crates/abstract-tex-synctex",
+    "crates/abstract-tex-templates",
     "crates/texbib",
     "crates/texlog",
     "crates/texwords",
@@ -49,8 +50,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 similar = "2"
 # Property-based testing.
 proptest = "1"
-# Temporary directories in tests.
+# Temporary directories: in tests, and in `abstract-tex-templates` as the staging folder a project is
+# built in before it is renamed into place.
 tempfile = "3"
+# Embeds a whole folder tree (the starter templates) into the binary at compile time, so the
+# template picker needs no network and no resource path to find at run time.
+include_dir = "0.7"
 # File watching.
 notify = "8"
 notify-debouncer-mini = "0.7"

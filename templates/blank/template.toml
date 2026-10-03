@@ -1,0 +1,17 @@
+name = "Blank document"
+category = "other"
+description = "A title, your name and an empty page. The simplest place to start."
+licence = "CC0-1.0"
+source = "Written for Abstract-Tex"
+files = ["main.tex"]
+preview = "preview.png"
+
+[[fields]]
+id = "title"
+label = "Title"
+example = "My document"
+
+[[fields]]
+id = "author"
+label = "Author"
+example = "Your name"
