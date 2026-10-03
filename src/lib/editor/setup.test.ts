@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { searchKeymap } from '@codemirror/search';
 import { SHORTCUTS } from '../shortcuts';
-import { editorSearchKeymap } from './setup';
+import { baseKeymap, editorSearchKeymap } from './setup';
 
 describe('the editor search keymap', () => {
   it('does not bind find-next on Mod-g, which carries Ctrl Shift G, the app’s Source Control chord', () => {
@@ -25,6 +25,27 @@ describe('the editor search keymap', () => {
         expect(chords, `${key} is bound by both the editor search and the app`).not.toContain(key.toLowerCase());
         if (binding.shift) expect(chords).not.toContain(`${key}-shift`.toLowerCase());
       }
+    }
+  });
+});
+
+describe('the base keymap', () => {
+  it('binds undo and redo itself, because WebKitGTK does not fire the native event y-codemirror relies on', () => {
+    const keys = baseKeymap().map((binding) => binding.key);
+    expect(keys).toContain('Mod-z');
+    expect(keys).toContain('Mod-y');
+    expect(keys).toContain('Mod-Shift-z');
+  });
+
+  it('puts undo before the default bindings, so nothing else answers Ctrl Z first', () => {
+    const keys = baseKeymap().map((binding) => binding.key);
+    expect(keys.indexOf('Mod-z')).toBe(0);
+  });
+
+  it('does not collide with an app shortcut', () => {
+    const chords = SHORTCUTS.map((shortcut) => shortcut.keys.toLowerCase());
+    for (const binding of baseKeymap()) {
+      if (binding.key) expect(chords).not.toContain(binding.key.toLowerCase());
     }
   });
 });

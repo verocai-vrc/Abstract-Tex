@@ -19,6 +19,7 @@ import {
   highlightActiveLineGutter,
   highlightSpecialChars,
   keymap,
+  type KeyBinding,
   lineNumbers,
   rectangularSelection,
 } from '@codemirror/view';
@@ -26,7 +27,7 @@ import { tags } from '@lezer/highlight';
 // KaTeX's stylesheet (fonts, spacing classes) for the maths popover. A bare `import` of a CSS
 // file is Vite's way of adding a stylesheet to the bundle; nothing is bound to a name.
 import 'katex/dist/katex.min.css';
-import { yCollab } from 'y-codemirror.next';
+import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import type { OpenDocument } from '../document';
 import { definitionClickHandler, definitionKeymap, type DefinitionRequester } from './definition';
 import { diagnosticGutter } from './diagnostics';
@@ -63,6 +64,19 @@ const latexHighlight = HighlightStyle.define([
  * key reaching the window, so pressing it in the editor opened the find panel *and* switched the
  * view. `F3` and `Shift F3` still find next and previous. */
 export const editorSearchKeymap = searchKeymap.filter((binding) => binding.key !== 'Mod-g');
+
+/**
+ * The keys every editor has, in precedence order, apart from the ones that need a language server.
+ *
+ * `yUndoManagerKeymap` is first and not optional: `y-codemirror.next` undoes through the browser's
+ * own `beforeinput` "historyUndo" event, which WebView2 and WKWebView fire on Ctrl Z but WebKitGTK
+ * does not, so on Linux Ctrl Z did nothing at all (found under Xvfb, 3 Oct 2026). Binding the key
+ * ourselves makes it the same everywhere; the binding calls `preventDefault`, so a webview that does
+ * fire the native event is not asked to undo twice.
+ */
+export function baseKeymap(): KeyBinding[] {
+  return [...yUndoManagerKeymap, ...closeBracketsKeymap, ...defaultKeymap, ...editorSearchKeymap];
+}
 
 const theme = EditorView.theme({
   '&': { height: '100%', fontSize: '14px', backgroundColor: 'var(--bg-editor)', color: 'var(--fg)' },
@@ -166,9 +180,7 @@ export function createEditor(
       // window, by App.svelte (S2.4). A binding in this keymap does not stop propagation, so a
       // copy here would fire the action twice for a keypress inside the editor.
       keymap.of([
-        ...closeBracketsKeymap,
-        ...defaultKeymap,
-        ...editorSearchKeymap,
+        ...baseKeymap(),
         ...(definitionRequest ? definitionKeymap(definitionRequest) : []),
         ...(forwardSearchRequest ? forwardSearchKeymap(forwardSearchRequest) : []),
         indentWithTab,

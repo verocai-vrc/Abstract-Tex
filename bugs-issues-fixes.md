@@ -15,6 +15,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Ctrl Z did nothing in the editor on Linux.** (3 Oct 2026, found under Xvfb while checking that an
+  applied assistant suggestion undoes in one step; plain typing did not undo either) `y-codemirror.next`
+  undoes through the browser's own `beforeinput` "historyUndo" event and ships its `Mod-z` keymap as an
+  export the app must add. WebView2 and WKWebView fire that event on Ctrl Z; WebKitGTK does not, so on
+  Linux there was no undo or redo at all. Reproduced with a temporary key probe: the `z` keydown reached
+  CodeMirror with `defaultPrevented` false. **Fixed (3 Oct 2026):** `baseKeymap()` in
+  `editor/setup.ts` puts `yUndoManagerKeymap` first (its bindings `preventDefault`, so a webview that
+  does fire the native event is not asked to undo twice); unit-tested for presence, precedence and no
+  collision with an app shortcut. Checked in the running app: typing then Ctrl Z removes it, on screen
+  and on disk.
+
 - **Opening another project left the previous project's PDF on screen under "Compiling…".** (3 Oct
   2026, found under Xvfb) `app.pdfUrl` was reset on open, but `PdfPane`'s effect returned early on a
   null URL and the viewer kept its rendered pages. **Fixed (3 Oct 2026):** `PdfViewer.clear()`,
