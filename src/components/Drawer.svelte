@@ -11,6 +11,7 @@
   // the deciding — which file, what order, what the filter hides, where in the log — is in
   // `drawer.ts`, tested; this file only lays it out.
   import { app } from '../lib/state.svelte';
+  import { compare } from '../lib/compare.svelte';
   import {
     allowShellEscape,
     applyDiagnosticFix,
@@ -35,6 +36,13 @@
     }
     return 'Build succeeded.';
   });
+
+  // S11.4d: a failed comparison's problems are shown in place of the live ones, under a heading
+  // that says whose they are. They name files of the *export* (`main.tex` in a history folder),
+  // never the author's tabs, so these cards neither jump nor offer a fix, and are not grouped by
+  // the live build's filter. Leaving diff mode brings the live cards back untouched.
+  const comparisonProblems = $derived(compare.view.phase === 'failed' ? compare.view : null);
+  let showComparisonOutput = $state(false);
 
   const rootFile = $derived(app.project?.rootFile ?? null);
   const documentFiles = $derived(app.project?.documentFiles ?? []);
@@ -104,6 +112,30 @@
 </script>
 
 <div class="drawer" role="region" aria-label="Diagnostics">
+  {#if comparisonProblems}
+    <header>
+      <strong>The comparison could not be built.</strong>
+      <span class="spacer"></span>
+      <button class="ghost" onclick={() => (showComparisonOutput = !showComparisonOutput)}>
+        {showComparisonOutput ? 'Back to explanations' : 'Raw output'}
+      </button>
+      <button class="ghost" title="Close" onclick={() => (app.drawerOpen = false)}>×</button>
+    </header>
+    <div class="body">
+      {#if showComparisonOutput}
+        <pre>{comparisonProblems.stderr || '(no output)'}</pre>
+      {:else}
+        <p>{comparisonProblems.message}</p>
+        {#each comparisonProblems.diagnostics as diagnostic, i (i)}
+          <div class="diag" class:warning={diagnostic.severity === 'warning'} class:unexplained={diagnostic.rule === null}>
+            <span class="loc">{diagnostic.line ? `line ${diagnostic.line}` : '—'}</span>
+            <span class="title"><span class="severity">{diagnostic.severity}</span> {diagnostic.title}</span>
+            <span class="explanation">{diagnostic.explanation}</span>
+          </div>
+        {/each}
+      {/if}
+    </div>
+  {:else}
   <header>
     <strong>{summary}</strong>
     {#if total > 0 && !app.showRawLog}
@@ -202,4 +234,5 @@
       {/each}
     {/if}
   </div>
+  {/if}
 </div>

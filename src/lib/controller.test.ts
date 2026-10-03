@@ -8,6 +8,7 @@ import type {
   BranchState,
   CommitRow,
   CompileEvent,
+  ComparisonStarted,
   Discarded,
   Finding,
   ProseSummary,
@@ -114,6 +115,18 @@ let createError: string | null = null;
 let gitStatusHandler: () => void = () => {};
 let fsHandler: (event: FsEvent) => void = () => {};
 let compileHandler: (event: CompileEvent) => void = () => {};
+/** S11.4d: the comparison lane's own event handler, what `compare_revisions` answers with (a
+ * function, so a test can hold an answer back and let a newer one overtake it), and every pair
+ * it was asked for and every place a PDF was saved. */
+let diffHandler: (event: CompileEvent) => void = () => {};
+let compareAnswer: (older: string, newer: string) => Promise<ComparisonStarted> = async (a, b) => ({
+  status: 'building',
+  older: a,
+  newer: b,
+  generation: 1,
+});
+let savePathAnswer: string | null = '/out/diff.pdf';
+const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[] };
 let lspHandler: (event: LspEvent) => void = () => {};
 
 const project: ProjectInfo = {
@@ -196,6 +209,18 @@ vi.mock('./ipc', () => ({
     onCompile: async (handler: (event: CompileEvent) => void) => {
       compileHandler = handler;
       return () => {};
+    },
+    onCompileDiff: async (handler: (event: CompileEvent) => void) => {
+      diffHandler = handler;
+      return () => {};
+    },
+    compareRevisions: async (a: string, b: string) => {
+      comparisons.asked.push([a, b]);
+      return compareAnswer(a, b);
+    },
+    pickSavePath: async () => savePathAnswer,
+    saveComparisonPdf: async (_older: string, _newer: string, destination: string) => {
+      comparisons.saved.push(destination);
     },
     onFsChanged: async (handler: (event: FsEvent) => void) => {
       fsHandler = handler;
@@ -417,7 +442,12 @@ const {
   toggleRawLog,
   trackLargeFilesWithLfs,
   triggerCompile,
+  clearComparison,
+  compareWithPreviousCommit,
+  markGraphRow,
+  saveComparisonAs,
 } = await import('./controller.svelte');
+const { compare } = await import('./compare.svelte');
 const { ipc } = await import('./ipc');
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
@@ -491,6 +521,10 @@ beforeEach(async () => {
   calls.gitStatusReads = 0;
   calls.gitVerbs = [];
   calls.discardQuestions = [];
+  comparisons.asked = [];
+  comparisons.saved = [];
+  savePathAnswer = '/out/diff.pdf';
+  compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 1 });
   app.activityView = 'files';
   // The stores are module-level singletons, so a test that left a sign-in waiting would make the
   // next one start from there (S10.4b).
@@ -2326,5 +2360,187 @@ describe('creating the repository on GitHub (S10.5b)', () => {
     await createGitHubRepository('thesis', false);
     expect(calls.created).toEqual([]);
     github.creating = false;
+  });
+});
+
+
+describe('comparing two commits (S11.4d)', () => {
+  const finishedDiff = (generation: number): CompileEvent => ({
+    status: 'finished',
+    generation,
+    success: true,
+    pdfPath: '/proj/.abstract-tex/latexdiff/x/build/main.pdf',
+    logPath: null,
+    diagnostics: [],
+    durationMs: 900,
+    stderr: '',
+  });
+
+  const row = (id: string): CommitRow => ({
+    id,
+    shortId: id.slice(0, 7),
+    summary: id,
+    author: 'Ada',
+    time: 1_000,
+    tags: [],
+    wordDelta: 0,
+  });
+
+  beforeEach(() => {
+    clearComparison();
+    git.commits = [row('c3c3c3c3'), row('b2b2b2b2'), row('a1a1a1a1')];
+  });
+
+  it('asks for a comparison on the second mark, and shows its PDF when the build finishes', async () => {
+    markGraphRow('a1a1a1a1');
+    expect(comparisons.asked).toEqual([]);
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(comparisons.asked).toEqual([['a1a1a1a1', 'c3c3c3c3']]);
+    expect(compare.view.phase).toBe('building');
+
+    diffHandler(finishedDiff(1));
+    expect(compare.view.phase).toBe('ready');
+    expect(compare.view.pdfUrl).toContain('asset:///proj/.abstract-tex/latexdiff/x/build/main.pdf');
+  });
+
+  it('keeps the comparison out of the live build: no event of the diff lane touches `app.compile`', async () => {
+    const before = app.compile;
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    diffHandler(finishedDiff(1));
+    expect(app.compile).toBe(before);
+  });
+
+  it('opens the drawer on a comparison that failed, and leaves the live diagnostics alone', async () => {
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    app.drawerOpen = false;
+    diffHandler({ ...finishedDiff(1), success: false, pdfPath: null, diagnostics: [], stderr: 'x' } as CompileEvent);
+    expect(compare.view.phase).toBe('failed');
+    expect(app.drawerOpen).toBe(true);
+    expect(app.compile.diagnostics).toEqual([]);
+  });
+
+  it('replays events that arrived before the answer named the generation', async () => {
+    let answer!: (value: ComparisonStarted) => void;
+    compareAnswer = () => new Promise((resolve) => (answer = resolve));
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+
+    diffHandler({ status: 'progress', generation: 4, message: 'Downloading…' });
+    diffHandler(finishedDiff(4));
+    expect(compare.view.phase).toBe('building'); // the generation is not known yet
+
+    answer({ status: 'building', older: 'a1a1a1a1', newer: 'c3c3c3c3', generation: 4 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(compare.view.phase).toBe('ready');
+  });
+
+  it('lets only the latest request speak when two answers cross', async () => {
+    const answers: Array<(value: ComparisonStarted) => void> = [];
+    compareAnswer = () => new Promise((resolve) => answers.push(resolve));
+
+    markGraphRow('a1a1a1a1');
+    markGraphRow('b2b2b2b2'); // first request
+    await vi.advanceTimersByTimeAsync(0);
+    markGraphRow('a1a1a1a1'); // a third click starts over…
+    markGraphRow('c3c3c3c3'); // …and this is the second request
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answers).toHaveLength(2);
+
+    answers[1]!({ status: 'building', older: 'a1a1a1a1', newer: 'c3c3c3c3', generation: 2 });
+    await vi.advanceTimersByTimeAsync(0);
+    answers[0]!({ status: 'building', older: 'a1a1a1a1', newer: 'b2b2b2b2', generation: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(compare.view.generation).toBe(2);
+    expect(compare.view.newer).toBe('c3c3c3c3');
+  });
+
+  it('shows a refusal under the Graph, goes back to the live PDF and clears the marks', async () => {
+    compareAnswer = async () => {
+      throw new Error("latexdiff isn't installed on this machine.");
+    };
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(compare.refusal).toContain("latexdiff isn't installed");
+    expect(compare.mode).toBe(false);
+    expect(compare.marks).toEqual({ from: null, to: null });
+  });
+
+  it('says nothing for a comparison Rust says was superseded', async () => {
+    compareAnswer = async () => ({ status: 'superseded' });
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(compare.refusal).toBeNull();
+    expect(compare.view.phase).toBe('building');
+  });
+
+  it('shows a pair whose PDF is already on disk at once', async () => {
+    compareAnswer = async (a, b) => ({ status: 'ready', older: a, newer: b, pdfPath: '/proj/.abstract-tex/latexdiff/x/build/main.pdf' });
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(compare.view.phase).toBe('ready');
+  });
+
+  it('Back to live PDF leaves diff mode, clears the marks and ignores an answer still on its way', async () => {
+    let answer!: (value: ComparisonStarted) => void;
+    compareAnswer = () => new Promise((resolve) => (answer = resolve));
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+
+    clearComparison();
+    expect(compare.mode).toBe(false);
+    expect(compare.marks).toEqual({ from: null, to: null });
+
+    answer({ status: 'building', older: 'a1a1a1a1', newer: 'c3c3c3c3', generation: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(compare.mode).toBe(false);
+  });
+
+  it('the palette entry compares the last two commits, newest as the end', async () => {
+    expect(allCommands().some((c) => c.id === 'compare-previous-commit')).toBe(true);
+    compareWithPreviousCommit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(comparisons.asked).toEqual([['b2b2b2b2', 'c3c3c3c3']]);
+    expect(app.activityView).toBe('source-control');
+  });
+
+  it('the palette entry says so when there is no earlier commit', () => {
+    git.commits = [row('c3c3c3c3')];
+    compareWithPreviousCommit();
+    expect(comparisons.asked).toEqual([]);
+    expect(compare.refusal).toMatch(/no earlier commit/);
+  });
+
+  it('Save as… writes where the author chose, and does nothing once they cancel', async () => {
+    compareAnswer = async (a, b) => ({ status: 'ready', older: a, newer: b, pdfPath: '/proj/x.pdf' });
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+
+    await saveComparisonAs();
+    expect(comparisons.saved).toEqual(['/out/diff.pdf']);
+
+    savePathAnswer = null;
+    await saveComparisonAs();
+    expect(comparisons.saved).toEqual(['/out/diff.pdf']);
+  });
+
+  it('opening another folder forgets the comparison and its marks', async () => {
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    await openFolder('/proj');
+    expect(compare.mode).toBe(false);
+    expect(compare.marks).toEqual({ from: null, to: null });
   });
 });

@@ -15,6 +15,21 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **A comparison's "Raw output" is the engine's stderr, not its `main.log`.** (3 Oct 2026, S11.4d)
+  The drawer's comparison section (A7: "raw log one click away") can only show what the
+  `compile-diff` `finished` event carries, which is `stderr`. `read_log` reads the *live* build's
+  log, and nothing reads a log by path, so a comparison that fails inside TeX shows the engine's
+  last lines and not the full transcript. The diagnostics cards (from `texlog`) are unaffected.
+  What closes it: a Rust command that reads `<comparison folder>/build/main.log`, or `logPath`
+  from the event passed to a generic read — a small card, noted here rather than widened into
+  S11.4d (which has no Rust in it). **Open.**
+
+- **Leaving a comparison does not cancel its build.** (3 Oct 2026, S11.4d) *Back to live PDF*, the
+  toolbar's × and `Esc` make the frontend ignore the comparison's answer and events, but no
+  command asks the diff lane to stop, so a build in flight finishes unseen (and the next
+  comparison cancels it, as S11.4c's lane always does). Harmless except for the CPU a thirty-second
+  compile of a thesis takes. Closing it needs a `cancel_comparison` command. **Open**, low priority.
+
 - **S9.9's draft PDF was probably never loadable in the PDF pane: it sits outside the only folder
   the asset protocol was allowed to serve.** (2 Oct 2026, found reading `open_project` while
   building S11.4c) `open_project` allowed `.abstract-tex/build/` and nothing else, and

@@ -5,7 +5,7 @@
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { ask, open as openDialog } from '@tauri-apps/plugin-dialog';
+import { ask, open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 export interface TreeNode {
@@ -468,6 +468,17 @@ export const ipc = {
   /** Native folder picker. Resolves to null if the user cancels. */
   pickFolder: async (): Promise<string | null> => {
     const chosen = await openDialog({ directory: true, multiple: false, title: 'Open a LaTeX project folder' });
+    return typeof chosen === 'string' ? chosen : null;
+  },
+
+  /** S11.4d: native *Save as…* for a comparison's PDF (design interview A9). Resolves to null if
+   * the author cancels. */
+  pickSavePath: async (suggestedName: string): Promise<string | null> => {
+    const chosen = await saveDialog({
+      title: 'Save the comparison as a PDF',
+      defaultPath: suggestedName,
+      filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    });
     return typeof chosen === 'string' ? chosen : null;
   },
 

@@ -5404,6 +5404,39 @@ Done when two clicks or two `Enter`s render a comparison; a third click starts o
           author chose; and the palette entry compares the last two commits.
 ```
 
+**S11.4d (3 October 2026).** `[~]`: rungs 1–2 green — `cargo test --workspace` 602 passed / 0 failed
+(no Rust changed), clippy and `cargo doc` clean, `pnpm check` 455 files / 0 errors / 0 warnings,
+Vitest 560/560 (31 new: 18 for the marking and event-folding functions in `compare.test.ts`, 13
+for the controller's flow in `controller.test.ts`). `[~]` because rung 4 is owed, as the card says: nobody
+has yet seen a banner, clicked a row, or watched a real `latexdiff` PDF load. It belongs to the
+Windows smoke campaign that follows. What a reader should take from the diff:
+
+1. **The rules are functions, the store only holds results.** `compare.svelte.ts` has `markRow`
+   (the click-to-mark state machine) and `foldDiffEvent` (what a `compile-diff` event does to the
+   comparison on screen) as plain functions over plain objects, so Vitest drives them with no DOM.
+   One rule the card left open: clicking a marked row of a *pair* removes that mark and the other
+   stays as *from*, so one mis-click costs one click to repair, not two.
+2. **Two guards against crossed answers, both the S11.4c note's.** A request counter lets only the
+   latest `compare_revisions` answer speak; and `compile-diff` events that arrive before the answer
+   has named the generation are held and replayed once it has (the engine can start before the
+   command's reply reaches the webview), then dropped if they are not ours. `foldDiffEvent` itself
+   ignores any event whose generation is not the comparison's.
+3. **The banner is outside the pane, not inside it.** pdf.js appends its pages into the
+   `.pdf-pane` element, so a banner inside would have landed after them. `PdfPane.svelte` is now a
+   column: the banner, then the pane, which pdf.js still owns. In diff mode the pane shows the
+   comparison's PDF and ignores SyncTeX clicks; `app.pdfUrl` keeps following live builds underneath,
+   so *Back to live PDF* shows the newest one with nothing to catch up.
+4. **Departures from the card, each for a reason.** The refusals (no `latexdiff`, a commit without
+   the root file) appear under the Graph toolbar in their own `compare.refusal`, not in `git.error`:
+   that slot is drawn at the top of the view, which is scrolled away from the Graph more often
+   than not. A failed comparison's drawer section lists the diff build's cards without jump or fix
+   buttons: they name the export's `main.tex`, never one of the author's tabs. A refusal also
+   clears the marks, so trying again after installing `latexdiff` is two clicks. `dialog:allow-save`
+   joined the capability file for *Save as…*.
+5. **Two limits, both logged:** the comparison's "Raw output" is the engine's stderr, not its
+   `main.log`; and leaving a comparison does not cancel its build. Neither needed Rust, and
+   this loop has none.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

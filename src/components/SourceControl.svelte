@@ -10,6 +10,8 @@
   import {
     amendCommit,
     cancelGitHubSignIn,
+    clearComparison,
+    comparisonTitle,
     claimCommitMessage,
     commitAndPush,
     commitAndSync,
@@ -20,6 +22,7 @@
     ignoreOurFolder,
     initialiseRepository,
     loadMoreCommits,
+    markGraphRow,
     suggestedRemoteName,
     openFile,
     openVerificationPage,
@@ -32,6 +35,7 @@
     unstageChange,
   } from '../lib/controller.svelte';
   import { formatMegabytes, git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
+  import { compare, markOf } from '../lib/compare.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
   import { app } from '../lib/state.svelte';
 
@@ -131,6 +135,25 @@
 
   /** A deleted file has nothing to open, so its row is not a button. §6's "a click opens a diff"
    * arrives with the merge view (S11.7); until then a click opens the file itself. */
+  /** `Esc` anywhere in the Graph clears both marks and leaves the comparison (A10). */
+  function onGraphKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && (compare.marks.from !== null || compare.mode)) {
+      event.preventDefault();
+      clearComparison();
+    }
+  }
+
+  /** The toolbar's account of what is marked: the pair as Rust ordered it once it knows, and
+   * otherwise what was clicked — a lone *from* says what the next click will do. */
+  const toolbarText = $derived.by(() => {
+    if (compare.view.phase === 'building') {
+      return compare.view.older ? `Rendering ${comparisonTitle(now).replace('Comparing ', '')}…` : 'Rendering the comparison…';
+    }
+    if (compare.mode) return comparisonTitle(now);
+    const from = git.commits.find((commit) => commit.id === compare.marks.from);
+    return from ? `${from.shortId} marked — click another commit to compare` : null;
+  });
+
   function openRow(row: ChangeRow) {
     if (row.kind !== 'deleted') void openFile(row.path);
   }
@@ -398,10 +421,19 @@
       <p class="hint">No changes. Everything here matches the last commit.</p>
     {/if}
 
-    <div class="sc-section">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="sc-section" onkeydown={onGraphKeydown}>
       <div class="sidebar-head">
         <span class="label">Graph</span>
       </div>
+      <!-- S11.4d: click one commit, then another, to read what changed between them. -->
+      {#if toolbarText}
+        <div class="compare-bar" role="status">
+          <span class="compare-text">{toolbarText}</span>
+          <button class="ghost" title="Clear (Esc)" aria-label="Clear the comparison" onclick={clearComparison}>×</button>
+        </div>
+      {/if}
+      {#if compare.refusal}<p class="hint error">{compare.refusal}</p>{/if}
       {#if git.branch?.unborn}
         <p class="hint">No commits yet. The first one starts the history.</p>
       {:else}
@@ -415,19 +447,36 @@
             {#if git.outgoing > 0 && index === git.outgoing}
               <li class="graph-head">On {git.branch?.name ?? 'the remote'}</li>
             {/if}
-            <li class="commit-row">
-              <div class="commit-summary">
-                {commit.summary || '(no message)'}
-                {#each commit.tags as tag (tag)}<span class="tag">{tag}</span>{/each}
-              </div>
-              <div class="commit-meta">
-                <span class="short-id">{commit.shortId}</span>
-                {commit.author} · {relativeTime(commit.time, now)}
-                {#if commit.wordDelta !== 0}
-                  <!-- S10.3c: this is what makes the graph double as a progress log. -->
-                  <span class={commit.wordDelta > 0 ? 'ok' : 'warn'}>· {wordDeltaLabel(commit.wordDelta)}</span>
-                {/if}
-              </div>
+            {@const mark = markOf(compare.marks, commit.id)}
+            <li class="commit-row" class:marked={mark !== null}>
+              <!-- A real button, so Tab reaches it and Enter/Space mark exactly as a click does
+                   (rule 5). -->
+              <button
+                class="commit-button"
+                aria-pressed={mark !== null}
+                title={mark === 'from'
+                  ? 'Marked as the start of a comparison. Click to unmark.'
+                  : mark === 'to'
+                    ? 'Marked as the end of a comparison. Click to unmark.'
+                    : compare.marks.from === null
+                      ? 'Click to start a comparison here'
+                      : 'Click to compare with the marked commit'}
+                onclick={() => markGraphRow(commit.id)}
+              >
+                <div class="commit-summary">
+                  {#if mark}<span class="mark-badge">{mark === 'from' ? 'from' : 'to'}</span>{/if}
+                  {commit.summary || '(no message)'}
+                  {#each commit.tags as tag (tag)}<span class="tag">{tag}</span>{/each}
+                </div>
+                <div class="commit-meta">
+                  <span class="short-id">{commit.shortId}</span>
+                  {commit.author} · {relativeTime(commit.time, now)}
+                  {#if commit.wordDelta !== 0}
+                    <!-- S10.3c: this is what makes the graph double as a progress log. -->
+                    <span class={commit.wordDelta > 0 ? 'ok' : 'warn'}>· {wordDeltaLabel(commit.wordDelta)}</span>
+                  {/if}
+                </div>
+              </button>
             </li>
           {/each}
         </ul>
@@ -628,10 +677,49 @@
     padding: 0;
   }
   .commit-row {
-    padding: 3px 10px;
+    padding: 0;
   }
   .commit-row:hover {
     background: var(--bg-hover);
+  }
+  .commit-row.marked {
+    background: var(--bg-hover);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  /* The whole row is the button; it only has to look like the row it replaced. */
+  .commit-button {
+    display: block;
+    width: 100%;
+    padding: 3px 10px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .mark-badge {
+    margin-right: 5px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--bg-editor);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+  .compare-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 6px 4px 10px;
+    font-size: 12px;
+  }
+  .compare-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .commit-summary {
     overflow: hidden;

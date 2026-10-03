@@ -4,7 +4,16 @@
 
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
-import { git, GRAPH_PAGE, NO_CHANGES, suggestedMessage, syncOutcomeSentence } from './git.svelte';
+import {
+  compare,
+  describeEnd,
+  foldDiffEvent,
+  markRow,
+  NO_COMPARISON,
+  NO_MARKS,
+  startedComparison,
+} from './compare.svelte';
+import { git, GRAPH_PAGE, NO_CHANGES, relativeTime, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
 import { registerCommand } from './commands';
 import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type LspEvent, type Visibility } from './ipc';
@@ -549,6 +558,142 @@ async function refreshGitGraph(): Promise<void> {
   }
 }
 
+// ---- Comparing two commits (S11.4d, DESIGN.md §5.7) --------------------------------------------
+
+/** Which request for a comparison is the latest. `compare_revisions` answers at once, but two
+ * answers can still cross: only the one whose number is still current is allowed to speak (the
+ * card's "take the answer only for the latest request"). */
+let comparisonRequest = 0;
+
+/** `compile-diff` events that arrived before the answer said which generation is ours. The engine
+ * can start before the command's reply reaches the webview, so `started` and `progress` may come
+ * first; they are replayed once the generation is known and dropped if it is not theirs. */
+let earlyDiffEvents: CompileEvent[] = [];
+
+function handleDiffEvent(event: CompileEvent): void {
+  const view = compare.view;
+  if (view.phase === 'building' && view.generation === null) {
+    earlyDiffEvents.push(event);
+    return;
+  }
+  const next = foldDiffEvent(view, event, ipc.assetUrl);
+  if (next === view) return;
+  compare.view = next;
+  // A comparison that failed opens the drawer, the way a failed live build does: the sentence and
+  // the diff build's own diagnostics are there, labelled as the comparison's (rule 3).
+  if (next.phase === 'failed') app.drawerOpen = true;
+}
+
+/** The marks have said "these two": ask Rust, show what it answers, and stay silent if a newer
+ * request overtook this one. Rust's refusals — no `latexdiff`, no root file in a commit — are
+ * sentences, and appear under the Graph toolbar in `compare.refusal` (the card said `git.error`; that
+ * slot is drawn at the top of the view, which is scrolled away from the Graph more often than not). */
+async function startComparison(from: string, to: string): Promise<void> {
+  const mine = ++comparisonRequest;
+  earlyDiffEvents = [];
+  compare.refusal = null;
+  compare.saveError = null;
+  compare.view = startedComparison();
+  try {
+    const answer = await ipc.compareRevisions(from, to);
+    if (mine !== comparisonRequest) return;
+    switch (answer.status) {
+      case 'superseded':
+        // Rust says a newer request replaced this one while it exported. That request speaks.
+        return;
+      case 'ready':
+        compare.view = {
+          ...NO_COMPARISON,
+          phase: 'ready',
+          older: answer.older,
+          newer: answer.newer,
+          pdfUrl: `${ipc.assetUrl(answer.pdfPath)}?v=${answer.older.slice(0, 7)}-${answer.newer.slice(0, 7)}`,
+        };
+        return;
+      case 'building': {
+        compare.view = { ...startedComparison(), older: answer.older, newer: answer.newer, generation: answer.generation };
+        const replay = earlyDiffEvents;
+        earlyDiffEvents = [];
+        for (const event of replay) handleDiffEvent(event);
+        return;
+      }
+    }
+  } catch (error) {
+    if (mine !== comparisonRequest) return;
+    // Nothing was written and nothing is building: back to the live PDF, marks cleared so the
+    // author can simply try again after installing what the sentence names.
+    compare.view = NO_COMPARISON;
+    compare.marks = NO_MARKS;
+    compare.refusal = String(error);
+  }
+}
+
+/** A click or `Enter` on a Graph row (design interview A10). */
+export function markGraphRow(id: string): void {
+  const step = markRow(compare.marks, id);
+  compare.marks = step.marks;
+  // Marking anything new while a comparison shows leaves it: the banner described the old pair.
+  if (step.compare) {
+    void startComparison(step.compare[0], step.compare[1]);
+  } else if (compare.mode) {
+    leaveComparisonKeepingMarks();
+  }
+}
+
+function leaveComparisonKeepingMarks(): void {
+  // Bumping the request number makes any answer still on its way to be ignored. The diff build,
+  // if one is running, finishes unseen: it is cancelled by the next comparison, never by us.
+  comparisonRequest++;
+  earlyDiffEvents = [];
+  compare.view = NO_COMPARISON;
+  compare.saveError = null;
+}
+
+/** *Back to live PDF*, the toolbar's ×, and `Esc`: leave diff mode and clear the marks (A6). */
+export function clearComparison(): void {
+  leaveComparisonKeepingMarks();
+  compare.marks = NO_MARKS;
+  compare.refusal = null;
+}
+
+/** The palette's *Compare with previous commit*: `HEAD~1` → `HEAD`, in one keystroke (A10). */
+export function compareWithPreviousCommit(): void {
+  const [newest, previous] = git.commits;
+  if (!newest || !previous) {
+    compare.refusal = 'There is no earlier commit to compare with yet.';
+    showActivityView('source-control');
+    return;
+  }
+  compare.refusal = null;
+  compare.marks = { from: previous.id, to: newest.id };
+  showActivityView('source-control');
+  void startComparison(previous.id, newest.id);
+}
+
+/** *Save as…* in the banner (A9): the author picks the place, Rust copies the PDF there. */
+export async function saveComparisonAs(): Promise<void> {
+  const { older, newer } = compare.view;
+  if (compare.view.phase !== 'ready') return;
+  compare.saveError = null;
+  try {
+    const destination = await ipc.pickSavePath(`comparison-${older.slice(0, 7)}-${newer.slice(0, 7)}.pdf`);
+    if (!destination) return;
+    await ipc.saveComparisonPdf(older, newer, destination);
+  } catch (error) {
+    compare.saveError = String(error);
+  }
+}
+
+/** The banner's sentence: `Comparing a1b2c3d (3 days ago) → e4f5a6b (today)`. Falls back to the
+ * bare short ids for a commit the loaded page of the Graph does not hold. */
+export function comparisonTitle(now: number): string {
+  const label = (id: string) => {
+    const row = git.commits.find((candidate) => candidate.id === id);
+    return describeEnd(row?.shortId ?? id.slice(0, 7), row ? relativeTime(row.time, now) : null);
+  };
+  return `Comparing ${label(compare.view.older)} → ${label(compare.view.newer)}`;
+}
+
 /** Append the next page of history (DESIGN.md §6's "lazy loading"). */
 export async function loadMoreCommits(): Promise<void> {
   try {
@@ -865,6 +1010,9 @@ export async function signOutOfGitHub(): Promise<void> {
 /** Called once from App.svelte. Subscribes to backend events and probes the engine. */
 export async function start(): Promise<void> {
   await ipc.onCompile(handleCompileEvent);
+  // S11.4d: a comparison compiles in a lane of its own, so its events are folded by their own
+  // handler and can never touch `app.compile`.
+  await ipc.onCompileDiff(handleDiffEvent);
   await ipc.onFsChanged((event) => void handleFsEvent(event));
   await ipc.onLsp(handleLspEvent);
   // Rust rebuilds the index whenever a .bib or .tex changes and sends it whole (S7.2); the
@@ -935,6 +1083,8 @@ export async function openFolder(path?: string): Promise<void> {
     git.error = null;
     git.readError = null;
     git.lastDiscard = null;
+    // The previous project's comparison, and the rows it marked, are not this one's.
+    clearComparison();
     void refreshGitStatus();
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
@@ -1211,6 +1361,13 @@ registerCommand({
   category: 'action',
   shortcut: 'Ctrl Shift G',
   run: () => showActivityView('source-control'),
+});
+// S11.4d (A10): the commonest comparison, with no clicking.
+registerCommand({
+  id: 'compare-previous-commit',
+  title: 'Compare with previous commit',
+  category: 'action',
+  run: () => compareWithPreviousCommit(),
 });
 registerCommand({
   id: 'allow-shell-escape',
