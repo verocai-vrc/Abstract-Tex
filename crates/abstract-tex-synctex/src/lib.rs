@@ -105,13 +105,20 @@ pub struct SyncTex {
 impl SyncTex {
     /// Read and parse a `.synctex.gz` from disk.
     pub fn open(path: &Path) -> Result<Self, SyncTexError> {
-        let compressed =
-            std::fs::read(path).map_err(|source| SyncTexError::Io { path: path.to_path_buf(), source })?;
+        let compressed = std::fs::read(path).map_err(|source| SyncTexError::Io {
+            path: path.to_path_buf(),
+            source,
+        })?;
         let mut text = String::new();
         GzDecoder::new(&compressed[..])
             .read_to_string(&mut text)
-            .map_err(|source| SyncTexError::Gzip { path: path.to_path_buf(), source })?;
-        parse(&text).ok_or_else(|| SyncTexError::NotSyncTex { path: path.to_path_buf() })
+            .map_err(|source| SyncTexError::Gzip {
+                path: path.to_path_buf(),
+                source,
+            })?;
+        parse(&text).ok_or_else(|| SyncTexError::NotSyncTex {
+            path: path.to_path_buf(),
+        })
     }
 
     /// Forward search: where does `file:line` land in the PDF?
@@ -123,7 +130,10 @@ impl SyncTex {
     /// stale click after editing, or a line with no typeset material — a blank line, a comment).
     pub fn forward_search(&self, file: &Path, line: u32) -> Option<PdfPosition> {
         let tag = self.tag_for_file(file)?;
-        let record = self.records.iter().find(|r| r.file_tag == tag && r.line == line)?;
+        let record = self
+            .records
+            .iter()
+            .find(|r| r.file_tag == tag && r.line == line)?;
         Some(to_pdf_position(record))
     }
 
@@ -158,11 +168,17 @@ impl SyncTex {
         }
         let (nearest, _) = best?;
         let file = self.files.get(&nearest.file_tag)?.clone();
-        Some(SourceLocation { file, line: nearest.line })
+        Some(SourceLocation {
+            file,
+            line: nearest.line,
+        })
     }
 
     fn tag_for_file(&self, file: &Path) -> Option<u32> {
-        self.files.iter().find(|(_, path)| paths_match(path, file)).map(|(tag, _)| *tag)
+        self.files
+            .iter()
+            .find(|(_, path)| paths_match(path, file))
+            .map(|(tag, _)| *tag)
     }
 }
 
@@ -191,7 +207,9 @@ fn normalise(path: &Path) -> String {
 /// slashes, which every platform this app runs on accepts.
 fn without_dot_segments(recorded: &str) -> PathBuf {
     let forward = recorded.replace('\\', "/");
-    let has_dot_segment = forward.split('/').any(|segment| segment == "." || segment == "..");
+    let has_dot_segment = forward
+        .split('/')
+        .any(|segment| segment == "." || segment == "..");
     if !has_dot_segment {
         return PathBuf::from(recorded);
     }
@@ -260,7 +278,10 @@ fn parse(text: &str) -> Option<SyncTex> {
     let lines = text.lines();
     // The version line is the one thing we insist on seeing; anything claiming to be SyncTeX
     // starts with it. Its own version number is not otherwise interesting to us.
-    lines.clone().next().filter(|line| line.starts_with("SyncTeX Version:"))?;
+    lines
+        .clone()
+        .next()
+        .filter(|line| line.starts_with("SyncTeX Version:"))?;
 
     let mut files = HashMap::new();
     let mut records = Vec::new();
@@ -302,7 +323,13 @@ fn parse(text: &str) -> Option<SyncTex> {
 /// placeholder is never read.
 impl Record {
     fn placeholder(file_tag: u32, line: u32, h: i64, v: i64) -> Self {
-        Self { page: 0, file_tag, line, h, v }
+        Self {
+            page: 0,
+            file_tag,
+            line,
+            h,
+            v,
+        }
     }
 }
 
@@ -324,7 +351,12 @@ fn parse_record_line(line: &str) -> Option<Record> {
     let position = position.split(':').next().unwrap_or(position);
     let (h, v) = position.split_once(',')?;
 
-    Some(Record::placeholder(file_tag.parse().ok()?, line_no.parse().ok()?, h.parse().ok()?, v.parse().ok()?))
+    Some(Record::placeholder(
+        file_tag.parse().ok()?,
+        line_no.parse().ok()?,
+        h.parse().ok()?,
+        v.parse().ok()?,
+    ))
 }
 
 #[cfg(test)]
@@ -369,7 +401,9 @@ Count:5\n";
     #[test]
     fn forward_search_finds_a_record_on_the_right_page() {
         let synctex = parse(REAL_EXCERPT).unwrap();
-        let hit = synctex.forward_search(Path::new("C:\\proj\\multi.tex"), 3).unwrap();
+        let hit = synctex
+            .forward_search(Path::new("C:\\proj\\multi.tex"), 3)
+            .unwrap();
         assert_eq!(hit.page, 1);
         // 8799519 sp / 65781.76 ≈ 133.75 pt — computed, not asserted against a made-up number.
         assert!((hit.x - 8_799_519.0 / SCALED_POINTS_PER_PDF_POINT).abs() < 1e-9);
@@ -378,21 +412,30 @@ Count:5\n";
     #[test]
     fn forward_search_matches_the_file_case_insensitively() {
         let synctex = parse(REAL_EXCERPT).unwrap();
-        assert!(synctex.forward_search(Path::new("c:\\PROJ\\MULTI.TEX"), 3).is_some());
+        assert!(synctex
+            .forward_search(Path::new("c:\\PROJ\\MULTI.TEX"), 3)
+            .is_some());
     }
 
     #[test]
     fn forward_search_is_none_for_a_line_with_no_typeset_material() {
         let synctex = parse(REAL_EXCERPT).unwrap();
-        assert!(synctex.forward_search(Path::new("C:\\proj\\multi.tex"), 999).is_none());
+        assert!(synctex
+            .forward_search(Path::new("C:\\proj\\multi.tex"), 999)
+            .is_none());
     }
 
     /// A draft's root, recorded through `..` (S9.9): found by its plain path, and handed back as it.
     #[test]
     fn a_path_recorded_through_dot_dot_is_resolved_both_ways() {
-        let draft = REAL_EXCERPT.replace("Input:1:C:\\proj\\multi.tex", "Input:1:/proj/.abstract-tex/draft/../../main.tex");
+        let draft = REAL_EXCERPT.replace(
+            "Input:1:C:\\proj\\multi.tex",
+            "Input:1:/proj/.abstract-tex/draft/../../main.tex",
+        );
         let synctex = parse(&draft).unwrap();
-        let forward = synctex.forward_search(Path::new("/proj/main.tex"), 3).expect("the root's plain path matches");
+        let forward = synctex
+            .forward_search(Path::new("/proj/main.tex"), 3)
+            .expect("the root's plain path matches");
         let back = synctex.inverse_search(forward).unwrap();
         assert_eq!(back.file, PathBuf::from("/proj/main.tex"));
     }
@@ -401,13 +444,18 @@ Count:5\n";
     fn dot_segments_resolve_and_plain_paths_stay_as_recorded() {
         assert_eq!(without_dot_segments("/p/./a/../b.tex"), PathBuf::from("/p/b.tex"));
         assert_eq!(without_dot_segments("/../b.tex"), PathBuf::from("/../b.tex"));
-        assert_eq!(without_dot_segments("C:\\proj\\multi.tex"), PathBuf::from("C:\\proj\\multi.tex"));
+        assert_eq!(
+            without_dot_segments("C:\\proj\\multi.tex"),
+            PathBuf::from("C:\\proj\\multi.tex")
+        );
     }
 
     #[test]
     fn forward_search_is_none_for_a_file_synctex_never_heard_of() {
         let synctex = parse(REAL_EXCERPT).unwrap();
-        assert!(synctex.forward_search(Path::new("C:\\proj\\other.tex"), 3).is_none());
+        assert!(synctex
+            .forward_search(Path::new("C:\\proj\\other.tex"), 3)
+            .is_none());
     }
 
     #[test]
@@ -415,8 +463,10 @@ Count:5\n";
         let synctex = parse(REAL_EXCERPT).unwrap();
         // `Record::placeholder` leaves `page` at 0 (`parse` is what fills it in from `{`/`}`);
         // this query is about page 1, so that has to be set explicitly here.
-        let near_line_3 =
-            PdfPosition { page: 1, ..to_pdf_position(&Record::placeholder(1, 3, 8_799_519, 8_865_055)) };
+        let near_line_3 = PdfPosition {
+            page: 1,
+            ..to_pdf_position(&Record::placeholder(1, 3, 8_799_519, 8_865_055))
+        };
         let hit = synctex.inverse_search(near_line_3).unwrap();
         assert_eq!(hit.line, 3);
         assert_eq!(hit.file, PathBuf::from("C:\\proj\\multi.tex"));
@@ -435,7 +485,13 @@ Count:5\n";
     #[test]
     fn inverse_search_is_none_for_a_page_with_no_records() {
         let synctex = parse(REAL_EXCERPT).unwrap();
-        assert!(synctex.inverse_search(PdfPosition { page: 99, x: 0.0, y: 0.0 }).is_none());
+        assert!(synctex
+            .inverse_search(PdfPosition {
+                page: 99,
+                x: 0.0,
+                y: 0.0
+            })
+            .is_none());
     }
 
     #[test]
@@ -474,26 +530,40 @@ Count:5\n";
         // material, so the record nearest any point on page 1 names it.
         let source_tex = recorded_multi_tex(&synctex);
         // Line 3 is "Line one of the introduction..." on page 1.
-        let forward = synctex.forward_search(&source_tex, 3).expect("line 3 should be on page 1");
+        let forward = synctex
+            .forward_search(&source_tex, 3)
+            .expect("line 3 should be on page 1");
         assert_eq!(forward.page, 1);
         assert!(forward.x > 0.0 && forward.y > 0.0);
 
         // Line 8 is "Second page starts here..." on page 2, after the \newpage on line 7.
-        let forward_p2 = synctex.forward_search(&source_tex, 8).expect("line 8 should be on page 2");
+        let forward_p2 = synctex
+            .forward_search(&source_tex, 8)
+            .expect("line 8 should be on page 2");
         assert_eq!(forward_p2.page, 2);
 
         // Inverse search from exactly where forward search says line 3 lands must return line 3.
-        let back = synctex.inverse_search(forward).expect("a record exists at this exact point");
+        let back = synctex
+            .inverse_search(forward)
+            .expect("a record exists at this exact point");
         assert_eq!(back.line, 3);
     }
 
     /// Where the committed fixture recorded `multi.tex`, whatever machine it was built on.
     fn recorded_multi_tex(synctex: &SyncTex) -> PathBuf {
-        let top_left = PdfPosition { page: 1, x: 0.0, y: 0.0 };
+        let top_left = PdfPosition {
+            page: 1,
+            x: 0.0,
+            y: 0.0,
+        };
         let hit = synctex.inverse_search(top_left).expect("page 1 has records");
         // A string check, not `Path::ends_with`: on Linux a recorded Windows path is one single
         // component, so a component-wise comparison would never match.
-        assert!(normalise(&hit.file).ends_with("/multi.tex"), "unexpected input {:?}", hit.file);
+        assert!(
+            normalise(&hit.file).ends_with("/multi.tex"),
+            "unexpected input {:?}",
+            hit.file
+        );
         hit.file
     }
 
@@ -518,7 +588,14 @@ Count:5\n";
         let status = std::process::Command::new(&tectonic)
             .args(["--outdir"])
             .arg(&out_dir)
-            .args(["--keep-logs", "--keep-intermediates", "--chatter", "minimal", "--synctex", "multi.tex"])
+            .args([
+                "--keep-logs",
+                "--keep-intermediates",
+                "--chatter",
+                "minimal",
+                "--synctex",
+                "multi.tex",
+            ])
             .current_dir(tmp.path())
             .status()
             .expect("failed to spawn tectonic");
@@ -526,9 +603,13 @@ Count:5\n";
 
         let synctex = SyncTex::open(&out_dir.join("multi.synctex.gz")).unwrap();
         let fresh_source = tmp.path().join("multi.tex");
-        let forward = synctex.forward_search(&fresh_source, 3).expect("line 3 should still be on page 1");
+        let forward = synctex
+            .forward_search(&fresh_source, 3)
+            .expect("line 3 should still be on page 1");
         assert_eq!(forward.page, 1);
-        let forward_p2 = synctex.forward_search(&fresh_source, 8).expect("line 8 should still be on page 2");
+        let forward_p2 = synctex
+            .forward_search(&fresh_source, 8)
+            .expect("line 8 should still be on page 2");
         assert_eq!(forward_p2.page, 2);
     }
 

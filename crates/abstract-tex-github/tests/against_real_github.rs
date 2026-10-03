@@ -28,7 +28,9 @@ const NOBODYS_CLIENT_ID: &str = "Iv1.0000000000000000";
 #[ignore]
 fn github_understands_the_request_this_crate_builds() {
     let flow = DeviceFlow::new().unwrap();
-    let error = flow.request_code(NOBODYS_CLIENT_ID).expect_err("nobody owns that client id");
+    let error = flow
+        .request_code(NOBODYS_CLIENT_ID)
+        .expect_err("nobody owns that client id");
 
     match error {
         // The outcome this test is for: GitHub read the request and answered about the client id.

@@ -36,7 +36,11 @@ pub enum Incoming {
     /// A notification: a method and its params, no reply expected.
     Notification { method: String, params: Value },
     /// The server asked *us* something. `id` must be echoed back in the answer.
-    Request { id: Value, method: String, params: Value },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
     /// The process died. The bridge restarts it; this says it happened, so the UI can tell the
     /// author why completion stopped for a moment instead of silently going dead.
     Crashed { restarts: u32 },
@@ -118,7 +122,11 @@ impl Bridge {
         ));
 
         Ok((
-            Self { outbound: outbound_tx, pending, next_id: Arc::new(AtomicI64::new(1)) },
+            Self {
+                outbound: outbound_tx,
+                pending,
+                next_id: Arc::new(AtomicI64::new(1)),
+            },
             incoming_rx,
         ))
     }
@@ -133,7 +141,11 @@ impl Bridge {
         self.pending.lock().await.insert(id, tx);
 
         let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        if self.outbound.send(serde_json::to_vec(&body).expect("serialising a Value cannot fail")).is_err() {
+        if self
+            .outbound
+            .send(serde_json::to_vec(&body).expect("serialising a Value cannot fail"))
+            .is_err()
+        {
             self.pending.lock().await.remove(&id);
             return Err(CallError::Dropped);
         }
@@ -404,7 +416,10 @@ mod tests {
     #[test]
     fn windows_and_unix_paths_both_become_file_uris() {
         assert_eq!(path_to_uri(Path::new("/home/a/p.tex")), "file:///home/a/p.tex");
-        assert_eq!(path_to_uri(Path::new(r"C:\Users\a\p.tex")), "file:///C:/Users/a/p.tex");
+        assert_eq!(
+            path_to_uri(Path::new(r"C:\Users\a\p.tex")),
+            "file:///C:/Users/a/p.tex"
+        );
     }
 
     /// The bug the first smoke run found: an unencoded space makes TexLab reject the URI with
@@ -421,7 +436,10 @@ mod tests {
     #[test]
     fn characters_that_would_change_the_parse_are_encoded_too() {
         // `#` would start a fragment and `?` a query; `%` must not be taken as an escape.
-        assert_eq!(path_to_uri(Path::new("/a/b#c?d%e.tex")), "file:///a/b%23c%3Fd%25e.tex");
+        assert_eq!(
+            path_to_uri(Path::new("/a/b#c?d%e.tex")),
+            "file:///a/b%23c%3Fd%25e.tex"
+        );
     }
 
     #[test]
@@ -440,7 +458,11 @@ mod tests {
 
     /// Routing is pure enough to test without a process: build the pieces by hand and feed
     /// `route` the bytes a server would send.
-    fn harness() -> (Pending, mpsc::UnboundedSender<Incoming>, mpsc::UnboundedReceiver<Incoming>) {
+    fn harness() -> (
+        Pending,
+        mpsc::UnboundedSender<Incoming>,
+        mpsc::UnboundedReceiver<Incoming>,
+    ) {
         let (tx, rx) = mpsc::unbounded_channel();
         (Arc::new(Mutex::new(HashMap::new())), tx, rx)
     }
@@ -451,10 +473,18 @@ mod tests {
         let (reply_tx, reply_rx) = oneshot::channel();
         pending.lock().await.insert(7, reply_tx);
 
-        route(br#"{"jsonrpc":"2.0","id":7,"result":{"items":[]}}"#, &pending, &tx).await;
+        route(
+            br#"{"jsonrpc":"2.0","id":7,"result":{"items":[]}}"#,
+            &pending,
+            &tx,
+        )
+        .await;
 
         assert_eq!(reply_rx.await.unwrap().unwrap(), json!({"items": []}));
-        assert!(pending.lock().await.is_empty(), "the entry is removed once answered");
+        assert!(
+            pending.lock().await.is_empty(),
+            "the entry is removed once answered"
+        );
     }
 
     #[tokio::test]

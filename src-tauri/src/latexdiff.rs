@@ -61,7 +61,10 @@ impl DiffLane {
     /// A place in line for a comparison just asked for. It is the latest until the next one.
     pub fn take_ticket(&self) -> Ticket {
         let number = self.latest_request.fetch_add(1, Ordering::SeqCst) + 1;
-        Ticket { number, latest: Arc::clone(&self.latest_request) }
+        Ticket {
+            number,
+            latest: Arc::clone(&self.latest_request),
+        }
     }
 
     /// Stop whatever the lane is doing for a comparison the author has walked away from.
@@ -111,7 +114,11 @@ pub struct ComparisonRequest {
 /// Run one comparison, start to finish: wait its turn, stop whatever the lane was still
 /// building, prepare the marked-up document, and hand it to the diff lane — reporting through
 /// `on_event` the way the live lane does. Answers at once; the compile reports later.
-pub async fn compare<F>(lane: &DiffLane, request: ComparisonRequest, on_event: F) -> Result<ComparisonStarted, String>
+pub async fn compare<F>(
+    lane: &DiffLane,
+    request: ComparisonRequest,
+    on_event: F,
+) -> Result<ComparisonStarted, String>
 where
     F: Fn(CompileEvent) + Send + Sync + 'static,
 {
@@ -128,8 +135,22 @@ where
     // `spawn_blocking`: libgit2, two whole-tree exports and a Perl process are all blocking work,
     // the reason `git::in_repository_blocking` gives for push and sync.
     let (plan, reused) = tauri::async_runtime::spawn_blocking(move || {
-        let ComparisonRequest { project_dir, root_file, latexdiff_dir, a, b, .. } = blocking_request;
-        prepare(Path::new("latexdiff"), &project_dir, &root_file, &latexdiff_dir, &a, &b)
+        let ComparisonRequest {
+            project_dir,
+            root_file,
+            latexdiff_dir,
+            a,
+            b,
+            ..
+        } = blocking_request;
+        prepare(
+            Path::new("latexdiff"),
+            &project_dir,
+            &root_file,
+            &latexdiff_dir,
+            &a,
+            &b,
+        )
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -139,10 +160,20 @@ where
     }
     let (older, newer) = (plan.older.to_string(), plan.newer.to_string());
     if reused {
-        return Ok(ComparisonStarted::Ready { older, newer, pdf_path: plan.pdf.to_string_lossy().into_owned() });
+        return Ok(ComparisonStarted::Ready {
+            older,
+            newer,
+            pdf_path: plan.pdf.to_string_lossy().into_owned(),
+        });
     }
-    let generation = lane.orchestrator.request(plan.job(&request.root_file, request.shell_escape), None, on_event);
-    Ok(ComparisonStarted::Building { older, newer, generation })
+    let generation =
+        lane.orchestrator
+            .request(plan.job(&request.root_file, request.shell_escape), None, on_event);
+    Ok(ComparisonStarted::Building {
+        older,
+        newer,
+        generation,
+    })
 }
 
 /// The TeX transcript of the comparison on disk, or an empty string when there is none.
@@ -152,7 +183,10 @@ where
 /// not offering a "read this log file" command. The log is the engine's `<stem>.log` inside the
 /// comparison's `build/` folder, where the live lane's `read_log` finds its own.
 pub fn read_comparison_log(latexdiff_dir: &Path, root_file: &Path) -> String {
-    let stem = root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".into());
+    let stem = root_file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "main".into());
     let Ok(entries) = std::fs::read_dir(latexdiff_dir) else {
         return String::new(); // no comparison has ever run here
     };
@@ -175,9 +209,17 @@ pub fn parse_commit(id: &str) -> Result<Oid, String> {
 #[serde(tag = "status", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ComparisonStarted {
     /// The same pair was compared last time and its PDF is still there: nothing to do.
-    Ready { older: String, newer: String, pdf_path: String },
+    Ready {
+        older: String,
+        newer: String,
+        pdf_path: String,
+    },
     /// The marked-up document is compiling.
-    Building { older: String, newer: String, generation: u64 },
+    Building {
+        older: String,
+        newer: String,
+        generation: u64,
+    },
     /// A newer comparison was asked for while this one was exporting. Not a refusal: the author
     /// is already waiting on the newer one, and this one says nothing.
     Superseded,
@@ -196,12 +238,20 @@ pub struct ComparisonDirs {
 impl ComparisonDirs {
     pub fn new(latexdiff_dir: &Path, older: Oid, newer: Oid) -> Self {
         let root = latexdiff_dir.join(format!("{}-{}", short(older), short(newer)));
-        Self { old: root.join("old"), new: root.join("new"), build: root.join("build"), root }
+        Self {
+            old: root.join("old"),
+            new: root.join("new"),
+            build: root.join("build"),
+            root,
+        }
     }
 
     /// Where the engine writes the marked-up PDF: `<stem>.pdf` in `build/`, as both engines name it.
     pub fn pdf(&self, root_file: &Path) -> PathBuf {
-        let stem = root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".into());
+        let stem = root_file
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "main".into());
         self.build.join(format!("{stem}.pdf"))
     }
 }
@@ -246,7 +296,8 @@ pub fn plan(
     a: &str,
     b: &str,
 ) -> Result<Plan, String> {
-    let (older, newer) = abstract_tex_git::older_first(repository, parse_commit(a)?, parse_commit(b)?).map_err(|e| e.to_string())?;
+    let (older, newer) = abstract_tex_git::older_first(repository, parse_commit(a)?, parse_commit(b)?)
+        .map_err(|e| e.to_string())?;
 
     let prefix = project_prefix(repository, project_dir);
     let tree_root_file = prefix.join(root_file).to_string_lossy().replace('\\', "/");
@@ -262,7 +313,14 @@ pub fn plan(
     }
 
     let dirs = ComparisonDirs::new(latexdiff_dir, older, newer);
-    Ok(Plan { older, newer, tree_root_file, project_in_export: dirs.new.join(&prefix), pdf: dirs.pdf(root_file), dirs })
+    Ok(Plan {
+        older,
+        newer,
+        tree_root_file,
+        project_in_export: dirs.new.join(&prefix),
+        pdf: dirs.pdf(root_file),
+        dirs,
+    })
 }
 
 /// Clear `.abstract-tex/latexdiff/` of everything but this plan's pair, and say whether that
@@ -350,11 +408,16 @@ pub fn sentence(error: LatexdiffError) -> String {
 /// in a subfolder. `abstract_tex_git::open` *discovers* the repository (S10.1), so the two are not
 /// always the same folder — and a commit's tree is spelled from the repository's top.
 fn project_prefix(repository: &Repository, project_dir: &Path) -> PathBuf {
-    let Some(workdir) = repository.workdir() else { return PathBuf::new() };
+    let Some(workdir) = repository.workdir() else {
+        return PathBuf::new();
+    };
     // Canonical on both sides, or a symlinked home folder (or Windows's `\\?\` form on one side
     // only) makes a project inside the repository look like one outside it.
     let canonical = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    canonical(project_dir).strip_prefix(canonical(workdir)).map(Path::to_path_buf).unwrap_or_default()
+    canonical(project_dir)
+        .strip_prefix(canonical(workdir))
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
 }
 
 /// The seven characters `git log --oneline` shows, as the Graph does.
@@ -385,7 +448,9 @@ mod tests {
             let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
             let parent = repository.head().ok().and_then(|head| head.peel_to_commit().ok());
             let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
-            repository.commit(Some("HEAD"), &who, &who, text, &tree, &parents).unwrap()
+            repository
+                .commit(Some("HEAD"), &who, &who, text, &tree, &parents)
+                .unwrap()
         };
         let first = commit("first draft\n");
         let second = commit("second draft\n");
@@ -401,15 +466,34 @@ mod tests {
         let latexdiff_dir = project.join(".abstract-tex/latexdiff");
         let root = Path::new("main.tex");
 
-        let forwards = plan(&repository, &project, root, &latexdiff_dir, &first.to_string(), &second.to_string()).unwrap();
-        let backwards = plan(&repository, &project, root, &latexdiff_dir, &second.to_string(), &first.to_string()).unwrap();
+        let forwards = plan(
+            &repository,
+            &project,
+            root,
+            &latexdiff_dir,
+            &first.to_string(),
+            &second.to_string(),
+        )
+        .unwrap();
+        let backwards = plan(
+            &repository,
+            &project,
+            root,
+            &latexdiff_dir,
+            &second.to_string(),
+            &first.to_string(),
+        )
+        .unwrap();
 
         assert_eq!(forwards, backwards);
         assert_eq!((forwards.older, forwards.newer), (first, second));
         assert_eq!(forwards.tree_root_file, "paper/main.tex");
         assert_eq!(forwards.project_in_export, forwards.dirs.new.join("paper"));
         assert_eq!(forwards.pdf, forwards.dirs.build.join("main.pdf"));
-        assert!(forwards.dirs.root.ends_with(format!("{}-{}", short(first), short(second))));
+        assert!(forwards
+            .dirs
+            .root
+            .ends_with(format!("{}-{}", short(first), short(second))));
     }
 
     /// A root file that one of the two commits lacks is refused by name, before anything exists.
@@ -419,11 +503,24 @@ mod tests {
         let project = tmp.path().join("paper");
         let latexdiff_dir = project.join(".abstract-tex/latexdiff");
 
-        let refusal = plan(&repository, &project, Path::new("thesis.tex"), &latexdiff_dir, &first.to_string(), &second.to_string())
-            .unwrap_err();
+        let refusal = plan(
+            &repository,
+            &project,
+            Path::new("thesis.tex"),
+            &latexdiff_dir,
+            &first.to_string(),
+            &second.to_string(),
+        )
+        .unwrap_err();
 
-        assert!(refusal.contains(&short(first)) && refusal.contains("thesis.tex"), "{refusal}");
-        assert!(!latexdiff_dir.exists(), "nothing may be written for a refused comparison");
+        assert!(
+            refusal.contains(&short(first)) && refusal.contains("thesis.tex"),
+            "{refusal}"
+        );
+        assert!(
+            !latexdiff_dir.exists(),
+            "nothing may be written for a refused comparison"
+        );
     }
 
     /// Only the latest comparison survives: another pair's folder goes, and this pair's own folder
@@ -433,7 +530,15 @@ mod tests {
         let (tmp, repository, first, second) = two_commits();
         let project = tmp.path().join("paper");
         let latexdiff_dir = project.join(".abstract-tex/latexdiff");
-        let the_plan = plan(&repository, &project, Path::new("main.tex"), &latexdiff_dir, &first.to_string(), &second.to_string()).unwrap();
+        let the_plan = plan(
+            &repository,
+            &project,
+            Path::new("main.tex"),
+            &latexdiff_dir,
+            &first.to_string(),
+            &second.to_string(),
+        )
+        .unwrap();
         let someone_else = latexdiff_dir.join("aaaaaaa-bbbbbbb");
         fs::create_dir_all(someone_else.join("build")).unwrap();
 
@@ -461,12 +566,26 @@ mod tests {
         fs::create_dir_all(&last_time).unwrap();
 
         let missing = tmp.path().join("no-latexdiff-here");
-        let refusal = prepare(&missing, &project, Path::new("main.tex"), &latexdiff_dir, &first.to_string(), &second.to_string())
-            .unwrap_err();
+        let refusal = prepare(
+            &missing,
+            &project,
+            Path::new("main.tex"),
+            &latexdiff_dir,
+            &first.to_string(),
+            &second.to_string(),
+        )
+        .unwrap_err();
 
         assert!(refusal.contains("latexdiff isn't installed"), "{refusal}");
-        assert!(last_time.is_dir(), "the previous comparison must survive a refusal");
-        assert_eq!(fs::read_dir(&latexdiff_dir).unwrap().count(), 1, "nothing new was exported");
+        assert!(
+            last_time.is_dir(),
+            "the previous comparison must survive a refusal"
+        );
+        assert_eq!(
+            fs::read_dir(&latexdiff_dir).unwrap().count(),
+            1,
+            "nothing new was exported"
+        );
     }
 
     /// Two comparisons asked for while a third holds the lane: the first, once its turn comes, sees
@@ -497,30 +616,49 @@ mod tests {
         let (first, second, ()) = tokio::join!(first, second, let_go);
 
         assert_eq!(first, Ok(ComparisonStarted::Superseded));
-        assert!(second.is_err(), "the latest comparison runs, and is refused by name: {second:?}");
+        assert!(
+            second.is_err(),
+            "the latest comparison runs, and is refused by name: {second:?}"
+        );
     }
 
     #[test]
     fn the_comparisons_own_log_is_read_from_its_build_folder() {
         let tmp = tempfile::tempdir().unwrap();
         let latexdiff_dir = tmp.path().join("latexdiff");
-        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("main.tex")), "", "no comparison yet");
+        assert_eq!(
+            read_comparison_log(&latexdiff_dir, Path::new("main.tex")),
+            "",
+            "no comparison yet"
+        );
 
         let build = latexdiff_dir.join("aaaaaaa-bbbbbbb/build");
         fs::create_dir_all(&build).unwrap();
-        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("main.tex")), "", "a build with no log");
+        assert_eq!(
+            read_comparison_log(&latexdiff_dir, Path::new("main.tex")),
+            "",
+            "a build with no log"
+        );
 
         fs::write(build.join("main.log"), "! Undefined control sequence.\n").unwrap();
         fs::write(build.join("other.log"), "not this one").unwrap();
-        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("main.tex")), "! Undefined control sequence.\n");
-        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("chapters/other.tex")), "not this one");
+        assert_eq!(
+            read_comparison_log(&latexdiff_dir, Path::new("main.tex")),
+            "! Undefined control sequence.\n"
+        );
+        assert_eq!(
+            read_comparison_log(&latexdiff_dir, Path::new("chapters/other.tex")),
+            "not this one"
+        );
     }
 
     /// Walking away from a comparison that is still exporting makes it stop before it compiles,
     /// and one already compiling is cancelled, without a newer comparison having to be asked for.
     #[tokio::test]
     async fn cancelling_stops_a_build_and_retires_a_comparison_still_preparing() {
-        let lane = DiffLane::new(Some(Arc::new(SleepyEngine(Duration::from_secs(5))) as Arc<dyn Engine>));
+        let lane = DiffLane::new(Some(
+            Arc::new(SleepyEngine(Duration::from_secs(5))) as Arc<dyn Engine>
+        ));
         let preparing = lane.take_ticket();
         let (tx, mut rx) = mpsc::unbounded_channel::<CompileEvent>();
         lane.orchestrator.request(job(), None, move |event| {
@@ -529,7 +667,10 @@ mod tests {
 
         lane.cancel();
 
-        assert!(!preparing.is_latest(), "a comparison still exporting must find it was retired");
+        assert!(
+            !preparing.is_latest(),
+            "a comparison still exporting must find it was retired"
+        );
         let outcome = tokio::time::timeout(Duration::from_millis(500), async {
             while let Some(event) = rx.recv().await {
                 if matches!(event, CompileEvent::Finished { .. }) {
@@ -539,7 +680,11 @@ mod tests {
             false
         })
         .await;
-        assert_ne!(outcome, Ok(true), "a cancelled build must not report a finished comparison");
+        assert_ne!(
+            outcome,
+            Ok(true),
+            "a cancelled build must not report a finished comparison"
+        );
     }
 
     #[test]
@@ -554,11 +699,18 @@ mod tests {
     /// The frontend reads `pdfPath`, and switches on `status`.
     #[test]
     fn a_comparison_answer_serialises_in_camel_case() {
-        let ready = ComparisonStarted::Ready { older: "a".into(), newer: "b".into(), pdf_path: "/p.pdf".into() };
+        let ready = ComparisonStarted::Ready {
+            older: "a".into(),
+            newer: "b".into(),
+            pdf_path: "/p.pdf".into(),
+        };
         let json = serde_json::to_value(&ready).unwrap();
         assert_eq!(json["status"], "ready");
         assert_eq!(json["pdfPath"], "/p.pdf");
-        assert_eq!(serde_json::to_value(ComparisonStarted::Superseded).unwrap()["status"], "superseded");
+        assert_eq!(
+            serde_json::to_value(ComparisonStarted::Superseded).unwrap()["status"],
+            "superseded"
+        );
     }
 
     /// Builds by sleeping, so a test controls which build is still running when.
@@ -567,10 +719,19 @@ mod tests {
     #[async_trait::async_trait]
     impl Engine for SleepyEngine {
         async fn probe(&self) -> Result<EngineInfo, EngineError> {
-            Ok(EngineInfo { name: "sleepy".into(), version: "0".into(), path: PathBuf::new() })
+            Ok(EngineInfo {
+                name: "sleepy".into(),
+                version: "0".into(),
+                path: PathBuf::new(),
+            })
         }
 
-        async fn build(&self, _: &BuildJob, cancel: CancellationToken, _: Option<ProgressSink>) -> Result<BuildOutcome, EngineError> {
+        async fn build(
+            &self,
+            _: &BuildJob,
+            cancel: CancellationToken,
+            _: Option<ProgressSink>,
+        ) -> Result<BuildOutcome, EngineError> {
             tokio::select! {
                 _ = tokio::time::sleep(self.0) => Ok(BuildOutcome {
                     success: true, pdf: None, log: None, synctex: None, stderr: String::new(),
@@ -582,7 +743,13 @@ mod tests {
     }
 
     fn job() -> BuildJob {
-        BuildJob { project_dir: ".".into(), root_file: "main.tex".into(), out_dir: "build".into(), synctex: false, shell_escape: false }
+        BuildJob {
+            project_dir: ".".into(),
+            root_file: "main.tex".into(),
+            out_dir: "build".into(),
+            synctex: false,
+            shell_escape: false,
+        }
     }
 
     /// The card's done-when, in one test: a live build and two diff builds requested together. The
@@ -606,7 +773,9 @@ mod tests {
         let second_diff = lane.orchestrator.request(job(), None, send("diff"));
 
         let mut finished = Vec::new();
-        while let Ok(Some((lane_name, event))) = tokio::time::timeout(Duration::from_millis(600), rx.recv()).await {
+        while let Ok(Some((lane_name, event))) =
+            tokio::time::timeout(Duration::from_millis(600), rx.recv()).await
+        {
             if let CompileEvent::Finished { generation, .. } = event {
                 finished.push((lane_name, generation));
             }

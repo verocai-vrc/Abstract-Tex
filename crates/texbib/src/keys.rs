@@ -57,9 +57,18 @@ fn base_key(entry: &Entry) -> String {
         .map(|field| surname_of(&plain_text(&field.value)))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
-    let year = entry.field("year").map(|field| plain_text(&field.value)).unwrap_or_default();
-    let title = entry.field("title").map(|field| plain_text(&field.value)).unwrap_or_default();
-    let first_word = title.split_whitespace().find(|word| word.chars().any(char::is_alphanumeric)).unwrap_or("");
+    let year = entry
+        .field("year")
+        .map(|field| plain_text(&field.value))
+        .unwrap_or_default();
+    let title = entry
+        .field("title")
+        .map(|field| plain_text(&field.value))
+        .unwrap_or_default();
+    let first_word = title
+        .split_whitespace()
+        .find(|word| word.chars().any(char::is_alphanumeric))
+        .unwrap_or("");
     format!("{surname}{year}{}", ascii_fold_lower(first_word))
 }
 
@@ -96,7 +105,10 @@ fn surname_of(author_field: &str) -> String {
 }
 
 fn ascii_fold_lower(text: &str) -> String {
-    text.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
+    text.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 #[cfg(test)]
@@ -109,11 +121,24 @@ mod tests {
     }
 
     fn braced_field(name: &str, text: &str) -> Field {
-        Field { span: zero_span(), name: name.to_string(), value_span: zero_span(), value: Value { parts: vec![ValuePart::Braced(text.to_string())] } }
+        Field {
+            span: zero_span(),
+            name: name.to_string(),
+            value_span: zero_span(),
+            value: Value {
+                parts: vec![ValuePart::Braced(text.to_string())],
+            },
+        }
     }
 
     fn entry_with_fields(key: &str, fields: Vec<Field>) -> Entry {
-        Entry { span: zero_span(), entry_type: "misc".to_string(), key: key.to_string(), key_span: zero_span(), fields }
+        Entry {
+            span: zero_span(),
+            entry_type: "misc".to_string(),
+            key: key.to_string(),
+            key_span: zero_span(),
+            fields,
+        }
     }
 
     #[test]
@@ -124,25 +149,53 @@ mod tests {
 
     #[test]
     fn a_keyless_entry_gets_the_surname_year_firstword_shape() {
-        let entry = entry_with_fields("", vec![braced_field("author", "Jane Smith"), braced_field("year", "2019"), braced_field("title", "A Great Paper")]);
+        let entry = entry_with_fields(
+            "",
+            vec![
+                braced_field("author", "Jane Smith"),
+                braced_field("year", "2019"),
+                braced_field("title", "A Great Paper"),
+            ],
+        );
         assert_eq!(unique_key(&entry, &[]), "smith2019a");
     }
 
     #[test]
     fn a_comma_separated_author_field_still_yields_the_surname() {
-        let entry = entry_with_fields("", vec![braced_field("author", "Smith, Jane and Doe, John"), braced_field("year", "2019"), braced_field("title", "Something")]);
+        let entry = entry_with_fields(
+            "",
+            vec![
+                braced_field("author", "Smith, Jane and Doe, John"),
+                braced_field("year", "2019"),
+                braced_field("title", "Something"),
+            ],
+        );
         assert_eq!(unique_key(&entry, &[]), "smith2019something");
     }
 
     #[test]
     fn a_corporate_author_in_braces_is_kept_whole() {
-        let entry = entry_with_fields("", vec![braced_field("author", "{World Health Organization}"), braced_field("year", "2020"), braced_field("title", "Report")]);
+        let entry = entry_with_fields(
+            "",
+            vec![
+                braced_field("author", "{World Health Organization}"),
+                braced_field("year", "2020"),
+                braced_field("title", "Report"),
+            ],
+        );
         assert_eq!(unique_key(&entry, &[]), "worldhealthorganization2020report");
     }
 
     #[test]
     fn a_collision_gets_a_letter_suffix() {
-        let entry = entry_with_fields("", vec![braced_field("author", "Jane Smith"), braced_field("year", "2019"), braced_field("title", "A Great Paper")]);
+        let entry = entry_with_fields(
+            "",
+            vec![
+                braced_field("author", "Jane Smith"),
+                braced_field("year", "2019"),
+                braced_field("title", "A Great Paper"),
+            ],
+        );
         let existing = vec!["smith2019a".to_string()];
         assert_eq!(unique_key(&entry, &existing), "smith2019aa");
     }
@@ -166,7 +219,13 @@ mod tests {
 
     #[test]
     fn a_missing_author_falls_back_to_unknown() {
-        let entry = entry_with_fields("", vec![braced_field("year", "2021"), braced_field("title", "Untitled Work")]);
+        let entry = entry_with_fields(
+            "",
+            vec![
+                braced_field("year", "2021"),
+                braced_field("title", "Untitled Work"),
+            ],
+        );
         assert_eq!(unique_key(&entry, &[]), "unknown2021untitled");
     }
 }

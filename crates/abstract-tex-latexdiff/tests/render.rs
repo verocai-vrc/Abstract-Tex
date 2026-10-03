@@ -33,7 +33,9 @@ fn repo_with_two_revisions() -> (tempfile::TempDir, Repository, git2::Oid, git2:
         index.add_path(Path::new("main.tex")).unwrap();
         index.write().unwrap();
         let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
-        repository.commit(Some("HEAD"), &who, &who, "first", &tree, &[]).unwrap()
+        repository
+            .commit(Some("HEAD"), &who, &who, "first", &tree, &[])
+            .unwrap()
     };
 
     std::fs::write(tmp.path().join("main.tex"), "the second version\n").unwrap();
@@ -43,7 +45,9 @@ fn repo_with_two_revisions() -> (tempfile::TempDir, Repository, git2::Oid, git2:
         index.write().unwrap();
         let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
         let parent = repository.find_commit(old).unwrap();
-        repository.commit(Some("HEAD"), &who, &who, "second", &tree, &[&parent]).unwrap()
+        repository
+            .commit(Some("HEAD"), &who, &who, "second", &tree, &[&parent])
+            .unwrap()
     };
 
     (tmp, repository, old, new)
@@ -57,7 +61,16 @@ fn rendering_is_refused_by_name_when_latexdiff_is_not_installed() {
     let old_dir = tempfile::tempdir().unwrap();
     let new_dir = tempfile::tempdir().unwrap();
 
-    let error = render_with(missing(), &repository, old, new, "main.tex", old_dir.path(), new_dir.path()).unwrap_err();
+    let error = render_with(
+        missing(),
+        &repository,
+        old,
+        new,
+        "main.tex",
+        old_dir.path(),
+        new_dir.path(),
+    )
+    .unwrap_err();
 
     assert!(error.to_string().contains("isn't installed"), "{error}");
     assert!(error.to_string().contains("ctan.org"), "{error}");
@@ -75,13 +88,28 @@ fn rendering_exports_both_revisions_and_writes_the_diff_over_the_new_one() {
     let old_dir = tempfile::tempdir().unwrap();
     let new_dir = tempfile::tempdir().unwrap();
 
-    let diff_path = render_with(installed(), &repository, old, new, "main.tex", old_dir.path(), new_dir.path()).unwrap();
+    let diff_path = render_with(
+        installed(),
+        &repository,
+        old,
+        new,
+        "main.tex",
+        old_dir.path(),
+        new_dir.path(),
+    )
+    .unwrap();
 
     assert_eq!(diff_path, new_dir.path().join("main.tex"));
-    assert_eq!(std::fs::read_to_string(&diff_path).unwrap(), "% a latexdiff would have gone here\n");
+    assert_eq!(
+        std::fs::read_to_string(&diff_path).unwrap(),
+        "% a latexdiff would have gone here\n"
+    );
     // The old export is untouched — its own copy of the file is still the first version, not the
     // fake's fixed diff output, because only `new_dir`'s copy is ever overwritten.
-    assert_eq!(std::fs::read_to_string(old_dir.path().join("main.tex")).unwrap(), "the first version\n");
+    assert_eq!(
+        std::fs::read_to_string(old_dir.path().join("main.tex")).unwrap(),
+        "the first version\n"
+    );
 }
 
 /// `latexdiff` installed but refusing the files it was given — its own stderr, not a generic
@@ -92,7 +120,16 @@ fn latexdiffs_own_refusal_reaches_the_error_message() {
     let old_dir = tempfile::tempdir().unwrap();
     let new_dir = tempfile::tempdir().unwrap();
 
-    let error = render_with(fails(), &repository, old, new, "main.tex", old_dir.path(), new_dir.path()).unwrap_err();
+    let error = render_with(
+        fails(),
+        &repository,
+        old,
+        new,
+        "main.tex",
+        old_dir.path(),
+        new_dir.path(),
+    )
+    .unwrap_err();
 
     assert!(error.to_string().contains("unbalanced braces"), "{error}");
 }

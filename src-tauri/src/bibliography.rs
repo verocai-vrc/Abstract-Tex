@@ -168,7 +168,10 @@ fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
                     rule: "missing-bib-file",
                     severity: HealthSeverity::Error,
                     message: format!("'{path}' is named here but is not in the project folder."),
-                    jump: Jump::TexLine { file: tex_file.clone(), line: *line },
+                    jump: Jump::TexLine {
+                        file: tex_file.clone(),
+                        line: *line,
+                    },
                     fix: None,
                 },
                 BibOrigin::Outside { file: tex_file, line } => Finding {
@@ -180,7 +183,10 @@ fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
                         "'{path}' is outside the project folder, so its entries are not read \
                          and citations to them show as undefined."
                     ),
-                    jump: Jump::TexLine { file: tex_file.clone(), line: *line },
+                    jump: Jump::TexLine {
+                        file: tex_file.clone(),
+                        line: *line,
+                    },
                     fix: None,
                 },
                 BibOrigin::Linked => Finding {
@@ -219,21 +225,32 @@ fn linked_but_not_named(index: &BibliographyIndex, project_dir: &Path) -> Vec<Fi
     let keys_the_engine_sees: std::collections::HashSet<&str> = index
         .entries
         .iter()
-        .filter(|entry| index.files.iter().any(|f| f.path == entry.file && !matches!(f.origin, BibOrigin::Linked)))
+        .filter(|entry| {
+            index
+                .files
+                .iter()
+                .any(|f| f.path == entry.file && !matches!(f.origin, BibOrigin::Linked))
+        })
         .map(|entry| entry.key.as_str())
         .collect();
 
     let mut findings = Vec::new();
     // A linked export that is not on disk is S8.6's finding already; one cause, one finding.
-    for linked in index.files.iter().filter(|f| f.exists && matches!(f.origin, BibOrigin::Linked)) {
+    for linked in index
+        .files
+        .iter()
+        .filter(|f| f.exists && matches!(f.origin, BibOrigin::Linked))
+    {
         let only_here: std::collections::HashSet<&str> = index
             .entries
             .iter()
             .filter(|entry| entry.file == linked.path && !keys_the_engine_sees.contains(entry.key.as_str()))
             .map(|entry| entry.key.as_str())
             .collect();
-        let cited_only_here =
-            only_here.iter().filter(|key| index.citations.iter().any(|c| c.key == **key)).count();
+        let cited_only_here = only_here
+            .iter()
+            .filter(|key| index.citations.iter().any(|c| c.key == **key))
+            .count();
 
         let path = &linked.path;
         let (severity, message) = if cited_only_here > 0 {
@@ -262,12 +279,30 @@ fn linked_but_not_named(index: &BibliographyIndex, project_dir: &Path) -> Vec<Fi
                     .ok()
                     .and_then(|text| text.lines().nth(*line as usize - 1).map(str::to_string));
                 let fix = line_text.and_then(|text| fix_adding_bib_resource(&text, &argument));
-                (Jump::TexLine { file: tex_file.clone(), line: *line }, fix)
+                (
+                    Jump::TexLine {
+                        file: tex_file.clone(),
+                        line: *line,
+                    },
+                    fix,
+                )
             }
             // Nothing in the document to point at, so open the linked file itself.
-            None => (Jump::BibEntry { file: path.clone(), span: Span { start: 0, end: 0 } }, None),
+            None => (
+                Jump::BibEntry {
+                    file: path.clone(),
+                    span: Span { start: 0, end: 0 },
+                },
+                None,
+            ),
         };
-        findings.push(Finding { rule: "linked-not-named", severity, message, jump, fix });
+        findings.push(Finding {
+            rule: "linked-not-named",
+            severity,
+            message,
+            jump,
+            fix,
+        });
     }
     findings
 }
@@ -317,10 +352,16 @@ fn command_with_argument(line_text: &str, name: &str) -> Option<String> {
 /// `path` (project-relative) as seen from `base` (project-relative folder): how a document whose
 /// root file sits in `base` must write it. `..` for each level of `base` the path does not share.
 fn relative_to(base: &Path, path: &str) -> String {
-    let base_parts: Vec<String> =
-        base.components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect();
+    let base_parts: Vec<String> = base
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy().into_owned())
+        .collect();
     let path_parts: Vec<&str> = path.split('/').collect();
-    let shared = base_parts.iter().zip(&path_parts).take_while(|(a, b)| a.as_str() == **b).count();
+    let shared = base_parts
+        .iter()
+        .zip(&path_parts)
+        .take_while(|(a, b)| a.as_str() == **b)
+        .count();
     let mut parts: Vec<&str> = vec![".."; base_parts.len() - shared];
     parts.extend(&path_parts[shared..]);
     parts.join("/")
@@ -345,13 +386,19 @@ fn undefined_citations(index: &BibliographyIndex) -> Vec<Finding> {
             let message = if places.len() == 1 {
                 format!("'{key}' is cited but no entry defines it.")
             } else {
-                format!("'{key}' is cited in {} places but no entry defines it.", places.len())
+                format!(
+                    "'{key}' is cited in {} places but no entry defines it.",
+                    places.len()
+                )
             };
             Finding {
                 rule: "undefined-citation",
                 severity: HealthSeverity::Error,
                 message,
-                jump: Jump::TexLine { file: first.file.clone(), line: first.line },
+                jump: Jump::TexLine {
+                    file: first.file.clone(),
+                    line: first.line,
+                },
                 fix: None,
             }
         })
@@ -376,7 +423,10 @@ fn never_cited(index: &BibliographyIndex) -> Vec<Finding> {
             rule: "never-cited",
             severity: HealthSeverity::Warning,
             message: format!("'{}' is defined but never cited.", entry.key),
-            jump: Jump::BibEntry { file: entry.file.clone(), span: entry.span },
+            jump: Jump::BibEntry {
+                file: entry.file.clone(),
+                span: entry.span,
+            },
             fix: None,
         })
         .collect()
@@ -404,7 +454,10 @@ fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
                     rule: "duplicate-doi",
                     severity: HealthSeverity::Warning,
                     message: format!("'{}' has the same DOI as {}.", entry.key, rest.join(", ")),
-                    jump: Jump::BibEntry { file: entry.file.clone(), span: entry.span },
+                    jump: Jump::BibEntry {
+                        file: entry.file.clone(),
+                        span: entry.span,
+                    },
                     fix: None,
                 }
             })
@@ -420,14 +473,19 @@ fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
 fn entry_level_findings(index: &BibliographyIndex, project_dir: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in index.files.iter().filter(|file| file.exists) {
-        let Ok(text) = std::fs::read_to_string(project_dir.join(&file.path)) else { continue };
+        let Ok(text) = std::fs::read_to_string(project_dir.join(&file.path)) else {
+            continue;
+        };
         let bibliography = texbib::parse(&text);
         for finding in texbib::health::check(&bibliography) {
             findings.push(Finding {
                 rule: finding.rule,
                 severity: finding.severity.into(),
                 message: finding.message,
-                jump: Jump::BibEntry { file: file.path.clone(), span: finding.at },
+                jump: Jump::BibEntry {
+                    file: file.path.clone(),
+                    span: finding.at,
+                },
                 fix: None,
             });
         }
@@ -550,7 +608,9 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
     let mut has_nocite_star = false;
 
     for node in graph.nodes.iter().filter(|node| node.exists) {
-        let Ok(text) = std::fs::read_to_string(project_dir.join(&node.path)) else { continue };
+        let Ok(text) = std::fs::read_to_string(project_dir.join(&node.path)) else {
+            continue;
+        };
 
         for (resource, line) in scan_bib_resources(&text) {
             let named_at = node.path.clone();
@@ -562,11 +622,21 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
                 continue;
             }
             let exists = matches!(origin, BibOrigin::Named { .. }) && project_dir.join(&path).is_file();
-            files.push(BibFile { path, exists, entry_count: 0, problems: Vec::new(), origin });
+            files.push(BibFile {
+                path,
+                exists,
+                entry_count: 0,
+                problems: Vec::new(),
+                origin,
+            });
         }
 
         for (key, line) in scan_citations(&text) {
-            citations.push(Citation { key, file: node.path.clone(), line });
+            citations.push(Citation {
+                key,
+                file: node.path.clone(),
+                line,
+            });
         }
         has_nocite_star |= scan_has_nocite_star(&text);
     }
@@ -578,7 +648,13 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
             continue;
         }
         let exists = project_dir.join(extra).is_file();
-        files.push(BibFile { path: extra.clone(), exists, entry_count: 0, problems: Vec::new(), origin: BibOrigin::Linked });
+        files.push(BibFile {
+            path: extra.clone(),
+            exists,
+            entry_count: 0,
+            problems: Vec::new(),
+            origin: BibOrigin::Linked,
+        });
     }
 
     let mut entries: Vec<EntrySummary> = Vec::new();
@@ -591,12 +667,21 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
         file.entry_count = bibliography.entries().count();
         file.problems = bibliography
             .errors()
-            .map(|error| Problem { message: error.message.clone(), at: error.at })
+            .map(|error| Problem {
+                message: error.message.clone(),
+                at: error.at,
+            })
             .collect();
         entries.extend(summarise_file(&file.path, &bibliography));
     }
 
-    BibliographyIndex { files, entries, citations, has_nocite_star, base_dir }
+    BibliographyIndex {
+        files,
+        entries,
+        citations,
+        has_nocite_star,
+        base_dir,
+    }
 }
 
 /// One summary per entry of one parsed file, with `crossref` inheritance applied within it.
@@ -717,7 +802,9 @@ pub fn scan_bib_resources(source: &str) -> Vec<(String, u32)> {
     let mut resources = Vec::new();
     for (command, arguments, line) in find_commands(&cleaned, |name| RESOURCE_COMMANDS.contains(&name)) {
         // Every resource command takes exactly one braced argument; a second `{...}` is prose.
-        let Some(argument) = arguments.first() else { continue };
+        let Some(argument) = arguments.first() else {
+            continue;
+        };
         for part in argument.split(',').map(str::trim).filter(|part| !part.is_empty()) {
             if command == "bibliography" {
                 resources.push((format!("{part}.bib"), line));
@@ -742,7 +829,11 @@ pub fn scan_citations(source: &str) -> Vec<(String, u32)> {
     let mut citations = Vec::new();
     for (_command, arguments, line) in find_commands(&cleaned, texbib::is_citation_command) {
         for argument in arguments {
-            for key in argument.split(',').map(str::trim).filter(|key| !key.is_empty() && *key != "*") {
+            for key in argument
+                .split(',')
+                .map(str::trim)
+                .filter(|key| !key.is_empty() && *key != "*")
+            {
                 citations.push((key.to_string(), line));
             }
         }
@@ -760,7 +851,11 @@ fn scan_has_nocite_star(source: &str) -> bool {
     let cleaned = strip_line_comments(source);
     find_commands(&cleaned, texbib::is_citation_command)
         .into_iter()
-        .any(|(_command, arguments, _line)| arguments.iter().any(|argument| argument.split(',').any(|key| key.trim() == "*")))
+        .any(|(_command, arguments, _line)| {
+            arguments
+                .iter()
+                .any(|argument| argument.split(',').any(|key| key.trim() == "*"))
+        })
 }
 
 /// Find every `\name` whose letters `wanted` accepts, and read its arguments: `[…]` options
@@ -805,7 +900,11 @@ fn find_commands(cleaned: &str, wanted: impl Fn(&str) -> bool) -> Vec<(String, V
                     // Spaces are allowed before the first argument (`\cite {a}` is legal TeX) but
                     // not between arguments: `\cites{a}{b}` is written adjacent, and in
                     // `\cite{a} {\bf b}` the second group is prose, not a second key.
-                    let open_at = if arguments.is_empty() { skip_spaces(bytes, cursor) } else { cursor };
+                    let open_at = if arguments.is_empty() {
+                        skip_spaces(bytes, cursor)
+                    } else {
+                        cursor
+                    };
                     match bytes.get(open_at) {
                         Some(b'[') => {
                             cursor = matching_close(bytes, open_at, b'[', b']').unwrap_or(bytes.len());
@@ -922,7 +1021,10 @@ fn resolve_bib_argument(base_dir: &Path, argument: &str) -> Option<String> {
     }
     let mut path: PathBuf = normal.into_iter().collect();
     if path.extension().is_none() {
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         path.set_file_name(format!("{name}.bib"));
     }
     Some(path.to_string_lossy().replace('\\', "/"))
@@ -943,28 +1045,50 @@ mod tests {
         dir
     }
 
-    const REFS: &str = "@article{smith2019,\n  author = {Smith, Jane},\n  title = {A Title},\n  year = 2019,\n}\n";
-    const MORE: &str = "@book{doe2020,\n  editor = {Doe, John},\n  title = {A Book},\n  date = {2020-05-01},\n}\n";
+    const REFS: &str =
+        "@article{smith2019,\n  author = {Smith, Jane},\n  title = {A Title},\n  year = 2019,\n}\n";
+    const MORE: &str =
+        "@book{doe2020,\n  editor = {Doe, John},\n  title = {A Book},\n  date = {2020-05-01},\n}\n";
 
     // ---- the card's done-when: two .bib files and one missing one, all reported by path ----
 
     #[test]
     fn two_bib_files_and_a_missing_one_are_all_reported_by_path() {
         let dir = scaffold(&[
-            ("main.tex", "\\input{intro}\n\\bibliography{refs,missing}\n\\addbibresource{bib/more.bib}\n"),
+            (
+                "main.tex",
+                "\\input{intro}\n\\bibliography{refs,missing}\n\\addbibresource{bib/more.bib}\n",
+            ),
             ("intro.tex", "As shown~\\cite{smith2019}.\n"),
             ("refs.bib", REFS),
             ("bib/more.bib", MORE),
         ]);
         let index = build_index(dir.path(), Path::new("main.tex"), &[]);
 
-        let files: Vec<(&str, bool, usize)> =
-            index.files.iter().map(|f| (f.path.as_str(), f.exists, f.entry_count)).collect();
-        assert_eq!(files, vec![("refs.bib", true, 1), ("missing.bib", false, 0), ("bib/more.bib", true, 1)]);
+        let files: Vec<(&str, bool, usize)> = index
+            .files
+            .iter()
+            .map(|f| (f.path.as_str(), f.exists, f.entry_count))
+            .collect();
+        assert_eq!(
+            files,
+            vec![
+                ("refs.bib", true, 1),
+                ("missing.bib", false, 0),
+                ("bib/more.bib", true, 1)
+            ]
+        );
 
         let keys: Vec<&str> = index.entries.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, vec!["smith2019", "doe2020"]);
-        assert_eq!(index.citations, vec![Citation { key: "smith2019".into(), file: "intro.tex".into(), line: 1 }]);
+        assert_eq!(
+            index.citations,
+            vec![Citation {
+                key: "smith2019".into(),
+                file: "intro.tex".into(),
+                line: 1
+            }]
+        );
     }
 
     #[test]
@@ -998,7 +1122,11 @@ mod tests {
         let child = index.entry("paper").unwrap();
         assert_eq!(child.author.as_deref(), Some("A. Author"), "own field wins");
         assert_eq!(child.title.as_deref(), Some("The Paper"));
-        assert_eq!(child.year.as_deref(), Some("2018"), "inherited, key compared ignoring case");
+        assert_eq!(
+            child.year.as_deref(),
+            Some("2018"),
+            "inherited, key compared ignoring case"
+        );
     }
 
     #[test]
@@ -1031,7 +1159,10 @@ mod tests {
 
     #[test]
     fn resources_resolve_against_the_root_files_directory() {
-        let dir = scaffold(&[("paper/main.tex", "\\bibliography{refs}\n"), ("paper/refs.bib", REFS)]);
+        let dir = scaffold(&[
+            ("paper/main.tex", "\\bibliography{refs}\n"),
+            ("paper/refs.bib", REFS),
+        ]);
         let index = build_index(dir.path(), Path::new("paper/main.tex"), &[]);
         assert_eq!(index.files[0].path, "paper/refs.bib");
         assert!(index.files[0].exists);
@@ -1060,15 +1191,25 @@ mod tests {
 
     #[test]
     fn an_extra_bib_file_is_indexed_though_no_tex_file_names_it() {
-        let dir = scaffold(&[("main.tex", "As shown~\\cite{smith2019}.\n"), ("zotero/reading.bib", REFS)]);
-        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/reading.bib".to_string()]);
-        assert_eq!(index.files, vec![BibFile {
-            path: "zotero/reading.bib".to_string(),
-            exists: true,
-            entry_count: 1,
-            problems: Vec::new(),
-            origin: BibOrigin::Linked,
-        }]);
+        let dir = scaffold(&[
+            ("main.tex", "As shown~\\cite{smith2019}.\n"),
+            ("zotero/reading.bib", REFS),
+        ]);
+        let index = build_index(
+            dir.path(),
+            Path::new("main.tex"),
+            &["zotero/reading.bib".to_string()],
+        );
+        assert_eq!(
+            index.files,
+            vec![BibFile {
+                path: "zotero/reading.bib".to_string(),
+                exists: true,
+                entry_count: 1,
+                problems: Vec::new(),
+                origin: BibOrigin::Linked,
+            }]
+        );
         assert!(index.entry("smith2019").is_some());
     }
 
@@ -1083,7 +1224,11 @@ mod tests {
     #[test]
     fn a_missing_extra_bib_file_is_listed_with_exists_false() {
         let dir = scaffold(&[("main.tex", "")]);
-        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/gone.bib".to_string()]);
+        let index = build_index(
+            dir.path(),
+            Path::new("main.tex"),
+            &["zotero/gone.bib".to_string()],
+        );
         assert_eq!(index.files.len(), 1);
         assert!(!index.files[0].exists);
     }
@@ -1115,7 +1260,10 @@ mod tests {
     #[test]
     fn one_of_each_of_the_five_problems_yields_exactly_five_findings() {
         let (tex, bib) = health_fixture();
-        let dir = scaffold(&[("main.tex", &format!("\\bibliography{{refs}}\n{tex}")), ("refs.bib", bib)]);
+        let dir = scaffold(&[
+            ("main.tex", &format!("\\bibliography{{refs}}\n{tex}")),
+            ("refs.bib", bib),
+        ]);
         let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         let findings = index.health(dir.path());
 
@@ -1123,7 +1271,14 @@ mod tests {
         rules.sort_unstable();
         assert_eq!(
             rules,
-            vec!["duplicate-doi", "duplicate-doi", "missing-field", "never-cited", "page-range-dash", "undefined-citation"],
+            vec![
+                "duplicate-doi",
+                "duplicate-doi",
+                "missing-field",
+                "never-cited",
+                "page-range-dash",
+                "undefined-citation"
+            ],
             "{findings:#?}"
         );
     }
@@ -1132,7 +1287,10 @@ mod tests {
     fn a_clean_bibliography_has_no_findings() {
         let dir = scaffold(&[
             ("main.tex", "As shown~\\cite{clean}.\n\\bibliography{refs}\n"),
-            ("refs.bib", "@article{clean, author = {A}, title = {T}, journal = {J}, year = 2019, pages = {1--2}}\n"),
+            (
+                "refs.bib",
+                "@article{clean, author = {A}, title = {T}, journal = {J}, year = 2019, pages = {1--2}}\n",
+            ),
         ]);
         let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert_eq!(index.health(dir.path()), Vec::new());
@@ -1146,7 +1304,13 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule, "undefined-citation");
         assert_eq!(findings[0].severity, HealthSeverity::Error);
-        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 2 });
+        assert_eq!(
+            findings[0].jump,
+            Jump::TexLine {
+                file: "main.tex".to_string(),
+                line: 2
+            }
+        );
     }
 
     #[test]
@@ -1157,7 +1321,11 @@ mod tests {
         ]);
         let index = build_index(dir.path(), Path::new("main.tex"), &[]);
         assert!(index.has_nocite_star);
-        assert!(index.health(dir.path()).is_empty(), "{:#?}", index.health(dir.path()));
+        assert!(
+            index.health(dir.path()).is_empty(),
+            "{:#?}",
+            index.health(dir.path())
+        );
     }
 
     // ---- missing .bib files (S8.6) ----
@@ -1172,8 +1340,17 @@ mod tests {
         let rules: Vec<&str> = findings.iter().map(|f| f.rule).collect();
         assert_eq!(rules, vec!["missing-bib-file", "undefined-citation"]);
         assert_eq!(findings[0].severity, HealthSeverity::Error);
-        assert_eq!(findings[0].message, "'refs.bib' is named here but is not in the project folder.");
-        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 3 });
+        assert_eq!(
+            findings[0].message,
+            "'refs.bib' is named here but is not in the project folder."
+        );
+        assert_eq!(
+            findings[0].jump,
+            Jump::TexLine {
+                file: "main.tex".to_string(),
+                line: 3
+            }
+        );
     }
 
     #[test]
@@ -1183,26 +1360,53 @@ mod tests {
         let findings = index.health(dir.path());
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert_eq!(findings[0].severity, HealthSeverity::Warning);
-        assert!(findings[0].message.starts_with("'../shared/refs.bib' is outside the project folder"));
-        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 1 });
+        assert!(findings[0]
+            .message
+            .starts_with("'../shared/refs.bib' is outside the project folder"));
+        assert_eq!(
+            findings[0].jump,
+            Jump::TexLine {
+                file: "main.tex".to_string(),
+                line: 1
+            }
+        );
     }
 
     #[test]
     fn a_linked_export_not_yet_written_points_at_better_bibtex_and_names_the_file() {
         let dir = scaffold(&[("main.tex", "")]);
-        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/Thesis.bib".to_string()]);
+        let index = build_index(
+            dir.path(),
+            Path::new("main.tex"),
+            &["zotero/Thesis.bib".to_string()],
+        );
         let findings = index.health(dir.path());
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert_eq!(findings[0].severity, HealthSeverity::Warning);
-        assert!(findings[0].message.contains("Better BibTeX"), "{}", findings[0].message);
-        assert_eq!(findings[0].jump, Jump::MissingFile { file: "zotero/Thesis.bib".to_string() });
+        assert!(
+            findings[0].message.contains("Better BibTeX"),
+            "{}",
+            findings[0].message
+        );
+        assert_eq!(
+            findings[0].jump,
+            Jump::MissingFile {
+                file: "zotero/Thesis.bib".to_string()
+            }
+        );
     }
 
     #[test]
     fn a_file_both_named_and_linked_is_reported_at_the_documents_command() {
         let dir = scaffold(&[("main.tex", "\\bibliography{refs}\n")]);
         let index = build_index(dir.path(), Path::new("main.tex"), &["refs.bib".to_string()]);
-        assert_eq!(index.files[0].origin, BibOrigin::Named { file: "main.tex".to_string(), line: 1 });
+        assert_eq!(
+            index.files[0].origin,
+            BibOrigin::Named {
+                file: "main.tex".to_string(),
+                line: 1
+            }
+        );
     }
 
     // ---- linked but not named (S8.8) ----
@@ -1210,10 +1414,21 @@ mod tests {
     const LINKED: &str = "@article{zot2020, author = {Z}, title = {T}, journal = {J}, year = 2020}\n";
 
     fn linked_findings(tex: &str) -> (TempDir, Vec<Finding>) {
-        let dir = scaffold(&[("main.tex", tex), ("references.bib", ""), ("zotero/Thesis.bib", LINKED)]);
-        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/Thesis.bib".to_string()]);
-        let findings: Vec<Finding> =
-            index.health(dir.path()).into_iter().filter(|f| f.rule == "linked-not-named").collect();
+        let dir = scaffold(&[
+            ("main.tex", tex),
+            ("references.bib", ""),
+            ("zotero/Thesis.bib", LINKED),
+        ]);
+        let index = build_index(
+            dir.path(),
+            Path::new("main.tex"),
+            &["zotero/Thesis.bib".to_string()],
+        );
+        let findings: Vec<Finding> = index
+            .health(dir.path())
+            .into_iter()
+            .filter(|f| f.rule == "linked-not-named")
+            .collect();
         (dir, findings)
     }
 
@@ -1222,8 +1437,20 @@ mod tests {
         let (_dir, findings) = linked_findings("Text~\\cite{zot2020}.\n\n\\bibliography{references}\n");
         assert_eq!(findings.len(), 1, "{findings:#?}");
         assert_eq!(findings[0].severity, HealthSeverity::Error);
-        assert!(findings[0].message.contains("1 cited entry from it will print as [?]"), "{}", findings[0].message);
-        assert_eq!(findings[0].jump, Jump::TexLine { file: "main.tex".to_string(), line: 3 });
+        assert!(
+            findings[0]
+                .message
+                .contains("1 cited entry from it will print as [?]"),
+            "{}",
+            findings[0].message
+        );
+        assert_eq!(
+            findings[0].jump,
+            Jump::TexLine {
+                file: "main.tex".to_string(),
+                line: 3
+            }
+        );
         assert_eq!(
             findings[0].fix,
             Some(Fix {
@@ -1239,26 +1466,44 @@ mod tests {
         let (_dir, findings) = linked_findings("\\addbibresource[datatype=bibtex]{references.bib}\n");
         // Nothing cites it yet: the entries are still missing from the PDF, so a warning.
         assert_eq!(findings[0].severity, HealthSeverity::Warning);
-        let fix = findings[0].fix.as_ref().expect("an addbibresource line has a fix");
+        let fix = findings[0]
+            .fix
+            .as_ref()
+            .expect("an addbibresource line has a fix");
         assert_eq!(fix.find, "\\addbibresource[datatype=bibtex]{references.bib}");
-        assert_eq!(fix.replace, "\\addbibresource[datatype=bibtex]{references.bib}\n\\addbibresource{zotero/Thesis.bib}");
+        assert_eq!(
+            fix.replace,
+            "\\addbibresource[datatype=bibtex]{references.bib}\n\\addbibresource{zotero/Thesis.bib}"
+        );
     }
 
     #[test]
     fn without_any_resource_command_there_is_no_fix_and_the_jump_opens_the_export() {
         let (_dir, findings) = linked_findings("No bibliography yet.\n");
         assert_eq!(findings[0].fix, None);
-        assert_eq!(findings[0].jump, Jump::BibEntry { file: "zotero/Thesis.bib".to_string(), span: Span { start: 0, end: 0 } });
+        assert_eq!(
+            findings[0].jump,
+            Jump::BibEntry {
+                file: "zotero/Thesis.bib".to_string(),
+                span: Span { start: 0, end: 0 }
+            }
+        );
     }
 
     #[test]
     fn applying_the_fix_makes_the_export_named_and_the_finding_goes_away() {
         let (dir, findings) = linked_findings("\\cite{zot2020}\n\\bibliography{references}\n");
         let fix = findings[0].fix.clone().unwrap();
-        let fixed = std::fs::read_to_string(dir.path().join("main.tex")).unwrap().replace(&fix.find, &fix.replace);
+        let fixed = std::fs::read_to_string(dir.path().join("main.tex"))
+            .unwrap()
+            .replace(&fix.find, &fix.replace);
         std::fs::write(dir.path().join("main.tex"), fixed).unwrap();
 
-        let index = build_index(dir.path(), Path::new("main.tex"), &["zotero/Thesis.bib".to_string()]);
+        let index = build_index(
+            dir.path(),
+            Path::new("main.tex"),
+            &["zotero/Thesis.bib".to_string()],
+        );
         let rules: Vec<&str> = index.health(dir.path()).iter().map(|f| f.rule).collect();
         assert!(!rules.contains(&"linked-not-named"), "{rules:?}");
         assert!(!rules.contains(&"undefined-citation"), "{rules:?}");
@@ -1266,19 +1511,38 @@ mod tests {
 
     #[test]
     fn a_root_file_in_a_subfolder_gets_a_path_relative_to_its_own_folder() {
-        assert_eq!(relative_to(Path::new(""), "zotero/Thesis.bib"), "zotero/Thesis.bib");
-        assert_eq!(relative_to(Path::new("paper"), "zotero/Thesis.bib"), "../zotero/Thesis.bib");
-        assert_eq!(relative_to(Path::new("paper"), "paper/zotero/Thesis.bib"), "zotero/Thesis.bib");
+        assert_eq!(
+            relative_to(Path::new(""), "zotero/Thesis.bib"),
+            "zotero/Thesis.bib"
+        );
+        assert_eq!(
+            relative_to(Path::new("paper"), "zotero/Thesis.bib"),
+            "../zotero/Thesis.bib"
+        );
+        assert_eq!(
+            relative_to(Path::new("paper"), "paper/zotero/Thesis.bib"),
+            "zotero/Thesis.bib"
+        );
         // And the argument the fix writes resolves back to the linked file, the round trip that
         // makes the finding go away.
-        assert_eq!(resolve_bib_argument(Path::new("paper"), "../zotero/Thesis.bib"), Some("zotero/Thesis.bib".to_string()));
+        assert_eq!(
+            resolve_bib_argument(Path::new("paper"), "../zotero/Thesis.bib"),
+            Some("zotero/Thesis.bib".to_string())
+        );
     }
 
     #[test]
     fn bibliographystyle_is_not_mistaken_for_bibliography() {
-        assert_eq!(command_with_argument("\\bibliographystyle{plain}", "\\bibliography"), None);
         assert_eq!(
-            command_with_argument("\\bibliographystyle{plain} \\bibliography{refs}", "\\bibliography").as_deref(),
+            command_with_argument("\\bibliographystyle{plain}", "\\bibliography"),
+            None
+        );
+        assert_eq!(
+            command_with_argument(
+                "\\bibliographystyle{plain} \\bibliography{refs}",
+                "\\bibliography"
+            )
+            .as_deref(),
             Some("\\bibliography{refs}")
         );
     }
@@ -1293,9 +1557,16 @@ mod tests {
             ),
         ]);
         let index = build_index(dir.path(), Path::new("main.tex"), &[]);
-        let findings: Vec<Finding> = index.health(dir.path()).into_iter().filter(|f| f.rule == "duplicate-doi").collect();
+        let findings: Vec<Finding> = index
+            .health(dir.path())
+            .into_iter()
+            .filter(|f| f.rule == "duplicate-doi")
+            .collect();
         assert_eq!(findings.len(), 2);
-        assert!(findings[0].message.contains('b') || findings[0].message.contains('a'), "{findings:#?}");
+        assert!(
+            findings[0].message.contains('b') || findings[0].message.contains('a'),
+            "{findings:#?}"
+        );
     }
 
     // ---- scanners ----
@@ -1308,7 +1579,10 @@ mod tests {
             .map(|(resource, line)| (resource.to_string(), line))
             .collect();
         assert_eq!(scan_bib_resources(source), expected);
-        assert_eq!(resolve_bib_argument(Path::new(""), "noext"), Some("noext.bib".into()));
+        assert_eq!(
+            resolve_bib_argument(Path::new(""), "noext"),
+            Some("noext.bib".into())
+        );
     }
 
     #[test]
@@ -1320,10 +1594,19 @@ mod tests {
     #[test]
     fn scan_citations_covers_the_cite_family_with_options_and_lines() {
         let source = "\\cite{a}\n\\citep[p.~3]{b, c}\n\\parencite[see][12]{d}\n\\Textcite*{e}\n\\cites{f}{g}\n\\nocite{*}\n\\footcite{h}";
-        let expected: Vec<(String, u32)> = [("a", 1), ("b", 2), ("c", 2), ("d", 3), ("e", 4), ("f", 5), ("g", 5), ("h", 7)]
-            .into_iter()
-            .map(|(k, l)| (k.to_string(), l))
-            .collect();
+        let expected: Vec<(String, u32)> = [
+            ("a", 1),
+            ("b", 2),
+            ("c", 2),
+            ("d", 3),
+            ("e", 4),
+            ("f", 5),
+            ("g", 5),
+            ("h", 7),
+        ]
+        .into_iter()
+        .map(|(k, l)| (k.to_string(), l))
+        .collect();
         assert_eq!(scan_citations(source), expected);
     }
 
@@ -1341,12 +1624,18 @@ mod tests {
         let source = "100\\% sure \\cite{a} % \\cite{b}\n\\\\cite{c}\n\\excite{d}\n";
         // `\\cite{c}`: the backslashes pair off as a line break, and `cite{c}` is text.
         // `\excite`: contains "cite" — accepted on purpose, see `scan_citations`.
-        assert_eq!(scan_citations(source), vec![("a".to_string(), 1), ("d".to_string(), 3)]);
+        assert_eq!(
+            scan_citations(source),
+            vec![("a".to_string(), 1), ("d".to_string(), 3)]
+        );
     }
 
     #[test]
     fn scan_citations_keeps_nested_braces_balanced_and_survives_an_unclosed_one() {
-        assert_eq!(scan_citations("\\cite{a} {\\bf x} \\cite{b}"), vec![("a".to_string(), 1), ("b".to_string(), 1)]);
+        assert_eq!(
+            scan_citations("\\cite{a} {\\bf x} \\cite{b}"),
+            vec![("a".to_string(), 1), ("b".to_string(), 1)]
+        );
         assert_eq!(scan_citations("\\cite{a"), vec![("a".to_string(), 1)]);
         assert_eq!(scan_citations("\\cite"), Vec::<(String, u32)>::new());
     }

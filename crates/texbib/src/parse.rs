@@ -112,7 +112,9 @@ impl Entry {
 
     /// The first field named `name`, ignoring case.
     pub fn field(&self, name: &str) -> Option<&Field> {
-        self.fields.iter().find(|field| field.name.eq_ignore_ascii_case(name))
+        self.fields
+            .iter()
+            .find(|field| field.name.eq_ignore_ascii_case(name))
     }
 }
 
@@ -214,7 +216,10 @@ impl Bibliography {
     /// across the whole file: a file that defines `ieee` twice is a health-check finding, not
     /// something this method should silently pick a side on by position.
     pub fn string(&self, name: &str) -> Option<String> {
-        let own = self.strings().filter(|string| string.name.eq_ignore_ascii_case(name)).last();
+        let own = self
+            .strings()
+            .filter(|string| string.name.eq_ignore_ascii_case(name))
+            .last();
         match own {
             Some(definition) => Some(self.resolve(&definition.value)),
             None => builtin_month(name).map(str::to_string),
@@ -243,7 +248,10 @@ pub fn parse(source: &str) -> Bibliography {
             items.push(free_text(source, position, at));
         }
 
-        let mut cursor = Cursor { source, position: at + 1 };
+        let mut cursor = Cursor {
+            source,
+            position: at + 1,
+        };
         match parse_item(&mut cursor, at) {
             Ok(item) => {
                 position = cursor.position;
@@ -252,7 +260,10 @@ pub fn parse(source: &str) -> Bibliography {
             Err(error) => {
                 let resume = recovery_point(source, at + 1);
                 items.push(Item::Error(ParseError {
-                    span: Span { start: at, end: resume },
+                    span: Span {
+                        start: at,
+                        end: resume,
+                    },
                     at: error.at,
                     message: error.message,
                 }));
@@ -265,7 +276,10 @@ pub fn parse(source: &str) -> Bibliography {
 }
 
 fn free_text(source: &str, start: usize, end: usize) -> Item {
-    Item::Comment(Comment { span: Span { start, end }, text: source[start..end].to_string() })
+    Item::Comment(Comment {
+        span: Span { start, end },
+        text: source[start..end].to_string(),
+    })
 }
 
 /// Where to resume after a broken item that began before `from`: the next `@` that starts a
@@ -329,7 +343,10 @@ impl<'a> Cursor<'a> {
             Some(c) => format!("{message}, found '{c}'"),
             None => format!("{message}, reached the end of the file"),
         };
-        Failure { at: self.position, message }
+        Failure {
+            at: self.position,
+            message,
+        }
     }
 
     /// A name in BibTeX's sense: see the module doc for the characters it excludes.
@@ -368,7 +385,10 @@ impl<'a> Cursor<'a> {
             }
             self.bump();
         }
-        Err(Failure { at: start - 1, message: "a '{' is never closed".to_string() })
+        Err(Failure {
+            at: start - 1,
+            message: "a '{' is never closed".to_string(),
+        })
     }
 
     /// Consume text up to the `"` that ends an already-consumed `"`, returning the inside. A
@@ -389,12 +409,19 @@ impl<'a> Cursor<'a> {
             }
             self.bump();
         }
-        Err(Failure { at: start - 1, message: "a '\"' is never closed".to_string() })
+        Err(Failure {
+            at: start - 1,
+            message: "a '\"' is never closed".to_string(),
+        })
     }
 }
 
 fn is_name_char(c: char) -> bool {
-    !c.is_whitespace() && !matches!(c, '"' | '#' | '%' | '\'' | '(' | ')' | ',' | '=' | '{' | '}' | '@')
+    !c.is_whitespace()
+        && !matches!(
+            c,
+            '"' | '#' | '%' | '\'' | '(' | ')' | ',' | '=' | '{' | '}' | '@'
+        )
 }
 
 /// Parse one item whose `@` is at `at`; the cursor sits just after that `@`.
@@ -422,7 +449,13 @@ fn parse_item(cursor: &mut Cursor, at: usize) -> Result<Item, Failure> {
         let (value, _value_span) = parse_value(cursor)?;
         cursor.skip_whitespace();
         cursor.expect(closer, "to close @preamble")?;
-        return Ok(Item::Preamble(Preamble { span: Span { start: at, end: cursor.position }, value }));
+        return Ok(Item::Preamble(Preamble {
+            span: Span {
+                start: at,
+                end: cursor.position,
+            },
+            value,
+        }));
     }
 
     if kind.eq_ignore_ascii_case("string") {
@@ -440,7 +473,15 @@ fn parse_item(cursor: &mut Cursor, at: usize) -> Result<Item, Failure> {
             cursor.skip_whitespace();
         }
         cursor.expect(closer, "to close @string")?;
-        return Ok(Item::String(StringDef { span: Span { start: at, end: cursor.position }, name, value_span, value }));
+        return Ok(Item::String(StringDef {
+            span: Span {
+                start: at,
+                end: cursor.position,
+            },
+            name,
+            value_span,
+            value,
+        }));
     }
 
     parse_entry(cursor, at, kind, closer)
@@ -459,7 +500,13 @@ fn parse_comment(cursor: &mut Cursor, at: usize) -> Result<Item, Failure> {
         }
         cursor.source[start..cursor.position].to_string()
     };
-    Ok(Item::Comment(Comment { span: Span { start: at, end: cursor.position }, text }))
+    Ok(Item::Comment(Comment {
+        span: Span {
+            start: at,
+            end: cursor.position,
+        },
+        text,
+    }))
 }
 
 fn parse_entry(cursor: &mut Cursor, at: usize, entry_type: String, closer: char) -> Result<Item, Failure> {
@@ -468,7 +515,10 @@ fn parse_entry(cursor: &mut Cursor, at: usize, entry_type: String, closer: char)
     if key.is_empty() {
         return Err(cursor.fail(format!("expected a citation key after '@{entry_type}{{'")));
     }
-    let key_span = Span { start: key_start, end: cursor.position };
+    let key_span = Span {
+        start: key_start,
+        end: cursor.position,
+    };
     cursor.skip_whitespace();
 
     let mut fields = Vec::new();
@@ -494,11 +544,28 @@ fn parse_entry(cursor: &mut Cursor, at: usize, entry_type: String, closer: char)
         cursor.expect('=', &format!("after field name '{name}'"))?;
         cursor.skip_whitespace();
         let (value, value_span) = parse_value(cursor)?;
-        fields.push(Field { span: Span { start: field_start, end: cursor.position }, name, value_span, value });
+        fields.push(Field {
+            span: Span {
+                start: field_start,
+                end: cursor.position,
+            },
+            name,
+            value_span,
+            value,
+        });
         cursor.skip_whitespace();
     }
 
-    Ok(Item::Entry(Entry { span: Span { start: at, end: cursor.position }, entry_type, key, key_span, fields }))
+    Ok(Item::Entry(Entry {
+        span: Span {
+            start: at,
+            end: cursor.position,
+        },
+        entry_type,
+        key,
+        key_span,
+        fields,
+    }))
 }
 
 /// One value: parts joined by `#`. The cursor sits on the first character of the value.
@@ -572,20 +639,34 @@ mod tests {
 
     #[test]
     fn a_plain_entry_with_braced_and_quoted_values() {
-        let entry = only_entry("@article{smith2019,\n  author = {Smith, Jane},\n  title = \"A Title\",\n  year = 2019\n}");
+        let entry = only_entry(
+            "@article{smith2019,\n  author = {Smith, Jane},\n  title = \"A Title\",\n  year = 2019\n}",
+        );
         assert!(entry.is_type("Article"));
         assert_eq!(entry.key, "smith2019");
         assert_eq!(entry.fields.len(), 3);
-        assert_eq!(entry.field("AUTHOR").unwrap().value.parts, vec![ValuePart::Braced("Smith, Jane".into())]);
-        assert_eq!(entry.field("title").unwrap().value.parts, vec![ValuePart::Quoted("A Title".into())]);
-        assert_eq!(entry.field("year").unwrap().value.parts, vec![ValuePart::Number("2019".into())]);
+        assert_eq!(
+            entry.field("AUTHOR").unwrap().value.parts,
+            vec![ValuePart::Braced("Smith, Jane".into())]
+        );
+        assert_eq!(
+            entry.field("title").unwrap().value.parts,
+            vec![ValuePart::Quoted("A Title".into())]
+        );
+        assert_eq!(
+            entry.field("year").unwrap().value.parts,
+            vec![ValuePart::Number("2019".into())]
+        );
     }
 
     #[test]
     fn parentheses_delimit_an_entry_too() {
         let entry = only_entry("@book(knuth84, title = {The TeXbook})");
         assert_eq!(entry.key, "knuth84");
-        assert_eq!(entry.span.text("@book(knuth84, title = {The TeXbook})"), "@book(knuth84, title = {The TeXbook})");
+        assert_eq!(
+            entry.span.text("@book(knuth84, title = {The TeXbook})"),
+            "@book(knuth84, title = {The TeXbook})"
+        );
     }
 
     #[test]
@@ -603,8 +684,14 @@ mod tests {
     #[test]
     fn nested_braces_and_a_quote_inside_braces_survive() {
         let entry = only_entry(r#"@misc{k, title = {The {DNA} of "quotes"}, note = "a {"} brace"}"#);
-        assert_eq!(entry.field("title").unwrap().value.parts, vec![ValuePart::Braced(r#"The {DNA} of "quotes""#.into())]);
-        assert_eq!(entry.field("note").unwrap().value.parts, vec![ValuePart::Quoted(r#"a {"} brace"#.into())]);
+        assert_eq!(
+            entry.field("title").unwrap().value.parts,
+            vec![ValuePart::Braced(r#"The {DNA} of "quotes""#.into())]
+        );
+        assert_eq!(
+            entry.field("note").unwrap().value.parts,
+            vec![ValuePart::Quoted(r#"a {"} brace"#.into())]
+        );
     }
 
     #[test]
@@ -647,7 +734,8 @@ mod tests {
 
     #[test]
     fn comment_items_and_free_text_are_both_comments() {
-        let source = "% header\n@comment{ignored {nested} }\n@Comment jabref rest of line\n@misc{k, title = {T}}\n";
+        let source =
+            "% header\n@comment{ignored {nested} }\n@Comment jabref rest of line\n@misc{k, title = {T}}\n";
         let bib = parse(source);
         let kinds: Vec<&str> = bib
             .items
@@ -658,7 +746,10 @@ mod tests {
                 other => panic!("{other:?}"),
             })
             .collect();
-        assert_eq!(kinds, ["comment", "comment", "comment", "comment", "comment", "entry", "comment"]);
+        assert_eq!(
+            kinds,
+            ["comment", "comment", "comment", "comment", "comment", "entry", "comment"]
+        );
         assert!(matches!(&bib.items[1], Item::Comment(c) if c.text == "ignored {nested} "));
         assert!(matches!(&bib.items[3], Item::Comment(c) if c.text == "jabref rest of line"));
         spans_cover_the_input(source);
@@ -708,7 +799,10 @@ mod tests {
     fn crlf_and_unicode_do_not_disturb_spans() {
         let source = "@misc{k,\r\n  author = {Ærø, Søren},\r\n  title = {Ünïcödé}\r\n}\r\n";
         let entry = only_entry(source);
-        assert_eq!(entry.field("author").unwrap().value_span.text(source), "{Ærø, Søren}");
+        assert_eq!(
+            entry.field("author").unwrap().value_span.text(source),
+            "{Ærø, Søren}"
+        );
         spans_cover_the_input(source);
     }
 
@@ -725,16 +819,32 @@ mod tests {
     fn duplicate_fields_are_kept_and_field_returns_the_first() {
         let entry = only_entry("@misc{k, year = 1, year = 2}");
         assert_eq!(entry.fields.len(), 2);
-        assert_eq!(entry.field("year").unwrap().value.parts, vec![ValuePart::Number("1".into())]);
+        assert_eq!(
+            entry.field("year").unwrap().value.parts,
+            vec![ValuePart::Number("1".into())]
+        );
     }
 
     #[test]
     fn errors_name_the_key_and_the_field() {
         let bib = parse("@misc{k, title {T}}");
-        assert_eq!(bib.errors().next().unwrap().message, "expected '=' after field name 'title', found '{'");
+        assert_eq!(
+            bib.errors().next().unwrap().message,
+            "expected '=' after field name 'title', found '{'"
+        );
         let bib = parse("@misc{, title = {T}}");
-        assert!(bib.errors().next().unwrap().message.starts_with("expected a citation key after '@misc{'"));
+        assert!(bib
+            .errors()
+            .next()
+            .unwrap()
+            .message
+            .starts_with("expected a citation key after '@misc{'"));
         let bib = parse("@misc k");
-        assert!(bib.errors().next().unwrap().message.starts_with("expected '{' or '(' after '@misc'"));
+        assert!(bib
+            .errors()
+            .next()
+            .unwrap()
+            .message
+            .starts_with("expected '{' or '(' after '@misc'"));
     }
 }

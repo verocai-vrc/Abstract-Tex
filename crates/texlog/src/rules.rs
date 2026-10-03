@@ -284,7 +284,10 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         // tikz's own option parser. DESIGN.md §5.2 names tikz explicitly as one of the four
         // packages this catalog's package-specific rules should cover.
-        matches: |e| e.message.starts_with("Package pgfkeys Error: I do not know the key"),
+        matches: |e| {
+            e.message
+                .starts_with("Package pgfkeys Error: I do not know the key")
+        },
         explain: explain_pgfkeys_unknown_key,
         fix: None,
     },
@@ -329,7 +332,8 @@ const CATALOG: &[&dyn Rule] = &[
         severity: Severity::Error,
         matches: |e| {
             let lower = e.message.to_lowercase();
-            e.message.starts_with("Package ") && (lower.contains("shell-escape") || lower.contains("shell escape"))
+            e.message.starts_with("Package ")
+                && (lower.contains("shell-escape") || lower.contains("shell escape"))
         },
         explain: explain_shell_escape_required,
         fix: None,
@@ -365,14 +369,20 @@ const CATALOG: &[&dyn Rule] = &[
     &FnRule {
         id: "missing-item",
         severity: Severity::Error,
-        matches: |e| e.message.starts_with("LaTeX Error: Something's wrong--perhaps a missing \\item"),
+        matches: |e| {
+            e.message
+                .starts_with("LaTeX Error: Something's wrong--perhaps a missing \\item")
+        },
         explain: explain_missing_item,
         fix: None,
     },
     &FnRule {
         id: "invalid-column-type",
         severity: Severity::Error,
-        matches: |e| e.message.starts_with("LaTeX Error: Illegal character in array arg"),
+        matches: |e| {
+            e.message
+                .starts_with("LaTeX Error: Illegal character in array arg")
+        },
         explain: explain_invalid_column_type,
         fix: None,
     },
@@ -414,7 +424,10 @@ const CATALOG: &[&dyn Rule] = &[
     &FnRule {
         id: "amsmath-erroneous-nesting",
         severity: Severity::Error,
-        matches: |e| e.message.starts_with("Package amsmath Error: Erroneous nesting of equation structures"),
+        matches: |e| {
+            e.message
+                .starts_with("Package amsmath Error: Erroneous nesting of equation structures")
+        },
         explain: explain_amsmath_erroneous_nesting,
         fix: None,
     },
@@ -537,7 +550,9 @@ fn located_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError
         .iter()
         .enumerate()
         .filter_map(|(i, line)| {
-            let LineKind::Warning { message } = &line.kind else { return None };
+            let LineKind::Warning { message } = &line.kind else {
+                return None;
+            };
             if !message.contains("undefined") {
                 return None;
             }
@@ -588,7 +603,12 @@ fn box_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError> {
 /// where the paragraph or box that triggered the warning starts.
 fn box_line_number(text: &str) -> Option<u32> {
     let after = text.split("at line").nth(1)?;
-    let digits: String = after.trim_start_matches('s').trim_start().chars().take_while(char::is_ascii_digit).collect();
+    let digits: String = after
+        .trim_start_matches('s')
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     digits.parse().ok()
 }
 
@@ -849,7 +869,11 @@ fn explain_misplaced_alignment_tab(_error: &QuickError) -> (String, String) {
 /// this edit ("write `\&` instead"), so offering it as a button rather than only prose is no
 /// more of a guess than the sentence already was.
 fn fix_misplaced_alignment_tab(_error: &QuickError) -> Option<Fix> {
-    Some(Fix { description: "Escape as \\&".to_string(), find: "&".to_string(), replace: "\\&".to_string() })
+    Some(Fix {
+        description: "Escape as \\&".to_string(),
+        find: "&".to_string(),
+        replace: "\\&".to_string(),
+    })
 }
 
 fn explain_extra_alignment_tab(_error: &QuickError) -> (String, String) {
@@ -945,7 +969,11 @@ fn fix_illegal_unit_of_measure(error: &QuickError) -> Option<Fix> {
     let start = context.rfind('{')? + 1;
     let end = start + context[start..].find('}')?;
     let value = &context[start..end];
-    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
+    if value.is_empty()
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+')
+    {
         return None;
     }
     Some(Fix {
@@ -1057,9 +1085,17 @@ fn explain_font_not_found(error: &QuickError) -> (String, String) {
 
 fn explain_shell_escape_required(error: &QuickError) -> (String, String) {
     // "Package minted Error: …" → "minted".
-    let package = error.message.strip_prefix("Package ").and_then(|rest| rest.split_whitespace().next()).unwrap_or("A package");
+    let package = error
+        .message
+        .strip_prefix("Package ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .unwrap_or("A package");
     // minted is by far the most common case, so it gets the name of the program it runs.
-    let program = if package == "minted" { "Pygments (the program that colours the code)" } else { "another program" };
+    let program = if package == "minted" {
+        "Pygments (the program that colours the code)"
+    } else {
+        "another program"
+    };
     (
         format!("`{package}` needs to run a program while the document builds"),
         format!(
@@ -1344,7 +1380,9 @@ fn explain_verb_unterminated(_error: &QuickError) -> (String, String) {
 fn fix_verb_unterminated(error: &QuickError) -> Option<Fix> {
     let line = intact_tail(error.context.as_deref()?);
     let from_verb = &line[line.rfind("\\verb")?..];
-    let after_verb = from_verb.strip_prefix("\\verb*").or_else(|| from_verb.strip_prefix("\\verb"))?;
+    let after_verb = from_verb
+        .strip_prefix("\\verb*")
+        .or_else(|| from_verb.strip_prefix("\\verb"))?;
     let delimiter = after_verb.chars().next()?;
     Some(Fix {
         description: format!("Close with {delimiter}"),
@@ -1430,7 +1468,11 @@ mod tests {
         assert_eq!(d.title, "_ used outside maths");
         assert_eq!(d.line, Some(87));
         assert!(d.explanation.contains("subscript"), "{}", d.explanation);
-        assert!(!d.explanation.contains("Missing $"), "must not parrot TeX: {}", d.explanation);
+        assert!(
+            !d.explanation.contains("Missing $"),
+            "must not parrot TeX: {}",
+            d.explanation
+        );
         assert_reads_like_a_sentence(&d);
     }
 
@@ -1529,7 +1571,10 @@ mod tests {
     fn rule_3_tells_the_two_directions_apart() {
         let too_many = diagnostic_from("! Too many }'s.\nl.5 x\n", "unbalanced-braces");
         let unclosed = diagnostic_from("! Missing } inserted.\nl.5 x\n", "unbalanced-braces");
-        assert_ne!(too_many.title, unclosed.title, "a stray closing brace is not the same mistake as an unclosed one");
+        assert_ne!(
+            too_many.title, unclosed.title,
+            "a stray closing brace is not the same mistake as an unclosed one"
+        );
     }
 
     #[test]
@@ -1537,7 +1582,11 @@ mod tests {
         let log = "! LaTeX Error: File `nosuch.sty' not found.\n";
         let d = diagnostic_from(log, "file-not-found");
         assert_eq!(d.title, "`nosuch.sty` could not be found");
-        assert!(d.explanation.contains("downloads packages on demand"), "{}", d.explanation);
+        assert!(
+            d.explanation.contains("downloads packages on demand"),
+            "{}",
+            d.explanation
+        );
         assert_reads_like_a_sentence(&d);
     }
 
@@ -1585,7 +1634,11 @@ mod tests {
             let log = include_str!("../fixtures/missing-package/main.log");
             let d = diagnostic_from(log, "file-not-found");
             assert_eq!(d.title, "`nosuchpackage.sty` could not be found");
-            assert!(d.explanation.contains("downloads packages on demand"), "{}", d.explanation);
+            assert!(
+                d.explanation.contains("downloads packages on demand"),
+                "{}",
+                d.explanation
+            );
             assert_reads_like_a_sentence(&d);
         }
 
@@ -1706,7 +1759,11 @@ mod tests {
                 include_str!("../fixtures/double-superscript/main.log"),
                 "double-superscript",
             );
-            assert!(superscript.explanation.contains('^'), "{}", superscript.explanation);
+            assert!(
+                superscript.explanation.contains('^'),
+                "{}",
+                superscript.explanation
+            );
             assert_ne!(subscript.explanation, superscript.explanation);
         }
 
@@ -1750,13 +1807,17 @@ mod tests {
         fn font_not_found() {
             let log = include_str!("../fixtures/font-not-found/main.log");
             let d = diagnostic_from(log, "font-not-found");
-            assert_eq!(d.title, "`ThisFontDoesNotExistAnywhere` is not a font this engine can find");
+            assert_eq!(
+                d.title,
+                "`ThisFontDoesNotExistAnywhere` is not a font this engine can find"
+            );
             assert_reads_like_a_sentence(&d);
         }
 
         #[test]
         fn overfull_and_underfull_boxes_are_warnings_not_errors() {
-            let overfull = diagnostic_from(include_str!("../fixtures/overfull-hbox/main.log"), "overfull-box");
+            let overfull =
+                diagnostic_from(include_str!("../fixtures/overfull-hbox/main.log"), "overfull-box");
             assert_eq!(overfull.severity, Severity::Warning);
             assert_eq!(overfull.line, Some(3));
             assert_reads_like_a_sentence(&overfull);
@@ -1887,9 +1948,15 @@ mod tests {
                                l.4 ...ntences before the formula \\[ t_{95} < 2 $\n\
                                                                              \n";
             let d = diagnostic_from(with_opener, "display-math-wrong-delimiter");
-            assert_eq!(d.fix.map(|f| f.find), Some("ntences before the formula \\[ t_{95} < 2 $".to_string()));
+            assert_eq!(
+                d.fix.map(|f| f.find),
+                Some("ntences before the formula \\[ t_{95} < 2 $".to_string())
+            );
 
-            let opener_cut_off = with_opener.replace("...ntences before the formula \\[", "...before the formula, no opener visible,");
+            let opener_cut_off = with_opener.replace(
+                "...ntences before the formula \\[",
+                "...before the formula, no opener visible,",
+            );
             let d = diagnostic_from(&opener_cut_off, "display-math-wrong-delimiter");
             assert_eq!(d.fix, None);
         }
@@ -1976,8 +2043,16 @@ mod tests {
     fn rule_4_treats_a_missing_chapter_differently_from_a_missing_package() {
         let log = "! LaTeX Error: File `chapters/intro.tex' not found.\n";
         let d = diagnostic_from(log, "file-not-found");
-        assert!(d.explanation.contains("relative to the folder"), "{}", d.explanation);
-        assert!(!d.explanation.contains("package"), "a .tex include is not a package: {}", d.explanation);
+        assert!(
+            d.explanation.contains("relative to the folder"),
+            "{}",
+            d.explanation
+        );
+        assert!(
+            !d.explanation.contains("package"),
+            "a .tex include is not a package: {}",
+            d.explanation
+        );
     }
 
     #[test]
@@ -1987,7 +2062,11 @@ mod tests {
         assert_eq!(d.title, "`fig:setup` is referenced but never defined");
         assert_eq!(d.line, Some(42));
         assert_eq!(d.severity, Severity::Warning);
-        assert!(d.explanation.contains("??"), "say what the author will see in the PDF: {}", d.explanation);
+        assert!(
+            d.explanation.contains("??"),
+            "say what the author will see in the PDF: {}",
+            d.explanation
+        );
         assert_reads_like_a_sentence(&d);
     }
 
@@ -2004,7 +2083,10 @@ mod tests {
     fn other_latex_warnings_are_not_swept_up() {
         let log = "LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.\n\
                    LaTeX Font Warning: Font shape `OT1/cmr/bx/sc' undefined on input line 5.\n";
-        assert!(diagnostics(log).is_empty(), "only undefined refs and cites, for now");
+        assert!(
+            diagnostics(log).is_empty(),
+            "only undefined refs and cites, for now"
+        );
     }
 
     #[test]
@@ -2015,8 +2097,16 @@ mod tests {
         assert_eq!(found[0].rule, None);
         assert_eq!(found[0].line, Some(30));
         // Never silently dropped, and never presented as if we understood it.
-        assert!(found[0].explanation.contains("Dimension too large"), "{}", found[0].explanation);
-        assert!(found[0].explanation.contains("no explanation for this one yet"), "{}", found[0].explanation);
+        assert!(
+            found[0].explanation.contains("Dimension too large"),
+            "{}",
+            found[0].explanation
+        );
+        assert!(
+            found[0].explanation.contains("no explanation for this one yet"),
+            "{}",
+            found[0].explanation
+        );
     }
 
     #[test]

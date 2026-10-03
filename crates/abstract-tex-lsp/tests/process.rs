@@ -13,7 +13,10 @@ fn echo_server() -> TexLab {
 #[tokio::test]
 async fn a_message_sent_comes_back_as_one_frame() {
     let mut server = echo_server().spawn(Path::new(".")).await.unwrap();
-    server.send(br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#).await.unwrap();
+    server
+        .send(br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#)
+        .await
+        .unwrap();
     let reply = server.recv().await.unwrap();
     assert_eq!(reply, br#"{"jsonrpc":"2.0","id":1,"method":"initialize"}"#);
     server.kill().await.unwrap();
@@ -24,7 +27,9 @@ async fn frames_keep_their_boundaries_under_load() {
     let mut server = echo_server().spawn(Path::new(".")).await.unwrap();
     // Bodies of wildly different sizes, sent without waiting for replies, must come back one
     // frame each and in order. A framing bug shows up here as a merged or torn message.
-    let bodies: Vec<Vec<u8>> = (0..50).map(|i| vec![b'a' + (i % 26) as u8; 1 + (i * 397) % 5000]).collect();
+    let bodies: Vec<Vec<u8>> = (0..50)
+        .map(|i| vec![b'a' + (i % 26) as u8; 1 + (i * 397) % 5000])
+        .collect();
     // Ten at a time, not all fifty: `send` and `recv` both borrow the server mutably, so nothing
     // reads while we write. All fifty (~125 KB) overflow a Linux pipe's 64 KB twice over — the
     // echo blocks writing replies nobody reads, stops reading, and `send` waits forever (ledger).
@@ -44,7 +49,9 @@ async fn frames_keep_their_boundaries_under_load() {
 async fn a_server_that_exits_is_reported_as_exited_not_hung() {
     let mut server = echo_server().spawn(Path::new(".")).await.unwrap();
     server.send(b"die").await.unwrap();
-    let result = tokio::time::timeout(Duration::from_secs(5), server.recv()).await.expect("recv must not hang");
+    let result = tokio::time::timeout(Duration::from_secs(5), server.recv())
+        .await
+        .expect("recv must not hang");
     assert!(matches!(result, Err(LspError::Exited)), "{result:?}");
     // And the exit code is visible, so the bridge can say "crashed" rather than "stopped".
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -53,7 +60,9 @@ async fn a_server_that_exits_is_reported_as_exited_not_hung() {
 
 #[tokio::test]
 async fn a_binary_that_does_not_exist_is_a_spawn_error() {
-    let result = TexLab::at("/definitely/not/a/language/server").spawn(Path::new(".")).await;
+    let result = TexLab::at("/definitely/not/a/language/server")
+        .spawn(Path::new("."))
+        .await;
     assert!(matches!(result, Err(LspError::Spawn(_))), "{:?}", result.err());
 }
 
@@ -70,8 +79,11 @@ async fn dropping_the_handle_kills_the_process() {
 /// Is a process with this id still running? Portable enough for a test.
 fn process_exists(pid: u32) -> bool {
     if cfg!(windows) {
-        let out = std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH"]).output();
-        out.map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string())).unwrap_or(false)
+        let out = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+            .output();
+        out.map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+            .unwrap_or(false)
     } else {
         // A zombie still "exists" until reaped, but `kill_on_drop` reaps; `/proc/<pid>/stat`
         // shows state `Z` for one that has not been, and we count that as gone.
@@ -100,7 +112,9 @@ async fn the_real_texlab_answers_initialize() {
         Ok(t) => t,
         Err(LspError::NotFound) => {
             let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            TexLab::at(abstract_tex_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp` first"))
+            TexLab::at(
+                abstract_tex_sidecar::in_repo_binaries("texlab", &repo).expect("run `pnpm fetch-lsp` first"),
+            )
         }
         Err(e) => panic!("{e}"),
     };
@@ -115,20 +129,38 @@ async fn the_real_texlab_answers_initialize() {
         r#"{{"jsonrpc":"2.0","id":1,"method":"initialize","params":{{"processId":null,"rootUri":"{uri}","capabilities":{{}}}}}}"#
     );
     server.send(initialize.as_bytes()).await.unwrap();
-    let reply = tokio::time::timeout(Duration::from_secs(10), server.recv()).await.unwrap().unwrap();
+    let reply = tokio::time::timeout(Duration::from_secs(10), server.recv())
+        .await
+        .unwrap()
+        .unwrap();
     let reply = String::from_utf8(reply).unwrap();
     assert!(reply.contains(r#""id":1"#), "{reply}");
     assert!(reply.contains("capabilities"), "{reply}");
-    assert!(reply.contains("completionProvider"), "TexLab should offer completion: {reply}");
+    assert!(
+        reply.contains("completionProvider"),
+        "TexLab should offer completion: {reply}"
+    );
 
     // The spec requires `initialized` before any other request, and TexLab 5.26 enforces it:
     // without this it refuses the `shutdown` below and exits. `Bridge::initialize` sends it for
     // real callers; at this layer the test sends it by hand.
-    server.send(br#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#).await.unwrap();
+    server
+        .send(br#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#)
+        .await
+        .unwrap();
 
-    server.send(br#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#).await.unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), server.recv()).await.unwrap().unwrap();
-    server.send(br#"{"jsonrpc":"2.0","method":"exit"}"#).await.unwrap();
+    server
+        .send(br#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#)
+        .await
+        .unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(5), server.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    server
+        .send(br#"{"jsonrpc":"2.0","method":"exit"}"#)
+        .await
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(server.exit_code(), Some(Some(0)), "a polite exit is code 0");
 }

@@ -32,12 +32,16 @@ pub struct Keychain {
 
 impl Keychain {
     pub fn for_this_app() -> Self {
-        Self { service: KEYCHAIN_SERVICE.to_string() }
+        Self {
+            service: KEYCHAIN_SERVICE.to_string(),
+        }
     }
 
     /// A named service, so a test never touches the real app's entries.
     pub fn named(service: &str) -> Self {
-        Self { service: service.to_string() }
+        Self {
+            service: service.to_string(),
+        }
     }
 
     fn entry(&self, slot: &str) -> Result<keyring::Entry, AssistantError> {
@@ -48,7 +52,9 @@ impl Keychain {
 
 impl KeyStore for Keychain {
     fn save(&self, slot: &str, key: &str) -> Result<(), AssistantError> {
-        self.entry(slot)?.set_password(key).map_err(|error| AssistantError::Keychain(error.to_string()))
+        self.entry(slot)?
+            .set_password(key)
+            .map_err(|error| AssistantError::Keychain(error.to_string()))
     }
 
     fn read(&self, slot: &str) -> Result<Option<String>, AssistantError> {
@@ -77,7 +83,10 @@ pub struct MemoryKeyStore {
 
 impl KeyStore for MemoryKeyStore {
     fn save(&self, slot: &str, key: &str) -> Result<(), AssistantError> {
-        self.keys.lock().unwrap().insert(slot.to_string(), key.to_string());
+        self.keys
+            .lock()
+            .unwrap()
+            .insert(slot.to_string(), key.to_string());
         Ok(())
     }
 
@@ -100,10 +109,18 @@ mod tests {
         let store = MemoryKeyStore::default();
         assert_eq!(store.read("anthropic").unwrap(), None);
         store.save("anthropic", "sk-one").unwrap();
-        store.save("openai-compatible@localhost:11434", "none-needed").unwrap();
+        store
+            .save("openai-compatible@localhost:11434", "none-needed")
+            .unwrap();
         store.save("anthropic", "sk-two").unwrap(); // replaces, never accumulates
         assert_eq!(store.read("anthropic").unwrap().as_deref(), Some("sk-two"));
-        assert_eq!(store.read("openai-compatible@localhost:11434").unwrap().as_deref(), Some("none-needed"));
+        assert_eq!(
+            store
+                .read("openai-compatible@localhost:11434")
+                .unwrap()
+                .as_deref(),
+            Some("none-needed")
+        );
         store.clear("anthropic").unwrap();
         store.clear("anthropic").unwrap(); // twice is fine
         assert_eq!(store.read("anthropic").unwrap(), None);

@@ -31,7 +31,11 @@ fn porcelain(dir: &Path) -> Lists {
         .current_dir(dir)
         .output()
         .expect("needs git on PATH");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let mut staged = BTreeSet::new();
     let mut unstaged = BTreeSet::new();
@@ -39,7 +43,12 @@ fn porcelain(dir: &Path) -> Lists {
         let (codes, rest) = line.split_at(2);
         let path = rest.trim();
         // A rename prints both names; the row is about where the file is now.
-        let path = path.rsplit(" -> ").next().unwrap_or(path).trim_matches('"').to_string();
+        let path = path
+            .rsplit(" -> ")
+            .next()
+            .unwrap_or(path)
+            .trim_matches('"')
+            .to_string();
         if path.starts_with(".abstract-tex/") {
             continue; // ours, and never a change (the crate says why)
         }
@@ -73,14 +82,25 @@ fn kind_of(code: char) -> Option<ChangeKind> {
 
 fn ours(status: &Status) -> Lists {
     let set = |changes: &[abstract_tex_git::FileChange]| {
-        changes.iter().map(|change| (change.path.clone(), change.kind)).collect::<BTreeSet<_>>()
+        changes
+            .iter()
+            .map(|change| (change.path.clone(), change.kind))
+            .collect::<BTreeSet<_>>()
     };
     (set(&status.staged), set(&status.unstaged))
 }
 
 fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git").args(args).current_dir(dir).output().expect("needs git on PATH");
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("needs git on PATH");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -108,7 +128,13 @@ fn every_state_reads_the_same_way_as_the_git_binary() {
     fs::create_dir_all(dir.join(".abstract-tex/build")).unwrap();
     fs::write(dir.join(".abstract-tex/build/main.pdf"), "junk").unwrap();
 
-    for path in ["added.tex", "both.tex", "gone.tex", "old-name.tex", "new-name.tex"] {
+    for path in [
+        "added.tex",
+        "both.tex",
+        "gone.tex",
+        "old-name.tex",
+        "new-name.tex",
+    ] {
         let repository = abstract_tex_git::open(dir).unwrap();
         stage(&repository, path).unwrap();
     }
@@ -121,14 +147,29 @@ fn every_state_reads_the_same_way_as_the_git_binary() {
     let (git_staged, git_unstaged) = porcelain(dir);
 
     assert_eq!(our_staged, git_staged, "staged list disagrees with `git status`");
-    assert_eq!(our_unstaged, git_unstaged, "unstaged list disagrees with `git status`");
+    assert_eq!(
+        our_unstaged, git_unstaged,
+        "unstaged list disagrees with `git status`"
+    );
 
     // And the two things the comparison alone would not catch, because `git status` agrees with
     // us about them by our own filtering above.
-    assert!(git_staged.iter().any(|(path, kind)| path == "new-name.tex" && *kind == ChangeKind::Renamed), "{git_staged:?}");
     assert!(
-        !String::from_utf8_lossy(&Command::new("git").args(["status", "--porcelain"]).current_dir(dir).output().unwrap().stdout)
-            .is_empty(),
+        git_staged
+            .iter()
+            .any(|(path, kind)| path == "new-name.tex" && *kind == ChangeKind::Renamed),
+        "{git_staged:?}"
+    );
+    assert!(
+        !String::from_utf8_lossy(
+            &Command::new("git")
+                .args(["status", "--porcelain"])
+                .current_dir(dir)
+                .output()
+                .unwrap()
+                .stdout
+        )
+        .is_empty(),
         "the repository should not be clean; the comparison above would pass trivially"
     );
 }
@@ -146,7 +187,10 @@ fn ahead_and_behind_agree_with_git_rev_list() {
 
     git(tmp.path(), &["init", "--bare", "-q", "origin.git"]);
     for clone in [&ours, &theirs] {
-        git(tmp.path(), &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()]);
+        git(
+            tmp.path(),
+            &["clone", "-q", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
         git(clone, &["config", "user.name", "Ada"]);
         git(clone, &["config", "user.email", "ada@example.invalid"]);
     }
@@ -192,8 +236,16 @@ fn ahead_and_behind_agree_with_git_rev_list() {
     let mut numbers = counts.split_whitespace().map(|n| n.parse::<usize>().unwrap());
     let (ahead, behind) = (numbers.next().unwrap(), numbers.next().unwrap());
 
-    assert_eq!(state.ahead_behind, Some((ahead, behind)), "git says {ahead} ahead, {behind} behind");
-    assert_eq!(state.ahead_behind, Some((2, 1)), "and the state this test set up is 2 ahead, 1 behind");
+    assert_eq!(
+        state.ahead_behind,
+        Some((ahead, behind)),
+        "git says {ahead} ahead, {behind} behind"
+    );
+    assert_eq!(
+        state.ahead_behind,
+        Some((2, 1)),
+        "and the state this test set up is 2 ahead, 1 behind"
+    );
 }
 
 /// S10.3c: a page of history with a word count on every row, on a repository the size of a real
@@ -232,7 +284,16 @@ fn a_page_of_history_with_word_counts_is_fast_enough_to_sit_in_a_refresh() {
         let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
         let parent = repository.head().ok().and_then(|head| head.peel_to_commit().ok());
         let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
-        repository.commit(Some("HEAD"), &who, &who, &format!("round {round}"), &tree, &parents).unwrap();
+        repository
+            .commit(
+                Some("HEAD"),
+                &who,
+                &who,
+                &format!("round {round}"),
+                &tree,
+                &parents,
+            )
+            .unwrap();
     }
 
     let started = std::time::Instant::now();
@@ -240,7 +301,13 @@ fn a_page_of_history_with_word_counts_is_fast_enough_to_sit_in_a_refresh() {
     let elapsed = started.elapsed();
 
     assert_eq!(rows.len(), 200);
-    assert!(rows.iter().all(|row| row.word_delta > 0), "every round added a sentence");
+    assert!(
+        rows.iter().all(|row| row.word_delta > 0),
+        "every round added a sentence"
+    );
     println!("one page of 200 rows with word counts: {elapsed:?}");
-    assert!(elapsed < std::time::Duration::from_secs(1), "a page took {elapsed:?}, which the panel cannot hide");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "a page took {elapsed:?}, which the panel cannot hide"
+    );
 }

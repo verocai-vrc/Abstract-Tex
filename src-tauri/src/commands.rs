@@ -8,9 +8,12 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 
 use abstract_tex_engine::draft::{self, DraftJob};
-use abstract_tex_git::{BranchState, CommitRow, DiffSides, Discarded, Initialised, LargeFile, ProseSummary, Status as GitStatus, SyncOutcome};
-use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_engine::{BuildJob, EngineInfo};
+use abstract_tex_git::{
+    BranchState, CommitRow, DiffSides, Discarded, Initialised, LargeFile, ProseSummary, Status as GitStatus,
+    SyncOutcome,
+};
+use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_reconcile::TextOp;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -46,8 +49,11 @@ fn with_project<T>(state: &AppState, f: impl FnOnce(&mut Project) -> anyhow::Res
 /// is for smoke tests and CI, where passing arguments through `tauri dev` is awkward.
 #[tauri::command]
 pub fn initial_project() -> Option<String> {
-    folder_from_args(std::env::args().skip(1))
-        .or_else(|| std::env::var("ABSTRACT_TEX_OPEN").ok().filter(|p| Path::new(p).is_dir()))
+    folder_from_args(std::env::args().skip(1)).or_else(|| {
+        std::env::var("ABSTRACT_TEX_OPEN")
+            .ok()
+            .filter(|p| Path::new(p).is_dir())
+    })
 }
 
 /// The folder named by the command line, if it names one.
@@ -68,7 +74,10 @@ fn folder_from_args(args: impl Iterator<Item = String>) -> Option<String> {
     if Path::new(&joined).is_dir() {
         return Some(joined);
     }
-    candidates.into_iter().next().filter(|first| Path::new(first).is_dir())
+    candidates
+        .into_iter()
+        .next()
+        .filter(|first| Path::new(first).is_dir())
 }
 
 /// Which engine will run builds, or `None` if nothing was found.
@@ -93,23 +102,27 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
         .map_err(to_message)?;
 
     let emitter = app.clone();
-    let watcher = watcher::watch(&project.root_dir, state.written.clone(), move |change| match change {
-        Change::Manuscript(event) => {
-            // The watcher already dropped our own writes, so this is an external change. A `.bib`
-            // or `.tex` may have changed what the bibliography index says; rebuild it here, on the
-            // watcher's thread, so the frontend learns within one debounce window (S7.2).
-            let touches_bibliography = bibliography::affects_index(Path::new(&event.path));
-            let _ = emitter.emit("fs:changed", event);
-            if touches_bibliography {
-                emit_bibliography(&emitter);
+    let watcher = watcher::watch(
+        &project.root_dir,
+        state.written.clone(),
+        move |change| match change {
+            Change::Manuscript(event) => {
+                // The watcher already dropped our own writes, so this is an external change. A `.bib`
+                // or `.tex` may have changed what the bibliography index says; rebuild it here, on the
+                // watcher's thread, so the frontend learns within one debounce window (S7.2).
+                let touches_bibliography = bibliography::affects_index(Path::new(&event.path));
+                let _ = emitter.emit("fs:changed", event);
+                if touches_bibliography {
+                    emit_bibliography(&emitter);
+                }
+                // Whoever wrote the file, `git status` now says something different (S10.3a).
+                git::emit_status_changed(&emitter);
             }
-            // Whoever wrote the file, `git status` now says something different (S10.3a).
-            git::emit_status_changed(&emitter);
-        }
-        // Git itself wrote something the Source Control view reads — `git add` in a terminal,
-        // say. Nothing to tell the editor about: no file in the project changed.
-        Change::GitMetadata => git::emit_status_changed(&emitter),
-    })
+            // Git itself wrote something the Source Control view reads — `git add` in a terminal,
+            // say. Nothing to tell the editor about: no file in the project changed.
+            Change::GitMetadata => git::emit_status_changed(&emitter),
+        },
+    )
     .map_err(to_message)?;
 
     let mut info = project.info();
@@ -145,7 +158,12 @@ pub fn read_file(state: State<'_, AppState>, path: String) -> CommandResult<Stri
 
 /// Write a file the author edited. Atomic, and remembered so the watcher ignores the echo.
 #[tauri::command]
-pub fn write_file(app: AppHandle, state: State<'_, AppState>, path: String, contents: String) -> CommandResult<()> {
+pub fn write_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    contents: String,
+) -> CommandResult<()> {
     with_project(&state, |project| {
         let absolute = project.resolve(&path)?;
         remember_write(&state.written, &absolute, contents.as_bytes());
@@ -220,7 +238,10 @@ pub fn compile(
         };
         let draft = file
             .and_then(|file| project.chapter_of(&file))
-            .map(|chapter| DraftJob { chapter, dir: project.draft_dir() });
+            .map(|chapter| DraftJob {
+                chapter,
+                dir: project.draft_dir(),
+            });
         Ok((job, draft))
     })?;
 
@@ -229,14 +250,16 @@ pub fn compile(
     // is noticed: the orchestrator's job is builds, and a build in one of *its* tests must never
     // write a ref into whatever repository the test happened to run in.
     let snapshot_dir = job.project_dir.clone();
-    let generation = state.orchestrator.request(job, draft, move |event: CompileEvent| {
-        let succeeded = matches!(event, CompileEvent::Finished { success: true, .. });
-        // The frontend hears first; the snapshot is never something the author waits for.
-        let _ = emitter.emit("compile", event);
-        if succeeded {
-            take_snapshot(snapshot_dir.clone());
-        }
-    });
+    let generation = state
+        .orchestrator
+        .request(job, draft, move |event: CompileEvent| {
+            let succeeded = matches!(event, CompileEvent::Finished { success: true, .. });
+            // The frontend hears first; the snapshot is never something the author waits for.
+            let _ = emitter.emit("compile", event);
+            if succeeded {
+                take_snapshot(snapshot_dir.clone());
+            }
+        });
     Ok(generation)
 }
 
@@ -251,7 +274,9 @@ fn take_snapshot(project_dir: PathBuf) {
     tauri::async_runtime::spawn_blocking(move || {
         // A poisoned lock means a previous snapshot panicked. That is worth knowing about, but
         // not worth refusing every later snapshot over, so the guard is taken either way.
-        let _guard = crate::snapshots::AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::snapshots::AT_A_TIME
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match abstract_tex_snapshot::snapshot(&project_dir) {
             Ok(abstract_tex_snapshot::Snapshot::Took(id)) => tracing::debug!(%id, "snapshot taken"),
             Ok(abstract_tex_snapshot::Snapshot::Unchanged) => tracing::debug!("no snapshot: nothing changed"),
@@ -268,7 +293,10 @@ fn take_snapshot(project_dir: PathBuf) {
 /// The newest snapshots, newest first, with each version's word count. How many is the caller's
 /// choice, so the list can be a short page and a longer one.
 #[tauri::command]
-pub async fn snapshot_list(state: State<'_, AppState>, limit: usize) -> CommandResult<Vec<abstract_tex_snapshot::SnapshotRow>> {
+pub async fn snapshot_list(
+    state: State<'_, AppState>,
+    limit: usize,
+) -> CommandResult<Vec<abstract_tex_snapshot::SnapshotRow>> {
     let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
     tauri::async_runtime::spawn_blocking(move || abstract_tex_snapshot::list(&root, limit))
         .await
@@ -286,7 +314,10 @@ pub async fn snapshot_files(state: State<'_, AppState>, id: String) -> CommandRe
         .await
         .map_err(to_message)?
         .map_err(to_message)?;
-    Ok(all.into_iter().filter(|path| path.ends_with(".tex") || path.ends_with(".bib")).collect())
+    Ok(all
+        .into_iter()
+        .filter(|path| path.ends_with(".tex") || path.ends_with(".bib"))
+        .collect())
 }
 
 /// One file as it was in one snapshot, as text. Read-only: nothing here touches the project.
@@ -305,30 +336,48 @@ pub async fn snapshot_read(state: State<'_, AppState>, id: String, path: String)
 /// Put one file back as it was in a snapshot, keeping the version it replaces
 /// (`crate::snapshots::restore_file`). The open tab, if any, hears about it from the watcher.
 #[tauri::command]
-pub async fn snapshot_restore(app: AppHandle, state: State<'_, AppState>, id: String, path: String) -> CommandResult<()> {
-    let (root, absolute) = with_project(&state, |project| Ok((project.root_dir.clone(), project.resolve(&path)?)))?;
-    tauri::async_runtime::spawn_blocking(move || crate::snapshots::restore_file(&root, &absolute, &id, &path))
-        .await
-        .map_err(to_message)??;
+pub async fn snapshot_restore(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> CommandResult<()> {
+    let (root, absolute) = with_project(&state, |project| {
+        Ok((project.root_dir.clone(), project.resolve(&path)?))
+    })?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::snapshots::restore_file(&root, &absolute, &id, &path)
+    })
+    .await
+    .map_err(to_message)??;
     git::emit_status_changed(&app);
     Ok(())
 }
 
 /// Whether the open project's builds may run programs (S9.8). An error with no project open.
 #[tauri::command]
-pub fn shell_escape_allowed(state: State<'_, AppState>, consent: State<'_, ShellEscapeConsent>) -> CommandResult<bool> {
+pub fn shell_escape_allowed(
+    state: State<'_, AppState>,
+    consent: State<'_, ShellEscapeConsent>,
+) -> CommandResult<bool> {
     with_project(&state, |project| Ok(consent.allows(&project.root_dir)))
 }
 
 /// Let the open project's builds run programs, on this machine, from now on. The frontend asks
 /// the person first, in words that say what this allows; this command is only ever their answer.
 #[tauri::command]
-pub fn allow_shell_escape(state: State<'_, AppState>, consent: State<'_, ShellEscapeConsent>) -> CommandResult<()> {
+pub fn allow_shell_escape(
+    state: State<'_, AppState>,
+    consent: State<'_, ShellEscapeConsent>,
+) -> CommandResult<()> {
     with_project(&state, |project| consent.allow(&project.root_dir))
 }
 
 #[tauri::command]
-pub fn disallow_shell_escape(state: State<'_, AppState>, consent: State<'_, ShellEscapeConsent>) -> CommandResult<()> {
+pub fn disallow_shell_escape(
+    state: State<'_, AppState>,
+    consent: State<'_, ShellEscapeConsent>,
+) -> CommandResult<()> {
     with_project(&state, |project| consent.disallow(&project.root_dir))
 }
 
@@ -342,8 +391,13 @@ pub fn cancel_compile(state: State<'_, AppState>) -> CommandResult<()> {
 #[tauri::command]
 pub fn read_log(state: State<'_, AppState>) -> CommandResult<String> {
     with_project(&state, |project| {
-        let root = project.root_file().ok_or_else(|| anyhow::anyhow!("no root file"))?;
-        let stem = root.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".into());
+        let root = project
+            .root_file()
+            .ok_or_else(|| anyhow::anyhow!("no root file"))?;
+        let stem = root
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "main".into());
         let log = project.build_dir().join(format!("{stem}.log"));
         match std::fs::read(&log) {
             Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
@@ -370,7 +424,9 @@ pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
 pub fn bibliography_index(state: State<'_, AppState>) -> CommandResult<BibliographyIndex> {
     let located = project_root(&state)?;
     Ok(match located {
-        Some((root_dir, root_file, extra_bib_files)) => bibliography::build_index(&root_dir, &root_file, &extra_bib_files),
+        Some((root_dir, root_file, extra_bib_files)) => {
+            bibliography::build_index(&root_dir, &root_file, &extra_bib_files)
+        }
         None => BibliographyIndex::default(),
     })
 }
@@ -419,8 +475,13 @@ pub struct PasteCiteResult {
 /// that would stall every other command sharing this runtime's worker thread for as long as the
 /// request takes).
 #[tauri::command]
-pub async fn paste_cite(app: AppHandle, state: State<'_, AppState>, pasted: String) -> CommandResult<PasteCiteResult> {
-    let identified = texbib::acquire::identify(&pasted).ok_or_else(|| "Not a DOI, arXiv id, or ISBN.".to_string())?;
+pub async fn paste_cite(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pasted: String,
+) -> CommandResult<PasteCiteResult> {
+    let identified =
+        texbib::acquire::identify(&pasted).ok_or_else(|| "Not a DOI, arXiv id, or ISBN.".to_string())?;
 
     let fetched = tauri::async_runtime::spawn_blocking(move || fetch_identified(identified))
         .await
@@ -433,7 +494,10 @@ pub async fn paste_cite(app: AppHandle, state: State<'_, AppState>, pasted: Stri
 
     match crate::paste::resolve_paste(&fetched, &index).map_err(to_message)? {
         crate::paste::PasteOutcome::Existing { key } => Ok(PasteCiteResult { key, created: false }),
-        crate::paste::PasteOutcome::New { bib_file, keys_in_use } => {
+        crate::paste::PasteOutcome::New {
+            bib_file,
+            keys_in_use,
+        } => {
             let absolute = with_project(&state, |project| project.resolve(&bib_file))?;
             let current_text = std::fs::read_to_string(&absolute).map_err(to_message)?;
             let (key, new_text) = crate::paste::render_new_entry(&fetched, &keys_in_use, &current_text);
@@ -456,8 +520,12 @@ pub async fn paste_cite(app: AppHandle, state: State<'_, AppState>, pasted: Stri
 fn fetch_identified(identified: texbib::acquire::Identified) -> Result<texbib::Entry, String> {
     match identified {
         texbib::acquire::Identified::Doi(doi) => texbib::acquire::doi::fetch_doi(&doi).map_err(to_message),
-        texbib::acquire::Identified::Arxiv(id) => texbib::acquire::arxiv::fetch_arxiv(&id).map_err(to_message),
-        texbib::acquire::Identified::Isbn(isbn) => texbib::acquire::isbn::fetch_isbn(&isbn).map_err(to_message),
+        texbib::acquire::Identified::Arxiv(id) => {
+            texbib::acquire::arxiv::fetch_arxiv(&id).map_err(to_message)
+        }
+        texbib::acquire::Identified::Isbn(isbn) => {
+            texbib::acquire::isbn::fetch_isbn(&isbn).map_err(to_message)
+        }
     }
 }
 
@@ -469,7 +537,9 @@ fn fetch_identified(identified: texbib::acquire::Identified) -> Result<texbib::E
 /// Zotero linking, matching the card's "detection is a manual command" choice.
 #[tauri::command]
 pub async fn detect_zotero() -> CommandResult<texbib::acquire::zotero::ZoteroStatus> {
-    tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::detect).await.map_err(to_message)
+    tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::detect)
+        .await
+        .map_err(to_message)
 }
 
 /// List every library and collection Zotero (with Better BibTeX) currently has, for the "pick a
@@ -478,7 +548,10 @@ pub async fn detect_zotero() -> CommandResult<texbib::acquire::zotero::ZoteroSta
 /// call.
 #[tauri::command]
 pub async fn list_zotero_libraries() -> CommandResult<Vec<texbib::acquire::zotero::Library>> {
-    tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::list_libraries).await.map_err(to_message)?.map_err(to_message)
+    tauri::async_runtime::spawn_blocking(texbib::acquire::zotero::list_libraries)
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)
 }
 
 /// Link a Zotero collection (S8.2): ask Better BibTeX to keep `output_path` (project-relative,
@@ -499,10 +572,12 @@ pub async fn link_zotero_collection(
     let absolute = with_project(&state, |project| project.resolve(&output_path))?;
     let absolute_str = absolute.to_string_lossy().into_owned();
 
-    tauri::async_runtime::spawn_blocking(move || texbib::acquire::zotero::add_autoexport(&collection_path, &absolute_str))
-        .await
-        .map_err(to_message)?
-        .map_err(to_message)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        texbib::acquire::zotero::add_autoexport(&collection_path, &absolute_str)
+    })
+    .await
+    .map_err(to_message)?
+    .map_err(to_message)?;
 
     with_project(&state, |project| project.add_extra_bib_file(&output_path))?;
     emit_bibliography(&app);
@@ -540,9 +615,13 @@ fn emit_bibliography(app: &AppHandle) {
 /// when it has no root file yet.
 fn project_root(state: &AppState) -> CommandResult<Option<(PathBuf, PathBuf, Vec<String>)>> {
     with_project(state, |project| {
-        Ok(project
-            .root_file()
-            .map(|root_file| (project.root_dir.clone(), root_file, project.config.project.extra_bib_files.clone())))
+        Ok(project.root_file().map(|root_file| {
+            (
+                project.root_dir.clone(),
+                root_file,
+                project.config.project.extra_bib_files.clone(),
+            )
+        }))
     })
 }
 
@@ -565,13 +644,22 @@ fn synctex_dir(project: &Project, draft: bool) -> PathBuf {
 #[tauri::command]
 pub fn synctex_forward(state: State<'_, AppState>, query: ForwardQuery) -> CommandResult<ForwardResult> {
     with_project(&state, |project| {
-        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
+        let root_file = project
+            .root_file()
+            .ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
         let source = project.resolve(&query.file)?;
-        let table = synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
+        let table =
+            synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
         table
             .forward_search(&source, query.line)
             .map(ForwardResult::from)
-            .ok_or_else(|| anyhow::anyhow!("Nothing typeset for {}:{} in the last build.", query.file, query.line))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Nothing typeset for {}:{} in the last build.",
+                    query.file,
+                    query.line
+                )
+            })
     })
 }
 
@@ -579,12 +667,22 @@ pub fn synctex_forward(state: State<'_, AppState>, query: ForwardQuery) -> Comma
 #[tauri::command]
 pub fn synctex_inverse(state: State<'_, AppState>, query: InverseQuery) -> CommandResult<InverseResult> {
     with_project(&state, |project| {
-        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
-        let table = synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
-        let position = abstract_tex_synctex::PdfPosition { page: query.page, x: query.x, y: query.y };
-        let hit = table
-            .inverse_search(position)
-            .ok_or_else(|| anyhow::anyhow!("Nothing on page {} of the last build near that point.", query.page))?;
+        let root_file = project
+            .root_file()
+            .ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
+        let table =
+            synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
+        let position = abstract_tex_synctex::PdfPosition {
+            page: query.page,
+            x: query.x,
+            y: query.y,
+        };
+        let hit = table.inverse_search(position).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Nothing on page {} of the last build near that point.",
+                query.page
+            )
+        })?;
         Ok(synctex::to_relative(&project.root_dir, hit))
     })
 }
@@ -631,13 +729,21 @@ pub async fn lsp_request(
 /// Tell the server something without waiting. `textDocument/didChange` goes through here on
 /// every keystroke burst, so it must not block (DESIGN.md §2, commitment 2).
 #[tauri::command]
-pub fn lsp_notify(state: State<'_, AppState>, method: String, params: serde_json::Value) -> CommandResult<()> {
+pub fn lsp_notify(
+    state: State<'_, AppState>,
+    method: String,
+    params: serde_json::Value,
+) -> CommandResult<()> {
     state.lsp.bridge()?.notify(&method, params).map_err(to_message)
 }
 
 /// Answer a request the server made of us, quoting the `id` from the `lsp` event.
 #[tauri::command]
-pub fn lsp_respond(state: State<'_, AppState>, id: serde_json::Value, result: serde_json::Value) -> CommandResult<()> {
+pub fn lsp_respond(
+    state: State<'_, AppState>,
+    id: serde_json::Value,
+    result: serde_json::Value,
+) -> CommandResult<()> {
     state.lsp.bridge()?.respond(id, result).map_err(to_message)
 }
 
@@ -664,7 +770,9 @@ pub fn git_status(state: State<'_, AppState>) -> CommandResult<Option<GitStatus>
 #[tauri::command]
 pub fn git_large_files(state: State<'_, AppState>) -> CommandResult<Option<Vec<LargeFile>>> {
     const LFS_THRESHOLD_BYTES: u64 = 5 * 1024 * 1024;
-    git::with_repository(&state, |repository| abstract_tex_git::large_files(repository, LFS_THRESHOLD_BYTES))
+    git::with_repository(&state, |repository| {
+        abstract_tex_git::large_files(repository, LFS_THRESHOLD_BYTES)
+    })
 }
 
 /// Add one path to the index, or record its deletion there.
@@ -679,7 +787,9 @@ pub fn git_stage(app: AppHandle, state: State<'_, AppState>, path: String) -> Co
 /// the working tree — what *Stage* would add — and `true` is `HEAD` against the index. Reads only.
 #[tauri::command]
 pub fn git_diff_sides(state: State<'_, AppState>, path: String, staged: bool) -> CommandResult<DiffSides> {
-    git::in_repository(&state, |repository| abstract_tex_git::diff_sides(repository, &path, staged))
+    git::in_repository(&state, |repository| {
+        abstract_tex_git::diff_sides(repository, &path, staged)
+    })
 }
 
 /// Put the index entry back to what `HEAD` has, leaving the file on disk alone.
@@ -702,7 +812,6 @@ pub fn git_discard(app: AppHandle, state: State<'_, AppState>, path: String) -> 
     Ok(done)
 }
 
-
 // ---------------------------------------------------------------------------------------------
 // S10.3b: committing, and where the branch stands.
 // ---------------------------------------------------------------------------------------------
@@ -716,7 +825,10 @@ pub fn git_branch(state: State<'_, AppState>) -> CommandResult<Option<BranchStat
 /// One page of the history for the Graph section. `skip` rows in, at most `limit` rows out.
 #[tauri::command]
 pub fn git_log(state: State<'_, AppState>, skip: usize, limit: usize) -> CommandResult<Vec<CommitRow>> {
-    Ok(git::with_repository(&state, |repository| abstract_tex_git::log(repository, skip, limit))?.unwrap_or_default())
+    Ok(git::with_repository(&state, |repository| {
+        abstract_tex_git::log(repository, skip, limit)
+    })?
+    .unwrap_or_default())
 }
 
 /// Commit whatever is staged, and answer with the new commit's id.
@@ -726,7 +838,9 @@ pub fn git_log(state: State<'_, AppState>, skip: usize, limit: usize) -> Command
 /// fixed where the author is already standing.
 #[tauri::command]
 pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -> CommandResult<String> {
-    let id = git::in_repository(&state, |repository| abstract_tex_git::commit(repository, &message))?;
+    let id = git::in_repository(&state, |repository| {
+        abstract_tex_git::commit(repository, &message)
+    })?;
     git::emit_status_changed(&app);
     Ok(id)
 }
@@ -773,7 +887,9 @@ pub fn git_initialise(app: AppHandle, state: State<'_, AppState>) -> CommandResu
 /// is a project with no repository at all, where the question does not arise.
 #[tauri::command]
 pub fn git_our_folder_is_ignored(state: State<'_, AppState>) -> CommandResult<Option<bool>> {
-    git::with_repository(&state, |repository| Ok(abstract_tex_git::our_folder_is_ignored(repository)))
+    git::with_repository(&state, |repository| {
+        Ok(abstract_tex_git::our_folder_is_ignored(repository))
+    })
 }
 
 /// Add our lines to the repository's `.gitignore` — only ever after the author said yes.
@@ -834,8 +950,14 @@ pub async fn github_create_repository(
     description: Option<String>,
 ) -> CommandResult<GitHubRepository> {
     let project_dir = with_project(&state, |project| Ok(project.root_dir.clone()))?;
-    let wanted = NewRepository { name, visibility, description };
-    let created = crate::github::create_repository(&state.github, project_dir, wanted).await.map_err(to_message)?;
+    let wanted = NewRepository {
+        name,
+        visibility,
+        description,
+    };
+    let created = crate::github::create_repository(&state.github, project_dir, wanted)
+        .await
+        .map_err(to_message)?;
     git::emit_status_changed(&app);
     Ok(created)
 }
@@ -843,7 +965,9 @@ pub async fn github_create_repository(
 /// The repositories the signed-in account can clone, most recently pushed first (S11.5b).
 #[tauri::command]
 pub async fn github_list_repositories(state: State<'_, AppState>) -> CommandResult<Vec<GitHubRepository>> {
-    crate::github::list_repositories(&state.github).await.map_err(to_message)
+    crate::github::list_repositories(&state.github)
+        .await
+        .map_err(to_message)
 }
 
 /// Clone `url` into a new folder inside `parent_dir`, named `folder_name` or, by default, after
@@ -907,7 +1031,10 @@ pub fn git_origin_url(state: State<'_, AppState>) -> CommandResult<Option<String
 #[tauri::command]
 pub async fn git_push(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
     let token = state.github.token().map_err(to_message)?;
-    git::in_repository_blocking(&state, move |repository| abstract_tex_git::push(repository, token.as_deref())).await?;
+    git::in_repository_blocking(&state, move |repository| {
+        abstract_tex_git::push(repository, token.as_deref())
+    })
+    .await?;
     git::emit_status_changed(&app);
     Ok(())
 }
@@ -918,7 +1045,10 @@ pub async fn git_push(app: AppHandle, state: State<'_, AppState>) -> CommandResu
 #[tauri::command]
 pub async fn git_sync(app: AppHandle, state: State<'_, AppState>) -> CommandResult<SyncOutcome> {
     let token = state.github.token().map_err(to_message)?;
-    let outcome = git::in_repository_blocking(&state, move |repository| abstract_tex_git::sync(repository, token.as_deref())).await?;
+    let outcome = git::in_repository_blocking(&state, move |repository| {
+        abstract_tex_git::sync(repository, token.as_deref())
+    })
+    .await?;
     git::emit_status_changed(&app);
     Ok(outcome)
 }
@@ -931,7 +1061,11 @@ pub async fn git_sync(app: AppHandle, state: State<'_, AppState>) -> CommandResu
 /// not installed on this machine — through the same refusal slot every other verb uses; the
 /// banner is not a dialog, and neither is what happens when it is wrong.
 #[tauri::command]
-pub async fn git_track_with_lfs(app: AppHandle, state: State<'_, AppState>, paths: Vec<String>) -> CommandResult<()> {
+pub async fn git_track_with_lfs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    paths: Vec<String>,
+) -> CommandResult<()> {
     let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
     crate::lfs::track(&root, &paths).await.map_err(to_message)?;
     git::emit_status_changed(&app);
@@ -958,7 +1092,9 @@ pub async fn compare_revisions(
     b: String,
 ) -> CommandResult<ComparisonStarted> {
     let request = with_project(&state, |project| {
-        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("This project has no root .tex file to compare."))?;
+        let root_file = project
+            .root_file()
+            .ok_or_else(|| anyhow::anyhow!("This project has no root .tex file to compare."))?;
         Ok(ComparisonRequest {
             project_dir: project.root_dir.clone(),
             root_file,
@@ -988,8 +1124,13 @@ pub fn cancel_comparison(state: State<'_, AppState>) -> CommandResult<()> {
 #[tauri::command]
 pub fn read_comparison_log(state: State<'_, AppState>) -> CommandResult<String> {
     with_project(&state, |project| {
-        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
-        Ok(latexdiff::read_comparison_log(&project.latexdiff_dir(), &root_file))
+        let root_file = project
+            .root_file()
+            .ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
+        Ok(latexdiff::read_comparison_log(
+            &project.latexdiff_dir(),
+            &root_file,
+        ))
     })
 }
 
@@ -997,12 +1138,23 @@ pub fn read_comparison_log(state: State<'_, AppState>) -> CommandResult<String> 
 /// the save dialog (design interview A9). Named by its pair rather than "whatever is showing", so
 /// a comparison replaced while the dialog was open can never be saved under the other one's name.
 #[tauri::command]
-pub fn save_comparison_pdf(state: State<'_, AppState>, older: String, newer: String, destination: String) -> CommandResult<()> {
+pub fn save_comparison_pdf(
+    state: State<'_, AppState>,
+    older: String,
+    newer: String,
+    destination: String,
+) -> CommandResult<()> {
     let (latexdiff_dir, root_file) = with_project(&state, |project| {
-        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
+        let root_file = project
+            .root_file()
+            .ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
         Ok((project.latexdiff_dir(), root_file))
     })?;
-    let dirs = latexdiff::ComparisonDirs::new(&latexdiff_dir, latexdiff::parse_commit(&older)?, latexdiff::parse_commit(&newer)?);
+    let dirs = latexdiff::ComparisonDirs::new(
+        &latexdiff_dir,
+        latexdiff::parse_commit(&older)?,
+        latexdiff::parse_commit(&newer)?,
+    );
     let pdf = dirs.pdf(&root_file);
     if !pdf.is_file() {
         return Err("That comparison is no longer on disk; compare the two commits again, then save.".into());

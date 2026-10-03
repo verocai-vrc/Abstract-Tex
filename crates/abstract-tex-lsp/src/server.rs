@@ -40,7 +40,10 @@ impl TexLab {
 
     /// Use a specific binary. Tests use this; the app uses `locate()`.
     pub fn at(binary: impl Into<PathBuf>) -> Self {
-        Self { binary: binary.into(), args: Vec::new() }
+        Self {
+            binary: binary.into(),
+            args: Vec::new(),
+        }
     }
 
     pub fn with_args(mut self, args: impl IntoIterator<Item = impl Into<String>>) -> Self {
@@ -71,7 +74,11 @@ impl TexLab {
         let stdin = child.stdin.take().expect("stdin was piped");
         let stdout = child.stdout.take().expect("stdout was piped");
         info!(binary = %self.binary.display(), pid = child.id(), "language server started");
-        Ok(Running { child, writer: Some(FrameWriter { stdin }), frames: FrameReader::new(stdout) })
+        Ok(Running {
+            child,
+            writer: Some(FrameWriter { stdin }),
+            frames: FrameReader::new(stdout),
+        })
     }
 }
 
@@ -108,7 +115,11 @@ impl Running {
     /// Write one message. `body` is the JSON; the header is added here. Nothing is read while
     /// this runs; see [`take_writer`](Running::take_writer) for a caller that needs both.
     pub async fn send(&mut self, body: &[u8]) -> Result<(), LspError> {
-        self.writer.as_mut().expect("the writer was taken: send through it instead").send(body).await
+        self.writer
+            .as_mut()
+            .expect("the writer was taken: send through it instead")
+            .send(body)
+            .await
     }
 
     /// Move the write half out, so another task can write while this one keeps reading.

@@ -138,7 +138,11 @@ pub fn headings(text: &str) -> Vec<Heading> {
                 // `end` is one past the `}` when it was balanced, and the length when it was not.
                 let inner_end = if end > cursor + 1 { end - 1 } else { cursor + 1 };
                 let title = line[cursor + 1..inner_end.min(line.len())].trim();
-                found.push(Heading { line: index + 1, level, title: title.to_string() });
+                found.push(Heading {
+                    line: index + 1,
+                    level,
+                    title: title.to_string(),
+                });
                 cursor = end;
             }
             at = cursor.max(at + 1);
@@ -445,7 +449,11 @@ fn strip_comment(line: &str) -> &str {
         if *byte != b'%' {
             continue;
         }
-        let backslashes = bytes[..position].iter().rev().take_while(|byte| **byte == b'\\').count();
+        let backslashes = bytes[..position]
+            .iter()
+            .rev()
+            .take_while(|byte| **byte == b'\\')
+            .count();
         if backslashes % 2 == 0 {
             return &line[..position];
         }
@@ -491,7 +499,10 @@ mod tests {
         assert_eq!(count_prose(r"and \[ \int_0^1 f \] again"), 2);
         assert_eq!(count_prose("display $$a+b$$ maths"), 2);
         // Wrapping an existing equation in an environment is four lines of diff and no words.
-        assert_eq!(count_prose("one\n\\begin{align}\na &= b \\\\ c &= d\n\\end{align}\ntwo"), 2);
+        assert_eq!(
+            count_prose("one\n\\begin{align}\na &= b \\\\ c &= d\n\\end{align}\ntwo"),
+            2
+        );
     }
 
     #[test]
@@ -503,8 +514,14 @@ mod tests {
 
     #[test]
     fn keys_paths_and_citations_are_not_prose() {
-        assert_eq!(count_prose(r"see \cite{smith2019, jones2020} and \ref{fig:one}"), 2); // see, and
-        assert_eq!(count_prose(r"\includegraphics[width=0.8\textwidth]{figures/plot-one.pdf}"), 0);
+        assert_eq!(
+            count_prose(r"see \cite{smith2019, jones2020} and \ref{fig:one}"),
+            2
+        ); // see, and
+        assert_eq!(
+            count_prose(r"\includegraphics[width=0.8\textwidth]{figures/plot-one.pdf}"),
+            0
+        );
         assert_eq!(count_prose(r"\label{sec:methods}\input{sections/methods}"), 0);
         // A link's visible text is read aloud; its URL is not.
         assert_eq!(count_prose(r"\href{https://example.org/a/b}{the data set}"), 3);
@@ -519,12 +536,18 @@ mod tests {
     #[test]
     fn a_verbatim_percent_is_not_a_comment_and_a_verbatim_dollar_is_not_maths() {
         // The whole body is skipped, so neither can be mistaken for markup outside it.
-        assert_eq!(count_prose("a\n\\begin{verbatim}\n% $ not maths $\n\\end{verbatim}\nb"), 2);
+        assert_eq!(
+            count_prose("a\n\\begin{verbatim}\n% $ not maths $\n\\end{verbatim}\nb"),
+            2
+        );
     }
 
     #[test]
     fn an_unclosed_environment_or_group_ends_the_scan_rather_than_hanging() {
-        assert_eq!(count_prose("words\n\\begin{verbatim}\nand then nothing closed it"), 1);
+        assert_eq!(
+            count_prose("words\n\\begin{verbatim}\nand then nothing closed it"),
+            1
+        );
         assert_eq!(count_prose(r"\cite{unclosed and the rest"), 0);
         // The prose before the unclosed maths still counts; only the maths itself is lost.
         assert_eq!(count_prose("maths $ that never closes"), 1);
@@ -536,9 +559,21 @@ mod tests {
         assert_eq!(
             headings(text),
             vec![
-                Heading { line: 1, level: 2, title: "Methods".into() },
-                Heading { line: 3, level: 3, title: "Sampling".into() },
-                Heading { line: 5, level: 2, title: "Unnumbered".into() },
+                Heading {
+                    line: 1,
+                    level: 2,
+                    title: "Methods".into()
+                },
+                Heading {
+                    line: 3,
+                    level: 3,
+                    title: "Sampling".into()
+                },
+                Heading {
+                    line: 5,
+                    level: 2,
+                    title: "Unnumbered".into()
+                },
             ]
         );
     }

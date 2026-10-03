@@ -98,7 +98,10 @@ impl DeviceFlow {
     }
 
     pub fn with_endpoints(endpoints: Endpoints) -> Result<Self, GitHubError> {
-        Ok(Self { client: crate::http_client()?, endpoints })
+        Ok(Self {
+            client: crate::http_client()?,
+            endpoints,
+        })
     }
 
     /// Step 1: ask for a code.
@@ -163,7 +166,9 @@ impl DeviceFlow {
             Some("slow_down") => Ok(Poll::SlowDown(Duration::from_secs(parsed.interval.unwrap_or(10)))),
             Some("access_denied") => Err(GitHubError::Denied),
             Some("expired_token") => Err(GitHubError::Expired),
-            Some(_) => Err(GitHubError::GitHub(parsed.error_sentence().unwrap_or_else(|| body.clone()))),
+            Some(_) => Err(GitHubError::GitHub(
+                parsed.error_sentence().unwrap_or_else(|| body.clone()),
+            )),
             None => Err(GitHubError::Unreadable(body)),
         }
     }
@@ -233,7 +238,11 @@ macro_rules! error_sentence_from_fields {
         impl ErrorSentence for $type {
             fn error_sentence(&self) -> Option<String> {
                 let error = self.error.as_deref()?;
-                Some(self.error_description.clone().unwrap_or_else(|| error.to_string()))
+                Some(
+                    self.error_description
+                        .clone()
+                        .unwrap_or_else(|| error.to_string()),
+                )
             }
         }
     };

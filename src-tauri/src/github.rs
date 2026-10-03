@@ -34,7 +34,11 @@ use tauri::{AppHandle, Emitter};
 pub enum SignInEvent {
     /// GitHub has issued a code. Everything the person needs is in here, and nothing else is.
     #[serde(rename_all = "camelCase")]
-    Code { user_code: String, verification_uri: String, expires_in_seconds: u64 },
+    Code {
+        user_code: String,
+        verification_uri: String,
+        expires_in_seconds: u64,
+    },
     /// Signed in, and this is whose account it is.
     #[serde(rename_all = "camelCase")]
     SignedIn { login: String },
@@ -58,14 +62,20 @@ pub struct GitHubSession {
 
 impl Default for GitHubSession {
     fn default() -> Self {
-        Self { store: Box::new(Keychain::for_this_app()), running: Mutex::new(None) }
+        Self {
+            store: Box::new(Keychain::for_this_app()),
+            running: Mutex::new(None),
+        }
     }
 }
 
 impl GitHubSession {
     /// For tests: a session whose token goes nowhere near the machine's keychain.
     pub fn with_store(store: Box<dyn SecretStore>) -> Self {
-        Self { store, running: Mutex::new(None) }
+        Self {
+            store,
+            running: Mutex::new(None),
+        }
     }
 
     /// The stored token, if this machine has one. Fast: a keychain read and nothing else.
@@ -80,7 +90,8 @@ impl GitHubSession {
     /// The token, or the sentence for "nobody is signed in". Every call that needs one goes
     /// through here, so "signed out" is one message rather than one per caller.
     fn require_token(&self) -> Result<String, GitHubError> {
-        self.token()?.ok_or_else(|| GitHubError::GitHub("Sign in to GitHub first.".to_string()))
+        self.token()?
+            .ok_or_else(|| GitHubError::GitHub("Sign in to GitHub first.".to_string()))
     }
 
     pub fn sign_out(&self) -> Result<(), GitHubError> {
@@ -108,7 +119,9 @@ impl GitHubSession {
 /// thread. The keychain read either side of it is microseconds, and no lock is held across the
 /// await.
 pub async fn account(session: &GitHubSession) -> Result<Option<Account>, GitHubError> {
-    let Some(token) = session.token()? else { return Ok(None) };
+    let Some(token) = session.token()? else {
+        return Ok(None);
+    };
     let looked_up = tauri::async_runtime::spawn_blocking(move || DeviceFlow::new()?.account(&token))
         .await
         .map_err(|error| GitHubError::Keychain(error.to_string()))?;
@@ -145,10 +158,17 @@ pub async fn create_repository(
         .await
         .map_err(|error| GitHubError::Keychain(error.to_string()))??;
 
-    let repository = abstract_tex_git::open(&project_dir)
-        .map_err(|_| GitHubError::GitHub(format!("{} exists, but this folder is not a Git repository — make one here first.", created.full_name)))?;
+    let repository = abstract_tex_git::open(&project_dir).map_err(|_| {
+        GitHubError::GitHub(format!(
+            "{} exists, but this folder is not a Git repository — make one here first.",
+            created.full_name
+        ))
+    })?;
     abstract_tex_git::set_origin(&repository, &created.clone_url).map_err(|error| {
-        GitHubError::GitHub(format!("{} was created, but it could not be set as this project's origin: {error}", created.full_name))
+        GitHubError::GitHub(format!(
+            "{} was created, but it could not be set as this project's origin: {error}",
+            created.full_name
+        ))
     })?;
     Ok(created)
 }
@@ -192,12 +212,17 @@ pub fn start_sign_in(app: AppHandle, session: &GitHubSession) -> Result<(), GitH
     // cannot be moved into the thread — so the thread is handed its own keychain handle. Both
     // name the same entry, which is the whole reason `Keychain` is cheap to construct.
     let store = Keychain::for_this_app();
-    tauri::async_runtime::spawn_blocking(move || match sign_in_on_this_thread(&app, &client_id, &cancelled, &store) {
-        Ok(login) => {
-            let _ = app.emit("github:sign-in", SignInEvent::SignedIn { login });
-        }
-        Err(error) => {
-            let _ = app.emit("github:sign-in", failed(&error, cancelled.load(Ordering::Relaxed)));
+    tauri::async_runtime::spawn_blocking(move || {
+        match sign_in_on_this_thread(&app, &client_id, &cancelled, &store) {
+            Ok(login) => {
+                let _ = app.emit("github:sign-in", SignInEvent::SignedIn { login });
+            }
+            Err(error) => {
+                let _ = app.emit(
+                    "github:sign-in",
+                    failed(&error, cancelled.load(Ordering::Relaxed)),
+                );
+            }
         }
     });
     Ok(())
@@ -234,7 +259,10 @@ fn sign_in_on_this_thread(
 }
 
 fn failed(error: &GitHubError, cancelled: bool) -> SignInEvent {
-    SignInEvent::Failed { message: error.to_string(), cancelled }
+    SignInEvent::Failed {
+        message: error.to_string(),
+        cancelled,
+    }
 }
 
 /// The waiting loop: sleep, ask, repeat, until GitHub says something final.
@@ -326,7 +354,11 @@ mod tests {
         let signed_in = serde_json::to_string(&SignInEvent::SignedIn { login: "ada".into() }).unwrap();
         assert!(signed_in.contains(r#""stage":"signedIn""#), "{signed_in}");
 
-        let failed = serde_json::to_string(&SignInEvent::Failed { message: "no".into(), cancelled: true }).unwrap();
+        let failed = serde_json::to_string(&SignInEvent::Failed {
+            message: "no".into(),
+            cancelled: true,
+        })
+        .unwrap();
         assert!(failed.contains(r#""stage":"failed""#), "{failed}");
         assert!(failed.contains(r#""cancelled":true"#), "{failed}");
     }
@@ -344,19 +376,32 @@ mod tests {
     #[test]
     fn a_public_repository_needs_the_answer_before_anything_else_is_considered() {
         let unconfirmed = Visibility::Public { confirmed: false };
-        assert!(matches!(unconfirmed.allowed(), Err(GitHubError::PublicNotConfirmed)));
+        assert!(matches!(
+            unconfirmed.allowed(),
+            Err(GitHubError::PublicNotConfirmed)
+        ));
     }
 
     /// The rule this module exists to keep: no serialised event can carry a token.
     #[test]
     fn no_event_shape_has_anywhere_to_put_a_token() {
         for event in [
-            SignInEvent::Code { user_code: "A".into(), verification_uri: "B".into(), expires_in_seconds: 1 },
+            SignInEvent::Code {
+                user_code: "A".into(),
+                verification_uri: "B".into(),
+                expires_in_seconds: 1,
+            },
             SignInEvent::SignedIn { login: "ada".into() },
-            SignInEvent::Failed { message: "gho_not_a_token_either".into(), cancelled: false },
+            SignInEvent::Failed {
+                message: "gho_not_a_token_either".into(),
+                cancelled: false,
+            },
         ] {
             let json = serde_json::to_string(&event).unwrap();
-            assert!(!json.contains("token") || json.contains("gho_not_a_token_either"), "{json}");
+            assert!(
+                !json.contains("token") || json.contains("gho_not_a_token_either"),
+                "{json}"
+            );
         }
     }
 }

@@ -44,29 +44,149 @@ struct Mistake {
 /// for most rules is the mistake's own line; `missing-item` is the exception the rule's own
 /// explanation accounts for (TeX only notices at the `\end{itemize}` that no `\item` came).
 const MISTAKES: [Mistake; 20] = [
-    Mistake { chapter: "01-undefined-control-sequence", line: 3, rule: "undefined-control-sequence", severity: Severity::Error, fix: None },
-    Mistake { chapter: "02-missing-dollar", line: 3, rule: "missing-dollar", severity: Severity::Error, fix: Some("Escape as \\_") },
-    Mistake { chapter: "03-unbalanced-braces", line: 3, rule: "unbalanced-braces", severity: Severity::Error, fix: None },
-    Mistake { chapter: "04-undefined-reference", line: 3, rule: "undefined-reference", severity: Severity::Warning, fix: None },
-    Mistake { chapter: "05-undefined-citation", line: 3, rule: "undefined-citation", severity: Severity::Warning, fix: None },
-    Mistake { chapter: "06-misplaced-alignment-tab", line: 3, rule: "misplaced-alignment-tab", severity: Severity::Error, fix: Some("Escape as \\&") },
-    Mistake { chapter: "07-extra-alignment-tab", line: 7, rule: "extra-alignment-tab", severity: Severity::Error, fix: None },
-    Mistake { chapter: "08-undefined-environment", line: 3, rule: "undefined-environment", severity: Severity::Error, fix: None },
-    Mistake { chapter: "09-mismatched-environment", line: 6, rule: "mismatched-environment", severity: Severity::Error, fix: None },
-    Mistake { chapter: "10-missing-item", line: 5, rule: "missing-item", severity: Severity::Error, fix: None },
-    Mistake { chapter: "11-illegal-unit-of-measure", line: 4, rule: "illegal-unit-of-measure", severity: Severity::Error, fix: Some("Add pt") },
+    Mistake {
+        chapter: "01-undefined-control-sequence",
+        line: 3,
+        rule: "undefined-control-sequence",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "02-missing-dollar",
+        line: 3,
+        rule: "missing-dollar",
+        severity: Severity::Error,
+        fix: Some("Escape as \\_"),
+    },
+    Mistake {
+        chapter: "03-unbalanced-braces",
+        line: 3,
+        rule: "unbalanced-braces",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "04-undefined-reference",
+        line: 3,
+        rule: "undefined-reference",
+        severity: Severity::Warning,
+        fix: None,
+    },
+    Mistake {
+        chapter: "05-undefined-citation",
+        line: 3,
+        rule: "undefined-citation",
+        severity: Severity::Warning,
+        fix: None,
+    },
+    Mistake {
+        chapter: "06-misplaced-alignment-tab",
+        line: 3,
+        rule: "misplaced-alignment-tab",
+        severity: Severity::Error,
+        fix: Some("Escape as \\&"),
+    },
+    Mistake {
+        chapter: "07-extra-alignment-tab",
+        line: 7,
+        rule: "extra-alignment-tab",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "08-undefined-environment",
+        line: 3,
+        rule: "undefined-environment",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "09-mismatched-environment",
+        line: 6,
+        rule: "mismatched-environment",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "10-missing-item",
+        line: 5,
+        rule: "missing-item",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "11-illegal-unit-of-measure",
+        line: 4,
+        rule: "illegal-unit-of-measure",
+        severity: Severity::Error,
+        fix: Some("Add pt"),
+    },
     // No fix, and the walk is what showed why: the title is longer than TeX's `half_error_line`
     // (50), so the printed context is `...ote{Which never works without protection.}}` and the
     // `\footnote` the fix would need is cut off. Logged in `bugs-issues-fixes.md` (Open, S6.4).
-    Mistake { chapter: "12-fragile-command-in-moving-argument", line: 1, rule: "fragile-command-in-moving-argument", severity: Severity::Error, fix: None },
-    Mistake { chapter: "13-caption-outside-float", line: 3, rule: "caption-outside-float", severity: Severity::Error, fix: None },
-    Mistake { chapter: "14-display-math-wrong-delimiter", line: 4, rule: "display-math-wrong-delimiter", severity: Severity::Error, fix: Some("Close with \\]") },
-    Mistake { chapter: "15-verb-unterminated", line: 3, rule: "verb-unterminated", severity: Severity::Error, fix: Some("Close with |") },
-    Mistake { chapter: "16-undefined-color", line: 3, rule: "undefined-color", severity: Severity::Error, fix: None },
-    Mistake { chapter: "17-image-not-found", line: 5, rule: "image-not-found", severity: Severity::Error, fix: None },
-    Mistake { chapter: "18-file-not-found", line: 3, rule: "file-not-found", severity: Severity::Error, fix: None },
-    Mistake { chapter: "19-preamble-only-command", line: 3, rule: "preamble-only-command", severity: Severity::Error, fix: None },
-    Mistake { chapter: "20-include-cannot-be-nested", line: 3, rule: "include-cannot-be-nested", severity: Severity::Error, fix: Some("Change to \\input") },
+    Mistake {
+        chapter: "12-fragile-command-in-moving-argument",
+        line: 1,
+        rule: "fragile-command-in-moving-argument",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "13-caption-outside-float",
+        line: 3,
+        rule: "caption-outside-float",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "14-display-math-wrong-delimiter",
+        line: 4,
+        rule: "display-math-wrong-delimiter",
+        severity: Severity::Error,
+        fix: Some("Close with \\]"),
+    },
+    Mistake {
+        chapter: "15-verb-unterminated",
+        line: 3,
+        rule: "verb-unterminated",
+        severity: Severity::Error,
+        fix: Some("Close with |"),
+    },
+    Mistake {
+        chapter: "16-undefined-color",
+        line: 3,
+        rule: "undefined-color",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "17-image-not-found",
+        line: 5,
+        rule: "image-not-found",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "18-file-not-found",
+        line: 3,
+        rule: "file-not-found",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "19-preamble-only-command",
+        line: 3,
+        rule: "preamble-only-command",
+        severity: Severity::Error,
+        fix: None,
+    },
+    Mistake {
+        chapter: "20-include-cannot-be-nested",
+        line: 3,
+        rule: "include-cannot-be-nested",
+        severity: Severity::Error,
+        fix: Some("Change to \\input"),
+    },
 ];
 
 fn repo_root() -> PathBuf {
@@ -80,7 +200,11 @@ fn torture_dir() -> PathBuf {
 /// The log for the build in which mistakes `1..step` are fixed and mistake `step` is the
 /// first live one; `step == 20` is the clean build after all twenty are gone.
 fn capture_path(step: usize) -> PathBuf {
-    let name = if step == MISTAKES.len() { "clean".to_string() } else { format!("{:02}", step + 1) };
+    let name = if step == MISTAKES.len() {
+        "clean".to_string()
+    } else {
+        format!("{:02}", step + 1)
+    };
     torture_dir().join("captures").join(format!("{name}.log"))
 }
 
@@ -103,8 +227,18 @@ fn check_step(step: usize, diagnostics: &[Diagnostic]) {
             )
         });
 
-    assert_eq!(found.rule, Some(mistake.rule), "step {}: wrong rule for {file}", step + 1);
-    assert_eq!(found.severity, mistake.severity, "step {}: wrong severity for {file}", step + 1);
+    assert_eq!(
+        found.rule,
+        Some(mistake.rule),
+        "step {}: wrong rule for {file}",
+        step + 1
+    );
+    assert_eq!(
+        found.severity,
+        mistake.severity,
+        "step {}: wrong severity for {file}",
+        step + 1
+    );
     assert_eq!(
         found.fix.as_ref().map(|f| f.description.as_str()),
         mistake.fix,
@@ -112,7 +246,11 @@ fn check_step(step: usize, diagnostics: &[Diagnostic]) {
         step + 1
     );
     // "Plain-language explanation": whole sentences of our own, never TeX's message echoed.
-    assert!(found.explanation.ends_with('.'), "step {}: explanation is not a sentence", step + 1);
+    assert!(
+        found.explanation.ends_with('.'),
+        "step {}: explanation is not a sentence",
+        step + 1
+    );
     assert!(
         !found.explanation.contains(&found.raw_message),
         "step {}: explanation just repeats TeX's own words",
@@ -146,7 +284,10 @@ fn is_chapter(diagnostic: &Diagnostic, chapter: &str) -> bool {
 fn the_recorded_walk_still_resolves_every_mistake() {
     for step in 0..MISTAKES.len() {
         let log = fs::read_to_string(capture_path(step)).unwrap_or_else(|e| {
-            panic!("step {}: no capture ({e}); run the ignored test with ABSTRACT_TEX_RECORD_TORTURE=1", step + 1)
+            panic!(
+                "step {}: no capture ({e}); run the ignored test with ABSTRACT_TEX_RECORD_TORTURE=1",
+                step + 1
+            )
         });
         check_step(step, &texlog::diagnostics(&log));
     }
@@ -193,7 +334,10 @@ async fn the_real_engine_walk_resolves_every_mistake() {
         }
 
         let outcome = engine.build(&job, CancellationToken::new(), None).await.unwrap();
-        let log_path = outcome.log.clone().unwrap_or_else(|| panic!("step {}: no log kept", step + 1));
+        let log_path = outcome
+            .log
+            .clone()
+            .unwrap_or_else(|| panic!("step {}: no log kept", step + 1));
         let log = fs::read_to_string(&log_path).unwrap();
         if record {
             fs::create_dir_all(torture_dir().join("captures")).unwrap();

@@ -145,13 +145,17 @@ pub struct Guard {
 impl Guard {
     /// A guard for a project whose `.bib` files hold exactly these keys.
     pub fn new(known_keys: impl IntoIterator<Item = String>) -> Self {
-        Self { known_keys: known_keys.into_iter().collect(), extra_commands: HashSet::new() }
+        Self {
+            known_keys: known_keys.into_iter().collect(),
+            extra_commands: HashSet::new(),
+        }
     }
 
     /// Also treat these control words (no backslash) as citation commands: the author's `\see`
     /// that wraps `\cite`, found by [`citation_macros`]. Without it a wrapper is invisible.
     pub fn with_citation_commands(mut self, names: impl IntoIterator<Item = String>) -> Self {
-        self.extra_commands.extend(names.into_iter().map(|name| name.to_ascii_lowercase()));
+        self.extra_commands
+            .extend(names.into_iter().map(|name| name.to_ascii_lowercase()));
         self
     }
 
@@ -161,12 +165,19 @@ impl Guard {
 
         // 1. Unknown keys: those in the result that no .bib entry has and the original did not
         // already use.
-        let already_used: HashSet<String> =
-            self.citations_in(original).into_iter().flat_map(|citation| citation.keys).collect();
+        let already_used: HashSet<String> = self
+            .citations_in(original)
+            .into_iter()
+            .flat_map(|citation| citation.keys)
+            .collect();
         for citation in self.citations_in(result) {
             for key in citation.keys {
                 if !self.known_keys.contains(&key) && !already_used.contains(&key) {
-                    findings.push(Finding { kind: FindingKind::UnknownKey, span: citation.span.clone(), text: key });
+                    findings.push(Finding {
+                        kind: FindingKind::UnknownKey,
+                        span: citation.span.clone(),
+                        text: key,
+                    });
                 }
             }
         }
@@ -183,16 +194,29 @@ impl Guard {
             *count_after.entry(construct.label.as_str()).or_default() += 1;
         }
         for construct in &after {
-            if count_after[construct.label.as_str()] > count_before.get(construct.label.as_str()).copied().unwrap_or(0) {
-                findings.push(Finding { kind: construct.kind, span: construct.span.clone(), text: construct.shown.clone() });
+            if count_after[construct.label.as_str()]
+                > count_before.get(construct.label.as_str()).copied().unwrap_or(0)
+            {
+                findings.push(Finding {
+                    kind: construct.kind,
+                    span: construct.span.clone(),
+                    text: construct.shown.clone(),
+                });
             }
         }
 
         // 4. References in plain text that the original did not already contain.
-        let old_plain: HashSet<String> = plain_text_citations(original).into_iter().map(|(_, text)| text).collect();
+        let old_plain: HashSet<String> = plain_text_citations(original)
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect();
         for (span, text) in plain_text_citations(result) {
             if !old_plain.contains(&text) {
-                findings.push(Finding { kind: FindingKind::PlainTextCitation, span, text });
+                findings.push(Finding {
+                    kind: FindingKind::PlainTextCitation,
+                    span,
+                    text,
+                });
             }
         }
 
@@ -212,7 +236,10 @@ impl Guard {
                 continue;
             }
             let (keys, end) = read_arguments(text, word.end);
-            found.push(Citation { span: word.start..end, keys });
+            found.push(Citation {
+                span: word.start..end,
+                keys,
+            });
         }
         found
     }
@@ -263,7 +290,11 @@ fn control_words(text: &str) -> Vec<ControlWord<'_>> {
             index = name_start + escaped_len;
             continue;
         }
-        words.push(ControlWord { name: &text[name_start..name_end], start: index, end: name_end });
+        words.push(ControlWord {
+            name: &text[name_start..name_end],
+            start: index,
+            end: name_end,
+        });
         index = name_end;
     }
     words
@@ -286,7 +317,11 @@ fn read_arguments(text: &str, from: usize) -> (Vec<String>, usize) {
     }
     let mut read_a_key_group = false;
     loop {
-        let probe = if read_a_key_group { index } else { skip_blanks_and_comments(text, index) };
+        let probe = if read_a_key_group {
+            index
+        } else {
+            skip_blanks_and_comments(text, index)
+        };
         match bytes.get(probe) {
             Some(b'[') => index = matching_close(text, probe, b'[', b']').unwrap_or(probe + 1),
             Some(b'(') => index = matching_close(text, probe, b'(', b')').unwrap_or(probe + 1),
@@ -335,7 +370,9 @@ fn skip_blanks_and_comments(text: &str, from: usize) -> usize {
         match bytes.get(index) {
             Some(b' ' | b'\t' | b'\n' | b'\r' | 0x0c) => index += 1,
             Some(b'%') => {
-                index = text[index..].find('\n').map_or(bytes.len(), |newline| index + newline + 1);
+                index = text[index..]
+                    .find('\n')
+                    .map_or(bytes.len(), |newline| index + newline + 1);
             }
             _ => return index,
         }
@@ -374,17 +411,60 @@ fn matching_close(text: &str, open_at: usize, open: u8, close: u8) -> Option<usi
 
 /// Control words that define, redefine or obscure commands, or pull in text from elsewhere.
 const HIDING_COMMANDS: &[&str] = &[
-    "def", "gdef", "edef", "xdef", "let", "futurelet", "newcommand", "renewcommand", "providecommand",
-    "DeclareRobustCommand", "newrobustcmd", "renewrobustcmd", "providerobustcmd", "NewDocumentCommand",
-    "RenewDocumentCommand", "ProvideDocumentCommand", "DeclareDocumentCommand", "NewExpandableDocumentCommand",
-    "newenvironment", "renewenvironment", "NewDocumentEnvironment", "RenewDocumentEnvironment", "csname",
-    "catcode", "scantokens", "expandafter", "AtBeginDocument", "AtEndDocument", "AtEndPreamble",
-    "AfterEndPreamble", "input", "include", "InputIfFileExists", "subfile", "subfileinclude", "import",
-    "directlua", "luaexec", "write", "immediate", "openout", "openin", "read", "protected@edef",
+    "def",
+    "gdef",
+    "edef",
+    "xdef",
+    "let",
+    "futurelet",
+    "newcommand",
+    "renewcommand",
+    "providecommand",
+    "DeclareRobustCommand",
+    "newrobustcmd",
+    "renewrobustcmd",
+    "providerobustcmd",
+    "NewDocumentCommand",
+    "RenewDocumentCommand",
+    "ProvideDocumentCommand",
+    "DeclareDocumentCommand",
+    "NewExpandableDocumentCommand",
+    "newenvironment",
+    "renewenvironment",
+    "NewDocumentEnvironment",
+    "RenewDocumentEnvironment",
+    "csname",
+    "catcode",
+    "scantokens",
+    "expandafter",
+    "AtBeginDocument",
+    "AtEndDocument",
+    "AtEndPreamble",
+    "AfterEndPreamble",
+    "input",
+    "include",
+    "InputIfFileExists",
+    "subfile",
+    "subfileinclude",
+    "import",
+    "directlua",
+    "luaexec",
+    "write",
+    "immediate",
+    "openout",
+    "openin",
+    "read",
+    "protected@edef",
 ];
 
 /// Control words that write a reference list or name a bibliography file.
-const REFERENCE_LIST_COMMANDS: &[&str] = &["bibitem", "bibliography", "addbibresource", "addglobalbib", "addsectionbib"];
+const REFERENCE_LIST_COMMANDS: &[&str] = &[
+    "bibitem",
+    "bibliography",
+    "addbibresource",
+    "addglobalbib",
+    "addsectionbib",
+];
 
 /// Environments that are, or write, a reference list.
 const REFERENCE_LIST_ENVIRONMENTS: &[&str] = &["thebibliography", "filecontents", "filecontents*"];
@@ -455,9 +535,20 @@ fn constructs_in(text: &str) -> Vec<Construct> {
 /// can and misses what it cannot, which is why the guard also refuses new definitions.
 pub fn citation_macros(text: &str) -> Vec<String> {
     const DEFINERS: &[&str] = &[
-        "newcommand", "renewcommand", "providecommand", "DeclareRobustCommand", "newrobustcmd", "renewrobustcmd",
-        "providerobustcmd", "NewDocumentCommand", "RenewDocumentCommand", "ProvideDocumentCommand",
-        "DeclareDocumentCommand", "def", "gdef", "edef",
+        "newcommand",
+        "renewcommand",
+        "providecommand",
+        "DeclareRobustCommand",
+        "newrobustcmd",
+        "renewrobustcmd",
+        "providerobustcmd",
+        "NewDocumentCommand",
+        "RenewDocumentCommand",
+        "ProvideDocumentCommand",
+        "DeclareDocumentCommand",
+        "def",
+        "gdef",
+        "edef",
     ];
     let bytes = text.as_bytes();
     let mut names = Vec::new();
@@ -523,7 +614,10 @@ pub fn citation_macros(text: &str) -> Vec<String> {
             }
         }
         if let Some(body) = body {
-            if control_words(&text[body]).iter().any(|inner| texbib::is_citation_command(inner.name)) {
+            if control_words(&text[body])
+                .iter()
+                .any(|inner| texbib::is_citation_command(inner.name))
+            {
                 names.push(name.to_string());
             }
         }
@@ -540,11 +634,57 @@ pub fn citation_macros(text: &str) -> Vec<String> {
 /// Words that start a capital letter and are not a surname, so "(Figure 3, 2019)" and "(in March
 /// 2019)" are not references.
 const NOT_SURNAMES: &[&str] = &[
-    "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
-    "December", "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept", "Oct", "Nov", "Dec", "Figure",
-    "Figures", "Fig", "Figs", "Table", "Tables", "Section", "Sections", "Chapter", "Chapters", "Appendix", "Equation",
-    "Eq", "Eqs", "Theorem", "Lemma", "Proposition", "Corollary", "Definition", "Example", "Algorithm", "Listing",
-    "Part", "Volume", "Vol", "Page", "Version",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Sept",
+    "Oct",
+    "Nov",
+    "Dec",
+    "Figure",
+    "Figures",
+    "Fig",
+    "Figs",
+    "Table",
+    "Tables",
+    "Section",
+    "Sections",
+    "Chapter",
+    "Chapters",
+    "Appendix",
+    "Equation",
+    "Eq",
+    "Eqs",
+    "Theorem",
+    "Lemma",
+    "Proposition",
+    "Corollary",
+    "Definition",
+    "Example",
+    "Algorithm",
+    "Listing",
+    "Part",
+    "Volume",
+    "Vol",
+    "Page",
+    "Version",
 ];
 
 /// How far back from a year to look for the parenthesis it sits in, in characters.
@@ -568,7 +708,8 @@ fn plain_text_citations(text: &str) -> Vec<(Range<usize>, String)> {
         let year_start = index;
         index = year_end;
 
-        let span = parenthetical_reference(text, year_start, year_end).or_else(|| et_al_reference(text, year_start, year_end));
+        let span = parenthetical_reference(text, year_start, year_end)
+            .or_else(|| et_al_reference(text, year_start, year_end));
         if let Some(span) = span {
             // Two shapes can match the same reference ("(Smith et al., 2019)"): keep the first.
             if found.last().map_or(true, |(last, _)| span.start >= last.end) {
@@ -631,7 +772,11 @@ fn parenthetical_reference(text: &str, year_start: usize, year_end: usize) -> Op
     }
     // Through the closing bracket if it comes soon, else just the year.
     let rest = &text[year_end..];
-    let closes = rest.char_indices().take(60).find(|(_, c)| matches!(c, ')' | ']')).map(|(offset, c)| year_end + offset + c.len_utf8());
+    let closes = rest
+        .char_indices()
+        .take(60)
+        .find(|(_, c)| matches!(c, ')' | ']'))
+        .map(|(offset, c)| year_end + offset + c.len_utf8());
     Some(opener..closes.unwrap_or(year_end))
 }
 
@@ -650,8 +795,11 @@ fn has_surname(window: &str) -> bool {
 
 fn et_al_reference(text: &str, year_start: usize, year_end: usize) -> Option<Range<usize>> {
     // Before the year, past any `(`, `,` and spaces, the text must end in "et al" or "et al.".
-    let before = text[..year_start].trim_end_matches(|c: char| c == '(' || c == ',' || c == '[' || c.is_whitespace());
-    let before_et_al = before.strip_suffix("et al.").or_else(|| before.strip_suffix("et al"))?;
+    let before =
+        text[..year_start].trim_end_matches(|c: char| c == '(' || c == ',' || c == '[' || c.is_whitespace());
+    let before_et_al = before
+        .strip_suffix("et al.")
+        .or_else(|| before.strip_suffix("et al"))?;
     // Start at the surname in front of it, if there is one.
     let name = before_et_al.trim_end();
     let name_start = name

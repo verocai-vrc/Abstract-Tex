@@ -38,7 +38,9 @@ impl Tectonic {
 
     /// Use a specific binary. Tests use this; the app uses `locate()`.
     pub fn at(binary: impl Into<PathBuf>) -> Self {
-        Self { binary: binary.into() }
+        Self {
+            binary: binary.into(),
+        }
     }
 
     pub fn binary(&self) -> &Path {
@@ -105,11 +107,16 @@ impl Tectonic {
             shell_escape: job.shell_escape,
         };
         let mut args = Self::arguments(&draft_job, true);
-        let root_dir = job.project_dir.join(job.root_file.parent().unwrap_or(Path::new("")));
+        let root_dir = job
+            .project_dir
+            .join(job.root_file.parent().unwrap_or(Path::new("")));
         // Before the last argument, which must stay the file to build.
         let file_position = args.len() - 1;
         args.insert(file_position, "-Z".to_string());
-        args.insert(file_position + 1, format!("search-path={}", root_dir.to_string_lossy()));
+        args.insert(
+            file_position + 1,
+            format!("search-path={}", root_dir.to_string_lossy()),
+        );
         args
     }
 
@@ -144,7 +151,9 @@ impl Tectonic {
                 if after == before {
                     return Ok((status, steps, stderr));
                 }
-                if after.bibliography_changed(&before) || steps.single_passes >= incremental::MAX_SINGLE_PASSES {
+                if after.bibliography_changed(&before)
+                    || steps.single_passes >= incremental::MAX_SINGLE_PASSES
+                {
                     break;
                 }
                 before = after;
@@ -211,7 +220,11 @@ impl Engine for Tectonic {
         // S9.10: taken while the folder is still as the last successful build left it, so a
         // cancelled warm build can put it back. Unreadable means no checkpoint, and a cancelled
         // build then costs the next one its warm start, as it did before S9.10.
-        let checkpoint = if warm { incremental::Checkpoint::take(&job.out_dir).ok() } else { None };
+        let checkpoint = if warm {
+            incremental::Checkpoint::take(&job.out_dir).ok()
+        } else {
+            None
+        };
         let _ = tokio::fs::remove_file(&marker).await;
 
         let passes = self.run_passes(job, warm, &cancel, progress).await;
@@ -243,7 +256,12 @@ impl Engine for Tectonic {
             duration,
             steps,
         };
-        info!(success = outcome.success, ms = duration.as_millis(), ?steps, "tectonic finished");
+        info!(
+            success = outcome.success,
+            ms = duration.as_millis(),
+            ?steps,
+            "tectonic finished"
+        );
         Ok(outcome)
     }
 
@@ -258,7 +276,11 @@ impl Engine for Tectonic {
         // No progress sink: the full build beside this one is the build the status bar follows.
         let (status, stderr) = self.run_once(job, &args, &cancel, None).await?;
 
-        let stem = job.root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".to_string());
+        let stem = job
+            .root_file
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "main".to_string());
         let artifact = |ext: &str| {
             let p = layout.out_dir.join(format!("{stem}.{ext}"));
             p.is_file().then_some(p)
@@ -271,9 +293,16 @@ impl Engine for Tectonic {
             stderr,
             exit_code: status.code(),
             duration: started.elapsed(),
-            steps: BuildSteps { single_passes: 1, full: false },
+            steps: BuildSteps {
+                single_passes: 1,
+                full: false,
+            },
         };
-        info!(success = outcome.success, ms = outcome.duration.as_millis(), "tectonic draft finished");
+        info!(
+            success = outcome.success,
+            ms = outcome.duration.as_millis(),
+            "tectonic draft finished"
+        );
         Ok(Some(outcome))
     }
 }
@@ -301,7 +330,10 @@ mod tests {
         assert_eq!(args.last().map(String::as_str), Some("main.tex"));
         assert!(args.contains(&"--synctex".to_string()));
         assert!(args.contains(&"--keep-intermediates".to_string()));
-        assert!(!args.contains(&"--pass".to_string()), "a full build lets the engine choose its passes");
+        assert!(
+            !args.contains(&"--pass".to_string()),
+            "a full build lets the engine choose its passes"
+        );
         let outdir_pos = args.iter().position(|a| a == "--outdir").unwrap();
         assert!(args[outdir_pos + 1].ends_with("build"));
     }
@@ -310,10 +342,23 @@ mod tests {
     fn shell_escape_is_only_on_when_the_job_says_so_and_runs_in_the_build_folder() {
         let off = Tectonic::arguments(&job(Path::new("proj")), false);
         assert!(!off.iter().any(|a| a.contains("shell-escape")), "{off:?}");
-        let on = Tectonic::arguments(&BuildJob { shell_escape: true, ..job(Path::new("proj")) }, true);
-        let flag = on.iter().position(|a| a.starts_with("shell-escape-cwd=")).expect("asked for");
+        let on = Tectonic::arguments(
+            &BuildJob {
+                shell_escape: true,
+                ..job(Path::new("proj"))
+            },
+            true,
+        );
+        let flag = on
+            .iter()
+            .position(|a| a.starts_with("shell-escape-cwd="))
+            .expect("asked for");
         assert_eq!(on[flag - 1], "-Z");
-        assert!(on[flag].ends_with("build"), "commands run in the build folder: {}", on[flag]);
+        assert!(
+            on[flag].ends_with("build"),
+            "commands run in the build folder: {}",
+            on[flag]
+        );
         assert_eq!(on.last().map(String::as_str), Some("main.tex"));
     }
 
@@ -329,10 +374,17 @@ mod tests {
         let args = Tectonic::arguments(&job(Path::new("proj")), true);
         let reruns = args.iter().position(|a| a == "--reruns").unwrap();
         assert_eq!(args[reruns + 1], "0");
-        assert!(!args.contains(&"--pass".to_string()), "`--pass tex` never writes the PDF");
+        assert!(
+            !args.contains(&"--pass".to_string()),
+            "`--pass tex` never writes the PDF"
+        );
         let search = args.iter().position(|a| a == "-Z").unwrap();
         assert!(args[search + 1].starts_with("search-path=") && args[search + 1].ends_with("build"));
-        assert_eq!(args.last().map(String::as_str), Some("main.tex"), "the root file stays last");
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("main.tex"),
+            "the root file stays last"
+        );
     }
 
     /// S9.2's warm path against the real engine, on a document small enough to build in a second:
@@ -342,7 +394,9 @@ mod tests {
     #[ignore]
     async fn warm_builds_take_one_pass_until_the_bibliography_changes() {
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine`"));
+        let engine = Tectonic::at(
+            abstract_tex_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine`"),
+        );
         let tmp = tempfile::tempdir().unwrap();
         let body = |extra: &str| {
             format!(
@@ -358,41 +412,90 @@ mod tests {
             text.matches("undefined").count()
         };
 
-        let modified = |path: &Option<PathBuf>| std::fs::metadata(path.as_ref().unwrap()).unwrap().modified().unwrap();
+        let modified = |path: &Option<PathBuf>| {
+            std::fs::metadata(path.as_ref().unwrap())
+                .unwrap()
+                .modified()
+                .unwrap()
+        };
 
         let cold = engine.build(&j, CancellationToken::new(), None).await.unwrap();
         assert!(cold.success, "{}", cold.stderr);
-        assert_eq!(cold.steps, BuildSteps { single_passes: 0, full: true });
+        assert_eq!(
+            cold.steps,
+            BuildSteps {
+                single_passes: 0,
+                full: true
+            }
+        );
         // Read now: the warm build writes to the same paths.
         let cold_pdf_written = modified(&cold.pdf);
 
         std::fs::write(tmp.path().join("main.tex"), body(" A new sentence.")).unwrap();
         let warm = engine.build(&j, CancellationToken::new(), None).await.unwrap();
         assert!(warm.success, "{}", warm.stderr);
-        assert_eq!(warm.steps, BuildSteps { single_passes: 1, full: false });
-        assert_eq!(undefined(&warm.log), 0, "a single pass must still see the last build's .aux and .bbl");
-        assert!(modified(&warm.pdf) > cold_pdf_written, "a single pass must write a new PDF, not leave the last one");
+        assert_eq!(
+            warm.steps,
+            BuildSteps {
+                single_passes: 1,
+                full: false
+            }
+        );
+        assert_eq!(
+            undefined(&warm.log),
+            0,
+            "a single pass must still see the last build's .aux and .bbl"
+        );
+        assert!(
+            modified(&warm.pdf) > cold_pdf_written,
+            "a single pass must write a new PDF, not leave the last one"
+        );
 
         std::fs::write(tmp.path().join("main.tex"), body(" And \\cite{lamport}.")).unwrap();
         let cited = engine.build(&j, CancellationToken::new(), None).await.unwrap();
         assert!(cited.success, "{}", cited.stderr);
-        assert_eq!(cited.steps, BuildSteps { single_passes: 1, full: true });
-        assert_eq!(undefined(&cited.log), 0, "the full build must have run BibTeX for the new key");
+        assert_eq!(
+            cited.steps,
+            BuildSteps {
+                single_passes: 1,
+                full: true
+            }
+        );
+        assert_eq!(
+            undefined(&cited.log),
+            0,
+            "the full build must have run BibTeX for the new key"
+        );
     }
 
     #[test]
     fn a_draft_builds_the_wrapper_and_can_still_find_the_root_files_neighbours() {
-        let layout = DraftLayout { wrapper: PathBuf::from(".abstract-tex/draft/main.tex"), out_dir: PathBuf::from("proj/.abstract-tex/draft/build") };
+        let layout = DraftLayout {
+            wrapper: PathBuf::from(".abstract-tex/draft/main.tex"),
+            out_dir: PathBuf::from("proj/.abstract-tex/draft/build"),
+        };
         let mut j = job(Path::new("proj"));
         j.root_file = PathBuf::from("book/main.tex");
         let args = Tectonic::draft_arguments(&j, &layout);
-        assert_eq!(args.last().map(String::as_str), Some(".abstract-tex/draft/main.tex"));
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some(".abstract-tex/draft/main.tex")
+        );
         let outdir = args.iter().position(|a| a == "--outdir").unwrap();
-        assert!(args[outdir + 1].ends_with("draft/build"), "never the full build's folder");
-        let searched: Vec<&str> = args.iter().filter_map(|a| a.strip_prefix("search-path=")).collect();
+        assert!(
+            args[outdir + 1].ends_with("draft/build"),
+            "never the full build's folder"
+        );
+        let searched: Vec<&str> = args
+            .iter()
+            .filter_map(|a| a.strip_prefix("search-path="))
+            .collect();
         assert_eq!(searched.len(), 2, "{args:?}");
         assert!(searched[0].ends_with("draft/build"));
-        assert!(searched[1].replace('\\', "/").ends_with("proj/book"), "{searched:?}");
+        assert!(
+            searched[1].replace('\\', "/").ends_with("proj/book"),
+            "{searched:?}"
+        );
     }
 
     #[test]
@@ -419,20 +522,28 @@ mod tests {
                 // Tests run from target/debug/deps, so the sidecar is not beside us. Fall back
                 // to the repo's binaries/ folder before giving up.
                 let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-                let found = abstract_tex_sidecar::in_repo_binaries("tectonic", &repo).expect("run `pnpm fetch-engine` first");
+                let found = abstract_tex_sidecar::in_repo_binaries("tectonic", &repo)
+                    .expect("run `pnpm fetch-engine` first");
                 Tectonic::at(found)
             }
             Err(e) => panic!("{e}"),
         };
 
         let info = engine.probe().await.unwrap();
-        assert!(info.version.to_lowercase().contains("tectonic"), "{}", info.version);
+        assert!(
+            info.version.to_lowercase().contains("tectonic"),
+            "{}",
+            info.version
+        );
 
         let tmp = tempfile::tempdir().unwrap();
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/minimal/main.tex");
         std::fs::copy(&src, tmp.path().join("main.tex")).unwrap();
 
-        let outcome = engine.build(&job(tmp.path()), CancellationToken::new(), None).await.unwrap();
+        let outcome = engine
+            .build(&job(tmp.path()), CancellationToken::new(), None)
+            .await
+            .unwrap();
         assert!(outcome.success, "stderr:\n{}", outcome.stderr);
         assert!(outcome.pdf.is_some(), "no pdf produced");
         assert!(outcome.log.is_some(), "no log kept");
@@ -444,7 +555,10 @@ mod tests {
     #[tokio::test]
     async fn cancellation_kills_a_running_build() {
         let (sleeper, ok) = if cfg!(windows) {
-            (find_on_path("timeout.exe").or_else(|| find_on_path("ping.exe")), true)
+            (
+                find_on_path("timeout.exe").or_else(|| find_on_path("ping.exe")),
+                true,
+            )
         } else {
             (find_on_path("sleep"), true)
         };
@@ -512,9 +626,15 @@ mod tests {
 
         let result = build_and_cancel(&corrupting_engine(project.path()), &j).await;
         assert!(matches!(result, Err(EngineError::Cancelled)), "{result:?}");
-        assert_eq!(std::fs::read_to_string(j.out_dir.join("main.aux")).unwrap(), whole_aux);
+        assert_eq!(
+            std::fs::read_to_string(j.out_dir.join("main.aux")).unwrap(),
+            whole_aux
+        );
         assert!(!j.out_dir.join("new.aux").exists());
-        assert!(incremental::can_start_warm(&j.out_dir, "main"), "the next build may still start warm");
+        assert!(
+            incremental::can_start_warm(&j.out_dir, "main"),
+            "the next build may still start warm"
+        );
     }
 
     #[cfg(unix)]

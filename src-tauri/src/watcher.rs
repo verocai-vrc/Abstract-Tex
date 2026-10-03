@@ -68,7 +68,10 @@ pub struct ProjectWatcher {
 
 /// Remember that we wrote these bytes to this path, so the echo can be recognised.
 pub fn remember_write(written: &WrittenHashes, path: &Path, contents: &[u8]) {
-    written.lock().unwrap().insert(path.to_path_buf(), content_hash(contents));
+    written
+        .lock()
+        .unwrap()
+        .insert(path.to_path_buf(), content_hash(contents));
 }
 
 pub fn content_hash(bytes: &[u8]) -> u64 {
@@ -103,7 +106,10 @@ where
                     debug!(path = %event.path.display(), "ignoring echo of our own write");
                     continue;
                 }
-                on_event(Change::Manuscript(FsEvent { path: event.path.to_string_lossy().into_owned(), exists }));
+                on_event(Change::Manuscript(FsEvent {
+                    path: event.path.to_string_lossy().into_owned(),
+                    exists,
+                }));
             }
             if git_changed {
                 on_event(Change::GitMetadata);
@@ -117,7 +123,9 @@ where
         .watcher()
         .watch(root, RecursiveMode::Recursive)
         .with_context(|| format!("could not watch {}", root.display()))?;
-    Ok(ProjectWatcher { _debouncer: debouncer })
+    Ok(ProjectWatcher {
+        _debouncer: debouncer,
+    })
 }
 
 fn is_ignored(path: &Path) -> bool {
@@ -142,7 +150,9 @@ fn inside_git_dir(path: &Path) -> bool {
 /// and so how a conflict appears without any file being written.
 fn changes_git_status(path: &Path) -> bool {
     let mut after_git_dir = path.components().skip_while(|c| c.as_os_str() != ".git").skip(1);
-    let Some(first) = after_git_dir.next() else { return false };
+    let Some(first) = after_git_dir.next() else {
+        return false;
+    };
     let first = first.as_os_str().to_string_lossy();
     match first.as_ref() {
         // Git writes the index as `index.lock` and renames it, so the rename is what arrives.
@@ -153,7 +163,9 @@ fn changes_git_status(path: &Path) -> bool {
 }
 
 fn is_our_own_write(written: &WrittenHashes, path: &Path) -> bool {
-    let Some(expected) = written.lock().unwrap().get(path).copied() else { return false };
+    let Some(expected) = written.lock().unwrap().get(path).copied() else {
+        return false;
+    };
     match std::fs::read(path) {
         Ok(bytes) => content_hash(&bytes) == expected,
         Err(_) => false,
@@ -230,7 +242,10 @@ mod tests {
 
         std::fs::write(build.join("main.pdf"), b"%PDF").unwrap();
 
-        assert!(wait_for_change(&rx, Duration::from_millis(1500)).is_none(), "build artifacts must not be reported");
+        assert!(
+            wait_for_change(&rx, Duration::from_millis(1500)).is_none(),
+            "build artifacts must not be reported"
+        );
     }
 
     /// S10.3a: `git add` in a terminal writes only `.git/index`, and the panel has to move.
@@ -248,7 +263,10 @@ mod tests {
 
         std::fs::write(git.join("index"), b"not really an index").unwrap();
 
-        assert_eq!(wait_for_change(&rx, Duration::from_secs(5)), Some(Change::GitMetadata));
+        assert_eq!(
+            wait_for_change(&rx, Duration::from_secs(5)),
+            Some(Change::GitMetadata)
+        );
         assert!(
             wait_for_change(&rx, Duration::from_millis(500)).is_none(),
             "nothing inside .git is a manuscript change"
@@ -276,7 +294,9 @@ mod tests {
         assert!(changes_git_status(Path::new("C:/p/.git/refs/heads/feature/x")));
 
         // S10.1 writes both of these after every successful compile.
-        assert!(!changes_git_status(Path::new("/p/.git/refs/abstract-tex/snapshots")));
+        assert!(!changes_git_status(Path::new(
+            "/p/.git/refs/abstract-tex/snapshots"
+        )));
         assert!(!changes_git_status(Path::new("/p/.git/objects/ab/cdef")));
         assert!(!changes_git_status(Path::new("/p/.git/logs/HEAD")));
         assert!(!changes_git_status(Path::new("/p/.git/COMMIT_EDITMSG")));

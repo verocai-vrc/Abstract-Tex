@@ -29,8 +29,14 @@ use serde::Deserialize;
 /// files*, not documents written with them. Anything copyleft, share-alike or "personal use
 /// only" is deliberately absent. Adding to this list is a design decision, not a code change:
 /// edit DESIGN.md §10 first.
-pub const ALLOWED_LICENCES: &[&str] =
-    &["MIT", "BSD-2-Clause", "BSD-3-Clause", "CC0-1.0", "Unlicense", "LPPL-1.3c"];
+pub const ALLOWED_LICENCES: &[&str] = &[
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "Unlicense",
+    "LPPL-1.3c",
+];
 
 /// Every template, as shipped: one folder per template under `templates/` at the repository
 /// root. `include_dir!` reads them at compile time, so the folder does not exist for the
@@ -165,7 +171,10 @@ impl Catalog {
 
     /// Check each raw template and keep the ones that pass; the first that fails is the error.
     pub fn from_raw(raw: Vec<RawTemplate>) -> Result<Catalog, TemplateError> {
-        let templates = raw.into_iter().map(check_template).collect::<Result<Vec<_>, _>>()?;
+        let templates = raw
+            .into_iter()
+            .map(check_template)
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(Catalog { templates })
     }
 
@@ -235,38 +244,68 @@ fn collect_files(folder: &Dir, id: &str, files: &mut BTreeMap<String, Vec<u8>>) 
 /// check is checked here, so the shipped catalog cannot hold a template that breaks it.
 fn check_template(raw: RawTemplate) -> Result<Template, TemplateError> {
     let id = raw.id;
-    let manifest_bytes = raw.files.get(MANIFEST_NAME).ok_or_else(|| TemplateError::MissingManifest { id: id.clone() })?;
-    let bad_manifest = |message: String| TemplateError::BadManifest { id: id.clone(), message };
+    let manifest_bytes = raw
+        .files
+        .get(MANIFEST_NAME)
+        .ok_or_else(|| TemplateError::MissingManifest { id: id.clone() })?;
+    let bad_manifest = |message: String| TemplateError::BadManifest {
+        id: id.clone(),
+        message,
+    };
     let manifest_text = std::str::from_utf8(manifest_bytes).map_err(|e| bad_manifest(e.to_string()))?;
     let manifest: Manifest = toml::from_str(manifest_text).map_err(|e| bad_manifest(e.to_string()))?;
 
     if !ALLOWED_LICENCES.contains(&manifest.licence.as_str()) {
-        return Err(TemplateError::LicenceNotAllowed { id, licence: manifest.licence });
+        return Err(TemplateError::LicenceNotAllowed {
+            id,
+            licence: manifest.licence,
+        });
     }
 
     let mut seen_fields = Vec::new();
     for field in &manifest.fields {
         if !render::is_valid_field_id(&field.id) || seen_fields.contains(&field.id) {
-            return Err(TemplateError::BadFieldId { id, field: field.id.clone() });
+            return Err(TemplateError::BadFieldId {
+                id,
+                field: field.id.clone(),
+            });
         }
         seen_fields.push(field.id.clone());
     }
 
     for path in manifest.files.iter().chain(std::iter::once(&manifest.preview)) {
         if !is_safe_relative_path(path) || path == MANIFEST_NAME {
-            return Err(TemplateError::UnsafePath { id, path: path.clone() });
+            return Err(TemplateError::UnsafePath {
+                id,
+                path: path.clone(),
+            });
         }
     }
-    let preview = raw.files.get(&manifest.preview).ok_or_else(|| TemplateError::PreviewMissing { id: id.clone(), path: manifest.preview.clone() })?;
+    let preview = raw
+        .files
+        .get(&manifest.preview)
+        .ok_or_else(|| TemplateError::PreviewMissing {
+            id: id.clone(),
+            path: manifest.preview.clone(),
+        })?;
     let mut files = Vec::new();
     for path in &manifest.files {
-        let bytes = raw.files.get(path).ok_or_else(|| TemplateError::ListedFileMissing { id: id.clone(), path: path.clone() })?;
+        let bytes = raw
+            .files
+            .get(path)
+            .ok_or_else(|| TemplateError::ListedFileMissing {
+                id: id.clone(),
+                path: path.clone(),
+            })?;
         files.push((path.clone(), bytes.clone()));
     }
     for path in raw.files.keys() {
         let known = path == MANIFEST_NAME || *path == manifest.preview || manifest.files.contains(path);
         if !known {
-            return Err(TemplateError::UnlistedFile { id, path: path.clone() });
+            return Err(TemplateError::UnlistedFile {
+                id,
+                path: path.clone(),
+            });
         }
     }
 
@@ -291,7 +330,9 @@ fn check_template(raw: RawTemplate) -> Result<Template, TemplateError> {
 fn is_safe_relative_path(path: &str) -> bool {
     !path.is_empty()
         && !path.contains('\\')
-        && Path::new(path).components().all(|component| matches!(component, Component::Normal(_)))
+        && Path::new(path)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
 }
 
 #[cfg(test)]
@@ -318,7 +359,10 @@ example = "T"
         files.insert(MANIFEST_NAME.to_string(), GOOD_MANIFEST.as_bytes().to_vec());
         files.insert("main.tex".to_string(), body.as_bytes().to_vec());
         files.insert("preview.png".to_string(), vec![1, 2, 3]);
-        RawTemplate { id: "test".to_string(), files }
+        RawTemplate {
+            id: "test".to_string(),
+            files,
+        }
     }
 
     fn load(raw: RawTemplate) -> Result<Catalog, TemplateError> {
@@ -329,22 +373,32 @@ example = "T"
     fn a_good_template_loads() {
         let catalog = load(raw(r"\title{{{title}}}")).unwrap();
         let template = catalog.get("test").unwrap();
-        assert_eq!((template.name.as_str(), template.category, template.fields.len()), ("Test", Category::Essay, 1));
+        assert_eq!(
+            (template.name.as_str(), template.category, template.fields.len()),
+            ("Test", Category::Essay, 1)
+        );
     }
 
     #[test]
     fn a_licence_outside_the_list_is_refused() {
         let mut template = raw("x");
         let manifest = GOOD_MANIFEST.replace(r#"licence = "MIT""#, r#"licence = "GPL-3.0-only""#);
-        template.files.insert(MANIFEST_NAME.to_string(), manifest.into_bytes());
-        assert!(matches!(load(template), Err(TemplateError::LicenceNotAllowed { .. })));
+        template
+            .files
+            .insert(MANIFEST_NAME.to_string(), manifest.into_bytes());
+        assert!(matches!(
+            load(template),
+            Err(TemplateError::LicenceNotAllowed { .. })
+        ));
     }
 
     #[test]
     fn a_missing_licence_is_a_bad_manifest() {
         let mut template = raw("x");
         let manifest = GOOD_MANIFEST.replace(r#"licence = "MIT""#, "");
-        template.files.insert(MANIFEST_NAME.to_string(), manifest.into_bytes());
+        template
+            .files
+            .insert(MANIFEST_NAME.to_string(), manifest.into_bytes());
         assert!(matches!(load(template), Err(TemplateError::BadManifest { .. })));
     }
 
@@ -352,11 +406,17 @@ example = "T"
     fn an_absent_preview_a_missing_file_and_an_unlisted_file_are_each_refused() {
         let mut no_preview = raw("x");
         no_preview.files.remove("preview.png");
-        assert!(matches!(load(no_preview), Err(TemplateError::PreviewMissing { .. })));
+        assert!(matches!(
+            load(no_preview),
+            Err(TemplateError::PreviewMissing { .. })
+        ));
 
         let mut no_main = raw("x");
         no_main.files.remove("main.tex");
-        assert!(matches!(load(no_main), Err(TemplateError::ListedFileMissing { .. })));
+        assert!(matches!(
+            load(no_main),
+            Err(TemplateError::ListedFileMissing { .. })
+        ));
 
         let mut extra = raw("x");
         extra.files.insert("notes.txt".to_string(), vec![]);
@@ -365,14 +425,19 @@ example = "T"
 
     #[test]
     fn an_undeclared_placeholder_is_refused_when_the_catalog_loads() {
-        assert!(matches!(load(raw("{{author}}")), Err(TemplateError::UnknownPlaceholder { .. })));
+        assert!(matches!(
+            load(raw("{{author}}")),
+            Err(TemplateError::UnknownPlaceholder { .. })
+        ));
     }
 
     #[test]
     fn a_path_that_leaves_the_folder_is_refused() {
         let mut template = raw("x");
         let manifest = GOOD_MANIFEST.replace(r#"["main.tex"]"#, r#"["../main.tex"]"#);
-        template.files.insert(MANIFEST_NAME.to_string(), manifest.into_bytes());
+        template
+            .files
+            .insert(MANIFEST_NAME.to_string(), manifest.into_bytes());
         assert!(matches!(load(template), Err(TemplateError::UnsafePath { .. })));
     }
 
@@ -386,8 +451,14 @@ example = "T"
     #[test]
     fn a_title_becomes_one_plain_folder_name() {
         assert_eq!(folder_name_for_title("My thesis: draft 2"), "my-thesis-draft-2");
-        assert_eq!(folder_name_for_title("  Rate limiting -- without a coordinator!  "), "rate-limiting-without-a-coordinator");
-        assert_eq!(folder_name_for_title("Über die Elektrodynamik"), "über-die-elektrodynamik");
+        assert_eq!(
+            folder_name_for_title("  Rate limiting -- without a coordinator!  "),
+            "rate-limiting-without-a-coordinator"
+        );
+        assert_eq!(
+            folder_name_for_title("Über die Elektrodynamik"),
+            "über-die-elektrodynamik"
+        );
         assert_eq!(folder_name_for_title("论文"), "论文");
     }
 
@@ -412,7 +483,11 @@ example = "T"
                 .iter()
                 .filter(|(path, _)| path.ends_with(".tex"))
                 .any(|(_, bytes)| String::from_utf8_lossy(bytes).contains("% FILL IN:"));
-            assert!(has_marker, "template `{}` has no `% FILL IN:` marker in a .tex file", template.id);
+            assert!(
+                has_marker,
+                "template `{}` has no `% FILL IN:` marker in a .tex file",
+                template.id
+            );
         }
     }
 
@@ -420,8 +495,10 @@ example = "T"
     #[test]
     fn the_blank_template_makes_a_project() {
         let catalog = Catalog::embedded().unwrap();
-        let answers: BTreeMap<String, String> =
-            [("title", "My Thesis"), ("author", "Ada")].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        let answers: BTreeMap<String, String> = [("title", "My Thesis"), ("author", "Ada")]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
         let parent = tempfile::tempdir().unwrap();
         let project = parent.path().join("my-thesis");
 

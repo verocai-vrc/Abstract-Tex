@@ -24,10 +24,20 @@ use crate::{Entry, Value, ValuePart};
 /// the output valid BibTeX either way rather than trying to preserve a form this function was
 /// never given a reason to be told about.
 pub fn render_entry(entry: &Entry) -> String {
-    let name_width = entry.fields.iter().map(|field| field.name.len()).max().unwrap_or(0);
+    let name_width = entry
+        .fields
+        .iter()
+        .map(|field| field.name.len())
+        .max()
+        .unwrap_or(0);
     let mut out = format!("@{}{{{},\n", entry.entry_type, entry.key);
     for field in &entry.fields {
-        out.push_str(&format!("  {:width$} = {{{}}},\n", field.name, render_value(&field.value), width = name_width));
+        out.push_str(&format!(
+            "  {:width$} = {{{}}},\n",
+            field.name,
+            render_value(&field.value),
+            width = name_width
+        ));
     }
     out.push_str("}\n");
     out
@@ -85,7 +95,14 @@ mod tests {
     }
 
     fn braced_field(name: &str, text: &str) -> Field {
-        Field { span: zero_span(), name: name.to_string(), value_span: zero_span(), value: Value { parts: vec![ValuePart::Braced(text.to_string())] } }
+        Field {
+            span: zero_span(),
+            name: name.to_string(),
+            value_span: zero_span(),
+            value: Value {
+                parts: vec![ValuePart::Braced(text.to_string())],
+            },
+        }
     }
 
     fn sample_entry() -> Entry {
@@ -118,7 +135,10 @@ mod tests {
         let parsed = bib.entries().next().expect("one entry");
         assert_eq!(parsed.key, "vaswani2017attention");
         assert!(parsed.is_type("online"));
-        assert_eq!(bib.resolve(&parsed.field("title").unwrap().value), "Attention Is All You Need");
+        assert_eq!(
+            bib.resolve(&parsed.field("title").unwrap().value),
+            "Attention Is All You Need"
+        );
         assert_eq!(bib.resolve(&parsed.field("year").unwrap().value), "2017");
     }
 
@@ -153,7 +173,13 @@ mod tests {
     fn a_diff_of_before_and_after_shows_only_the_appended_entry() {
         let existing = "@article{a, title = {A}}\n\n@article{b, title = {B}}\n";
         let result = append_entry(existing, &sample_entry());
-        assert!(result.starts_with(existing), "existing text must survive untouched at the front");
-        assert_eq!(&result[existing.len()..], &format!("\n{}", render_entry(&sample_entry())));
+        assert!(
+            result.starts_with(existing),
+            "existing text must survive untouched at the front"
+        );
+        assert_eq!(
+            &result[existing.len()..],
+            &format!("\n{}", render_entry(&sample_entry()))
+        );
     }
 }

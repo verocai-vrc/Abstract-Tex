@@ -1,0 +1,2 @@
+# House style runs to ~110 columns (bugs-issues-fixes.md, design interview C5).
+max_width = 110

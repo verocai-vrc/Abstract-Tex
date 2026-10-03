@@ -45,7 +45,10 @@ pub fn normalize_doi(pasted: &str) -> String {
         // `str::get` returns `None` rather than panicking when `prefix.len()` does not land on a
         // char boundary of `trimmed` — possible if the author pasted something short and strange
         // before any prefix check would otherwise run off the end of the string.
-        if trimmed.get(..prefix.len()).is_some_and(|head| head.eq_ignore_ascii_case(prefix)) {
+        if trimmed
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        {
             return trimmed[prefix.len()..].trim().to_string();
         }
     }
@@ -126,28 +129,46 @@ mod tests {
 
     #[test]
     fn a_url_form_normalizes_to_the_bare_doi() {
-        assert_eq!(normalize_doi("https://doi.org/10.1109/tcbb.2019.000001"), "10.1109/tcbb.2019.000001");
+        assert_eq!(
+            normalize_doi("https://doi.org/10.1109/tcbb.2019.000001"),
+            "10.1109/tcbb.2019.000001"
+        );
     }
 
     #[test]
     fn the_old_dx_doi_org_host_normalizes_the_same_way() {
-        assert_eq!(normalize_doi("http://dx.doi.org/10.1109/TCBB.2019.000001"), "10.1109/TCBB.2019.000001");
+        assert_eq!(
+            normalize_doi("http://dx.doi.org/10.1109/TCBB.2019.000001"),
+            "10.1109/TCBB.2019.000001"
+        );
     }
 
     #[test]
     fn a_doi_scheme_normalizes_the_same_way() {
-        assert_eq!(normalize_doi("doi:10.1109/tcbb.2019.000001"), "10.1109/tcbb.2019.000001");
+        assert_eq!(
+            normalize_doi("doi:10.1109/tcbb.2019.000001"),
+            "10.1109/tcbb.2019.000001"
+        );
     }
 
     #[test]
     fn the_prefix_check_is_case_insensitive() {
-        assert_eq!(normalize_doi("DOI:10.1109/tcbb.2019.000001"), "10.1109/tcbb.2019.000001");
-        assert_eq!(normalize_doi("HTTPS://DOI.ORG/10.1109/tcbb.2019.000001"), "10.1109/tcbb.2019.000001");
+        assert_eq!(
+            normalize_doi("DOI:10.1109/tcbb.2019.000001"),
+            "10.1109/tcbb.2019.000001"
+        );
+        assert_eq!(
+            normalize_doi("HTTPS://DOI.ORG/10.1109/tcbb.2019.000001"),
+            "10.1109/tcbb.2019.000001"
+        );
     }
 
     #[test]
     fn an_already_bare_doi_passes_through_unchanged() {
-        assert_eq!(normalize_doi("  10.1109/tcbb.2019.000001  "), "10.1109/tcbb.2019.000001");
+        assert_eq!(
+            normalize_doi("  10.1109/tcbb.2019.000001  "),
+            "10.1109/tcbb.2019.000001"
+        );
     }
 
     #[test]
@@ -206,7 +227,10 @@ mod tests {
     #[test]
     fn a_200_that_is_not_bibtex_is_unparseable() {
         let transport = FixedReply(Ok((200, "<html>this is not a .bib file</html>".to_string())));
-        assert_eq!(fetch_doi_with("10.1109/tcbb.2019.000001", &transport), Err(DoiError::Unparseable));
+        assert_eq!(
+            fetch_doi_with("10.1109/tcbb.2019.000001", &transport),
+            Err(DoiError::Unparseable)
+        );
     }
 
     /// The one test in this file that reaches the real network, `cargo test`'s default `--ignored`

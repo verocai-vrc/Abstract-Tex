@@ -12,7 +12,11 @@ pub enum Directive {
     /// macros inside the braces, so the crate can resolve it to a file on its own. `command` is
     /// which of the three wrote it (`"input"`, `"include"` or `"subfile"`): `\include` is the one
     /// that makes a chapter in LaTeX's sense (S9.7, [`crate::graph::Chapter`]).
-    Include { command: &'static str, argument: String, line: u32 },
+    Include {
+        command: &'static str,
+        argument: String,
+        line: u32,
+    },
     /// Something that reads like an include directive but whose argument this scanner cannot
     /// resolve by itself: no braces at all (`\input foo`), a macro inside the braces
     /// (`\input{\chapdir/intro}`), or a command shape this crate does not model
@@ -58,10 +62,15 @@ pub fn scan_includes(source: &str) -> Vec<Directive> {
                 // `command` names, so it is `&str` rather than the iterator's own `&&str` item —
                 // `copied()` is cheap here because `&str` is `Copy` (it is just a pointer and a
                 // length), so this is not cloning the text itself.
-                if let Some(command) = COMMANDS.iter().copied().find(|name| starts_with_command(&cleaned[i + 1..], name)) {
+                if let Some(command) = COMMANDS
+                    .iter()
+                    .copied()
+                    .find(|name| starts_with_command(&cleaned[i + 1..], name))
+                {
                     let command_start = i;
                     let after_command = i + 1 + command.len();
-                    let (directive, end) = read_directive(&cleaned, command, command_start, after_command, line);
+                    let (directive, end) =
+                        read_directive(&cleaned, command, command_start, after_command, line);
                     // An argument almost never spans a line break, but nothing stops an author
                     // writing one that does, so keep the line counter honest rather than assume.
                     line += cleaned[command_start..end].matches('\n').count() as u32;
@@ -87,7 +96,13 @@ fn starts_with_command(text: &str, name: &str) -> bool {
 /// Parses the argument(s) after one recognised command name, starting at `after_command`
 /// (the byte offset just past the command's letters). Returns the directive and the byte
 /// offset just past whatever it consumed, so the caller's scan can resume from there.
-fn read_directive(text: &str, command: &'static str, command_start: usize, after_command: usize, line: u32) -> (Directive, usize) {
+fn read_directive(
+    text: &str,
+    command: &'static str,
+    command_start: usize,
+    after_command: usize,
+    line: u32,
+) -> (Directive, usize) {
     let after_ws = skip_spaces_and_tabs(text, after_command);
 
     if command == "import" {
@@ -100,31 +115,64 @@ fn read_directive(text: &str, command: &'static str, command_start: usize, after
     if !text[after_ws..].starts_with('{') {
         // No braces at all: `\input foo`. Capture the bare word so the raw text at least shows
         // what was written.
-        let bare_end = text[after_ws..].find(char::is_whitespace).map_or(text.len(), |offset| after_ws + offset);
+        let bare_end = text[after_ws..]
+            .find(char::is_whitespace)
+            .map_or(text.len(), |offset| after_ws + offset);
         let raw = text[command_start..bare_end].trim_end().to_string();
         return (Directive::Unparsed { raw, line }, bare_end);
     }
 
     match read_braced_argument(text, after_ws) {
-        Some((argument, end)) if is_literal_argument(&argument) => (Directive::Include { command, argument, line }, end),
+        Some((argument, end)) if is_literal_argument(&argument) => (
+            Directive::Include {
+                command,
+                argument,
+                line,
+            },
+            end,
+        ),
         // Braced, but not a plain path — e.g. `\input{\chapdir/intro}`.
-        Some((_, end)) => (Directive::Unparsed { raw: text[command_start..end].to_string(), line }, end),
+        Some((_, end)) => (
+            Directive::Unparsed {
+                raw: text[command_start..end].to_string(),
+                line,
+            },
+            end,
+        ),
         // The brace never closes. Nothing sane to resolve; take the rest of the text.
-        None => (Directive::Unparsed { raw: text[command_start..].to_string(), line }, text.len()),
+        None => (
+            Directive::Unparsed {
+                raw: text[command_start..].to_string(),
+                line,
+            },
+            text.len(),
+        ),
     }
 }
 
 /// Reads `groups` consecutive `{...}` arguments (skipping whitespace between them) and reports
 /// the whole span, braces included, as one `Unparsed` directive. Used for `\import`, which this
 /// crate recognises only well enough to avoid silently dropping it.
-fn unparsed_through_argument_groups(text: &str, command_start: usize, mut pos: usize, groups: usize, line: u32) -> (Directive, usize) {
+fn unparsed_through_argument_groups(
+    text: &str,
+    command_start: usize,
+    mut pos: usize,
+    groups: usize,
+    line: u32,
+) -> (Directive, usize) {
     for _ in 0..groups {
         match read_braced_argument(text, pos) {
             Some((_, end)) => pos = skip_spaces_and_tabs(text, end),
             None => break,
         }
     }
-    (Directive::Unparsed { raw: text[command_start..pos].to_string(), line }, pos)
+    (
+        Directive::Unparsed {
+            raw: text[command_start..pos].to_string(),
+            line,
+        },
+        pos,
+    )
 }
 
 /// Reads a `{...}` group starting at `pos`, which must point at the opening brace. Tracks
@@ -236,9 +284,21 @@ mod tests {
         assert_eq!(
             directives,
             vec![
-                Directive::Include { command: "input", argument: "preamble".into(), line: 1 },
-                Directive::Include { command: "include", argument: "sections/intro".into(), line: 2 },
-                Directive::Include { command: "subfile", argument: "sections/appendix".into(), line: 3 },
+                Directive::Include {
+                    command: "input",
+                    argument: "preamble".into(),
+                    line: 1
+                },
+                Directive::Include {
+                    command: "include",
+                    argument: "sections/intro".into(),
+                    line: 2
+                },
+                Directive::Include {
+                    command: "subfile",
+                    argument: "sections/appendix".into(),
+                    line: 3
+                },
             ]
         );
     }
@@ -250,10 +310,18 @@ mod tests {
         assert_eq!(
             directives,
             vec![
-                Directive::Include { command: "input", argument: "a".into(), line: 1 },
+                Directive::Include {
+                    command: "input",
+                    argument: "a".into(),
+                    line: 1
+                },
                 // `\%` is a literal percent inside the argument; it is not a backslash-macro,
                 // so this is still a resolvable literal path.
-                Directive::Include { command: "input", argument: "b\\%c".into(), line: 2 },
+                Directive::Include {
+                    command: "input",
+                    argument: "b\\%c".into(),
+                    line: 2
+                },
             ]
         );
     }
@@ -262,19 +330,38 @@ mod tests {
     fn a_backslash_before_a_real_comment_does_not_hide_it() {
         // `\\` is an escaped backslash; the `%` right after it is a genuine comment start.
         let source = "\\input{a}\\\\ % \\input{b}\n";
-        assert_eq!(scan_includes(source), vec![Directive::Include { command: "input", argument: "a".into(), line: 1 }]);
+        assert_eq!(
+            scan_includes(source),
+            vec![Directive::Include {
+                command: "input",
+                argument: "a".into(),
+                line: 1
+            }]
+        );
     }
 
     #[test]
     fn a_bare_word_argument_is_unparsed() {
         let directives = scan_includes("\\input foo\n");
-        assert_eq!(directives, vec![Directive::Unparsed { raw: "\\input foo".into(), line: 1 }]);
+        assert_eq!(
+            directives,
+            vec![Directive::Unparsed {
+                raw: "\\input foo".into(),
+                line: 1
+            }]
+        );
     }
 
     #[test]
     fn a_macro_inside_braces_is_unparsed() {
         let directives = scan_includes("\\input{\\chapdir/intro}\n");
-        assert_eq!(directives, vec![Directive::Unparsed { raw: "\\input{\\chapdir/intro}".into(), line: 1 }]);
+        assert_eq!(
+            directives,
+            vec![Directive::Unparsed {
+                raw: "\\input{\\chapdir/intro}".into(),
+                line: 1
+            }]
+        );
     }
 
     #[test]
@@ -282,13 +369,25 @@ mod tests {
         // The literal text of a macro body, e.g.
         // `\newcommand{\loadchapter}[1]{\input{chapters/#1}}` — `#1` is not a path component.
         let directives = scan_includes("\\input{chapters/#1}\n");
-        assert_eq!(directives, vec![Directive::Unparsed { raw: "\\input{chapters/#1}".into(), line: 1 }]);
+        assert_eq!(
+            directives,
+            vec![Directive::Unparsed {
+                raw: "\\input{chapters/#1}".into(),
+                line: 1
+            }]
+        );
     }
 
     #[test]
     fn import_is_always_unparsed() {
         let directives = scan_includes("\\import{sections/}{intro}\n");
-        assert_eq!(directives, vec![Directive::Unparsed { raw: "\\import{sections/}{intro}".into(), line: 1 }]);
+        assert_eq!(
+            directives,
+            vec![Directive::Unparsed {
+                raw: "\\import{sections/}{intro}".into(),
+                line: 1
+            }]
+        );
     }
 
     #[test]
@@ -299,6 +398,12 @@ mod tests {
     #[test]
     fn an_unclosed_brace_is_unparsed_rather_than_panicking() {
         let directives = scan_includes("\\input{sections/intro");
-        assert_eq!(directives, vec![Directive::Unparsed { raw: "\\input{sections/intro".into(), line: 1 }]);
+        assert_eq!(
+            directives,
+            vec![Directive::Unparsed {
+                raw: "\\input{sections/intro".into(),
+                line: 1
+            }]
+        );
     }
 }

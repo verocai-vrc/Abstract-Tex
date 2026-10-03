@@ -39,7 +39,12 @@ pub enum IsbnError {
 /// [`crate::acquire::arxiv::normalize_arxiv_id`] both already draw; OpenLibrary's own 404 is the
 /// judge.
 pub fn normalize_isbn(pasted: &str) -> String {
-    pasted.trim().chars().filter(|c| !c.is_whitespace() && *c != '-').map(|c| c.to_ascii_uppercase()).collect()
+    pasted
+        .trim()
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 trait Transport {
@@ -61,11 +66,18 @@ pub fn fetch_isbn(isbn: &str) -> Result<Entry, IsbnError> {
 /// recorded replies for the whole chain instead of reaching the network.
 fn fetch_isbn_with(isbn: &str, transport: &impl Transport) -> Result<Entry, IsbnError> {
     let normalized = normalize_isbn(isbn);
-    let edition = fetch_json(transport, &format!("https://openlibrary.org/isbn/{normalized}.json"))?
-        .ok_or_else(|| IsbnError::NotFound(normalized.clone()))?;
+    let edition = fetch_json(
+        transport,
+        &format!("https://openlibrary.org/isbn/{normalized}.json"),
+    )?
+    .ok_or_else(|| IsbnError::NotFound(normalized.clone()))?;
 
     let title = edition.get_str("title").unwrap_or_default().to_string();
-    let publisher = edition.get_array("publishers").and_then(|list| list.first()).and_then(Json::as_str).map(str::to_string);
+    let publisher = edition
+        .get_array("publishers")
+        .and_then(|list| list.first())
+        .and_then(Json::as_str)
+        .map(str::to_string);
     let year = publish_year(edition.get_str("publish_date").unwrap_or_default());
 
     let authors = authors_via_work(transport, &edition)?;
@@ -76,20 +88,38 @@ fn fetch_isbn_with(isbn: &str, transport: &impl Transport) -> Result<Entry, Isbn
         // author field, which BibLaTeX's `@book` expects to have. `by_statement` is tried first
         // (a full citation-style phrase, "A ... [et al.]"); `contributions`' first entry (a
         // single cataloguer-entered name, no "et al." framing) is the second-choice fallback.
-        let contributions_first = edition.get_array("contributions").and_then(|list| list.first()).and_then(Json::as_str);
-        edition.get_str("by_statement").or(contributions_first).unwrap_or("").to_string()
+        let contributions_first = edition
+            .get_array("contributions")
+            .and_then(|list| list.first())
+            .and_then(Json::as_str);
+        edition
+            .get_str("by_statement")
+            .or(contributions_first)
+            .unwrap_or("")
+            .to_string()
     } else {
         authors.join(" and ")
     };
 
     let key = super::arxiv::generated_key(&authors, &year, &title);
 
-    let mut fields = vec![field("title", &title), field("author", &author_field), field("year", &year), field("isbn", &normalized)];
+    let mut fields = vec![
+        field("title", &title),
+        field("author", &author_field),
+        field("year", &year),
+        field("isbn", &normalized),
+    ];
     if let Some(publisher) = publisher {
         fields.push(field("publisher", &publisher));
     }
 
-    Ok(Entry { span: zero_span(), entry_type: "book".to_string(), key, key_span: zero_span(), fields })
+    Ok(Entry {
+        span: zero_span(),
+        entry_type: "book".to_string(),
+        key,
+        key_span: zero_span(),
+        fields,
+    })
 }
 
 /// Follow `edition.works[0].key` to the work record, then each of its `authors[].author.key` to
@@ -98,18 +128,29 @@ fn fetch_isbn_with(isbn: &str, transport: &impl Transport) -> Result<Entry, Isbn
 /// lookup — a book correctly attributed to three authors should not lose all three because the
 /// fourth, uncredited contributor's record 404s.
 fn authors_via_work(transport: &impl Transport, edition: &Json) -> Result<Vec<String>, IsbnError> {
-    let Some(work_key) = edition.get_array("works").and_then(|list| list.first()).and_then(|w| w.get_str("key")) else {
+    let Some(work_key) = edition
+        .get_array("works")
+        .and_then(|list| list.first())
+        .and_then(|w| w.get_str("key"))
+    else {
         return Ok(Vec::new());
     };
     let Some(work) = fetch_json(transport, &format!("https://openlibrary.org{work_key}.json"))? else {
         return Ok(Vec::new());
     };
-    let Some(author_entries) = work.get_array("authors") else { return Ok(Vec::new()) };
+    let Some(author_entries) = work.get_array("authors") else {
+        return Ok(Vec::new());
+    };
 
     let mut names = Vec::new();
     for author_entry in author_entries {
-        let Some(author_key) = author_entry.get("author").and_then(|a| a.get_str("key")) else { continue };
-        let Ok(Some(author)) = fetch_json(transport, &format!("https://openlibrary.org{author_key}.json")) else { continue };
+        let Some(author_key) = author_entry.get("author").and_then(|a| a.get_str("key")) else {
+            continue;
+        };
+        let Ok(Some(author)) = fetch_json(transport, &format!("https://openlibrary.org{author_key}.json"))
+        else {
+            continue;
+        };
         if let Some(name) = author.get_str("name") {
             names.push(name.to_string());
         }
@@ -142,11 +183,18 @@ fn publish_year(publish_date: &str) -> String {
 }
 
 fn field(name: &str, value: &str) -> Field {
-    Field { span: zero_span(), name: name.to_string(), value_span: zero_span(), value: braced(value) }
+    Field {
+        span: zero_span(),
+        name: name.to_string(),
+        value_span: zero_span(),
+        value: braced(value),
+    }
 }
 
 fn braced(text: &str) -> Value {
-    Value { parts: vec![ValuePart::Braced(text.to_string())] }
+    Value {
+        parts: vec![ValuePart::Braced(text.to_string())],
+    }
 }
 
 /// Same reasoning as `arxiv::zero_span`: a hand-built entry was never parsed from a real file,
@@ -195,7 +243,10 @@ impl Json {
 
     fn get(&self, key: &str) -> Option<&Json> {
         match self {
-            Json::Object(fields) => fields.iter().find(|(name, _)| name == key).map(|(_, value)| value),
+            Json::Object(fields) => fields
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value),
             _ => None,
         }
     }
@@ -235,7 +286,9 @@ fn parse_value(text: &str) -> Option<(Json, &str)> {
         'f' if text.starts_with("false") => Some((Json::Other, &text[5..])),
         'n' if text.starts_with("null") => Some((Json::Other, &text[4..])),
         c if c == '-' || c.is_ascii_digit() => {
-            let end = text.find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E'))).unwrap_or(text.len());
+            let end = text
+                .find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E')))
+                .unwrap_or(text.len());
             Some((Json::Other, &text[end..]))
         }
         _ => None,
@@ -339,7 +392,11 @@ mod tests {
 
     impl Transport for RoutedReplies {
         fn get(&self, url: &str) -> Result<(u16, String), String> {
-            self.0.iter().find(|(pattern, _)| url.contains(pattern)).map(|(_, reply)| reply.clone()).unwrap_or_else(|| Ok((404, String::new())))
+            self.0
+                .iter()
+                .find(|(pattern, _)| url.contains(pattern))
+                .map(|(_, reply)| reply.clone())
+                .unwrap_or_else(|| Ok((404, String::new())))
         }
     }
 
@@ -355,7 +412,10 @@ mod tests {
         let transport = RoutedReplies(vec![
             ("/isbn/9780262033848.json", Ok((200, EDITION_REPLY.to_string()))),
             ("/works/OL4781294W.json", Ok((200, WORK_REPLY.to_string()))),
-            ("/authors/OL1004780A.json", Ok((200, AUTHOR_CORMEN_REPLY.to_string()))),
+            (
+                "/authors/OL1004780A.json",
+                Ok((200, AUTHOR_CORMEN_REPLY.to_string())),
+            ),
             // The work record lists four authors; only the first's record is recorded above, so
             // the other three resolve through the router's own 404 fallback and are dropped —
             // exactly the "one author fetch failing drops that name, not the whole lookup"
@@ -364,17 +424,35 @@ mod tests {
         ]);
         let entry = fetch_isbn_with("978-0-262-03384-8", &transport).expect("the recorded chain resolves");
         assert!(entry.is_type("book"));
-        assert_eq!(entry.field("title").unwrap().value.parts, vec![ValuePart::Braced("Introduction to Algorithms".into())]);
-        assert_eq!(entry.field("author").unwrap().value.parts, vec![ValuePart::Braced("Thomas H. Cormen".into())]);
-        assert_eq!(entry.field("year").unwrap().value.parts, vec![ValuePart::Braced("2009".into())]);
-        assert_eq!(entry.field("isbn").unwrap().value.parts, vec![ValuePart::Braced("9780262033848".into())]);
-        assert_eq!(entry.field("publisher").unwrap().value.parts, vec![ValuePart::Braced("The MIT Press".into())]);
+        assert_eq!(
+            entry.field("title").unwrap().value.parts,
+            vec![ValuePart::Braced("Introduction to Algorithms".into())]
+        );
+        assert_eq!(
+            entry.field("author").unwrap().value.parts,
+            vec![ValuePart::Braced("Thomas H. Cormen".into())]
+        );
+        assert_eq!(
+            entry.field("year").unwrap().value.parts,
+            vec![ValuePart::Braced("2009".into())]
+        );
+        assert_eq!(
+            entry.field("isbn").unwrap().value.parts,
+            vec![ValuePart::Braced("9780262033848".into())]
+        );
+        assert_eq!(
+            entry.field("publisher").unwrap().value.parts,
+            vec![ValuePart::Braced("The MIT Press".into())]
+        );
     }
 
     #[test]
     fn a_missing_edition_is_not_found() {
         let transport = RoutedReplies(vec![("/isbn/", Ok((404, String::new())))]);
-        assert_eq!(fetch_isbn_with("0000000000", &transport), Err(IsbnError::NotFound("0000000000".to_string())));
+        assert_eq!(
+            fetch_isbn_with("0000000000", &transport),
+            Err(IsbnError::NotFound("0000000000".to_string()))
+        );
     }
 
     #[test]
@@ -382,7 +460,10 @@ mod tests {
         let edition_no_work = EDITION_REPLY.replace(r#""works": [{"key": "/works/OL4781294W"}],"#, "");
         let transport = RoutedReplies(vec![("/isbn/9780262033848.json", Ok((200, edition_no_work)))]);
         let entry = fetch_isbn_with("9780262033848", &transport).expect("the edition alone still resolves");
-        assert_eq!(entry.field("author").unwrap().value.parts, vec![ValuePart::Braced("Thomas H. Cormen ... [et al.].".into())]);
+        assert_eq!(
+            entry.field("author").unwrap().value.parts,
+            vec![ValuePart::Braced("Thomas H. Cormen ... [et al.].".into())]
+        );
     }
 
     #[test]
@@ -395,18 +476,25 @@ mod tests {
     #[test]
     fn an_unexpected_status_becomes_a_network_error() {
         let transport = RoutedReplies(vec![("/isbn/", Ok((503, String::new())))]);
-        assert_eq!(fetch_isbn_with("9780262033848", &transport), Err(IsbnError::Network("unexpected status 503".to_string())));
+        assert_eq!(
+            fetch_isbn_with("9780262033848", &transport),
+            Err(IsbnError::Network("unexpected status 503".to_string()))
+        );
     }
 
     #[test]
     fn a_transport_failure_becomes_a_network_error() {
         let transport = RoutedReplies(vec![("/isbn/", Err("connection refused".to_string()))]);
-        assert_eq!(fetch_isbn_with("9780262033848", &transport), Err(IsbnError::Network("connection refused".to_string())));
+        assert_eq!(
+            fetch_isbn_with("9780262033848", &transport),
+            Err(IsbnError::Network("connection refused".to_string()))
+        );
     }
 
     #[test]
     fn json_strings_with_unicode_escapes_and_slashes_parse_correctly() {
-        let parsed = Json::parse(r#"{"title": "Café \/ naïve", "n": 5, "flag": true, "nothing": null}"#).unwrap();
+        let parsed =
+            Json::parse(r#"{"title": "Café \/ naïve", "n": 5, "flag": true, "nothing": null}"#).unwrap();
         assert_eq!(parsed.get_str("title"), Some("Café / naïve"));
     }
 

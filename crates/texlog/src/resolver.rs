@@ -192,7 +192,11 @@ mod tests {
             let lines = tokenize("(main.tex\nsome preamble text\n)\nafter\n");
             let stacks = open_files(&lines);
             assert_eq!(stacks[0], vec!["main.tex".to_string()]);
-            assert_eq!(stacks[1], vec!["main.tex".to_string()], "still open on the next line");
+            assert_eq!(
+                stacks[1],
+                vec!["main.tex".to_string()],
+                "still open on the next line"
+            );
             assert_eq!(stacks[2], Vec::<String>::new(), "closed");
             assert_eq!(stacks[3], Vec::<String>::new());
         }
@@ -201,7 +205,11 @@ mod tests {
         fn nested_files_push_and_pop_in_order() {
             let lines = tokenize("(main.tex (macros.sty)\nback in main\n)\n");
             let stacks = open_files(&lines);
-            assert_eq!(stacks[0], vec!["main.tex".to_string()], "macros.sty closed on the same line it opened");
+            assert_eq!(
+                stacks[0],
+                vec!["main.tex".to_string()],
+                "macros.sty closed on the same line it opened"
+            );
             assert_eq!(stacks[1], vec!["main.tex".to_string()]);
             assert_eq!(stacks[2], Vec::<String>::new());
         }
@@ -210,14 +218,22 @@ mod tests {
         fn siblings_at_the_same_depth_do_not_leak_into_each_other() {
             let lines = tokenize("(main.tex\n(a.sty) (b.sty)\nrest\n)\n");
             let stacks = open_files(&lines);
-            assert_eq!(stacks[1], vec!["main.tex".to_string()], "both siblings closed by end of their own line");
+            assert_eq!(
+                stacks[1],
+                vec!["main.tex".to_string()],
+                "both siblings closed by end of their own line"
+            );
         }
 
         #[test]
         fn an_incidental_parenthetical_does_not_push_onto_the_real_stack() {
             let lines = tokenize("(main.tex\nToken not allowed in a PDF string (Unicode): removing.\n)\n");
             let stacks = open_files(&lines);
-            assert_eq!(stacks[1], vec!["main.tex".to_string()], "(Unicode) must not appear here");
+            assert_eq!(
+                stacks[1],
+                vec!["main.tex".to_string()],
+                "(Unicode) must not appear here"
+            );
         }
 
         #[test]
@@ -225,9 +241,15 @@ mod tests {
             // A warning's own prose is never where a real file boundary is reported, even when it
             // happens to contain something extension-shaped: `classify` marks this whole line
             // `Warning`, and `open_files` only walks parens on `Text` lines.
-            let lines = tokenize("(main.tex\nLaTeX Warning: check (notes.txt) for details on input line 4.\nstill main\n");
+            let lines = tokenize(
+                "(main.tex\nLaTeX Warning: check (notes.txt) for details on input line 4.\nstill main\n",
+            );
             let stacks = open_files(&lines);
-            assert_eq!(stacks[2], vec!["main.tex".to_string()], "notes.txt must not have been pushed");
+            assert_eq!(
+                stacks[2],
+                vec!["main.tex".to_string()],
+                "notes.txt must not have been pushed"
+            );
         }
 
         #[test]
@@ -253,7 +275,10 @@ mod tests {
             // the honest way to confirm this candidate was recognised at all.
             let log = include_str!("../fixtures/space-in-path/main.log");
             let lines = tokenize(log);
-            let line = lines.iter().find(|l| l.text.contains("sub dir with spaces")).unwrap();
+            let line = lines
+                .iter()
+                .find(|l| l.text.contains("sub dir with spaces"))
+                .unwrap();
             let mut stack = Vec::new();
             let opened = apply(&line.text, &mut stack);
             assert_eq!(opened, vec!["sub dir with spaces/chapter one".to_string()]);
@@ -264,7 +289,10 @@ mod tests {
             let log = include_str!("../fixtures/overfull-hbox/main.log");
             let lines = tokenize(log);
             let stacks = open_files(&lines);
-            let overfull_line = lines.iter().position(|l| l.text.starts_with("Overfull \\hbox")).unwrap();
+            let overfull_line = lines
+                .iter()
+                .position(|l| l.text.starts_with("Overfull \\hbox"))
+                .unwrap();
             // main.tex is still the only thing open; the hbox's own "(48.75pt too wide)" must not
             // have pushed a second, bogus entry.
             assert_eq!(stacks[overfull_line].len(), 1, "{:?}", stacks[overfull_line]);
@@ -283,7 +311,10 @@ mod tests {
             let log = include_str!("../fixtures/nested-include/main.log");
             let lines = tokenize(log);
             let stacks = open_files(&lines);
-            let error_line = lines.iter().position(|l| matches!(l.kind, LineKind::Error(_))).unwrap();
+            let error_line = lines
+                .iter()
+                .position(|l| matches!(l.kind, LineKind::Error(_)))
+                .unwrap();
             assert_eq!(file_at(&stacks, error_line), Some("chapters/inner"));
             assert_eq!(
                 stacks[error_line],
@@ -300,7 +331,10 @@ mod tests {
             let log = include_str!("../fixtures/bare-input-no-extension/main.log");
             let lines = tokenize(log);
             let stacks = open_files(&lines);
-            let plainchapter_line = lines.iter().position(|l| l.text.contains("plainchapter")).unwrap();
+            let plainchapter_line = lines
+                .iter()
+                .position(|l| l.text.contains("plainchapter"))
+                .unwrap();
             assert_eq!(file_at(&stacks, plainchapter_line), Some("main.tex"));
         }
     }

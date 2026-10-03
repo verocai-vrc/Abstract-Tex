@@ -33,7 +33,9 @@ async fn tracking_nothing_is_refused_before_any_subprocess_runs() {
 #[tokio::test]
 async fn tracking_is_refused_by_name_when_git_lfs_is_not_installed() {
     let tmp = tempfile::tempdir().unwrap();
-    let error = track_with(missing(), tmp.path(), &["figure.png".to_string()]).await.unwrap_err();
+    let error = track_with(missing(), tmp.path(), &["figure.png".to_string()])
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("isn't installed"), "{error}");
     assert!(error.to_string().contains("git-lfs.com"), "{error}");
 }
@@ -47,7 +49,9 @@ async fn tracking_stages_gitattributes_and_the_file_once_git_lfs_succeeds() {
     abstract_tex_git::Repository::init(tmp.path()).unwrap();
     std::fs::write(tmp.path().join("figure.png"), b"not actually a figure").unwrap();
 
-    track_with(installed(), tmp.path(), &["figure.png".to_string()]).await.unwrap();
+    track_with(installed(), tmp.path(), &["figure.png".to_string()])
+        .await
+        .unwrap();
 
     let repository = abstract_tex_git::open(tmp.path()).unwrap();
     let status = abstract_tex_git::status(&repository).unwrap();
@@ -61,6 +65,8 @@ async fn tracking_stages_gitattributes_and_the_file_once_git_lfs_succeeds() {
 #[tokio::test]
 async fn git_lfss_own_refusal_reaches_the_error_message() {
     let tmp = tempfile::tempdir().unwrap();
-    let error = track_with(track_fails(), tmp.path(), &["figure.png".to_string()]).await.unwrap_err();
+    let error = track_with(track_fails(), tmp.path(), &["figure.png".to_string()])
+        .await
+        .unwrap_err();
     assert!(error.to_string().contains("read-only"), "{error}");
 }

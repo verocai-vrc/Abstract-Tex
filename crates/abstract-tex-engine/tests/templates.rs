@@ -29,16 +29,21 @@ fn repo_root() -> PathBuf {
 #[tokio::test]
 #[ignore]
 async fn every_template_builds_clean_from_its_instantiated_folder() {
-    let engine =
-        Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine` first"));
+    let engine = Tectonic::at(
+        abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root())
+            .expect("run `pnpm fetch-engine` first"),
+    );
     let catalog = Catalog::embedded().unwrap();
     let pdf_folder = repo_root().join("target/template-pdfs");
     fs::create_dir_all(&pdf_folder).unwrap();
 
     for template in catalog.templates() {
         // The answers a person would give, as far as the manifest knows them.
-        let answers: BTreeMap<String, String> =
-            template.fields.iter().map(|field| (field.id.clone(), field.example.clone())).collect();
+        let answers: BTreeMap<String, String> = template
+            .fields
+            .iter()
+            .map(|field| (field.id.clone(), field.example.clone()))
+            .collect();
         let parent = tempfile::tempdir().unwrap();
         let project = parent.path().join("project");
         catalog.instantiate(&template.id, &project, &answers).unwrap();
@@ -51,19 +56,33 @@ async fn every_template_builds_clean_from_its_instantiated_folder() {
             shell_escape: false,
         };
         let outcome = engine.build(&job, CancellationToken::new(), None).await.unwrap();
-        assert!(outcome.success, "template `{}` failed to build:\n{}", template.id, outcome.stderr);
+        assert!(
+            outcome.success,
+            "template `{}` failed to build:\n{}",
+            template.id, outcome.stderr
+        );
 
-        let log = outcome.log.as_ref().and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
+        let log = outcome
+            .log
+            .as_ref()
+            .and_then(|path| fs::read_to_string(path).ok())
+            .unwrap_or_default();
         let diagnostics = texlog::diagnostics(&log);
         assert!(
             diagnostics.is_empty(),
             "template `{}` builds with diagnostics: {:?}",
             template.id,
-            diagnostics.iter().map(|d| (&d.rule, &d.file, d.line)).collect::<Vec<_>>()
+            diagnostics
+                .iter()
+                .map(|d| (&d.rule, &d.file, d.line))
+                .collect::<Vec<_>>()
         );
 
-        fs::copy(project.join(".abstract-tex/build/main.pdf"), pdf_folder.join(format!("{}.pdf", template.id)))
-            .unwrap_or_else(|e| panic!("template `{}` built but left no main.pdf: {e}", template.id));
+        fs::copy(
+            project.join(".abstract-tex/build/main.pdf"),
+            pdf_folder.join(format!("{}.pdf", template.id)),
+        )
+        .unwrap_or_else(|e| panic!("template `{}` built but left no main.pdf: {e}", template.id));
     }
 }
 
@@ -98,5 +117,9 @@ fn the_thesis_include_graph_finds_every_file() {
             "sections/results.tex",
         ]
     );
-    assert_eq!(graph.chapters.len(), 5, "each section file is an \\include chapter");
+    assert_eq!(
+        graph.chapters.len(),
+        5,
+        "each section file is an \\include chapter"
+    );
 }

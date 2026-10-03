@@ -38,7 +38,20 @@ pub const LEGACY_STATE_DIR: &str = ".preamble";
 const IGNORED_DIRS: &[&str] = &[".git", STATE_DIR, LEGACY_STATE_DIR, "node_modules", ".svn", ".hg"];
 /// Build junk left behind by other tools in the source tree. Hidden, not deleted: not ours.
 const JUNK_EXTENSIONS: &[&str] = &[
-    "aux", "log", "out", "toc", "bbl", "blg", "fls", "fdb_latexmk", "nav", "snm", "lof", "lot", "bcf", "xdv",
+    "aux",
+    "log",
+    "out",
+    "toc",
+    "bbl",
+    "blg",
+    "fls",
+    "fdb_latexmk",
+    "nav",
+    "snm",
+    "lof",
+    "lot",
+    "bcf",
+    "xdv",
 ];
 
 /// `abstract-tex.toml`, deserialised. Every field is optional so an empty file is valid.
@@ -135,8 +148,16 @@ struct FileStamp {
 
 fn stamp(path: &Path) -> FileStamp {
     match fs::metadata(path) {
-        Ok(meta) => FileStamp { exists: true, len: meta.len(), modified: meta.modified().ok() },
-        Err(_) => FileStamp { exists: false, len: 0, modified: None },
+        Ok(meta) => FileStamp {
+            exists: true,
+            len: meta.len(),
+            modified: meta.modified().ok(),
+        },
+        Err(_) => FileStamp {
+            exists: false,
+            len: 0,
+            modified: None,
+        },
     }
 }
 
@@ -146,7 +167,8 @@ impl Project {
         // `absolute` cleans up `.` and `..` without touching the filesystem. We avoid
         // `canonicalize` on purpose: on Windows it returns `\\?\C:\...` paths, which are correct
         // but confuse every tool and every user who sees them.
-        let root_dir = std::path::absolute(dir).with_context(|| format!("not a valid path: {}", dir.display()))?;
+        let root_dir =
+            std::path::absolute(dir).with_context(|| format!("not a valid path: {}", dir.display()))?;
         if !root_dir.is_dir() {
             bail!("{} is not a folder", root_dir.display());
         }
@@ -163,7 +185,12 @@ impl Project {
             fs::write(&keep_out, "*\n")?;
         }
 
-        Ok(Self { root_dir, config, graph_cache: None, graph_builds: 0 })
+        Ok(Self {
+            root_dir,
+            config,
+            graph_cache: None,
+            graph_builds: 0,
+        })
     }
 
     pub fn build_dir(&self) -> PathBuf {
@@ -195,7 +222,10 @@ impl Project {
             if self.root_dir.join(&candidate).is_file() {
                 return Some(candidate);
             }
-            tracing::warn!(root = configured, "configured root file does not exist; detecting instead");
+            tracing::warn!(
+                root = configured,
+                "configured root file does not exist; detecting instead"
+            );
         }
         detect_root(&self.root_dir)
     }
@@ -215,7 +245,13 @@ impl Project {
     /// link dialog and picking the same collection again should not grow the list.
     pub fn add_extra_bib_file(&mut self, relative: &str) -> Result<()> {
         let normalised = relative.replace('\\', "/");
-        if !self.config.project.extra_bib_files.iter().any(|existing| existing == &normalised) {
+        if !self
+            .config
+            .project
+            .extra_bib_files
+            .iter()
+            .any(|existing| existing == &normalised)
+        {
             self.config.project.extra_bib_files.push(normalised);
         }
         self.save_config()
@@ -229,7 +265,10 @@ impl Project {
     pub fn remove_extra_bib_file(&mut self, relative: &str) -> Result<()> {
         let normalised = relative.replace('\\', "/");
         let before = self.config.project.extra_bib_files.len();
-        self.config.project.extra_bib_files.retain(|existing| existing != &normalised);
+        self.config
+            .project
+            .extra_bib_files
+            .retain(|existing| existing != &normalised);
         if self.config.project.extra_bib_files.len() == before {
             return Ok(());
         }
@@ -303,7 +342,10 @@ impl Project {
     /// The document's files and whether the graph is complete.
     fn document_graph(&mut self, root: &Path) -> (Vec<String>, bool) {
         let graph = self.graph(root);
-        (graph.nodes.iter().map(|node| node.path.clone()).collect(), graph.is_complete())
+        (
+            graph.nodes.iter().map(|node| node.path.clone()).collect(),
+            graph.is_complete(),
+        )
     }
 
     /// The include graph: from the cache while every file it walked still looks the same, from a
@@ -311,15 +353,32 @@ impl Project {
     fn graph(&mut self, root: &Path) -> &IncludeGraph {
         let unchanged = self.graph_cache.as_ref().is_some_and(|cache| {
             cache.root == root
-                && cache.graph.nodes.iter().zip(&cache.stamps).all(|(node, then)| stamp(&self.root_dir.join(&node.path)) == *then)
+                && cache
+                    .graph
+                    .nodes
+                    .iter()
+                    .zip(&cache.stamps)
+                    .all(|(node, then)| stamp(&self.root_dir.join(&node.path)) == *then)
         });
         if !unchanged {
             self.graph_builds += 1;
             let graph = abstract_tex_includes::build_graph(&self.root_dir, root);
-            let stamps = graph.nodes.iter().map(|node| stamp(&self.root_dir.join(&node.path))).collect();
-            self.graph_cache = Some(GraphCache { root: root.to_path_buf(), stamps, graph });
+            let stamps = graph
+                .nodes
+                .iter()
+                .map(|node| stamp(&self.root_dir.join(&node.path)))
+                .collect();
+            self.graph_cache = Some(GraphCache {
+                root: root.to_path_buf(),
+                stamps,
+                graph,
+            });
         }
-        &self.graph_cache.as_ref().expect("filled just above when it was empty or stale").graph
+        &self
+            .graph_cache
+            .as_ref()
+            .expect("filled just above when it was empty or stale")
+            .graph
     }
 
     /// The `\include` argument of the chapter `relative` belongs to, for a one-chapter draft
@@ -327,7 +386,9 @@ impl Project {
     /// `\include` reaches: those have no chapter to draft.
     pub fn chapter_of(&mut self, relative: &str) -> Option<String> {
         let root = self.root_file()?;
-        self.graph(&root).chapter_of(relative).map(|chapter| chapter.argument.clone())
+        self.graph(&root)
+            .chapter_of(relative)
+            .map(|chapter| chapter.argument.clone())
     }
 }
 
@@ -395,7 +456,9 @@ fn collect_documentclass_files(
         }
         // Read once, use twice: the `\documentclass` check below and the include scan both want
         // the file's text, and a second read would be wasted work for the same answer.
-        let Ok(text) = fs::read_to_string(&path) else { continue };
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
 
         // Resolved against the project root, not this file's own directory: at this point we do
         // not yet know which file the root even is (that is what this function is deciding), and
@@ -404,7 +467,9 @@ fn collect_documentclass_files(
         // including. `build_graph` re-resolves properly once a root is actually chosen.
         for directive in abstract_tex_includes::scan_includes(&text) {
             if let abstract_tex_includes::Directive::Include { argument, .. } = directive {
-                if let Some(target) = abstract_tex_includes::resolve_include_argument(root, Path::new(""), &argument) {
+                if let Some(target) =
+                    abstract_tex_includes::resolve_include_argument(root, Path::new(""), &argument)
+                {
                     included.insert(target);
                 }
             }
@@ -432,7 +497,9 @@ pub fn list_tree(dir: &Path) -> Vec<TreeNode> {
 }
 
 fn list_tree_inner(root: &Path, dir: &Path) -> Vec<TreeNode> {
-    let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut nodes: Vec<TreeNode> = entries
         .flatten()
         .filter_map(|entry| {
@@ -445,13 +512,21 @@ fn list_tree_inner(root: &Path, dir: &Path) -> Vec<TreeNode> {
             let rel = path.strip_prefix(root).ok()?;
             Some(TreeNode {
                 path: to_forward_slashes(rel),
-                children: if is_dir { list_tree_inner(root, &path) } else { Vec::new() },
+                children: if is_dir {
+                    list_tree_inner(root, &path)
+                } else {
+                    Vec::new()
+                },
                 name,
                 is_dir,
             })
         })
         .collect();
-    nodes.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    nodes.sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
     nodes
 }
 
@@ -477,7 +552,10 @@ pub fn to_forward_slashes(path: &Path) -> String {
 /// never a truncated mix. Write to a sibling temp file, then rename over the target; rename is
 /// atomic on every filesystem we care about (DESIGN.md §9, first row).
 pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
-    let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let temp = path.with_file_name(format!("{file_name}.abstract-tex-tmp"));
     fs::write(&temp, contents)?;
     // `rename` replaces an existing destination on Windows too (MoveFileEx with REPLACE_EXISTING).
@@ -519,7 +597,10 @@ mod tests {
 
     #[test]
     fn shallower_candidate_beats_deeper_one() {
-        let dir = scaffold(&[("deep/thesis.tex", "\\documentclass{book}"), ("z.tex", "\\documentclass{article}")]);
+        let dir = scaffold(&[
+            ("deep/thesis.tex", "\\documentclass{book}"),
+            ("z.tex", "\\documentclass{article}"),
+        ]);
         assert_eq!(detect_root(dir.path()), Some(PathBuf::from("z.tex")));
     }
 
@@ -565,7 +646,10 @@ mod tests {
 
     #[test]
     fn open_creates_state_dir_and_reads_config() {
-        let dir = scaffold(&[("paper.tex", "\\documentclass{article}"), ("abstract-tex.toml", "[project]\nroot = \"paper.tex\"\n")]);
+        let dir = scaffold(&[
+            ("paper.tex", "\\documentclass{article}"),
+            ("abstract-tex.toml", "[project]\nroot = \"paper.tex\"\n"),
+        ]);
         let project = Project::open(dir.path()).unwrap();
         assert!(project.build_dir().is_dir());
         assert!(dir.path().join(".abstract-tex/.gitignore").is_file());
@@ -575,7 +659,10 @@ mod tests {
 
     #[test]
     fn missing_configured_root_falls_back_to_detection() {
-        let dir = scaffold(&[("main.tex", ""), ("abstract-tex.toml", "[project]\nroot = \"gone.tex\"\n")]);
+        let dir = scaffold(&[
+            ("main.tex", ""),
+            ("abstract-tex.toml", "[project]\nroot = \"gone.tex\"\n"),
+        ]);
         let project = Project::open(dir.path()).unwrap();
         assert_eq!(project.root_file(), Some(PathBuf::from("main.tex")));
     }
@@ -587,7 +674,9 @@ mod tests {
         project.set_root_file("b.tex").unwrap();
         let reloaded = Project::open(dir.path()).unwrap();
         assert_eq!(reloaded.config.project.root.as_deref(), Some("b.tex"));
-        assert!(fs::read_to_string(dir.path().join(CONFIG_FILE)).unwrap().contains("root = \"b.tex\""));
+        assert!(fs::read_to_string(dir.path().join(CONFIG_FILE))
+            .unwrap()
+            .contains("root = \"b.tex\""));
     }
 
     #[test]
@@ -604,7 +693,12 @@ mod tests {
         assert_eq!(info.root_file.as_deref(), Some("main.tex"));
         assert_eq!(
             info.document_files,
-            vec!["main.tex", "preamble.tex", "sections/intro.tex", "sections/fig.tex"]
+            vec![
+                "main.tex",
+                "preamble.tex",
+                "sections/intro.tex",
+                "sections/fig.tex"
+            ]
         );
         assert!(info.document_files_complete);
     }
@@ -648,7 +742,12 @@ mod tests {
         project.remove_extra_bib_file("zotero/Thesis.bib").unwrap();
         assert!(project.config.project.extra_bib_files.is_empty());
         // Saved, not only changed in memory: a fresh open reads the same empty list back.
-        assert!(Project::open(dir.path()).unwrap().config.project.extra_bib_files.is_empty());
+        assert!(Project::open(dir.path())
+            .unwrap()
+            .config
+            .project
+            .extra_bib_files
+            .is_empty());
     }
 
     #[test]
@@ -684,7 +783,11 @@ mod tests {
 
     #[test]
     fn info_walks_the_include_graph_again_only_when_a_document_file_changed() {
-        let dir = scaffold(&[("main.tex", "\\input{intro}\n"), ("intro.tex", "Hello."), ("notes.txt", "")]);
+        let dir = scaffold(&[
+            ("main.tex", "\\input{intro}\n"),
+            ("intro.tex", "Hello."),
+            ("notes.txt", ""),
+        ]);
         let mut project = Project::open(dir.path()).unwrap();
         assert_eq!(project.info().document_files, vec!["main.tex", "intro.tex"]);
         assert_eq!(project.graph_builds, 1);
@@ -699,14 +802,21 @@ mod tests {
         fs::write(dir.path().join("intro.tex"), "Hello.\\input{fig}\n").unwrap();
         let info = project.info();
         assert_eq!(project.graph_builds, 2);
-        assert_eq!(info.document_files, vec!["main.tex", "intro.tex", "fig.tex"], "named, though not on disk yet");
+        assert_eq!(
+            info.document_files,
+            vec!["main.tex", "intro.tex", "fig.tex"],
+            "named, though not on disk yet"
+        );
 
         // The missing file appears, with an include of its own. It was stamped as missing, so its
         // arrival is a change, and the new walk follows it one level further.
         fs::write(dir.path().join("fig.tex"), "\\input{table}\n").unwrap();
         let info = project.info();
         assert_eq!(project.graph_builds, 3);
-        assert_eq!(info.document_files, vec!["main.tex", "intro.tex", "fig.tex", "table.tex"]);
+        assert_eq!(
+            info.document_files,
+            vec!["main.tex", "intro.tex", "fig.tex", "table.tex"]
+        );
     }
 
     #[test]
@@ -718,13 +828,28 @@ mod tests {
             ("figures/plot.tex", ""),
         ]);
         let mut project = Project::open(dir.path()).unwrap();
-        assert_eq!(project.chapter_of("chapters/one.tex").as_deref(), Some("chapters/one"));
-        assert_eq!(project.chapter_of("figures/plot.tex").as_deref(), Some("chapters/one"), "through its \\input");
-        assert_eq!(project.chapter_of("preamble.tex"), None, "the preamble has no chapter to draft");
+        assert_eq!(
+            project.chapter_of("chapters/one.tex").as_deref(),
+            Some("chapters/one")
+        );
+        assert_eq!(
+            project.chapter_of("figures/plot.tex").as_deref(),
+            Some("chapters/one"),
+            "through its \\input"
+        );
+        assert_eq!(
+            project.chapter_of("preamble.tex"),
+            None,
+            "the preamble has no chapter to draft"
+        );
         assert_eq!(project.chapter_of("main.tex"), None);
         assert_eq!(project.graph_builds, 1, "four questions, one walk");
         assert!(project.draft_dir().ends_with(".abstract-tex/draft"));
-        assert_eq!(project.draft_dir().parent(), project.build_dir().parent(), "beside build/, as prepare requires");
+        assert_eq!(
+            project.draft_dir().parent(),
+            project.build_dir().parent(),
+            "beside build/, as prepare requires"
+        );
     }
 
     #[test]

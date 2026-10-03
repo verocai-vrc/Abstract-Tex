@@ -35,7 +35,12 @@ impl Assistant {
     }
 
     /// Ask, using the key saved for this provider (if any).
-    pub fn complete(&self, provider: &Provider, keys: &dyn KeyStore, prompt: &Prompt) -> Result<Reply, AssistantError> {
+    pub fn complete(
+        &self,
+        provider: &Provider,
+        keys: &dyn KeyStore,
+        prompt: &Prompt,
+    ) -> Result<Reply, AssistantError> {
         let key = keys.read(&provider.key_slot())?;
         self.complete_with_key(provider, key.as_deref(), prompt)
     }

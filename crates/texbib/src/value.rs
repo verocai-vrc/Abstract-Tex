@@ -129,13 +129,17 @@ mod tests {
 
     #[test]
     fn a_single_braced_part_resolves_to_its_text() {
-        let value = Value { parts: vec![ValuePart::Braced("Hello {World}".into())] };
+        let value = Value {
+            parts: vec![ValuePart::Braced("Hello {World}".into())],
+        };
         assert_eq!(value.resolve_with(no_macros), "Hello {World}");
     }
 
     #[test]
     fn whitespace_runs_collapse_but_inner_braces_survive() {
-        let value = Value { parts: vec![ValuePart::Braced("A   long\n  title {DNA}".into())] };
+        let value = Value {
+            parts: vec![ValuePart::Braced("A   long\n  title {DNA}".into())],
+        };
         assert_eq!(value.resolve_with(no_macros), "A long title {DNA}");
     }
 
@@ -154,7 +158,9 @@ mod tests {
 
     #[test]
     fn an_unknown_macro_becomes_nothing_but_is_still_listed() {
-        let value = Value { parts: vec![ValuePart::Macro("nosuch".into()), ValuePart::Quoted("x".into())] };
+        let value = Value {
+            parts: vec![ValuePart::Macro("nosuch".into()), ValuePart::Quoted("x".into())],
+        };
         assert_eq!(value.resolve_with(no_macros), "x");
         assert_eq!(value.macros().collect::<Vec<_>>(), vec!["nosuch"]);
     }

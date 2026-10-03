@@ -91,10 +91,12 @@ pub async fn in_repository_blocking<T: Send + 'static>(
         let project = guard.as_ref().ok_or_else(|| "No project is open.".to_string())?;
         project.root_dir.clone()
     };
-    tauri::async_runtime::spawn_blocking(move || abstract_tex_git::open(&root).and_then(|repository| f(&repository)))
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())
+    tauri::async_runtime::spawn_blocking(move || {
+        abstract_tex_git::open(&root).and_then(|repository| f(&repository))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
 }
 
 /// Where a clone of `url` goes: a folder named `name` (or, when the author gave none, the one
@@ -111,12 +113,15 @@ pub fn clone_destination(parent: &Path, url: &str, name: Option<&str>) -> Result
     }
     let chosen = match name.map(str::trim).filter(|name| !name.is_empty()) {
         Some(name) => name.to_string(),
-        None => abstract_tex_git::folder_name_for(url)
-            .ok_or_else(|| "That address does not name a repository. Give the folder a name to clone into.".to_string())?,
+        None => abstract_tex_git::folder_name_for(url).ok_or_else(|| {
+            "That address does not name a repository. Give the folder a name to clone into.".to_string()
+        })?,
     };
     let is_one_plain_name = chosen != "."
         && chosen != ".."
-        && !chosen.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+        && !chosen
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
     if !is_one_plain_name {
         return Err(format!("\"{chosen}\" cannot be used as a folder name."));
     }
@@ -129,7 +134,11 @@ pub fn clone_destination(parent: &Path, url: &str, name: Option<&str>) -> Result
 /// There is no project and so no repository to open first, which is why this is not an
 /// `in_repository_blocking` call. `token` is the GitHub sign-in or `None`; the git crate offers it
 /// only to github.com (`abstract_tex_git::is_github_https`), so passing it for any URL is safe.
-pub async fn clone_blocking(url: String, destination: PathBuf, token: Option<String>) -> Result<PathBuf, String> {
+pub async fn clone_blocking(
+    url: String,
+    destination: PathBuf,
+    token: Option<String>,
+) -> Result<PathBuf, String> {
     tauri::async_runtime::spawn_blocking(move || {
         abstract_tex_git::clone(&url, &destination, token.as_deref()).map(|_| destination)
     })
@@ -145,24 +154,40 @@ mod tests {
     #[test]
     fn the_folder_is_named_after_the_repository_unless_the_author_says_otherwise() {
         let parent = Path::new("/papers");
-        assert_eq!(clone_destination(parent, "https://github.com/ada/thesis.git", None).unwrap(), parent.join("thesis"));
-        assert_eq!(clone_destination(parent, "https://github.com/ada/thesis.git", Some("  draft  ")).unwrap(), parent.join("draft"));
-        assert_eq!(clone_destination(parent, "https://github.com/ada/thesis.git", Some("")).unwrap(), parent.join("thesis"));
+        assert_eq!(
+            clone_destination(parent, "https://github.com/ada/thesis.git", None).unwrap(),
+            parent.join("thesis")
+        );
+        assert_eq!(
+            clone_destination(parent, "https://github.com/ada/thesis.git", Some("  draft  ")).unwrap(),
+            parent.join("draft")
+        );
+        assert_eq!(
+            clone_destination(parent, "https://github.com/ada/thesis.git", Some("")).unwrap(),
+            parent.join("thesis")
+        );
     }
 
     #[test]
     fn an_address_with_nothing_to_name_a_folder_asks_for_a_name_and_a_given_one_is_enough() {
         let parent = Path::new("/papers");
-        assert!(clone_destination(parent, "https://github.com/", None).unwrap_err().contains("Give the folder a name"));
+        assert!(clone_destination(parent, "https://github.com/", None)
+            .unwrap_err()
+            .contains("Give the folder a name"));
         assert!(clone_destination(parent, "https://github.com/", Some("paper")).is_ok());
-        assert!(clone_destination(parent, "   ", None).unwrap_err().contains("Paste the address"));
+        assert!(clone_destination(parent, "   ", None)
+            .unwrap_err()
+            .contains("Paste the address"));
     }
 
     #[test]
     fn a_name_that_is_not_one_plain_folder_is_refused() {
         let parent = Path::new("/papers");
         for bad in ["..", "a/b", r"a\b", "../elsewhere", "C:", "what?", "a|b"] {
-            assert!(clone_destination(parent, "https://github.com/ada/t.git", Some(bad)).is_err(), "{bad} was accepted");
+            assert!(
+                clone_destination(parent, "https://github.com/ada/t.git", Some(bad)).is_err(),
+                "{bad} was accepted"
+            );
         }
         // The URL's own name goes through the same check.
         assert!(clone_destination(parent, "https://example.invalid/ada/..", None).is_err());

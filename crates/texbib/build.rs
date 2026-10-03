@@ -25,7 +25,10 @@ fn main() {
 
     let mut generated = String::new();
     for entry in entries {
-        let dir_name = entry.file_name().into_string().expect("fixture directory names are ASCII");
+        let dir_name = entry
+            .file_name()
+            .into_string()
+            .expect("fixture directory names are ASCII");
         if !entry.path().join("main.bib").is_file() || !entry.path().join("expected.json").is_file() {
             // No expected.json: a .bib kept for a hand-written unit test elsewhere, not for the
             // harness. Skipped rather than treated as an error.

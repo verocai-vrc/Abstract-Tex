@@ -92,7 +92,10 @@ impl Repos {
     }
 
     pub fn with_endpoints(endpoints: crate::Endpoints) -> Result<Self, GitHubError> {
-        Ok(Self { client: crate::http_client()?, endpoint: endpoints.repos })
+        Ok(Self {
+            client: crate::http_client()?,
+            endpoint: endpoints.repos,
+        })
     }
 
     /// Create it, under the account the token belongs to.
@@ -113,7 +116,8 @@ impl Repos {
         // Serialised here rather than with `reqwest`'s `.json()`, which needs a feature the
         // workspace's `reqwest` does not enable — and enabling it across the workspace for one
         // call would be a wider change than the call deserves.
-        let body = serde_json::to_string(&body).map_err(|error| GitHubError::Unreadable(error.to_string()))?;
+        let body =
+            serde_json::to_string(&body).map_err(|error| GitHubError::Unreadable(error.to_string()))?;
         let response = self
             .client
             .post(&self.endpoint)
@@ -146,7 +150,10 @@ impl Repos {
                     ("per_page", LIST_PAGE_SIZE.to_string()),
                     ("page", page.to_string()),
                     ("sort", "pushed".to_string()),
-                    ("affiliation", "owner,collaborator,organization_member".to_string()),
+                    (
+                        "affiliation",
+                        "owner,collaborator,organization_member".to_string(),
+                    ),
                 ])
                 .bearer_auth(token)
                 .header(reqwest::header::ACCEPT, "application/vnd.github+json")
@@ -193,7 +200,12 @@ fn sentence_from(body: &str) -> String {
     let Ok(error) = serde_json::from_str::<ErrorBody>(body) else {
         return body.chars().take(200).collect();
     };
-    let detail = error.errors.into_iter().filter_map(|one| one.message).collect::<Vec<_>>().join("; ");
+    let detail = error
+        .errors
+        .into_iter()
+        .filter_map(|one| one.message)
+        .collect::<Vec<_>>()
+        .join("; ");
     match (error.message, detail.is_empty()) {
         (Some(message), true) => message,
         (Some(message), false) => format!("{message} {detail}"),
@@ -245,12 +257,18 @@ mod tests {
     #[test]
     fn githubs_own_words_are_kept_together_in_one_line() {
         let body = r#"{"message":"Repository creation failed.","errors":[{"resource":"Repository","field":"name","message":"name already exists on this account"}]}"#;
-        assert_eq!(sentence_from(body), "Repository creation failed. name already exists on this account");
+        assert_eq!(
+            sentence_from(body),
+            "Repository creation failed. name already exists on this account"
+        );
     }
 
     #[test]
     fn a_body_with_only_a_message_is_that_message() {
-        assert_eq!(sentence_from(r#"{"message":"Bad credentials"}"#), "Bad credentials");
+        assert_eq!(
+            sentence_from(r#"{"message":"Bad credentials"}"#),
+            "Bad credentials"
+        );
     }
 
     #[test]

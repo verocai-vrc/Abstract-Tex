@@ -95,7 +95,9 @@ impl AppState {
 pub fn run() {
     // `RUST_LOG=abstract_tex=debug pnpm tauri dev` turns on verbose output; default is info.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,abstract_tex=debug")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,abstract_tex=debug")),
+        )
         .init();
 
     tauri::Builder::default()

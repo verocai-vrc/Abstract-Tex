@@ -110,7 +110,11 @@ struct Inner {
 /// `pdflatex` on a machine without TeX Live should still build, and say why it built
 /// differently. `None` only when Tectonic itself is missing too.
 pub fn engine_for(setting: Option<&str>) -> (Option<Arc<dyn Engine>>, Option<String>) {
-    let tectonic = || Tectonic::locate().ok().map(|engine| Arc::new(engine) as Arc<dyn Engine>);
+    let tectonic = || {
+        Tectonic::locate()
+            .ok()
+            .map(|engine| Arc::new(engine) as Arc<dyn Engine>)
+    };
     match EngineChoice::parse(setting) {
         Ok(EngineChoice::Tectonic) => (tectonic(), None),
         Ok(EngineChoice::System(program)) => match Latexmk::locate(program) {
@@ -125,7 +129,10 @@ pub fn engine_for(setting: Option<&str>) -> (Option<Arc<dyn Engine>>, Option<Str
                 )),
             ),
         },
-        Err(sentence) => (tectonic(), Some(format!("{sentence} Building with the bundled Tectonic."))),
+        Err(sentence) => (
+            tectonic(),
+            Some(format!("{sentence} Building with the bundled Tectonic.")),
+        ),
     }
 }
 
@@ -168,8 +175,18 @@ impl Orchestrator {
         let token = CancellationToken::new();
 
         // Swap our token in and cancel whatever was there. The lock is held for nanoseconds.
-        if let Some((old_generation, old_token)) = self.inner.in_flight.lock().unwrap().replace((generation, token.clone())) {
-            debug!(old_generation, new_generation = generation, "cancelling superseded build");
+        if let Some((old_generation, old_token)) = self
+            .inner
+            .in_flight
+            .lock()
+            .unwrap()
+            .replace((generation, token.clone()))
+        {
+            debug!(
+                old_generation,
+                new_generation = generation,
+                "cancelling superseded build"
+            );
             old_token.cancel();
         }
 
@@ -181,7 +198,10 @@ impl Orchestrator {
             return generation;
         };
 
-        on_event(CompileEvent::Started { generation, root_file: job.root_file.to_string_lossy().replace('\\', "/") });
+        on_event(CompileEvent::Started {
+            generation,
+            root_file: job.root_file.to_string_lossy().replace('\\', "/"),
+        });
 
         // `on_event` is called from two places now: this task, when the build finishes, and
         // the forwarder task below, for every progress line. `Arc` lets both hold a copy
@@ -229,36 +249,39 @@ impl Orchestrator {
 
             // The draft is laid out before the full build starts, never beside it: the full build
             // rewrites the `.aux` files `prepare` copies (the `draft` module doc says why).
-            let draft_run = draft.and_then(|draft_job| lay_out_draft(&job, draft_job)).map(|(chapter, layout)| {
-                // A child token is cancelled with its parent (a newer request), and can also be
-                // cancelled alone — below, once the full build has made the draft pointless.
-                let draft_token = token.child_token();
-                let engine = Arc::clone(&engine);
-                let job = job.clone();
-                let on_event = Arc::clone(&on_event);
-                let full_reported = Arc::clone(&full_reported);
-                let cancel = draft_token.clone();
-                let handle = tauri::async_runtime::spawn(async move {
-                    let Ok(Some(outcome)) = engine.build_draft(&job, &layout, cancel).await else {
-                        return; // no draft mode, cancelled, or could not run: silent, all three
-                    };
-                    // A failed draft is silent: the full build's diagnostics are the ones to show.
-                    if !outcome.success {
-                        return;
-                    }
-                    let Some(pdf) = outcome.pdf else { return };
-                    let full_reported = full_reported.lock().unwrap();
-                    if !*full_reported {
-                        on_event(CompileEvent::Draft {
-                            generation,
-                            chapter,
-                            pdf_path: pdf.to_string_lossy().into_owned(),
-                            duration_ms: outcome.duration.as_millis() as u64,
+            let draft_run =
+                draft
+                    .and_then(|draft_job| lay_out_draft(&job, draft_job))
+                    .map(|(chapter, layout)| {
+                        // A child token is cancelled with its parent (a newer request), and can also be
+                        // cancelled alone — below, once the full build has made the draft pointless.
+                        let draft_token = token.child_token();
+                        let engine = Arc::clone(&engine);
+                        let job = job.clone();
+                        let on_event = Arc::clone(&on_event);
+                        let full_reported = Arc::clone(&full_reported);
+                        let cancel = draft_token.clone();
+                        let handle = tauri::async_runtime::spawn(async move {
+                            let Ok(Some(outcome)) = engine.build_draft(&job, &layout, cancel).await else {
+                                return; // no draft mode, cancelled, or could not run: silent, all three
+                            };
+                            // A failed draft is silent: the full build's diagnostics are the ones to show.
+                            if !outcome.success {
+                                return;
+                            }
+                            let Some(pdf) = outcome.pdf else { return };
+                            let full_reported = full_reported.lock().unwrap();
+                            if !*full_reported {
+                                on_event(CompileEvent::Draft {
+                                    generation,
+                                    chapter,
+                                    pdf_path: pdf.to_string_lossy().into_owned(),
+                                    duration_ms: outcome.duration.as_millis() as u64,
+                                });
+                            }
                         });
-                    }
-                });
-                (draft_token, handle)
-            });
+                        (draft_token, handle)
+                    });
 
             let result = engine.build(&job, token, Some(progress_tx)).await;
 
@@ -288,7 +311,12 @@ impl Orchestrator {
                             .as_deref()
                             .map(|log| read_diagnostics(log, &job.project_dir))
                             .unwrap_or_default();
-                        info!(generation, success = outcome.success, diagnostics = diagnostics.len(), "build finished");
+                        info!(
+                            generation,
+                            success = outcome.success,
+                            diagnostics = diagnostics.len(),
+                            "build finished"
+                        );
                         on_event(CompileEvent::Finished {
                             generation,
                             success: outcome.success,
@@ -305,7 +333,10 @@ impl Orchestrator {
                         debug!(generation, "build cancelled");
                     }
                     Err(error) => {
-                        on_event(CompileEvent::Failed { generation, message: error.to_string() });
+                        on_event(CompileEvent::Failed {
+                            generation,
+                            message: error.to_string(),
+                        });
                     }
                 }
             }
@@ -418,11 +449,17 @@ mod tests {
 
         // A shell-escape latexmk build runs in the build folder, so kpathsea writes down where it
         // found each file — in full.
-        assert_eq!(as_the_project_spells_it("/home/ada/thesis/sections/intro.tex", project), "sections/intro.tex");
+        assert_eq!(
+            as_the_project_spells_it("/home/ada/thesis/sections/intro.tex", project),
+            "sections/intro.tex"
+        );
         // Every pdflatex build, shell escape or not, prefixes the root file with `./`.
         assert_eq!(as_the_project_spells_it("./main.tex", project), "main.tex");
         // Tectonic's spelling is already the project's, and must survive untouched.
-        assert_eq!(as_the_project_spells_it("sections/intro.tex", project), "sections/intro.tex");
+        assert_eq!(
+            as_the_project_spells_it("sections/intro.tex", project),
+            "sections/intro.tex"
+        );
         // A file that is not the author's stays exactly as the log had it: `drawer.ts` expects a
         // name it cannot match to a tab, and says so rather than guessing.
         assert_eq!(
@@ -430,7 +467,10 @@ mod tests {
             "/usr/share/texlive/texmf-dist/tex/latex/base/report.cls"
         );
         // Nor is a project whose name merely starts the same way the project itself.
-        assert_eq!(as_the_project_spells_it("/home/ada/thesis-old/main.tex", project), "/home/ada/thesis-old/main.tex");
+        assert_eq!(
+            as_the_project_spells_it("/home/ada/thesis-old/main.tex", project),
+            "/home/ada/thesis-old/main.tex"
+        );
     }
 
     /// The frontend reads `event.pdfPath`; serde must spell it that way.
@@ -483,7 +523,12 @@ mod tests {
     /// `Draft` carries two-word fields too; `src/lib/ipc.ts` reads them as `pdfPath`/`durationMs`.
     #[test]
     fn draft_serialises_its_fields_in_camel_case() {
-        let event = CompileEvent::Draft { generation: 3, chapter: "chapters/one".into(), pdf_path: "/d/main.pdf".into(), duration_ms: 2060 };
+        let event = CompileEvent::Draft {
+            generation: 3,
+            chapter: "chapters/one".into(),
+            pdf_path: "/d/main.pdf".into(),
+            duration_ms: 2060,
+        };
         let json = serde_json::to_value(&event).expect("event serialises");
         assert_eq!(json["status"], "draft");
         assert_eq!(json["chapter"], "chapters/one");
@@ -504,7 +549,11 @@ mod tests {
     #[async_trait::async_trait]
     impl Engine for SleepyEngine {
         async fn probe(&self) -> Result<EngineInfo, EngineError> {
-            Ok(EngineInfo { name: "sleepy".into(), version: "0".into(), path: PathBuf::new() })
+            Ok(EngineInfo {
+                name: "sleepy".into(),
+                version: "0".into(),
+                path: PathBuf::new(),
+            })
         }
 
         async fn build(
@@ -531,7 +580,11 @@ mod tests {
     #[async_trait::async_trait]
     impl Engine for ChattyEngine {
         async fn probe(&self) -> Result<EngineInfo, EngineError> {
-            Ok(EngineInfo { name: "chatty".into(), version: "0".into(), path: PathBuf::new() })
+            Ok(EngineInfo {
+                name: "chatty".into(),
+                version: "0".into(),
+                path: PathBuf::new(),
+            })
         }
 
         async fn build(
@@ -579,7 +632,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_second_request_cancels_the_first_and_only_the_second_finishes() {
-        let orchestrator = Orchestrator::new(Some(Arc::new(SleepyEngine { delay: Duration::from_secs(5) })));
+        let orchestrator = Orchestrator::new(Some(Arc::new(SleepyEngine {
+            delay: Duration::from_secs(5),
+        })));
         let (tx, mut rx) = mpsc::unbounded_channel();
 
         let tx1 = tx.clone();
@@ -590,7 +645,9 @@ mod tests {
 
         // The second engine call has the same 5 s delay; we cancel it explicitly below. What we
         // want to see is that the *first* never reports Finished.
-        let orchestrator_fast = Orchestrator::new(Some(Arc::new(SleepyEngine { delay: Duration::from_millis(50) })));
+        let orchestrator_fast = Orchestrator::new(Some(Arc::new(SleepyEngine {
+            delay: Duration::from_millis(50),
+        })));
         let _ = orchestrator_fast; // (kept simple: a second request on the same orchestrator follows)
 
         let tx2 = tx.clone();
@@ -611,12 +668,18 @@ mod tests {
         // Cancel the second and make sure cancellation is silent, not an error event.
         orchestrator.cancel();
         let quiet = tokio::time::timeout(Duration::from_millis(300), rx.recv()).await;
-        assert!(quiet.is_err(), "cancellation must not emit an event, got {:?}", quiet);
+        assert!(
+            quiet.is_err(),
+            "cancellation must not emit an event, got {:?}",
+            quiet
+        );
     }
 
     #[tokio::test]
     async fn a_build_that_completes_reports_finished_with_its_generation() {
-        let orchestrator = Orchestrator::new(Some(Arc::new(SleepyEngine { delay: Duration::from_millis(30) })));
+        let orchestrator = Orchestrator::new(Some(Arc::new(SleepyEngine {
+            delay: Duration::from_millis(30),
+        })));
         let (tx, mut rx) = mpsc::unbounded_channel();
         let generation = orchestrator.request(job(), None, move |e| {
             let _ = tx.send(e);
@@ -624,7 +687,10 @@ mod tests {
 
         let started = rx.recv().await.unwrap();
         assert_eq!(status(&started), ("started", generation));
-        let finished = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+        let finished = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(status(&finished), ("finished", generation));
         if let CompileEvent::Finished { success, .. } = finished {
             assert!(success);
@@ -641,9 +707,16 @@ mod tests {
 
         let mut messages = Vec::new();
         loop {
-            match tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap().unwrap() {
+            match tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap()
+            {
                 CompileEvent::Started { generation: g, .. } => assert_eq!(g, generation),
-                CompileEvent::Progress { generation: g, message } => {
+                CompileEvent::Progress {
+                    generation: g,
+                    message,
+                } => {
                     assert_eq!(g, generation);
                     messages.push(message);
                 }
@@ -654,7 +727,10 @@ mod tests {
                 other => panic!("unexpected event: {other:?}"),
             }
         }
-        assert_eq!(messages, vec!["Downloading amsmath.sty", "Downloading hyperref.sty"]);
+        assert_eq!(
+            messages,
+            vec!["Downloading amsmath.sty", "Downloading hyperref.sty"]
+        );
     }
 
     #[tokio::test]
@@ -682,7 +758,11 @@ mod tests {
     #[async_trait::async_trait]
     impl Engine for DraftingEngine {
         async fn probe(&self) -> Result<EngineInfo, EngineError> {
-            Ok(EngineInfo { name: "drafting".into(), version: "0".into(), path: PathBuf::new() })
+            Ok(EngineInfo {
+                name: "drafting".into(),
+                version: "0".into(),
+                path: PathBuf::new(),
+            })
         }
 
         async fn build(
@@ -718,14 +798,27 @@ mod tests {
         std::fs::create_dir_all(&build).unwrap();
         std::fs::write(build.join("main.aux"), "\\relax\n").unwrap();
         std::fs::write(build.join(abstract_tex_engine::incremental::WARM_MARKER), "").unwrap();
-        let job = BuildJob { project_dir: project.path().to_path_buf(), root_file: PathBuf::from("main.tex"), out_dir: build, synctex: true, shell_escape: false };
-        let draft = DraftJob { chapter: "chapters/one".into(), dir: project.path().join(".abstract-tex/draft") };
+        let job = BuildJob {
+            project_dir: project.path().to_path_buf(),
+            root_file: PathBuf::from("main.tex"),
+            out_dir: build,
+            synctex: true,
+            shell_escape: false,
+        };
+        let draft = DraftJob {
+            chapter: "chapters/one".into(),
+            dir: project.path().join(".abstract-tex/draft"),
+        };
         (project, job, draft)
     }
 
     /// Every event one request produces, until its `Finished` and a short quiet spell after it,
     /// so a draft that arrived late would be caught rather than missed.
-    async fn events_of(engine: DraftingEngine, job: BuildJob, draft: Option<DraftJob>) -> Vec<(&'static str, u64)> {
+    async fn events_of(
+        engine: DraftingEngine,
+        job: BuildJob,
+        draft: Option<DraftJob>,
+    ) -> Vec<(&'static str, u64)> {
         let orchestrator = Orchestrator::new(Some(Arc::new(engine)));
         let (tx, mut rx) = mpsc::unbounded_channel();
         orchestrator.request(job, draft, move |e| {
@@ -733,7 +826,10 @@ mod tests {
         });
         let mut seen = Vec::new();
         while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(400), rx.recv()).await {
-            if let CompileEvent::Draft { chapter, pdf_path, .. } = &event {
+            if let CompileEvent::Draft {
+                chapter, pdf_path, ..
+            } = &event
+            {
                 assert_eq!(chapter, "chapters/one");
                 assert!(pdf_path.ends_with("main.pdf"));
             }
@@ -745,31 +841,62 @@ mod tests {
     #[tokio::test]
     async fn a_draft_faster_than_the_full_build_arrives_between_started_and_finished() {
         let (_project, job, draft) = warm_project();
-        let engine = DraftingEngine { full: Duration::from_millis(150), draft: Duration::from_millis(20), draft_succeeds: true };
-        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("draft", 1), ("finished", 1)]);
+        let engine = DraftingEngine {
+            full: Duration::from_millis(150),
+            draft: Duration::from_millis(20),
+            draft_succeeds: true,
+        };
+        assert_eq!(
+            events_of(engine, job, Some(draft)).await,
+            vec![("started", 1), ("draft", 1), ("finished", 1)]
+        );
     }
 
     #[tokio::test]
     async fn a_draft_slower_than_the_full_build_is_never_shown() {
         let (_project, job, draft) = warm_project();
-        let engine = DraftingEngine { full: Duration::from_millis(20), draft: Duration::from_millis(150), draft_succeeds: true };
-        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("finished", 1)]);
+        let engine = DraftingEngine {
+            full: Duration::from_millis(20),
+            draft: Duration::from_millis(150),
+            draft_succeeds: true,
+        };
+        assert_eq!(
+            events_of(engine, job, Some(draft)).await,
+            vec![("started", 1), ("finished", 1)]
+        );
     }
 
     #[tokio::test]
     async fn a_failed_draft_says_nothing() {
         let (_project, job, draft) = warm_project();
-        let engine = DraftingEngine { full: Duration::from_millis(150), draft: Duration::from_millis(20), draft_succeeds: false };
-        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("finished", 1)]);
+        let engine = DraftingEngine {
+            full: Duration::from_millis(150),
+            draft: Duration::from_millis(20),
+            draft_succeeds: false,
+        };
+        assert_eq!(
+            events_of(engine, job, Some(draft)).await,
+            vec![("started", 1), ("finished", 1)]
+        );
     }
 
     #[tokio::test]
     async fn no_draft_without_a_warm_full_build_to_borrow_numbering_from() {
         let (project, job, draft) = warm_project();
         std::fs::remove_file(job.out_dir.join(abstract_tex_engine::incremental::WARM_MARKER)).unwrap();
-        let engine = DraftingEngine { full: Duration::from_millis(150), draft: Duration::from_millis(20), draft_succeeds: true };
-        assert_eq!(events_of(engine, job, Some(draft)).await, vec![("started", 1), ("finished", 1)]);
-        assert!(!project.path().join(".abstract-tex/draft").exists(), "nothing laid out");
+        let engine = DraftingEngine {
+            full: Duration::from_millis(150),
+            draft: Duration::from_millis(20),
+            draft_succeeds: true,
+        };
+        assert_eq!(
+            events_of(engine, job, Some(draft)).await,
+            vec![("started", 1), ("finished", 1)]
+        );
+        assert!(
+            !project.path().join(".abstract-tex/draft").exists(),
+            "nothing laid out"
+        );
     }
 
     // ---- choosing the engine (S9.4) ----
@@ -786,7 +913,10 @@ mod tests {
     fn a_setting_it_does_not_know_is_explained_not_ignored() {
         let (_, notice) = engine_for(Some("pdftex"));
         let notice = notice.expect("an unknown engine must be reported");
-        assert!(notice.contains("\"pdftex\"") && notice.contains("Tectonic"), "{notice}");
+        assert!(
+            notice.contains("\"pdftex\"") && notice.contains("Tectonic"),
+            "{notice}"
+        );
     }
 
     #[test]
@@ -799,14 +929,19 @@ mod tests {
         }
         let (_, notice) = engine_for(Some("lualatex"));
         let notice = notice.expect("a missing system engine must be reported");
-        assert!(notice.contains("lualatex") && notice.contains("bundled Tectonic"), "{notice}");
+        assert!(
+            notice.contains("lualatex") && notice.contains("bundled Tectonic"),
+            "{notice}"
+        );
     }
 
     #[test]
     fn set_engine_replaces_the_engine_for_later_builds() {
         let orchestrator = Orchestrator::new(None);
         assert!(orchestrator.engine().is_none());
-        orchestrator.set_engine(Some(Arc::new(SleepyEngine { delay: Duration::from_millis(1) })));
+        orchestrator.set_engine(Some(Arc::new(SleepyEngine {
+            delay: Duration::from_millis(1),
+        })));
         assert!(orchestrator.engine().is_some());
     }
 }

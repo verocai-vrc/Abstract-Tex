@@ -44,7 +44,9 @@ pub enum AssistantError {
     #[error("{provider} needs an API key, and none is saved on this machine. Add one in the assistant's settings.")]
     MissingKey { provider: String },
 
-    #[error("\"{0}\" is not a web address the assistant can use. It should look like https://api.example.com/v1.")]
+    #[error(
+        "\"{0}\" is not a web address the assistant can use. It should look like https://api.example.com/v1."
+    )]
     BadAddress(String),
 
     #[error(
@@ -62,7 +64,9 @@ pub enum AssistantError {
     #[error("The provider is limiting how fast this account can ask. Wait a minute and try again.")]
     RateLimited,
 
-    #[error("The provider is having trouble at the moment (it answered with status {status}). Try again shortly.")]
+    #[error(
+        "The provider is having trouble at the moment (it answered with status {status}). Try again shortly."
+    )]
     ProviderTrouble { status: u16 },
 
     #[error("The provider turned the request down: {message}")]

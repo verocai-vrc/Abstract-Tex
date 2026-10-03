@@ -32,7 +32,11 @@ pub enum LspEvent {
     Notification { method: String, params: Value },
     /// The server asked *us* something. The frontend answers through the `lsp_respond` command,
     /// quoting `id`.
-    Request { id: Value, method: String, params: Value },
+    Request {
+        id: Value,
+        method: String,
+        params: Value,
+    },
     /// The process died and was restarted. The editor should re-open its documents, because a
     /// fresh server knows nothing about them.
     Restarted { restarts: u32 },
@@ -124,14 +128,16 @@ impl LspSession {
         // cause. Found by running the app against a project path containing spaces.
         *self.bridge.lock().unwrap() = Some(bridge.clone());
 
-        let capabilities =
-            match bridge.initialize(root, client_capabilities(), texlab_settings(root, build_dir)).await {
-                Ok(capabilities) => capabilities,
-                Err(error) => {
-                    self.stop();
-                    return Err(format!("The language server did not start: {error}"));
-                }
-            };
+        let capabilities = match bridge
+            .initialize(root, client_capabilities(), texlab_settings(root, build_dir))
+            .await
+        {
+            Ok(capabilities) => capabilities,
+            Err(error) => {
+                self.stop();
+                return Err(format!("The language server did not start: {error}"));
+            }
+        };
         info!(root = %root.display(), "language server ready");
         Ok(capabilities)
     }

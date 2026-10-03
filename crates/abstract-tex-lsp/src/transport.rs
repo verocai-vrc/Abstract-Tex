@@ -25,7 +25,10 @@ pub struct FrameReader<R> {
 
 impl<R: AsyncRead + Unpin> FrameReader<R> {
     pub fn new(source: R) -> Self {
-        Self { source, pending: Vec::with_capacity(8 * 1024) }
+        Self {
+            source,
+            pending: Vec::with_capacity(8 * 1024),
+        }
     }
 
     /// The next message body, or `Ok(None)` once the stream has ended cleanly. A stream that
@@ -62,7 +65,10 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
             // Header names are case-insensitive per the spec.
             if let Some(value) = line.strip_prefix_ignore_case("Content-Length:") {
                 length = Some(
-                    value.trim().parse().map_err(|_| LspError::Protocol(format!("bad Content-Length: {value:?}")))?,
+                    value
+                        .trim()
+                        .parse()
+                        .map_err(|_| LspError::Protocol(format!("bad Content-Length: {value:?}")))?,
                 );
             }
         }
@@ -104,7 +110,10 @@ mod tests {
 
     /// A reader over in-memory bytes, delivered in chunks of `chunk` bytes to imitate a pipe.
     fn reader(bytes: Vec<u8>, chunk: usize) -> FrameReader<tokio::io::BufReader<std::io::Cursor<Vec<u8>>>> {
-        FrameReader::new(tokio::io::BufReader::with_capacity(chunk, std::io::Cursor::new(bytes)))
+        FrameReader::new(tokio::io::BufReader::with_capacity(
+            chunk,
+            std::io::Cursor::new(bytes),
+        ))
     }
 
     #[test]
@@ -139,7 +148,8 @@ mod tests {
 
     #[tokio::test]
     async fn header_names_are_case_insensitive_and_content_type_is_ignored() {
-        let bytes = b"content-length: 2\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}".to_vec();
+        let bytes = b"content-length: 2\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{}"
+            .to_vec();
         let mut r = reader(bytes, 8192);
         assert_eq!(r.next().await.unwrap().unwrap(), b"{}");
     }

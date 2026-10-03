@@ -77,7 +77,9 @@ fn is_arxiv_id_shape(id: &str) -> bool {
     }
     if let Some((archive, digits)) = without_version.split_once('/') {
         return !archive.is_empty()
-            && archive.bytes().all(|b| b.is_ascii_alphabetic() || b == b'.' || b == b'-')
+            && archive
+                .bytes()
+                .all(|b| b.is_ascii_alphabetic() || b == b'.' || b == b'-')
             && digits.len() == 7
             && digits.bytes().all(|b| b.is_ascii_digit());
     }
@@ -109,47 +111,74 @@ mod tests {
 
     #[test]
     fn a_bare_doi_is_identified() {
-        assert_eq!(identify("10.1371/journal.pcbi.1000387"), Some(Identified::Doi("10.1371/journal.pcbi.1000387".to_string())));
+        assert_eq!(
+            identify("10.1371/journal.pcbi.1000387"),
+            Some(Identified::Doi("10.1371/journal.pcbi.1000387".to_string()))
+        );
     }
 
     #[test]
     fn a_new_style_arxiv_id_is_identified() {
-        assert_eq!(identify("arXiv:1706.03762"), Some(Identified::Arxiv("1706.03762".to_string())));
+        assert_eq!(
+            identify("arXiv:1706.03762"),
+            Some(Identified::Arxiv("1706.03762".to_string()))
+        );
     }
 
     #[test]
     fn a_new_style_arxiv_id_with_version_is_identified() {
-        assert_eq!(identify("1706.03762v7"), Some(Identified::Arxiv("1706.03762v7".to_string())));
+        assert_eq!(
+            identify("1706.03762v7"),
+            Some(Identified::Arxiv("1706.03762v7".to_string()))
+        );
     }
 
     #[test]
     fn an_old_style_arxiv_id_is_identified() {
-        assert_eq!(identify("hep-th/9901001"), Some(Identified::Arxiv("hep-th/9901001".to_string())));
+        assert_eq!(
+            identify("hep-th/9901001"),
+            Some(Identified::Arxiv("hep-th/9901001".to_string()))
+        );
     }
 
     #[test]
     fn an_old_style_arxiv_id_with_a_version_suffix_is_identified() {
-        assert_eq!(identify("hep-th/9901001v2"), Some(Identified::Arxiv("hep-th/9901001v2".to_string())));
+        assert_eq!(
+            identify("hep-th/9901001v2"),
+            Some(Identified::Arxiv("hep-th/9901001v2".to_string()))
+        );
     }
 
     #[test]
     fn an_arxiv_abs_url_is_identified() {
-        assert_eq!(identify("https://arxiv.org/abs/2101.00001"), Some(Identified::Arxiv("2101.00001".to_string())));
+        assert_eq!(
+            identify("https://arxiv.org/abs/2101.00001"),
+            Some(Identified::Arxiv("2101.00001".to_string()))
+        );
     }
 
     #[test]
     fn a_13_digit_isbn_is_identified() {
-        assert_eq!(identify("978-0-262-03384-8"), Some(Identified::Isbn("9780262033848".to_string())));
+        assert_eq!(
+            identify("978-0-262-03384-8"),
+            Some(Identified::Isbn("9780262033848".to_string()))
+        );
     }
 
     #[test]
     fn a_10_digit_isbn_is_identified() {
-        assert_eq!(identify("0-262-03384-4"), Some(Identified::Isbn("0262033844".to_string())));
+        assert_eq!(
+            identify("0-262-03384-4"),
+            Some(Identified::Isbn("0262033844".to_string()))
+        );
     }
 
     #[test]
     fn a_10_digit_isbn_with_x_check_digit_is_identified() {
-        assert_eq!(identify("0-306-40615-X"), Some(Identified::Isbn("030640615X".to_string())));
+        assert_eq!(
+            identify("0-306-40615-X"),
+            Some(Identified::Isbn("030640615X".to_string()))
+        );
     }
 
     #[test]
@@ -173,6 +202,9 @@ mod tests {
     fn a_doi_is_preferred_when_a_string_could_also_look_like_something_else() {
         // No real collision exists between the three shapes, but this pins the order anyway so a
         // future change to one matcher's looseness is caught by a test, not just by luck.
-        assert_eq!(identify("10.1109/tcbb.2019.000001"), Some(Identified::Doi("10.1109/tcbb.2019.000001".to_string())));
+        assert_eq!(
+            identify("10.1109/tcbb.2019.000001"),
+            Some(Identified::Doi("10.1109/tcbb.2019.000001".to_string()))
+        );
     }
 }

@@ -38,7 +38,10 @@ pub fn locate(name: &str, env_override: &str) -> Option<Found> {
         let path = PathBuf::from(explicit);
         if path.is_file() {
             info!(?path, "using {name} from {env_override}");
-            return Some(Found { path, source: Source::EnvOverride });
+            return Some(Found {
+                path,
+                source: Source::EnvOverride,
+            });
         }
         warn!(?path, "{env_override} is set but is not a file; ignoring");
     }
@@ -46,13 +49,19 @@ pub fn locate(name: &str, env_override: &str) -> Option<Found> {
     if let Some(sidecar) = sidecar_path(name) {
         if sidecar.is_file() {
             info!(?sidecar, "using bundled {name} sidecar");
-            return Some(Found { path: sidecar, source: Source::Sidecar });
+            return Some(Found {
+                path: sidecar,
+                source: Source::Sidecar,
+            });
         }
     }
 
     if let Some(on_path) = find_on_path(&exe_name(name)) {
         info!(?on_path, "using {name} from PATH");
-        return Some(Found { path: on_path, source: Source::OnPath });
+        return Some(Found {
+            path: on_path,
+            source: Source::OnPath,
+        });
     }
 
     None
@@ -98,7 +107,10 @@ pub fn in_repo_binaries(name: &str, repo_root: &Path) -> Option<PathBuf> {
         .ok()?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .find(|path| path.file_name().is_some_and(|n| n.to_string_lossy().starts_with(&prefix)))
+        .find(|path| {
+            path.file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with(&prefix))
+        })
 }
 
 #[cfg(test)]
@@ -119,7 +131,13 @@ mod tests {
         std::env::set_var("ABSTRACT_TEX_SIDECAR_TEST_A", &fake);
         let found = locate("nothing-called-this-exists", "ABSTRACT_TEX_SIDECAR_TEST_A");
         std::env::remove_var("ABSTRACT_TEX_SIDECAR_TEST_A");
-        assert_eq!(found, Some(Found { path: fake, source: Source::EnvOverride }));
+        assert_eq!(
+            found,
+            Some(Found {
+                path: fake,
+                source: Source::EnvOverride
+            })
+        );
     }
 
     #[test]

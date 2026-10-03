@@ -54,7 +54,11 @@ const UNSAFE_IN_TEX: &[char] = &[' ', ',', '%', '#', '{', '}', '\\', '~', '$', '
 /// (module doc). `Ok(None)` when this document cannot have a draft right now, which is never an
 /// error: the full build runs anyway.
 pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayout>> {
-    let stem = job.root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".to_string());
+    let stem = job
+        .root_file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "main".to_string());
 
     // A draft borrows the full build's numbering. Without a successful full build to borrow from,
     // chapter 3 would start on page 1 as chapter 1: a draft that looks right and is not.
@@ -72,7 +76,10 @@ pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayou
     let Some(root_from_wrapper) = relative_path_up(dir_in_project, &job.root_file) else {
         return Ok(None);
     };
-    if draft.chapter.is_empty() || draft.chapter.contains(UNSAFE_IN_TEX) || root_from_wrapper.contains(UNSAFE_IN_TEX) {
+    if draft.chapter.is_empty()
+        || draft.chapter.contains(UNSAFE_IN_TEX)
+        || root_from_wrapper.contains(UNSAFE_IN_TEX)
+    {
         return Ok(None);
     }
 
@@ -95,7 +102,10 @@ pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayou
     );
     fs::write(draft.dir.join(&wrapper_name), wrapper_text)?;
 
-    Ok(Some(DraftLayout { wrapper: dir_in_project.join(wrapper_name), out_dir }))
+    Ok(Some(DraftLayout {
+        wrapper: dir_in_project.join(wrapper_name),
+        out_dir,
+    }))
 }
 
 /// Where a draft in `draft_dir` writes its PDF, log and `.synctex.gz`: what [`prepare`] lays out
@@ -181,23 +191,43 @@ mod tests {
     }
 
     fn draft(dir: &Path, chapter: &str) -> DraftJob {
-        DraftJob { chapter: chapter.to_string(), dir: dir.join(".abstract-tex/draft") }
+        DraftJob {
+            chapter: chapter.to_string(),
+            dir: dir.join(".abstract-tex/draft"),
+        }
     }
 
     #[test]
     fn the_wrapper_names_the_chapter_and_inputs_the_root_by_a_relative_path() {
         let project = built_project();
-        let layout = prepare(&job(project.path(), "main.tex"), &draft(project.path(), "chapters/two")).unwrap().unwrap();
+        let layout = prepare(
+            &job(project.path(), "main.tex"),
+            &draft(project.path(), "chapters/two"),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(layout.wrapper, Path::new(".abstract-tex/draft/main.tex"));
         let wrapper = fs::read_to_string(project.path().join(&layout.wrapper)).unwrap();
-        assert!(wrapper.contains("\\includeonly{chapters/two}\n\\input{../../main.tex}\n"), "{wrapper}");
+        assert!(
+            wrapper.contains("\\includeonly{chapters/two}\n\\input{../../main.tex}\n"),
+            "{wrapper}"
+        );
     }
 
     #[test]
     fn a_root_in_a_subfolder_is_reached_through_it_and_the_wrapper_takes_its_name() {
         let project = built_project();
-        fs::rename(project.path().join(".abstract-tex/build/main.aux"), project.path().join(".abstract-tex/build/thesis.aux")).unwrap();
-        let layout = prepare(&job(project.path(), "book/thesis.tex"), &draft(project.path(), "two")).unwrap().unwrap();
+        fs::rename(
+            project.path().join(".abstract-tex/build/main.aux"),
+            project.path().join(".abstract-tex/build/thesis.aux"),
+        )
+        .unwrap();
+        let layout = prepare(
+            &job(project.path(), "book/thesis.tex"),
+            &draft(project.path(), "two"),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(layout.wrapper, Path::new(".abstract-tex/draft/thesis.tex"));
         let wrapper = fs::read_to_string(project.path().join(&layout.wrapper)).unwrap();
         assert!(wrapper.contains("\\input{../../book/thesis.tex}"), "{wrapper}");
@@ -206,11 +236,19 @@ mod tests {
     #[test]
     fn the_draft_folder_gets_the_cross_references_and_none_of_the_outputs() {
         let project = built_project();
-        let layout = prepare(&job(project.path(), "main.tex"), &draft(project.path(), "chapters/two")).unwrap().unwrap();
+        let layout = prepare(
+            &job(project.path(), "main.tex"),
+            &draft(project.path(), "chapters/two"),
+        )
+        .unwrap()
+        .unwrap();
         let has = |name: &str| layout.out_dir.join(name).is_file();
         assert!(has("main.aux") && has("chapters/two.aux") && has("main.toc"));
         assert!(!has("main.pdf") && !has("main.log") && !has("main.synctex.gz"));
-        assert!(!has(incremental::WARM_MARKER), "the marker speaks for the full build only");
+        assert!(
+            !has(incremental::WARM_MARKER),
+            "the marker speaks for the full build only"
+        );
     }
 
     #[test]
@@ -219,7 +257,12 @@ mod tests {
         let build = project.path().join(".abstract-tex/build");
         let before = crate::incremental::AuxSnapshot::read(&build);
         let files_before = fs::read_dir(&build).unwrap().count();
-        prepare(&job(project.path(), "main.tex"), &draft(project.path(), "chapters/two")).unwrap().unwrap();
+        prepare(
+            &job(project.path(), "main.tex"),
+            &draft(project.path(), "chapters/two"),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(crate::incremental::AuxSnapshot::read(&build), before);
         assert_eq!(fs::read_dir(&build).unwrap().count(), files_before);
     }
@@ -227,21 +270,47 @@ mod tests {
     #[test]
     fn whatever_the_last_draft_left_behind_is_cleared() {
         let project = built_project();
-        let (j, d) = (job(project.path(), "main.tex"), draft(project.path(), "chapters/two"));
+        let (j, d) = (
+            job(project.path(), "main.tex"),
+            draft(project.path(), "chapters/two"),
+        );
         let layout = prepare(&j, &d).unwrap().unwrap();
-        fs::write(layout.out_dir.join("chapters/two.aux"), "rewritten by the last draft").unwrap();
+        fs::write(
+            layout.out_dir.join("chapters/two.aux"),
+            "rewritten by the last draft",
+        )
+        .unwrap();
         fs::write(layout.out_dir.join("stale.aux"), "").unwrap();
         prepare(&j, &d).unwrap().unwrap();
-        assert_eq!(fs::read_to_string(layout.out_dir.join("chapters/two.aux")).unwrap(), "\\setcounter{page}{12}\n");
+        assert_eq!(
+            fs::read_to_string(layout.out_dir.join("chapters/two.aux")).unwrap(),
+            "\\setcounter{page}{12}\n"
+        );
         assert!(!layout.out_dir.join("stale.aux").exists());
     }
 
     #[test]
     fn no_draft_without_a_successful_full_build_to_borrow_numbering_from() {
         let project = built_project();
-        fs::remove_file(project.path().join(".abstract-tex/build").join(incremental::WARM_MARKER)).unwrap();
-        assert_eq!(prepare(&job(project.path(), "main.tex"), &draft(project.path(), "chapters/two")).unwrap(), None);
-        assert!(!project.path().join(".abstract-tex/draft").exists(), "nothing is written when there is no draft");
+        fs::remove_file(
+            project
+                .path()
+                .join(".abstract-tex/build")
+                .join(incremental::WARM_MARKER),
+        )
+        .unwrap();
+        assert_eq!(
+            prepare(
+                &job(project.path(), "main.tex"),
+                &draft(project.path(), "chapters/two")
+            )
+            .unwrap(),
+            None
+        );
+        assert!(
+            !project.path().join(".abstract-tex/draft").exists(),
+            "nothing is written when there is no draft"
+        );
     }
 
     #[test]
@@ -251,7 +320,11 @@ mod tests {
             let result = prepare(&job(project.path(), "main.tex"), &draft(project.path(), chapter)).unwrap();
             assert_eq!(result, None, "{chapter:?}");
         }
-        let spaced_root = prepare(&job(project.path(), "my thesis.tex"), &draft(project.path(), "two")).unwrap();
+        let spaced_root = prepare(
+            &job(project.path(), "my thesis.tex"),
+            &draft(project.path(), "two"),
+        )
+        .unwrap();
         assert_eq!(spaced_root, None);
     }
 
@@ -269,9 +342,15 @@ mod tests {
             project.path().join("chapters"),
             elsewhere.path().to_path_buf(),
         ] {
-            let refused = DraftJob { chapter: "two".into(), dir: dir.clone() };
+            let refused = DraftJob {
+                chapter: "two".into(),
+                dir: dir.clone(),
+            };
             assert_eq!(prepare(&j, &refused).unwrap(), None, "{}", dir.display());
         }
-        assert!(project.path().join("chapters/build/figure.pdf").is_file(), "an author's folder named build is never cleared");
+        assert!(
+            project.path().join("chapters/build/figure.pdf").is_file(),
+            "an author's folder named build is never cleared"
+        );
     }
 }

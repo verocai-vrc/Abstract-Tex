@@ -59,7 +59,10 @@ fn collect(root: &Path, dir: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
         if path.is_dir() {
             collect(root, &path, files);
         } else {
-            files.insert(path.strip_prefix(root).unwrap().to_path_buf(), fs::read(&path).unwrap());
+            files.insert(
+                path.strip_prefix(root).unwrap().to_path_buf(),
+                fs::read(&path).unwrap(),
+            );
         }
     }
 }
@@ -89,14 +92,22 @@ async fn shell_escape_writes_into_the_build_folder_and_never_the_source_tree() {
     let before = source_tree(tmp.path());
     let job = job(tmp.path(), true);
 
-    let outcome = engine().build(&job, CancellationToken::new(), None).await.unwrap();
+    let outcome = engine()
+        .build(&job, CancellationToken::new(), None)
+        .await
+        .unwrap();
     assert!(outcome.success, "{}", outcome.stderr);
     assert!(outcome.pdf.is_some() && outcome.log.is_some() && outcome.synctex.is_some());
 
-    assert_eq!(source_tree(tmp.path()), before, "a shell command wrote into the source tree");
+    assert_eq!(
+        source_tree(tmp.path()),
+        before,
+        "a shell command wrote into the source tree"
+    );
 
     // Where the commands actually ran, in their own words: `pwd` printed by the document.
-    let marker = fs::read_to_string(job.out_dir.join("where-commands-run.txt")).expect("the marker must be in the build folder");
+    let marker = fs::read_to_string(job.out_dir.join("where-commands-run.txt"))
+        .expect("the marker must be in the build folder");
     assert_eq!(
         fs::canonicalize(marker.trim()).unwrap(),
         fs::canonicalize(&job.out_dir).unwrap(),
@@ -108,10 +119,22 @@ async fn shell_escape_writes_into_the_build_folder_and_never_the_source_tree() {
     // sets, since the `.` that used to answer them is now the build folder. A missing one is not
     // always fatal to pdfTeX, so check the two that would only warn.
     let log = String::from_utf8_lossy(&fs::read(outcome.log.as_ref().unwrap()).unwrap()).into_owned();
-    assert!(!log.contains("Citation `knuth1984' on page"), "BibTeX did not find refs.bib through BIBINPUTS:\n{log}");
-    assert!(!log.contains("File `dot' not found"), "graphicx did not find the figure through TEXINPUTS:\n{log}");
-    assert!(job.out_dir.join("chapters/one.aux").is_file(), "the \\include'd chapter's own .aux is missing");
-    assert!(job.out_dir.join("main.bbl").is_file(), "no .bbl: BibTeX never ran, or ran somewhere else");
+    assert!(
+        !log.contains("Citation `knuth1984' on page"),
+        "BibTeX did not find refs.bib through BIBINPUTS:\n{log}"
+    );
+    assert!(
+        !log.contains("File `dot' not found"),
+        "graphicx did not find the figure through TEXINPUTS:\n{log}"
+    );
+    assert!(
+        job.out_dir.join("chapters/one.aux").is_file(),
+        "the \\include'd chapter's own .aux is missing"
+    );
+    assert!(
+        job.out_dir.join("main.bbl").is_file(),
+        "no .bbl: BibTeX never ran, or ran somewhere else"
+    );
 }
 
 /// The documented price of the move, pinned so the day it changes, someone is told. A command
@@ -126,11 +149,21 @@ async fn a_shell_command_given_a_project_relative_path_finds_nothing() {
     project_copy(tmp.path());
     let job = job(tmp.path(), true);
 
-    engine().build(&job, CancellationToken::new(), None).await.unwrap();
+    engine()
+        .build(&job, CancellationToken::new(), None)
+        .await
+        .unwrap();
 
-    let read_back = fs::read(job.out_dir.join("read-a-relative-path.txt")).expect("the command still ran, and still redirected");
-    assert!(read_back.is_empty(), "a relative project path resolved from the build folder after all: {read_back:?}");
-    assert!(!tmp.path().join("read-a-relative-path.txt").exists(), "and it was not written into the source tree either");
+    let read_back = fs::read(job.out_dir.join("read-a-relative-path.txt"))
+        .expect("the command still ran, and still redirected");
+    assert!(
+        read_back.is_empty(),
+        "a relative project path resolved from the build folder after all: {read_back:?}"
+    );
+    assert!(
+        !tmp.path().join("read-a-relative-path.txt").exists(),
+        "and it was not written into the source tree either"
+    );
 }
 
 /// Only the shell-escape branch moves. A build that cannot run commands cannot write anywhere it
@@ -146,7 +179,10 @@ async fn without_shell_escape_nothing_moves_and_the_log_still_names_files_relati
     let before = source_tree(tmp.path());
     let job = job(tmp.path(), false);
 
-    let outcome = engine().build(&job, CancellationToken::new(), None).await.unwrap();
+    let outcome = engine()
+        .build(&job, CancellationToken::new(), None)
+        .await
+        .unwrap();
     assert!(outcome.success, "{}", outcome.stderr);
     assert_eq!(source_tree(tmp.path()), before);
 
@@ -158,5 +194,8 @@ async fn without_shell_escape_nothing_moves_and_the_log_still_names_files_relati
     // a naive search for it would miss. Unwrapping the way `texlog`'s tokenizer does is more than
     // this test needs: the relative spelling is short enough to survive on one line.
     let log = String::from_utf8_lossy(&fs::read(outcome.log.as_ref().unwrap()).unwrap()).into_owned();
-    assert!(log.contains("(./main.tex"), "expected the relative spelling in the log:\n{log}");
+    assert!(
+        log.contains("(./main.tex"),
+        "expected the relative spelling in the log:\n{log}"
+    );
 }

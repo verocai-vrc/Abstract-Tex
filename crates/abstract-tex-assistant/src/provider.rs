@@ -40,11 +40,17 @@ pub enum Provider {
 
 impl Provider {
     pub fn anthropic(model: &str) -> Self {
-        Self::Anthropic { model: model.to_string(), address: ANTHROPIC_ADDRESS.to_string() }
+        Self::Anthropic {
+            model: model.to_string(),
+            address: ANTHROPIC_ADDRESS.to_string(),
+        }
     }
 
     pub fn openai_compatible(address: &str, model: &str) -> Self {
-        Self::OpenAiCompatible { model: model.to_string(), address: address.to_string() }
+        Self::OpenAiCompatible {
+            model: model.to_string(),
+            address: address.to_string(),
+        }
     }
 
     /// What to call this provider in a sentence.
@@ -101,11 +107,17 @@ pub struct SystemPart {
 
 impl SystemPart {
     pub fn plain(text: &str) -> Self {
-        Self { text: text.to_string(), cache_breakpoint: false }
+        Self {
+            text: text.to_string(),
+            cache_breakpoint: false,
+        }
     }
 
     pub fn cached(text: &str) -> Self {
-        Self { text: text.to_string(), cache_breakpoint: true }
+        Self {
+            text: text.to_string(),
+            cache_breakpoint: true,
+        }
     }
 }
 
@@ -123,7 +135,10 @@ pub struct Message {
 
 impl Message {
     pub fn user(text: &str) -> Self {
-        Self { role: Role::User, text: text.to_string() }
+        Self {
+            role: Role::User,
+            text: text.to_string(),
+        }
     }
 }
 
@@ -198,13 +213,19 @@ pub struct Usage {
 /// The checks run before anything is built, in the order a person would want to hear them: the
 /// prompt has something in it, the address is usable, the key is there when it must be, and the
 /// key is not about to cross a network in the clear.
-pub fn build_request(provider: &Provider, key: Option<&str>, prompt: &Prompt) -> Result<HttpRequest, AssistantError> {
+pub fn build_request(
+    provider: &Provider,
+    key: Option<&str>,
+    prompt: &Prompt,
+) -> Result<HttpRequest, AssistantError> {
     if prompt.messages.is_empty() {
         return Err(AssistantError::EmptyPrompt);
     }
     let key = key.map(str::trim).filter(|key| !key.is_empty());
     if matches!(provider, Provider::Anthropic { .. }) && key.is_none() {
-        return Err(AssistantError::MissingKey { provider: provider.label().to_string() });
+        return Err(AssistantError::MissingKey {
+            provider: provider.label().to_string(),
+        });
     }
     let base = checked_address(provider.address(), key.is_some())?;
 
@@ -247,14 +268,23 @@ pub fn build_request(provider: &Provider, key: Option<&str>, prompt: &Prompt) ->
                 let joined: Vec<&str> = prompt.system.iter().map(|part| part.text.as_str()).collect();
                 messages.push(json!({ "role": "system", "content": joined.join("\n\n") }));
             }
-            messages.extend(prompt.messages.iter().map(|m| json!({ "role": role_name(m.role), "content": m.text })));
+            messages.extend(
+                prompt
+                    .messages
+                    .iter()
+                    .map(|m| json!({ "role": role_name(m.role), "content": m.text })),
+            );
             let body = json!({ "model": model, "max_tokens": prompt.max_tokens, "messages": messages });
 
             let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
             if let Some(key) = key {
                 headers.push(("authorization".into(), format!("Bearer {key}")));
             }
-            Ok(HttpRequest { url: format!("{base}/chat/completions"), headers, body: body.to_string() })
+            Ok(HttpRequest {
+                url: format!("{base}/chat/completions"),
+                headers,
+                body: body.to_string(),
+            })
         }
     }
 }
@@ -269,7 +299,8 @@ fn role_name(role: Role) -> &'static str {
 /// The address with no trailing slash, if it is a web address at all — and, when a key will be
 /// sent with it, only if that key will not cross a network unencrypted.
 fn checked_address(address: &str, sending_a_key: bool) -> Result<String, AssistantError> {
-    let url = reqwest::Url::parse(address.trim()).map_err(|_| AssistantError::BadAddress(address.to_string()))?;
+    let url =
+        reqwest::Url::parse(address.trim()).map_err(|_| AssistantError::BadAddress(address.to_string()))?;
     if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
         return Err(AssistantError::BadAddress(address.to_string()));
     }
@@ -287,7 +318,11 @@ fn is_on_this_computer(url: &reqwest::Url) -> bool {
         return true;
     }
     // An IPv6 literal comes back in brackets: `[::1]`.
-    host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
+    host.trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 /// Read a provider's answer. `status` and `body` are what came back, whatever they were.
@@ -297,7 +332,11 @@ pub fn parse_response(provider: &Provider, status: u16, body: &str) -> Result<Re
         401 | 403 => return Err(AssistantError::KeyRefused),
         429 => return Err(AssistantError::RateLimited),
         500..=599 => return Err(AssistantError::ProviderTrouble { status }),
-        _ => return Err(AssistantError::Rejected { message: error_text(body, status) }),
+        _ => {
+            return Err(AssistantError::Rejected {
+                message: error_text(body, status),
+            })
+        }
     }
     let answer: Value = serde_json::from_str(body).map_err(|_| AssistantError::UnreadableAnswer)?;
     let reply = match provider {
@@ -311,7 +350,10 @@ pub fn parse_response(provider: &Provider, status: u16, body: &str) -> Result<Re
 }
 
 fn read_anthropic(answer: &Value) -> Result<Reply, AssistantError> {
-    let blocks = answer.get("content").and_then(Value::as_array).ok_or(AssistantError::UnreadableAnswer)?;
+    let blocks = answer
+        .get("content")
+        .and_then(Value::as_array)
+        .ok_or(AssistantError::UnreadableAnswer)?;
     // Only `text` blocks: a model may also return thinking or tool blocks, which are not prose.
     let text: String = blocks
         .iter()
@@ -332,10 +374,18 @@ fn read_anthropic(answer: &Value) -> Result<Reply, AssistantError> {
 }
 
 fn read_openai(answer: &Value) -> Result<Reply, AssistantError> {
-    let choice = answer.get("choices").and_then(|c| c.get(0)).ok_or(AssistantError::UnreadableAnswer)?;
+    let choice = answer
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .ok_or(AssistantError::UnreadableAnswer)?;
     // `content` is `null` when a model answered with a tool call or was filtered; that is "no
     // text", reported as such by the caller, not an unreadable shape.
-    let text = choice.get("message").and_then(|m| m.get("content")).and_then(Value::as_str).unwrap_or_default().to_string();
+    let text = choice
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     let usage = answer.get("usage");
     let cached = usage
         .and_then(|u| u.get("prompt_tokens_details"))
@@ -354,7 +404,11 @@ fn read_openai(answer: &Value) -> Result<Reply, AssistantError> {
 }
 
 fn count(object: Option<&Value>, field: &str) -> u32 {
-    object.and_then(|o| o.get(field)).and_then(Value::as_u64).map(|n| n.min(u32::MAX as u64) as u32).unwrap_or(0)
+    object
+        .and_then(|o| o.get(field))
+        .and_then(Value::as_u64)
+        .map(|n| n.min(u32::MAX as u64) as u32)
+        .unwrap_or(0)
 }
 
 /// The provider's own words for what was wrong, shortened — or the status when it gave none (a
@@ -363,11 +417,18 @@ fn error_text(body: &str, status: u16) -> String {
     let parsed: Option<Value> = serde_json::from_str(body).ok();
     let message = parsed.as_ref().and_then(|v| {
         let error = v.get("error")?;
-        error.get("message").and_then(Value::as_str).or_else(|| error.as_str()).map(str::to_string)
+        error
+            .get("message")
+            .and_then(Value::as_str)
+            .or_else(|| error.as_str())
+            .map(str::to_string)
     });
     match message {
         Some(message) if message.chars().count() > MESSAGE_LIMIT => {
-            format!("{}…", message.chars().take(MESSAGE_LIMIT).collect::<String>().trim_end())
+            format!(
+                "{}…",
+                message.chars().take(MESSAGE_LIMIT).collect::<String>().trim_end()
+            )
         }
         Some(message) => message,
         None => format!("it answered with status {status}."),
@@ -380,14 +441,21 @@ mod tests {
 
     fn prompt() -> Prompt {
         Prompt {
-            system: vec![SystemPart::plain("You tighten prose."), SystemPart::cached("THE WHOLE MANUSCRIPT")],
+            system: vec![
+                SystemPart::plain("You tighten prose."),
+                SystemPart::cached("THE WHOLE MANUSCRIPT"),
+            ],
             messages: vec![Message::user("Tighten: it is what it is.")],
             max_tokens: 500,
         }
     }
 
     fn header<'a>(request: &'a HttpRequest, name: &str) -> Option<&'a str> {
-        request.headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+        request
+            .headers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
     }
 
     fn anthropic() -> Provider {
@@ -408,13 +476,22 @@ mod tests {
         let body: Value = serde_json::from_str(&request.body).unwrap();
         assert_eq!(body["model"], "claude-x");
         assert_eq!(body["max_tokens"], 500);
-        assert_eq!(body["messages"][0], json!({ "role": "user", "content": "Tighten: it is what it is." }));
-        assert_eq!(body["system"][0], json!({ "type": "text", "text": "You tighten prose." }));
+        assert_eq!(
+            body["messages"][0],
+            json!({ "role": "user", "content": "Tighten: it is what it is." })
+        );
+        assert_eq!(
+            body["system"][0],
+            json!({ "type": "text", "text": "You tighten prose." })
+        );
         assert_eq!(
             body["system"][1],
             json!({ "type": "text", "text": "THE WHOLE MANUSCRIPT", "cache_control": { "type": "ephemeral" } })
         );
-        assert!(!request.body.contains("sk-secret"), "the key travels in a header, never in the payload");
+        assert!(
+            !request.body.contains("sk-secret"),
+            "the key travels in a header, never in the payload"
+        );
     }
 
     #[test]
@@ -424,7 +501,10 @@ mod tests {
         assert_eq!(header(&request, "authorization"), None);
 
         let body: Value = serde_json::from_str(&request.body).unwrap();
-        assert_eq!(body["messages"][0], json!({ "role": "system", "content": "You tighten prose.\n\nTHE WHOLE MANUSCRIPT" }));
+        assert_eq!(
+            body["messages"][0],
+            json!({ "role": "system", "content": "You tighten prose.\n\nTHE WHOLE MANUSCRIPT" })
+        );
         assert_eq!(body["messages"][1]["role"], "user");
         assert!(!request.body.contains("cache_control"));
 
@@ -436,7 +516,8 @@ mod tests {
     fn no_system_prompt_means_no_system_field() {
         let mut bare = prompt();
         bare.system.clear();
-        let body: Value = serde_json::from_str(&build_request(&anthropic(), Some("k"), &bare).unwrap().body).unwrap();
+        let body: Value =
+            serde_json::from_str(&build_request(&anthropic(), Some("k"), &bare).unwrap().body).unwrap();
         assert!(body.get("system").is_none());
     }
 
@@ -453,15 +534,29 @@ mod tests {
     #[test]
     fn a_key_is_never_sent_over_plain_http_to_another_machine() {
         let remote = Provider::openai_compatible("http://models.example.com/v1", "m");
-        assert!(matches!(build_request(&remote, Some("k"), &prompt()), Err(AssistantError::InsecureAddress)));
+        assert!(matches!(
+            build_request(&remote, Some("k"), &prompt()),
+            Err(AssistantError::InsecureAddress)
+        ));
         // Not a name that merely looks local either.
         let lookalike = Provider::openai_compatible("http://localhost.example.com/v1", "m");
-        assert!(matches!(build_request(&lookalike, Some("k"), &prompt()), Err(AssistantError::InsecureAddress)));
+        assert!(matches!(
+            build_request(&lookalike, Some("k"), &prompt()),
+            Err(AssistantError::InsecureAddress)
+        ));
 
         // This computer is fine, in each spelling; so is https anywhere.
-        for address in ["http://localhost:8080/v1", "http://127.0.0.1:8080/v1", "http://[::1]:8080/v1", "https://models.example.com/v1"] {
+        for address in [
+            "http://localhost:8080/v1",
+            "http://127.0.0.1:8080/v1",
+            "http://[::1]:8080/v1",
+            "https://models.example.com/v1",
+        ] {
             let provider = Provider::openai_compatible(address, "m");
-            assert!(build_request(&provider, Some("k"), &prompt()).is_ok(), "{address}");
+            assert!(
+                build_request(&provider, Some("k"), &prompt()).is_ok(),
+                "{address}"
+            );
         }
         // With no key there is nothing secret to protect on the wire, so a LAN model is allowed.
         let lan = Provider::openai_compatible("http://192.168.1.20:11434/v1", "m");
@@ -483,7 +578,10 @@ mod tests {
     fn a_prompt_with_no_message_is_not_sent() {
         let mut empty = prompt();
         empty.messages.clear();
-        assert!(matches!(build_request(&anthropic(), Some("k"), &empty), Err(AssistantError::EmptyPrompt)));
+        assert!(matches!(
+            build_request(&anthropic(), Some("k"), &empty),
+            Err(AssistantError::EmptyPrompt)
+        ));
     }
 
     #[test]
@@ -493,7 +591,10 @@ mod tests {
         assert!(!shown.contains("sk-secret"), "{shown}");
         assert!(shown.contains("<hidden>") && shown.contains("THE WHOLE MANUSCRIPT"));
 
-        let bearer = format!("{:?}", build_request(&local(), Some("tok-secret"), &prompt()).unwrap());
+        let bearer = format!(
+            "{:?}",
+            build_request(&local(), Some("tok-secret"), &prompt()).unwrap()
+        );
         assert!(!bearer.contains("tok-secret"), "{bearer}");
     }
 
@@ -501,7 +602,10 @@ mod tests {
     fn the_key_slot_separates_services_and_hosts() {
         assert_eq!(anthropic().key_slot(), "anthropic");
         assert_eq!(local().key_slot(), "openai-compatible@localhost:11434");
-        assert_eq!(Provider::openai_compatible("https://api.openai.com/v1", "m").key_slot(), "openai-compatible@api.openai.com");
+        assert_eq!(
+            Provider::openai_compatible("https://api.openai.com/v1", "m").key_slot(),
+            "openai-compatible@api.openai.com"
+        );
     }
 
     #[test]
@@ -519,13 +623,26 @@ mod tests {
         let reply = parse_response(&anthropic(), 200, body).unwrap();
         assert_eq!(reply.text, "It is. Done.");
         assert!(!reply.truncated);
-        assert_eq!(reply.usage, Usage { input_tokens: 12, output_tokens: 5, cache_read_tokens: 4000, cache_write_tokens: 30 });
+        assert_eq!(
+            reply.usage,
+            Usage {
+                input_tokens: 12,
+                output_tokens: 5,
+                cache_read_tokens: 4000,
+                cache_write_tokens: 30
+            }
+        );
     }
 
     #[test]
     fn an_answer_that_ran_out_of_room_says_so_in_either_format() {
-        let anthropic_body = r#"{"content":[{"type":"text","text":"Half a sen"}],"stop_reason":"max_tokens","usage":{}}"#;
-        assert!(parse_response(&anthropic(), 200, anthropic_body).unwrap().truncated);
+        let anthropic_body =
+            r#"{"content":[{"type":"text","text":"Half a sen"}],"stop_reason":"max_tokens","usage":{}}"#;
+        assert!(
+            parse_response(&anthropic(), 200, anthropic_body)
+                .unwrap()
+                .truncated
+        );
         let openai_body = r#"{"choices":[{"message":{"content":"Half a sen"},"finish_reason":"length"}]}"#;
         assert!(parse_response(&local(), 200, openai_body).unwrap().truncated);
     }
@@ -536,38 +653,75 @@ mod tests {
             "usage":{"prompt_tokens":1000,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":900}}}"#;
         let reply = parse_response(&local(), 200, body).unwrap();
         assert_eq!(reply.text, "Fine.");
-        assert_eq!(reply.usage, Usage { input_tokens: 100, output_tokens: 7, cache_read_tokens: 900, cache_write_tokens: 0 });
+        assert_eq!(
+            reply.usage,
+            Usage {
+                input_tokens: 100,
+                output_tokens: 7,
+                cache_read_tokens: 900,
+                cache_write_tokens: 0
+            }
+        );
     }
 
     #[test]
     fn refusals_are_sentences_that_say_what_to_do() {
         let none = "";
-        assert!(matches!(parse_response(&anthropic(), 401, none), Err(AssistantError::KeyRefused)));
-        assert!(matches!(parse_response(&anthropic(), 403, none), Err(AssistantError::KeyRefused)));
-        assert!(matches!(parse_response(&anthropic(), 429, none), Err(AssistantError::RateLimited)));
-        assert!(matches!(parse_response(&anthropic(), 529, none), Err(AssistantError::ProviderTrouble { status: 529 })));
-        assert!(matches!(parse_response(&anthropic(), 200, "<html>"), Err(AssistantError::UnreadableAnswer)));
-        assert!(matches!(parse_response(&anthropic(), 200, r#"{"content":[]}"#), Err(AssistantError::EmptyAnswer)));
-        assert!(matches!(parse_response(&local(), 200, r#"{"choices":[{"message":{"content":null}}]}"#), Err(AssistantError::EmptyAnswer)));
+        assert!(matches!(
+            parse_response(&anthropic(), 401, none),
+            Err(AssistantError::KeyRefused)
+        ));
+        assert!(matches!(
+            parse_response(&anthropic(), 403, none),
+            Err(AssistantError::KeyRefused)
+        ));
+        assert!(matches!(
+            parse_response(&anthropic(), 429, none),
+            Err(AssistantError::RateLimited)
+        ));
+        assert!(matches!(
+            parse_response(&anthropic(), 529, none),
+            Err(AssistantError::ProviderTrouble { status: 529 })
+        ));
+        assert!(matches!(
+            parse_response(&anthropic(), 200, "<html>"),
+            Err(AssistantError::UnreadableAnswer)
+        ));
+        assert!(matches!(
+            parse_response(&anthropic(), 200, r#"{"content":[]}"#),
+            Err(AssistantError::EmptyAnswer)
+        ));
+        assert!(matches!(
+            parse_response(&local(), 200, r#"{"choices":[{"message":{"content":null}}]}"#),
+            Err(AssistantError::EmptyAnswer)
+        ));
     }
 
     #[test]
     fn a_rejected_request_repeats_the_providers_words_but_not_a_whole_error_page() {
-        let anthropic_error = r#"{"type":"error","error":{"type":"invalid_request_error","message":"model: unknown"}}"#;
+        let anthropic_error =
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"model: unknown"}}"#;
         match parse_response(&anthropic(), 400, anthropic_error) {
             Err(AssistantError::Rejected { message }) => assert_eq!(message, "model: unknown"),
             other => panic!("{other:?}"),
         }
         let plain = r#"{"error":"model not found"}"#;
-        assert!(matches!(parse_response(&local(), 404, plain), Err(AssistantError::Rejected { message }) if message == "model not found"));
+        assert!(
+            matches!(parse_response(&local(), 404, plain), Err(AssistantError::Rejected { message }) if message == "model not found")
+        );
 
         match parse_response(&local(), 404, "<html><body>Not Found</body></html>") {
-            Err(AssistantError::Rejected { message }) => assert!(message.contains("404") && !message.contains("<html>"), "{message}"),
+            Err(AssistantError::Rejected { message }) => assert!(
+                message.contains("404") && !message.contains("<html>"),
+                "{message}"
+            ),
             other => panic!("{other:?}"),
         }
         let long = format!(r#"{{"error":{{"message":"{}"}}}}"#, "x".repeat(2000));
         match parse_response(&local(), 400, &long) {
-            Err(AssistantError::Rejected { message }) => assert!(message.chars().count() <= MESSAGE_LIMIT + 1),
+            Err(AssistantError::Rejected { message }) => {
+                assert!(message.chars().count() <= MESSAGE_LIMIT + 1)
+            }
             other => panic!("{other:?}"),
         }
     }

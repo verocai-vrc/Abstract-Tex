@@ -101,7 +101,10 @@ fn missing_required_fields(entry: &Entry) -> Vec<Finding> {
         .map(|field| Finding {
             rule: "missing-field",
             severity: Severity::Error,
-            message: format!("'{}' has no '{field}' field, which every @{} entry needs.", entry.key, entry.entry_type),
+            message: format!(
+                "'{}' has no '{field}' field, which every @{} entry needs.",
+                entry.key, entry.entry_type
+            ),
             key: entry.key.clone(),
             at: entry.span,
         })
@@ -145,7 +148,10 @@ fn wrong_dash_in_page_range(entry: &Entry) -> Option<Finding> {
     Some(Finding {
         rule: "page-range-dash",
         severity: Severity::Warning,
-        message: format!("'{}' has pages = {{{trimmed}}}, a hyphen; a page range wants an en-dash: {before}--{after}.", entry.key),
+        message: format!(
+            "'{}' has pages = {{{trimmed}}}, a hyphen; a page range wants an en-dash: {before}--{after}.",
+            entry.key
+        ),
         key: entry.key.clone(),
         at: field.span,
     })
@@ -158,7 +164,8 @@ mod tests {
 
     #[test]
     fn a_clean_entry_has_no_findings() {
-        let bib = parse("@article{k, author = {A}, title = {T}, journal = {J}, year = 2019, pages = {12--15}}");
+        let bib =
+            parse("@article{k, author = {A}, title = {T}, journal = {J}, year = 2019, pages = {12--15}}");
         assert_eq!(check(&bib), Vec::new());
     }
 
@@ -169,7 +176,11 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule, "missing-field");
         assert_eq!(findings[0].severity, Severity::Error);
-        assert!(findings[0].message.contains("'journal'"), "{}", findings[0].message);
+        assert!(
+            findings[0].message.contains("'journal'"),
+            "{}",
+            findings[0].message
+        );
         assert_eq!(findings[0].key, "k");
     }
 
@@ -178,7 +189,11 @@ mod tests {
         let bib = parse("@article{k, title = {T}}");
         let findings = check(&bib);
         let rules: Vec<&str> = findings.iter().map(|f| f.rule).collect();
-        assert_eq!(rules, vec!["missing-field", "missing-field", "missing-field"], "{findings:#?}");
+        assert_eq!(
+            rules,
+            vec!["missing-field", "missing-field", "missing-field"],
+            "{findings:#?}"
+        );
     }
 
     #[test]

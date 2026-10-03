@@ -45,7 +45,9 @@ fn main() {
                 "flood" => {
                     let fill = "x".repeat(16 * 1024);
                     for _ in 0..20 {
-                        send(&format!(r#"{{"jsonrpc":"2.0","method":"telemetry/event","params":{{"fill":"{fill}"}}}}"#));
+                        send(&format!(
+                            r#"{{"jsonrpc":"2.0","method":"telemetry/event","params":{{"fill":"{fill}"}}}}"#
+                        ));
                     }
                 }
                 "exit" => return,

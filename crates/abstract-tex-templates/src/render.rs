@@ -90,12 +90,18 @@ mod tests {
     use super::*;
 
     fn values(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn every_special_character_is_escaped() {
-        assert_eq!(escape_latex(r"R&D 50% $5 #1 a_b {x} ~ ^ \"), r"R\&D 50\% \$5 \#1 a\_b \{x\} \textasciitilde{} \textasciicircum{} \textbackslash{}");
+        assert_eq!(
+            escape_latex(r"R&D 50% $5 #1 a_b {x} ~ ^ \"),
+            r"R\&D 50\% \$5 \#1 a\_b \{x\} \textasciitilde{} \textasciicircum{} \textbackslash{}"
+        );
     }
 
     #[test]
@@ -105,7 +111,10 @@ mod tests {
 
     #[test]
     fn a_placeholder_is_replaced_by_the_escaped_value() {
-        let filled = fill(r"\title{{{title}}} by {{author}}", &values(&[("title", "R&D"), ("author", "Ada")]));
+        let filled = fill(
+            r"\title{{{title}}} by {{author}}",
+            &values(&[("title", "R&D"), ("author", "Ada")]),
+        );
         assert_eq!(filled.unwrap(), r"\title{R\&D} by Ada");
     }
 
@@ -117,7 +126,10 @@ mod tests {
 
     #[test]
     fn an_undeclared_placeholder_names_itself() {
-        assert_eq!(fill("{{author}}", &values(&[("title", "T")])), Err("author".to_string()));
+        assert_eq!(
+            fill("{{author}}", &values(&[("title", "T")])),
+            Err("author".to_string())
+        );
     }
 
     #[test]
@@ -130,6 +142,11 @@ mod tests {
     #[test]
     fn field_ids_start_with_a_letter() {
         assert!(is_valid_field_id("title") && is_valid_field_id("a_1"));
-        assert!(!is_valid_field_id("") && !is_valid_field_id("1a") && !is_valid_field_id("Title") && !is_valid_field_id("a-b"));
+        assert!(
+            !is_valid_field_id("")
+                && !is_valid_field_id("1a")
+                && !is_valid_field_id("Title")
+                && !is_valid_field_id("a-b")
+        );
     }
 }

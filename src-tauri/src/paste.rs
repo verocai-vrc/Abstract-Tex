@@ -25,7 +25,10 @@ pub enum PasteOutcome {
     /// convention nothing else in this codebase has needed until now. `keys_in_use` is every key
     /// already in the index, for [`render_new_entry`] to generate a unique one against once the
     /// caller has read `bib_file`'s current text.
-    New { bib_file: String, keys_in_use: Vec<String> },
+    New {
+        bib_file: String,
+        keys_in_use: Vec<String>,
+    },
 }
 
 /// A pasted identifier resolved to nothing this app can act on: no `.bib` file to append to
@@ -36,7 +39,9 @@ pub enum PasteError {
     /// The document names no `.bib` file at all — nowhere to put a new entry. A future loop
     /// could offer to create one; today the author is told plainly instead of one appearing
     /// silently in a place they never asked for.
-    #[error("this project has no .bib file yet — add \\bibliography{{...}} or \\addbibresource{{...}} first")]
+    #[error(
+        "this project has no .bib file yet — add \\bibliography{{...}} or \\addbibresource{{...}} first"
+    )]
     NoBibFile,
 }
 
@@ -61,7 +66,10 @@ pub fn resolve_paste(fetched: &Entry, index: &BibliographyIndex) -> Result<Paste
         return Ok(PasteOutcome::Existing { key: hit.key.clone() });
     }
     let bib_file = index.files.first().ok_or(PasteError::NoBibFile)?;
-    Ok(PasteOutcome::New { bib_file: bib_file.path.clone(), keys_in_use: index.entries.iter().map(|entry| entry.key.clone()).collect() })
+    Ok(PasteOutcome::New {
+        bib_file: bib_file.path.clone(),
+        keys_in_use: index.entries.iter().map(|entry| entry.key.clone()).collect(),
+    })
 }
 
 /// A generated key and the whole new text of `bib_file`, once the caller has read it — the part
@@ -83,15 +91,30 @@ pub fn render_new_entry(fetched: &Entry, keys_in_use: &[String], bib_file_text: 
 /// — no comparison-time re-normalisation to keep in sync with either source's own rules.
 fn find_by_identifier<'a>(fetched: &Entry, index: &'a BibliographyIndex) -> Option<&'a EntrySummary> {
     if let Some(doi) = normalized_field(fetched, "doi") {
-        return index.entries.iter().find(|entry| entry.doi.as_deref() == Some(doi.as_str()));
+        return index
+            .entries
+            .iter()
+            .find(|entry| entry.doi.as_deref() == Some(doi.as_str()));
     }
-    if fetched.field("eprinttype").is_some_and(|field| field.value.parts.iter().any(|part| part_text(part).eq_ignore_ascii_case("arxiv"))) {
+    if fetched.field("eprinttype").is_some_and(|field| {
+        field
+            .value
+            .parts
+            .iter()
+            .any(|part| part_text(part).eq_ignore_ascii_case("arxiv"))
+    }) {
         if let Some(eprint) = normalized_field(fetched, "eprint") {
-            return index.entries.iter().find(|entry| entry.eprint.as_deref() == Some(eprint.as_str()));
+            return index
+                .entries
+                .iter()
+                .find(|entry| entry.eprint.as_deref() == Some(eprint.as_str()));
         }
     }
     if let Some(isbn) = normalized_field(fetched, "isbn") {
-        return index.entries.iter().find(|entry| entry.isbn.as_deref() == Some(isbn.as_str()));
+        return index
+            .entries
+            .iter()
+            .find(|entry| entry.isbn.as_deref() == Some(isbn.as_str()));
     }
     None
 }
@@ -99,7 +122,9 @@ fn find_by_identifier<'a>(fetched: &Entry, index: &'a BibliographyIndex) -> Opti
 /// A raw field's text, unnormalised — used only to build the identifier lookups above, which
 /// already compare against pre-normalised index values, so the field itself is read as written.
 fn normalized_field(entry: &Entry, name: &str) -> Option<String> {
-    entry.field(name).map(|field| field.value.parts.iter().map(part_text).collect())
+    entry
+        .field(name)
+        .map(|field| field.value.parts.iter().map(part_text).collect())
 }
 
 fn part_text(part: &texbib::ValuePart) -> &str {
@@ -117,7 +142,9 @@ fn part_text(part: &texbib::ValuePart) -> &str {
 /// year," it is simply not enough to go on, and treating it as a match risks silently discarding
 /// a real second reference with the same working title.
 fn find_by_title_year<'a>(fetched: &Entry, index: &'a BibliographyIndex) -> Option<&'a EntrySummary> {
-    let title = normalized_field(fetched, "title").map(|t| collapse_and_lower(&t)).filter(|t| !t.is_empty())?;
+    let title = normalized_field(fetched, "title")
+        .map(|t| collapse_and_lower(&t))
+        .filter(|t| !t.is_empty())?;
     let year = normalized_field(fetched, "year").filter(|y| !y.is_empty())?;
     index.entries.iter().find(|entry| {
         let entry_title = entry.title.as_deref().map(collapse_and_lower).unwrap_or_default();
@@ -126,7 +153,10 @@ fn find_by_title_year<'a>(fetched: &Entry, index: &'a BibliographyIndex) -> Opti
 }
 
 fn collapse_and_lower(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase()
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
 }
 
 #[cfg(test)]
@@ -140,14 +170,34 @@ mod tests {
     }
 
     fn braced_field(name: &str, text: &str) -> Field {
-        Field { span: zero_span(), name: name.to_string(), value_span: zero_span(), value: Value { parts: vec![ValuePart::Braced(text.to_string())] } }
+        Field {
+            span: zero_span(),
+            name: name.to_string(),
+            value_span: zero_span(),
+            value: Value {
+                parts: vec![ValuePart::Braced(text.to_string())],
+            },
+        }
     }
 
     fn fetched_entry(fields: Vec<Field>) -> Entry {
-        Entry { span: zero_span(), entry_type: "online".to_string(), key: String::new(), key_span: zero_span(), fields }
+        Entry {
+            span: zero_span(),
+            entry_type: "online".to_string(),
+            key: String::new(),
+            key_span: zero_span(),
+            fields,
+        }
     }
 
-    fn summary(key: &str, title: Option<&str>, year: Option<&str>, doi: Option<&str>, eprint: Option<&str>, isbn: Option<&str>) -> EntrySummary {
+    fn summary(
+        key: &str,
+        title: Option<&str>,
+        year: Option<&str>,
+        doi: Option<&str>,
+        eprint: Option<&str>,
+        isbn: Option<&str>,
+    ) -> EntrySummary {
         EntrySummary {
             key: key.to_string(),
             entry_type: "article".to_string(),
@@ -164,7 +214,16 @@ mod tests {
 
     fn index_with(entries: Vec<EntrySummary>) -> BibliographyIndex {
         BibliographyIndex {
-            files: vec![BibFile { path: "refs.bib".to_string(), exists: true, entry_count: entries.len(), problems: Vec::<Problem>::new(), origin: BibOrigin::Named { file: "main.tex".to_string(), line: 1 } }],
+            files: vec![BibFile {
+                path: "refs.bib".to_string(),
+                exists: true,
+                entry_count: entries.len(),
+                problems: Vec::<Problem>::new(),
+                origin: BibOrigin::Named {
+                    file: "main.tex".to_string(),
+                    line: 1,
+                },
+            }],
             entries,
             citations: Vec::new(),
             has_nocite_star: false,
@@ -174,47 +233,125 @@ mod tests {
 
     #[test]
     fn a_matching_doi_reuses_the_existing_key() {
-        let fetched = fetched_entry(vec![braced_field("doi", "10.1109/tcbb.2019.000001"), braced_field("title", "A Paper")]);
-        let index = index_with(vec![summary("smith2019", Some("A Paper"), Some("2019"), Some("10.1109/tcbb.2019.000001"), None, None)]);
-        assert_eq!(resolve_paste(&fetched, &index).unwrap(), PasteOutcome::Existing { key: "smith2019".to_string() });
+        let fetched = fetched_entry(vec![
+            braced_field("doi", "10.1109/tcbb.2019.000001"),
+            braced_field("title", "A Paper"),
+        ]);
+        let index = index_with(vec![summary(
+            "smith2019",
+            Some("A Paper"),
+            Some("2019"),
+            Some("10.1109/tcbb.2019.000001"),
+            None,
+            None,
+        )]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "smith2019".to_string()
+            }
+        );
     }
 
     #[test]
     fn a_matching_arxiv_eprint_reuses_the_existing_key() {
-        let fetched = fetched_entry(vec![braced_field("eprint", "1706.03762"), braced_field("eprinttype", "arxiv"), braced_field("title", "Attention")]);
-        let index = index_with(vec![summary("vaswani2017", Some("Attention"), Some("2017"), None, Some("1706.03762"), None)]);
-        assert_eq!(resolve_paste(&fetched, &index).unwrap(), PasteOutcome::Existing { key: "vaswani2017".to_string() });
+        let fetched = fetched_entry(vec![
+            braced_field("eprint", "1706.03762"),
+            braced_field("eprinttype", "arxiv"),
+            braced_field("title", "Attention"),
+        ]);
+        let index = index_with(vec![summary(
+            "vaswani2017",
+            Some("Attention"),
+            Some("2017"),
+            None,
+            Some("1706.03762"),
+            None,
+        )]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "vaswani2017".to_string()
+            }
+        );
     }
 
     #[test]
     fn a_matching_isbn_reuses_the_existing_key() {
-        let fetched = fetched_entry(vec![braced_field("isbn", "9780262033848"), braced_field("title", "A Book")]);
-        let index = index_with(vec![summary("knuth1984", Some("A Book"), Some("1984"), None, None, Some("9780262033848"))]);
-        assert_eq!(resolve_paste(&fetched, &index).unwrap(), PasteOutcome::Existing { key: "knuth1984".to_string() });
+        let fetched = fetched_entry(vec![
+            braced_field("isbn", "9780262033848"),
+            braced_field("title", "A Book"),
+        ]);
+        let index = index_with(vec![summary(
+            "knuth1984",
+            Some("A Book"),
+            Some("1984"),
+            None,
+            None,
+            Some("9780262033848"),
+        )]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "knuth1984".to_string()
+            }
+        );
     }
 
     #[test]
     fn a_title_and_year_match_reuses_the_key_when_neither_side_has_an_identifier() {
-        let fetched = fetched_entry(vec![braced_field("title", "  A   Great   Paper "), braced_field("year", "2019")]);
-        let index = index_with(vec![summary("smith2019a", Some("A Great Paper"), Some("2019"), None, None, None)]);
-        assert_eq!(resolve_paste(&fetched, &index).unwrap(), PasteOutcome::Existing { key: "smith2019a".to_string() });
+        let fetched = fetched_entry(vec![
+            braced_field("title", "  A   Great   Paper "),
+            braced_field("year", "2019"),
+        ]);
+        let index = index_with(vec![summary(
+            "smith2019a",
+            Some("A Great Paper"),
+            Some("2019"),
+            None,
+            None,
+            None,
+        )]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "smith2019a".to_string()
+            }
+        );
     }
 
     #[test]
     fn a_title_match_with_a_different_year_is_not_a_dedup_hit() {
-        let fetched = fetched_entry(vec![braced_field("title", "A Great Paper"), braced_field("year", "2020")]);
-        let index = index_with(vec![summary("smith2019a", Some("A Great Paper"), Some("2019"), None, None, None)]);
+        let fetched = fetched_entry(vec![
+            braced_field("title", "A Great Paper"),
+            braced_field("year", "2020"),
+        ]);
+        let index = index_with(vec![summary(
+            "smith2019a",
+            Some("A Great Paper"),
+            Some("2019"),
+            None,
+            None,
+            None,
+        )]);
         let outcome = resolve_paste(&fetched, &index).unwrap();
         assert!(matches!(outcome, PasteOutcome::New { .. }));
     }
 
     #[test]
     fn no_match_appends_a_new_entry_with_a_generated_key() {
-        let fetched = fetched_entry(vec![braced_field("author", "Jane Smith"), braced_field("title", "A New Paper"), braced_field("year", "2024")]);
+        let fetched = fetched_entry(vec![
+            braced_field("author", "Jane Smith"),
+            braced_field("title", "A New Paper"),
+            braced_field("year", "2024"),
+        ]);
         let index = index_with(vec![]);
         let outcome = resolve_paste(&fetched, &index).unwrap();
         match outcome {
-            PasteOutcome::New { bib_file, keys_in_use } => {
+            PasteOutcome::New {
+                bib_file,
+                keys_in_use,
+            } => {
                 assert_eq!(bib_file, "refs.bib");
                 let (key, text) = render_new_entry(&fetched, &keys_in_use, "@article{a, title = {A}}\n");
                 assert_eq!(key, "smith2024a");
@@ -227,8 +364,19 @@ mod tests {
 
     #[test]
     fn a_generated_key_avoids_a_real_collision_in_the_index() {
-        let fetched = fetched_entry(vec![braced_field("author", "Jane Smith"), braced_field("title", "A New Paper"), braced_field("year", "2024")]);
-        let index = index_with(vec![summary("smith2024a", Some("Something Else"), Some("2024"), None, None, None)]);
+        let fetched = fetched_entry(vec![
+            braced_field("author", "Jane Smith"),
+            braced_field("title", "A New Paper"),
+            braced_field("year", "2024"),
+        ]);
+        let index = index_with(vec![summary(
+            "smith2024a",
+            Some("Something Else"),
+            Some("2024"),
+            None,
+            None,
+            None,
+        )]);
         let outcome = resolve_paste(&fetched, &index).unwrap();
         match outcome {
             PasteOutcome::New { keys_in_use, .. } => {
@@ -248,7 +396,12 @@ mod tests {
 
     #[test]
     fn appending_the_same_doi_twice_yields_one_entry_and_the_same_key_both_times() {
-        let fetched = fetched_entry(vec![braced_field("doi", "10.1/x"), braced_field("author", "Jane Smith"), braced_field("title", "Once"), braced_field("year", "2024")]);
+        let fetched = fetched_entry(vec![
+            braced_field("doi", "10.1/x"),
+            braced_field("author", "Jane Smith"),
+            braced_field("title", "Once"),
+            braced_field("year", "2024"),
+        ]);
         let index = index_with(vec![]);
         let first = resolve_paste(&fetched, &index).unwrap();
         let (first_key, text_after_first) = match first {
@@ -257,7 +410,14 @@ mod tests {
         };
 
         // Simulate the index after the first paste landed: one entry, with the DOI recorded.
-        let index_after = index_with(vec![summary(&first_key, Some("Once"), Some("2024"), Some("10.1/x"), None, None)]);
+        let index_after = index_with(vec![summary(
+            &first_key,
+            Some("Once"),
+            Some("2024"),
+            Some("10.1/x"),
+            None,
+            None,
+        )]);
         let second = resolve_paste(&fetched, &index_after).unwrap();
         assert!(text_after_first.contains(&first_key));
         assert_eq!(second, PasteOutcome::Existing { key: first_key });

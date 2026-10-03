@@ -34,11 +34,17 @@ fn run_fixture(name: &str) {
     let mut next_start = 0;
     for item in &bib.items {
         let span = item.span();
-        assert_eq!(span.start, next_start, "{name}: gap or overlap in spans before {item:?}");
+        assert_eq!(
+            span.start, next_start,
+            "{name}: gap or overlap in spans before {item:?}"
+        );
         rebuilt.push_str(span.text(&source));
         next_start = span.end;
     }
-    assert_eq!(rebuilt, source, "{name}: concatenated item spans do not reproduce the input");
+    assert_eq!(
+        rebuilt, source,
+        "{name}: concatenated item spans do not reproduce the input"
+    );
 
     let found_json = serde_json::to_value(&bib.items).expect("items always serialise");
     assert_eq!(

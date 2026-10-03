@@ -32,7 +32,10 @@ fn main() {
 
     let mut generated = String::new();
     for entry in entries {
-        let dir_name = entry.file_name().into_string().expect("fixture directory names are ASCII");
+        let dir_name = entry
+            .file_name()
+            .into_string()
+            .expect("fixture directory names are ASCII");
         if !entry.path().join("main.log").is_file() || !entry.path().join("expected.json").is_file() {
             // No expected.json: this fixture belongs to tokenizer.rs or resolver.rs instead
             // (crates/texlog/fixtures/README.md says which), not the rule catalog this harness

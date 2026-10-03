@@ -398,6 +398,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   **Decided (2 Oct 2026, design interview C5):** `rustfmt.toml` with `max_width = 110`, one
   whole-repository `cargo fmt` commit between S11.8 and sprint 12, then `cargo fmt --check` joins
   `pnpm verify:rust`. Closes when that commit lands.
+  **Fixed (3 Oct 2026):** `rustfmt.toml` (`max_width = 110`), one `cargo fmt --all` over the
+  whole repository, and `cargo fmt --all --check` is now the first step of `pnpm verify:rust`
+  (so CI runs it too). Run `cargo fmt --all` before committing Rust.
 
 - **Maths preview: a `$` inside a `%` comment shifts `$` pairing for the rest of the
   paragraph.** (S4.6, reviewer, 16 Sep 2026) `mathAtOffset` in

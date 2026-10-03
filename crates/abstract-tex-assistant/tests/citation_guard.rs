@@ -24,7 +24,12 @@ fn guard() -> Guard {
 
 /// The kinds of finding for an edit that turns nothing into `result`.
 fn kinds(result: &str) -> Vec<FindingKind> {
-    guard().check("", result).findings.iter().map(|finding| finding.kind).collect()
+    guard()
+        .check("", result)
+        .findings
+        .iter()
+        .map(|finding| finding.kind)
+        .collect()
 }
 
 fn refused(result: &str) -> bool {
@@ -39,11 +44,46 @@ fn refused(result: &str) -> bool {
 #[test]
 fn an_unknown_key_is_refused_in_every_cite_command() {
     let commands = [
-        "cite", "citep", "citet", "citealp", "citealt", "citeauthor", "citeyear", "citeyearpar", "nocite",
-        "parencite", "textcite", "autocite", "footcite", "smartcite", "supercite", "fullcite", "footfullcite",
-        "citetitle", "citeurl", "volcite", "cites", "parencites", "textcites", "autocites", "footcites",
-        "Cite", "Citep", "Citet", "Citeauthor", "Parencite", "Textcite", "Autocite", "CITE", "mycite",
-        "@cite", "@citex", "nptextcite", "shortcite", "notecite", "pnotecite",
+        "cite",
+        "citep",
+        "citet",
+        "citealp",
+        "citealt",
+        "citeauthor",
+        "citeyear",
+        "citeyearpar",
+        "nocite",
+        "parencite",
+        "textcite",
+        "autocite",
+        "footcite",
+        "smartcite",
+        "supercite",
+        "fullcite",
+        "footfullcite",
+        "citetitle",
+        "citeurl",
+        "volcite",
+        "cites",
+        "parencites",
+        "textcites",
+        "autocites",
+        "footcites",
+        "Cite",
+        "Citep",
+        "Citet",
+        "Citeauthor",
+        "Parencite",
+        "Textcite",
+        "Autocite",
+        "CITE",
+        "mycite",
+        "@cite",
+        "@citex",
+        "nptextcite",
+        "shortcite",
+        "notecite",
+        "pnotecite",
     ];
     for command in commands {
         for form in [format!("\\{command}{{fake}}"), format!("\\{command}*{{fake}}")] {
@@ -86,7 +126,14 @@ fn whitespace_and_comments_do_not_hide_a_key() {
         "\\citep [p.~3]\n[chapter 2] {fake}",
         "\\cite\t{fake}",
     ] {
-        assert!(guard().check("", result).unknown_keys().iter().any(|k| k.contains("fake")), "{result:?}");
+        assert!(
+            guard()
+                .check("", result)
+                .unknown_keys()
+                .iter()
+                .any(|k| k.contains("fake")),
+            "{result:?}"
+        );
     }
 }
 
@@ -112,17 +159,17 @@ fn a_citation_nested_inside_something_else_is_still_a_citation() {
 #[test]
 fn near_misses_are_not_matches() {
     for result in [
-        r"\cite{Smith2020}",            // case
-        r"\cite{smith2020 }x",          // fine after trim; the x is outside
-        r"\cite{smith}",                // a prefix
-        r"\cite{smith2020a}",           // a suffix
-        r"\cite{smith2021}",            // a year off
-        "\\cite{smith\u{200B}2020}",    // a zero-width space in the middle
-        "\\cite{sm\u{0456}th2020}",     // a Cyrillic і for the Latin i
-        "\\cite{smith2020\u{00A0}}x",   // a no-break space is not a space to TeX
-        "\\cite{smith 2020}",           // a space inside
-        r"\cite{{smith2020}}",          // an extra brace pair
-        r"\cite{smith2020.}",           // trailing punctuation
+        r"\cite{Smith2020}",          // case
+        r"\cite{smith2020 }x",        // fine after trim; the x is outside
+        r"\cite{smith}",              // a prefix
+        r"\cite{smith2020a}",         // a suffix
+        r"\cite{smith2021}",          // a year off
+        "\\cite{smith\u{200B}2020}",  // a zero-width space in the middle
+        "\\cite{sm\u{0456}th2020}",   // a Cyrillic і for the Latin i
+        "\\cite{smith2020\u{00A0}}x", // a no-break space is not a space to TeX
+        "\\cite{smith 2020}",         // a space inside
+        r"\cite{{smith2020}}",        // an extra brace pair
+        r"\cite{smith2020.}",         // trailing punctuation
         r"\cite{smith2020\relax}",
         r"\cite{\detokenize{smith2020}}",
         "\\cite{smith2020\u{FEFF}}",
@@ -144,7 +191,10 @@ fn an_unclosed_group_still_gives_up_its_key() {
 
 #[test]
 fn every_unknown_key_in_one_edit_is_reported_once() {
-    let verdict = guard().check("", r"\cite{a1} and \cite{b2} and \citep{a1,smith2020} and \cite{a1}");
+    let verdict = guard().check(
+        "",
+        r"\cite{a1} and \cite{b2} and \citep{a1,smith2020} and \cite{a1}",
+    );
     assert_eq!(verdict.unknown_keys(), vec!["a1".to_string(), "b2".to_string()]);
 }
 
@@ -167,7 +217,12 @@ fn a_macro_that_wraps_cite_is_a_citation_command_once_the_guard_knows_it() {
     assert_eq!(found, vec!["pcite", "see", "src", "vgl"]);
 
     let aware = guard().with_citation_commands(found);
-    for result in [r"\see{fake}", r"\vgl{fake}", r"\src{fake}", r"\see{smith2020,fake}"] {
+    for result in [
+        r"\see{fake}",
+        r"\vgl{fake}",
+        r"\src{fake}",
+        r"\see{smith2020,fake}",
+    ] {
         assert!(!aware.check("", result).is_clean(), "{result}");
     }
     assert!(aware.check("", r"\see{smith2020} and \bold{x}").is_clean());
@@ -208,7 +263,11 @@ fn defining_or_obscuring_a_command_is_refused() {
         r"\directlua{tex.print('\\cite{fake}')}",
         r"\newenvironment{c}{\cite}{}",
     ] {
-        assert!(kinds(result).contains(&FindingKind::HiddenCommand), "{result}: {:?}", kinds(result));
+        assert!(
+            kinds(result).contains(&FindingKind::HiddenCommand),
+            "{result}: {:?}",
+            kinds(result)
+        );
     }
 }
 
@@ -216,7 +275,13 @@ fn defining_or_obscuring_a_command_is_refused() {
 /// backslash sees it.
 #[test]
 fn tex_character_notation_is_refused() {
-    for result in ["^^5ccite{fake}", "^^5Ccite{fake}", "\\cite{^^66ake}", "text ^^M more", "^^7f"] {
+    for result in [
+        "^^5ccite{fake}",
+        "^^5Ccite{fake}",
+        "\\cite{^^66ake}",
+        "text ^^M more",
+        "^^7f",
+    ] {
         assert!(kinds(result).contains(&FindingKind::HiddenCommand), "{result}");
     }
     // A single caret, a power and a chain of them are maths.
@@ -265,7 +330,11 @@ fn a_reference_written_in_plain_text_is_refused() {
         "(O'Brien, 2012)",
         "(Nakamura 1999b)",
     ] {
-        assert!(kinds(result).contains(&FindingKind::PlainTextCitation), "{result}: {:?}", kinds(result));
+        assert!(
+            kinds(result).contains(&FindingKind::PlainTextCitation),
+            "{result}: {:?}",
+            kinds(result)
+        );
     }
 }
 
@@ -323,15 +392,21 @@ fn ordinary_prose_and_markup_pass() {
 #[test]
 fn what_the_original_already_contained_is_not_introduced_by_the_edit() {
     let original = r"Prior work \cite{typo2020} (Smith et al., 2019) is clear. \input{intro} \def\x{y}";
-    let reworded = r"Earlier work \cite{typo2020}, as in (Smith et al., 2019), is plain. \input{intro} \def\x{y}";
+    let reworded =
+        r"Earlier work \cite{typo2020}, as in (Smith et al., 2019), is plain. \input{intro} \def\x{y}";
     assert!(guard().check(original, reworded).is_clean());
 
     // But a second, different unknown key is the model's.
     let extra = r"Earlier work \cite{typo2020,typo2021} is plain.";
-    assert_eq!(guard().check(original, extra).unknown_keys(), vec!["typo2021".to_string()]);
+    assert_eq!(
+        guard().check(original, extra).unknown_keys(),
+        vec!["typo2021".to_string()]
+    );
 
     // And a repeated old key is still old.
-    assert!(guard().check(original, r"\cite{typo2020} \cite{typo2020}").is_clean());
+    assert!(guard()
+        .check(original, r"\cite{typo2020} \cite{typo2020}")
+        .is_clean());
 }
 
 #[test]
@@ -361,9 +436,15 @@ fn a_finding_blocks_exactly_the_hunks_that_touch_it() {
     let end = start + "\\cite{fake}".len();
 
     assert!(verdict.blocks(&(start..end)));
-    assert!(verdict.blocks(&(start + 3..start + 4)), "a hunk inside the command");
+    assert!(
+        verdict.blocks(&(start + 3..start + 4)),
+        "a hunk inside the command"
+    );
     assert!(verdict.blocks(&(0..start + 1)), "a hunk that ends inside it");
-    assert!(verdict.blocks(&(end - 1..result.len())), "a hunk that begins inside it");
+    assert!(
+        verdict.blocks(&(end - 1..result.len())),
+        "a hunk that begins inside it"
+    );
     assert!(!verdict.blocks(&(0..start)), "the text before");
     assert!(!verdict.blocks(&(end..result.len())), "the text after");
     assert!(!verdict.blocks(&(0..0)), "an empty range touches nothing");
@@ -383,7 +464,11 @@ fn a_key_inserted_between_unchanged_braces_is_caught_in_context() {
 #[test]
 fn findings_come_in_text_order_with_a_sentence_each() {
     let verdict = guard().check("", r"\cite{b} \bibitem{x} \cite{a}");
-    let positions: Vec<usize> = verdict.findings.iter().map(|finding| finding.span.start).collect();
+    let positions: Vec<usize> = verdict
+        .findings
+        .iter()
+        .map(|finding| finding.span.start)
+        .collect();
     let mut sorted = positions.clone();
     sorted.sort_unstable();
     assert_eq!(positions, sorted);
@@ -391,7 +476,11 @@ fn findings_come_in_text_order_with_a_sentence_each() {
         let sentence = finding.sentence();
         assert!(sentence.ends_with('.') && sentence.len() > 20, "{sentence}");
     }
-    let unknown = verdict.findings.iter().find(|f| f.kind == FindingKind::UnknownKey).unwrap();
+    let unknown = verdict
+        .findings
+        .iter()
+        .find(|f| f.kind == FindingKind::UnknownKey)
+        .unwrap();
     assert!(unknown.sentence().contains('b') && unknown.sentence().contains(".bib"));
 }
 
@@ -401,8 +490,22 @@ fn findings_come_in_text_order_with_a_sentence_each() {
 
 fn command_name() -> impl Strategy<Value = String> {
     let names = prop::sample::select(vec![
-        "cite", "citep", "citet", "citeauthor", "parencite", "textcite", "autocite", "footcite", "Cite", "Citep",
-        "Parencite", "nocite", "cites", "supercite", "fullcite", "volcite",
+        "cite",
+        "citep",
+        "citet",
+        "citeauthor",
+        "parencite",
+        "textcite",
+        "autocite",
+        "footcite",
+        "Cite",
+        "Citep",
+        "Parencite",
+        "nocite",
+        "cites",
+        "supercite",
+        "fullcite",
+        "volcite",
     ]);
     // Flip the case of each letter at random: the predicate is case-insensitive.
     (names, prop::collection::vec(any::<bool>(), 12)).prop_map(|(name, flips)| {
@@ -414,8 +517,21 @@ fn command_name() -> impl Strategy<Value = String> {
 }
 
 fn between_command_and_argument() -> impl Strategy<Value = String> {
-    prop::sample::select(vec!["", " ", "\n", "  \n  ", "%c\n", " % note\n ", "\t", "[p.~3]", "[see][p.~3]", "*", "(see)", "(a)(b)[c]"])
-        .prop_map(String::from)
+    prop::sample::select(vec![
+        "",
+        " ",
+        "\n",
+        "  \n  ",
+        "%c\n",
+        " % note\n ",
+        "\t",
+        "[p.~3]",
+        "[see][p.~3]",
+        "*",
+        "(see)",
+        "(a)(b)[c]",
+    ])
+    .prop_map(String::from)
 }
 
 fn unknown_key() -> impl Strategy<Value = String> {
@@ -423,7 +539,17 @@ fn unknown_key() -> impl Strategy<Value = String> {
 }
 
 fn surrounding_text() -> impl Strategy<Value = String> {
-    prop::sample::select(vec!["", "Some prose. ", "\\textbf{", "$x$ and ", "\n\n", "\\footnote{", "% ", "(see "]).prop_map(String::from)
+    prop::sample::select(vec![
+        "",
+        "Some prose. ",
+        "\\textbf{",
+        "$x$ and ",
+        "\n\n",
+        "\\footnote{",
+        "% ",
+        "(see ",
+    ])
+    .prop_map(String::from)
 }
 
 proptest! {

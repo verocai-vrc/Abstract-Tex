@@ -39,11 +39,19 @@ pub enum ArxivError {
 /// new-style `YYMM.NNNNN[vN]` (2007 onward) and old-style `archive/YYMMNNN` (e.g.
 /// `hep-th/9901001`); this function does not choose between them, it only unwraps.
 pub fn normalize_arxiv_id(pasted: &str) -> String {
-    const PREFIXES: [&str; 5] =
-        ["https://arxiv.org/abs/", "http://arxiv.org/abs/", "https://arxiv.org/pdf/", "http://arxiv.org/pdf/", "arxiv:"];
+    const PREFIXES: [&str; 5] = [
+        "https://arxiv.org/abs/",
+        "http://arxiv.org/abs/",
+        "https://arxiv.org/pdf/",
+        "http://arxiv.org/pdf/",
+        "arxiv:",
+    ];
     let trimmed = pasted.trim();
     for prefix in PREFIXES {
-        if trimmed.get(..prefix.len()).is_some_and(|head| head.eq_ignore_ascii_case(prefix)) {
+        if trimmed
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+        {
             let rest = trimmed[prefix.len()..].trim();
             return rest.strip_suffix(".pdf").unwrap_or(rest).to_string();
         }
@@ -136,7 +144,13 @@ fn entry_from_feed(body: &str) -> Option<Entry> {
     }
 
     let key = generated_key(&authors, year, &title);
-    Some(Entry { span: zero_span(), entry_type: "online".to_string(), key, key_span: zero_span(), fields })
+    Some(Entry {
+        span: zero_span(),
+        entry_type: "online".to_string(),
+        key,
+        key_span: zero_span(),
+        fields,
+    })
 }
 
 /// Every `<author><name>…</name></author>` in an entry, in document order. arXiv's own feed
@@ -148,7 +162,9 @@ fn author_names(entry_xml: &str) -> Vec<String> {
     let mut rest = entry_xml;
     while let Some(author_start) = rest.find("<author>") {
         let after_open = &rest[author_start + "<author>".len()..];
-        let Some(author_end) = after_open.find("</author>") else { break };
+        let Some(author_end) = after_open.find("</author>") else {
+            break;
+        };
         let author_xml = &after_open[..author_end];
         if let Some(name) = tag_content(author_xml, "name") {
             authors.push(collapse_whitespace(&decode_entities(name)));
@@ -176,7 +192,11 @@ fn tag_content<'a>(xml: &'a str, tag: &str) -> Option<&'a str> {
 /// them speculatively is exactly the kind of guessed-at scope `CLAUDE.md` asks this codebase to
 /// avoid.
 fn decode_entities(text: &str) -> String {
-    text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&apos;", "'").replace("&quot;", "\"")
+    text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&apos;", "'")
+        .replace("&quot;", "\"")
 }
 
 /// arXiv wraps a summary across many lines at a fixed column, the same wrapping shape
@@ -188,11 +208,18 @@ fn collapse_whitespace(text: &str) -> String {
 }
 
 fn field(name: &str, value: &str) -> Field {
-    Field { span: zero_span(), name: name.to_string(), value_span: zero_span(), value: braced(value) }
+    Field {
+        span: zero_span(),
+        name: name.to_string(),
+        value_span: zero_span(),
+        value: braced(value),
+    }
 }
 
 fn braced(text: &str) -> Value {
-    Value { parts: vec![ValuePart::Braced(text.to_string())] }
+    Value {
+        parts: vec![ValuePart::Braced(text.to_string())],
+    }
 }
 
 /// A hand-built [`Entry`] has no byte offsets into any real `.bib` file — it was never parsed
@@ -216,8 +243,14 @@ fn zero_span() -> Span {
 /// index to check uniqueness against — the same deferral S7.3 made for name-splitting rather
 /// than guess a shape nothing calls yet.
 pub(super) fn generated_key(authors: &[String], year: &str, title: &str) -> String {
-    let surname = authors.first().map(|name| surname_of(name)).unwrap_or_else(|| "unknown".to_string());
-    let first_word = title.split_whitespace().find(|word| word.chars().any(char::is_alphanumeric)).unwrap_or("");
+    let surname = authors
+        .first()
+        .map(|name| surname_of(name))
+        .unwrap_or_else(|| "unknown".to_string());
+    let first_word = title
+        .split_whitespace()
+        .find(|word| word.chars().any(char::is_alphanumeric))
+        .unwrap_or("");
     format!("{surname}{year}{}", ascii_fold_lower(first_word))
 }
 
@@ -234,7 +267,10 @@ fn surname_of(full_name: &str) -> String {
 /// division of labour `texbib`'s own module doc already draws between this crate and its
 /// callers.
 fn ascii_fold_lower(text: &str) -> String {
-    text.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_lowercase()).collect()
+    text.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
 }
 
 struct HttpTransport;
@@ -285,12 +321,18 @@ mod tests {
 
     #[test]
     fn an_abs_url_normalizes_to_the_bare_id() {
-        assert_eq!(normalize_arxiv_id("https://arxiv.org/abs/1706.03762"), "1706.03762");
+        assert_eq!(
+            normalize_arxiv_id("https://arxiv.org/abs/1706.03762"),
+            "1706.03762"
+        );
     }
 
     #[test]
     fn a_pdf_url_normalizes_to_the_bare_id() {
-        assert_eq!(normalize_arxiv_id("https://arxiv.org/pdf/1706.03762.pdf"), "1706.03762");
+        assert_eq!(
+            normalize_arxiv_id("https://arxiv.org/pdf/1706.03762.pdf"),
+            "1706.03762"
+        );
     }
 
     #[test]
@@ -313,11 +355,28 @@ mod tests {
         let transport = FixedReply(Ok((200, ONE_AUTHOR_REPLY.to_string())));
         let entry = fetch_arxiv_with("2101.00001", &transport).expect("the recorded reply parses");
         assert!(entry.is_type("online"));
-        assert_eq!(entry.field("title").unwrap().value.parts, vec![ValuePart::Braced("Etat de l'art sur l'application des bandits multi-bras".into())]);
-        assert_eq!(entry.field("author").unwrap().value.parts, vec![ValuePart::Braced("Djallel Bouneffouf".into())]);
-        assert_eq!(entry.field("year").unwrap().value.parts, vec![ValuePart::Braced("2021".into())]);
-        assert_eq!(entry.field("eprint").unwrap().value.parts, vec![ValuePart::Braced("2101.00001".into())]);
-        assert_eq!(entry.field("eprinttype").unwrap().value.parts, vec![ValuePart::Braced("arxiv".into())]);
+        assert_eq!(
+            entry.field("title").unwrap().value.parts,
+            vec![ValuePart::Braced(
+                "Etat de l'art sur l'application des bandits multi-bras".into()
+            )]
+        );
+        assert_eq!(
+            entry.field("author").unwrap().value.parts,
+            vec![ValuePart::Braced("Djallel Bouneffouf".into())]
+        );
+        assert_eq!(
+            entry.field("year").unwrap().value.parts,
+            vec![ValuePart::Braced("2021".into())]
+        );
+        assert_eq!(
+            entry.field("eprint").unwrap().value.parts,
+            vec![ValuePart::Braced("2101.00001".into())]
+        );
+        assert_eq!(
+            entry.field("eprinttype").unwrap().value.parts,
+            vec![ValuePart::Braced("arxiv".into())]
+        );
         assert_eq!(entry.key, "bouneffouf2021etat");
     }
 
@@ -326,7 +385,9 @@ mod tests {
         let transport = FixedReply(Ok((200, EIGHT_AUTHORS_REPLY.to_string())));
         let entry = fetch_arxiv_with("1706.03762", &transport).expect("the recorded reply parses");
         let author_field = entry.field("author").unwrap();
-        let ValuePart::Braced(joined) = &author_field.value.parts[0] else { panic!("expected a braced value") };
+        let ValuePart::Braced(joined) = &author_field.value.parts[0] else {
+            panic!("expected a braced value")
+        };
         assert_eq!(joined.matches(" and ").count(), 7, "{joined}");
         assert!(joined.starts_with("Ashish Vaswani"), "{joined}");
         assert_eq!(entry.key, "vaswani2017attention");
@@ -343,40 +404,64 @@ mod tests {
         // the reason that matters, not by the coincidence of there being no `v` to trip over.
         let transport = FixedReply(Ok((200, EIGHT_AUTHORS_REPLY.to_string())));
         let entry = fetch_arxiv_with("1706.03762", &transport).expect("the recorded reply parses");
-        assert_eq!(entry.field("eprint").unwrap().value.parts, vec![ValuePart::Braced("1706.03762".into())]);
-        assert_eq!(entry.field("url").unwrap().value.parts, vec![ValuePart::Braced("https://arxiv.org/abs/1706.03762".into())]);
+        assert_eq!(
+            entry.field("eprint").unwrap().value.parts,
+            vec![ValuePart::Braced("1706.03762".into())]
+        );
+        assert_eq!(
+            entry.field("url").unwrap().value.parts,
+            vec![ValuePart::Braced("https://arxiv.org/abs/1706.03762".into())]
+        );
     }
 
     #[test]
     fn a_version_suffix_is_stripped_from_the_eprint_and_key_fields_but_not_from_the_lookup() {
         let transport = FixedReply(Ok((200, EIGHT_AUTHORS_REPLY.to_string())));
         let entry = fetch_arxiv_with("1706.03762v7", &transport).expect("the recorded reply parses");
-        assert_eq!(entry.field("eprint").unwrap().value.parts, vec![ValuePart::Braced("1706.03762".into())]);
-        assert_eq!(entry.field("url").unwrap().value.parts, vec![ValuePart::Braced("https://arxiv.org/abs/1706.03762".into())]);
+        assert_eq!(
+            entry.field("eprint").unwrap().value.parts,
+            vec![ValuePart::Braced("1706.03762".into())]
+        );
+        assert_eq!(
+            entry.field("url").unwrap().value.parts,
+            vec![ValuePart::Braced("https://arxiv.org/abs/1706.03762".into())]
+        );
     }
 
     #[test]
     fn a_well_formed_but_unknown_id_is_not_found() {
         let transport = FixedReply(Ok((200, NOT_FOUND_REPLY.to_string())));
-        assert_eq!(fetch_arxiv_with("9999.99999", &transport), Err(ArxivError::NotFound("9999.99999".to_string())));
+        assert_eq!(
+            fetch_arxiv_with("9999.99999", &transport),
+            Err(ArxivError::NotFound("9999.99999".to_string()))
+        );
     }
 
     #[test]
     fn a_malformed_id_is_reported_as_such_not_as_not_found() {
         let transport = FixedReply(Ok((400, MALFORMED_ID_REPLY.to_string())));
-        assert_eq!(fetch_arxiv_with("nosuchid9999", &transport), Err(ArxivError::NotAnArxivId("nosuchid9999".to_string())));
+        assert_eq!(
+            fetch_arxiv_with("nosuchid9999", &transport),
+            Err(ArxivError::NotAnArxivId("nosuchid9999".to_string()))
+        );
     }
 
     #[test]
     fn an_unexpected_status_becomes_a_network_error() {
         let transport = FixedReply(Ok((503, String::new())));
-        assert_eq!(fetch_arxiv_with("1706.03762", &transport), Err(ArxivError::Network("unexpected status 503".to_string())));
+        assert_eq!(
+            fetch_arxiv_with("1706.03762", &transport),
+            Err(ArxivError::Network("unexpected status 503".to_string()))
+        );
     }
 
     #[test]
     fn a_transport_failure_becomes_a_network_error() {
         let transport = FixedReply(Err("connection refused".to_string()));
-        assert_eq!(fetch_arxiv_with("1706.03762", &transport), Err(ArxivError::Network("connection refused".to_string())));
+        assert_eq!(
+            fetch_arxiv_with("1706.03762", &transport),
+            Err(ArxivError::Network("connection refused".to_string()))
+        );
     }
 
     #[test]
@@ -384,7 +469,9 @@ mod tests {
         let reply = ONE_AUTHOR_REPLY.replace("l'art", "l&apos;art &amp; plus");
         let transport = FixedReply(Ok((200, reply)));
         let entry = fetch_arxiv_with("2101.00001", &transport).expect("the recorded reply parses");
-        let ValuePart::Braced(title) = &entry.field("title").unwrap().value.parts[0] else { panic!("expected a braced value") };
+        let ValuePart::Braced(title) = &entry.field("title").unwrap().value.parts[0] else {
+            panic!("expected a braced value")
+        };
         assert!(title.contains("l'art & plus"), "{title}");
     }
 

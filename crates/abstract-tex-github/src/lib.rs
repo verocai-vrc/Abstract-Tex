@@ -81,7 +81,9 @@ pub fn client_id() -> Option<String> {
             return Some(from_environment);
         }
     }
-    option_env!("ABSTRACT_TEX_GITHUB_CLIENT_ID").map(str::to_string).filter(|id| !id.trim().is_empty())
+    option_env!("ABSTRACT_TEX_GITHUB_CLIENT_ID")
+        .map(str::to_string)
+        .filter(|id| !id.trim().is_empty())
 }
 
 /// Who the token belongs to. Everything else `GET /user` returns is somebody's personal data we

@@ -54,7 +54,15 @@ pub fn render(
     old_dir: &Path,
     new_dir: &Path,
 ) -> Result<PathBuf, LatexdiffError> {
-    render_with(Path::new("latexdiff"), repository, old, new, root_file, old_dir, new_dir)
+    render_with(
+        Path::new("latexdiff"),
+        repository,
+        old,
+        new,
+        root_file,
+        old_dir,
+        new_dir,
+    )
 }
 
 /// Same, naming the `latexdiff` binary to run. `pub` only for `tests/latexdiff.rs`, which points
@@ -80,9 +88,15 @@ pub fn render_with(
 
     let old_root = old_dir.join(root_file);
     let new_root = new_dir.join(root_file);
-    let output = Command::new(latexdiff).arg("--flatten").arg(&old_root).arg(&new_root).output()?;
+    let output = Command::new(latexdiff)
+        .arg("--flatten")
+        .arg(&old_root)
+        .arg(&new_root)
+        .output()?;
     if !output.status.success() {
-        return Err(LatexdiffError::Failed(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+        return Err(LatexdiffError::Failed(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
 
     std::fs::write(&new_root, &output.stdout)?;
@@ -96,5 +110,8 @@ pub fn render_with(
 /// `pub` since S11.4c, which asks before it clears the previous comparison's folder: a machine
 /// with no `latexdiff` should lose nothing to a comparison that could never have run.
 pub fn is_installed(latexdiff: &Path) -> bool {
-    Command::new(latexdiff).arg("--version").output().is_ok_and(|output| output.status.success())
+    Command::new(latexdiff)
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
 }

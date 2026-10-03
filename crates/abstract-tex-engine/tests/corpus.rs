@@ -113,7 +113,10 @@ fn expected_broken() -> Value {
 fn pages_written(log: &str) -> Option<u32> {
     let after = log.split("Output written on ").nth(1)?;
     let open = after.find('(')?;
-    let digits: String = after[open + 1..].chars().take_while(char::is_ascii_digit).collect();
+    let digits: String = after[open + 1..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
     digits.parse().ok()
 }
 
@@ -138,8 +141,14 @@ fn every_buildable_document_has_a_performance_ceiling() {
 
 #[test]
 fn pages_written_reads_both_spellings() {
-    assert_eq!(pages_written("Output written on main.xdv (1 page, 26980 bytes)."), Some(1));
-    assert_eq!(pages_written("Output written on main.xdv (62 pages, 1 bytes)."), Some(62));
+    assert_eq!(
+        pages_written("Output written on main.xdv (1 page, 26980 bytes)."),
+        Some(1)
+    );
+    assert_eq!(
+        pages_written("Output written on main.xdv (62 pages, 1 bytes)."),
+        Some(62)
+    );
     assert_eq!(pages_written("No pages of output."), None);
 }
 
@@ -171,14 +180,26 @@ async fn every_corpus_document_builds_as_recorded() {
 
         let started = Instant::now();
         let outcome = engine.build(&job, CancellationToken::new(), None).await.unwrap();
-        let log = outcome.log.as_ref().and_then(|path| fs::read_to_string(path).ok()).unwrap_or_default();
-        println!("{name}: success={} in {:.1?}, {:?} pages", outcome.success, started.elapsed(), pages_written(&log));
+        let log = outcome
+            .log
+            .as_ref()
+            .and_then(|path| fs::read_to_string(path).ok())
+            .unwrap_or_default();
+        println!(
+            "{name}: success={} in {:.1?}, {:?} pages",
+            outcome.success,
+            started.elapsed(),
+            pages_written(&log)
+        );
 
         match expect {
             Expect::Builds { min_pages } => {
                 assert!(outcome.success, "{name} failed to build:\n{}", outcome.stderr);
                 let pages = pages_written(&log).unwrap_or(0);
-                assert!(pages >= *min_pages, "{name}: {pages} pages, expected at least {min_pages}");
+                assert!(
+                    pages >= *min_pages,
+                    "{name}: {pages} pages, expected at least {min_pages}"
+                );
             }
             Expect::Broken => {
                 assert!(!outcome.success, "{name} is meant to fail");
@@ -191,7 +212,10 @@ async fn every_corpus_document_builds_as_recorded() {
                 assert_eq!(signature(&log), expected_broken(), "{name}: diagnostics changed");
             }
             Expect::Unsupported { reason } => {
-                assert!(!outcome.success, "{name} now builds — its reason ({reason}) no longer holds; update the corpus");
+                assert!(
+                    !outcome.success,
+                    "{name} now builds — its reason ({reason}) no longer holds; update the corpus"
+                );
             }
         }
     }
@@ -206,8 +230,13 @@ async fn every_corpus_document_builds_as_recorded() {
 #[tokio::test]
 #[ignore]
 async fn warm_build_timings() {
-    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
-    let runs: usize = std::env::var("ABSTRACT_TEX_BENCH_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(3);
+    let engine = Tectonic::at(
+        abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"),
+    );
+    let runs: usize = std::env::var("ABSTRACT_TEX_BENCH_RUNS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(3);
     let mut report = Vec::new();
 
     for (name, expect) in &CORPUS {
@@ -226,9 +255,14 @@ async fn warm_build_timings() {
 
         let cold = engine.build(&job, CancellationToken::new(), None).await.unwrap();
         assert!(cold.success, "{name}: cold build failed");
-        let mut edits: Vec<(&str, PathBuf, &str)> = vec![("comment", tmp.path().join("main.tex"), "\n% warm edit\n")];
+        let mut edits: Vec<(&str, PathBuf, &str)> =
+            vec![("comment", tmp.path().join("main.tex"), "\n% warm edit\n")];
         if *name == "thesis" {
-            edits.push(("prose", tmp.path().join("chapters/03-method.tex"), "\nOne more sentence of method, written between builds.\n"));
+            edits.push((
+                "prose",
+                tmp.path().join("chapters/03-method.tex"),
+                "\nOne more sentence of method, written between builds.\n",
+            ));
         }
         for (kind, file, addition) in edits {
             let mut millis = Vec::new();
@@ -254,7 +288,13 @@ async fn warm_build_timings() {
             // "1p" is one single pass; "2p+full" is two passes that then needed the full build.
             let steps_text: Vec<String> = steps
                 .iter()
-                .map(|s| format!("{}p{}", s["singlePasses"], if s["full"] == true { "+full" } else { "" }))
+                .map(|s| {
+                    format!(
+                        "{}p{}",
+                        s["singlePasses"],
+                        if s["full"] == true { "+full" } else { "" }
+                    )
+                })
                 .collect();
             println!(
                 "{name:<22} cold {:>6} ms | {kind:<7} edit: median {median:>6} ms, p95 {p95:>6} ms, steps {}",
@@ -281,7 +321,9 @@ async fn warm_build_timings() {
 async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
     use abstract_tex_engine::draft::DraftJob;
 
-    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let engine = Tectonic::at(
+        abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"),
+    );
     let tmp = tempfile::tempdir().unwrap();
     copy_dir(&corpus_dir().join("thesis"), tmp.path());
     let job = BuildJob {
@@ -291,7 +333,13 @@ async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
         synctex: true,
         shell_escape: false,
     };
-    assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
+    assert!(
+        engine
+            .build(&job, CancellationToken::new(), None)
+            .await
+            .unwrap()
+            .success
+    );
 
     let edited = "chapters/03-method.tex";
     let mut text = fs::read_to_string(tmp.path().join(edited)).unwrap();
@@ -299,25 +347,50 @@ async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
     fs::write(tmp.path().join(edited), text).unwrap();
 
     let graph = abstract_tex_includes::build_graph(tmp.path(), Path::new("main.tex"));
-    let chapter = graph.chapter_of(edited).expect("chapter 3 is an \\include").argument.clone();
+    let chapter = graph
+        .chapter_of(edited)
+        .expect("chapter 3 is an \\include")
+        .argument
+        .clone();
     assert_eq!(chapter, "chapters/03-method");
-    let draft = DraftJob { chapter, dir: tmp.path().join(".abstract-tex/draft") };
+    let draft = DraftJob {
+        chapter,
+        dir: tmp.path().join(".abstract-tex/draft"),
+    };
 
     let full_folder_before = folder_bytes(&job.out_dir);
-    let layout = abstract_tex_engine::draft::prepare(&job, &draft).unwrap().expect("a warm thesis has a draft");
-    let drafted = engine.build_draft(&job, &layout, CancellationToken::new()).await.unwrap().expect("Tectonic drafts");
+    let layout = abstract_tex_engine::draft::prepare(&job, &draft)
+        .unwrap()
+        .expect("a warm thesis has a draft");
+    let drafted = engine
+        .build_draft(&job, &layout, CancellationToken::new())
+        .await
+        .unwrap()
+        .expect("Tectonic drafts");
     assert!(drafted.success, "{}", drafted.stderr);
-    assert!(full_folder_before == folder_bytes(&job.out_dir), "a draft must not touch the full build's folder");
+    assert!(
+        full_folder_before == folder_bytes(&job.out_dir),
+        "a draft must not touch the full build's folder"
+    );
     let draft_log = fs::read_to_string(drafted.log.as_ref().unwrap()).unwrap();
-    assert_eq!(draft_log.matches("undefined").count(), 0, "a draft borrows every reference from the full build");
+    assert_eq!(
+        draft_log.matches("undefined").count(),
+        0,
+        "a draft borrows every reference from the full build"
+    );
     assert!(drafted.pdf.is_some(), "a draft that leaves no PDF is no draft");
 
     let full = engine.build(&job, CancellationToken::new(), None).await.unwrap();
     assert!(full.success);
-    let chapter_numbering = |folder: &Path| numbering(&fs::read_to_string(folder.join("chapters/03-method.aux")).unwrap());
+    let chapter_numbering =
+        |folder: &Path| numbering(&fs::read_to_string(folder.join("chapters/03-method.aux")).unwrap());
     let drafted_numbering = chapter_numbering(&draft.dir.join("build"));
     assert!(drafted_numbering.len() > 50, "{drafted_numbering:?}");
-    assert_eq!(drafted_numbering, chapter_numbering(&job.out_dir), "the draft numbers the chapter as the full build does");
+    assert_eq!(
+        drafted_numbering,
+        chapter_numbering(&job.out_dir),
+        "the draft numbers the chapter as the full build does"
+    );
     let pages = |log: &str| pages_written(log).unwrap();
     let full_log = fs::read_to_string(full.log.as_ref().unwrap()).unwrap();
     println!(
@@ -328,7 +401,10 @@ async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
         pages(&full_log)
     );
     assert!(pages(&draft_log) < pages(&full_log));
-    assert!(drafted.duration < full.duration, "a draft slower than the full pass has no reason to exist");
+    assert!(
+        drafted.duration < full.duration,
+        "a draft slower than the full pass has no reason to exist"
+    );
 }
 
 /// S9.10 against the real engine: a warm thesis build cancelled part-way through its pass — as a
@@ -341,7 +417,9 @@ async fn a_thesis_chapter_drafts_faster_with_the_full_builds_numbering() {
 #[tokio::test]
 #[ignore]
 async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
-    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let engine = Tectonic::at(
+        abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"),
+    );
     let tmp = tempfile::tempdir().unwrap();
     copy_dir(&corpus_dir().join("thesis"), tmp.path());
     let job = BuildJob {
@@ -351,7 +429,13 @@ async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
         synctex: true,
         shell_escape: false,
     };
-    assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
+    assert!(
+        engine
+            .build(&job, CancellationToken::new(), None)
+            .await
+            .unwrap()
+            .success
+    );
 
     let edited = tmp.path().join("chapters/03-method.tex");
     let mut text = fs::read_to_string(&edited).unwrap();
@@ -365,15 +449,30 @@ async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
         cancel_later.cancel();
     });
     let cancelled = engine.build(&job, cancel, None).await;
-    assert!(matches!(cancelled, Err(EngineError::Cancelled)), "the pass must still be running at 2.5 s: {cancelled:?}");
+    assert!(
+        matches!(cancelled, Err(EngineError::Cancelled)),
+        "the pass must still be running at 2.5 s: {cancelled:?}"
+    );
 
     let started = Instant::now();
     let next = engine.build(&job, CancellationToken::new(), None).await.unwrap();
     assert!(next.success, "{}", next.stderr);
-    assert!(!next.steps.full, "the build after a cancel must start warm, not full: {:?}", next.steps);
+    assert!(
+        !next.steps.full,
+        "the build after a cancel must start warm, not full: {:?}",
+        next.steps
+    );
     let log = fs::read_to_string(next.log.as_ref().unwrap()).unwrap();
-    assert_eq!(log.matches("undefined").count(), 0, "a restored folder resolves every reference");
-    println!("after a cancel: {:?} in {} ms", next.steps, started.elapsed().as_millis());
+    assert_eq!(
+        log.matches("undefined").count(),
+        0,
+        "a restored folder resolves every reference"
+    );
+    println!(
+        "after a cancel: {:?} in {} ms",
+        next.steps,
+        started.elapsed().as_millis()
+    );
 }
 
 /// S9.8 against the real engine: the corpus's `minted` document, which fails without shell
@@ -382,7 +481,9 @@ async fn a_cancelled_thesis_build_leaves_the_next_one_warm() {
 #[tokio::test]
 #[ignore]
 async fn minted_builds_once_shell_escape_is_allowed() {
-    let engine = Tectonic::at(abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"));
+    let engine = Tectonic::at(
+        abstract_tex_sidecar::in_repo_binaries("tectonic", &repo_root()).expect("run `pnpm fetch-engine`"),
+    );
     let tmp = tempfile::tempdir().unwrap();
     copy_dir(&corpus_dir().join("minted"), tmp.path());
     let source_tree_before = source_tree(tmp.path());
@@ -397,12 +498,23 @@ async fn minted_builds_once_shell_escape_is_allowed() {
     let cold = engine.build(&job, CancellationToken::new(), None).await.unwrap();
     assert!(cold.success, "needs pygmentize on PATH:\n{}", cold.stderr);
     assert!(cold.pdf.is_some());
-    assert_eq!(source_tree(tmp.path()), source_tree_before, "shell commands must not write into the source tree");
-    assert!(job.out_dir.join("_minted-main").is_dir() || job.out_dir.join("_minted").is_dir(), "minted's cache stays in the build folder");
+    assert_eq!(
+        source_tree(tmp.path()),
+        source_tree_before,
+        "shell commands must not write into the source tree"
+    );
+    assert!(
+        job.out_dir.join("_minted-main").is_dir() || job.out_dir.join("_minted").is_dir(),
+        "minted's cache stays in the build folder"
+    );
 
     let warm = engine.build(&job, CancellationToken::new(), None).await.unwrap();
     assert!(warm.success, "{}", warm.stderr);
-    assert!(!warm.steps.full, "a warm minted build is single passes too: {:?}", warm.steps);
+    assert!(
+        !warm.steps.full,
+        "a warm minted build is single passes too: {:?}",
+        warm.steps
+    );
     assert_eq!(source_tree(tmp.path()), source_tree_before);
 }
 

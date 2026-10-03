@@ -67,7 +67,11 @@ impl AuxSnapshot {
         self.files
             .iter()
             .flat_map(|(_, text)| text.lines())
-            .filter(|line| BIBLIOGRAPHY_PREFIXES.iter().any(|prefix| line.starts_with(prefix)))
+            .filter(|line| {
+                BIBLIOGRAPHY_PREFIXES
+                    .iter()
+                    .any(|prefix| line.starts_with(prefix))
+            })
             .collect()
     }
 }
@@ -98,7 +102,8 @@ pub const OUTPUT_EXTENSIONS: &[&str] = &["pdf", "xdv", "log", "gz", "blg"];
 
 /// Whether `path` is one of a pass's outputs ([`OUTPUT_EXTENSIONS`]).
 pub fn is_output(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| OUTPUT_EXTENSIONS.iter().any(|output| ext == *output))
+    path.extension()
+        .is_some_and(|ext| OUTPUT_EXTENSIONS.iter().any(|output| ext == *output))
 }
 
 /// Every intermediate file in a build folder — the `.aux`, `.bbl`, `.toc`, `.out`, … a pass reads
@@ -129,7 +134,10 @@ impl Checkpoint {
             let bytes = fs::read(&path)?;
             files.push((path, bytes));
         }
-        Ok(Self { out_dir: out_dir.to_path_buf(), files })
+        Ok(Self {
+            out_dir: out_dir.to_path_buf(),
+            files,
+        })
     }
 
     /// Put the folder back: remove intermediates created since [`take`](Checkpoint::take), write
@@ -190,7 +198,10 @@ mod tests {
         assert!(!can_start_warm(only_aux.path(), "main"));
         let both = build_folder(&[("main.aux", "\\relax\n"), (WARM_MARKER, "")]);
         assert!(can_start_warm(both.path(), "main"));
-        assert!(!can_start_warm(both.path(), "thesis"), "the marker is not enough for another root");
+        assert!(
+            !can_start_warm(both.path(), "thesis"),
+            "the marker is not enough for another root"
+        );
     }
 
     #[test]
@@ -202,13 +213,22 @@ mod tests {
         ]);
         let snapshot = AuxSnapshot::read(dir.path());
         assert_eq!(snapshot.files.len(), 2);
-        assert!(snapshot.files.iter().all(|(path, _)| path.extension().unwrap() == "aux"));
+        assert!(snapshot
+            .files
+            .iter()
+            .all(|(path, _)| path.extension().unwrap() == "aux"));
     }
 
     #[test]
     fn a_moved_label_or_page_is_not_a_bibliography_change() {
-        let before = build_folder(&[("main.aux", "\\citation{knuth}\n\\newlabel{a}{{1}{1}}\n\\abx@aux@page{1}{3}\n")]);
-        let after = build_folder(&[("main.aux", "\\citation{knuth}\n\\newlabel{a}{{1}{2}}\n\\abx@aux@page{1}{4}\n")]);
+        let before = build_folder(&[(
+            "main.aux",
+            "\\citation{knuth}\n\\newlabel{a}{{1}{1}}\n\\abx@aux@page{1}{3}\n",
+        )]);
+        let after = build_folder(&[(
+            "main.aux",
+            "\\citation{knuth}\n\\newlabel{a}{{1}{2}}\n\\abx@aux@page{1}{4}\n",
+        )]);
         let (before, after) = (AuxSnapshot::read(before.path()), AuxSnapshot::read(after.path()));
         assert_ne!(before, after, "the files did change");
         assert!(!after.bibliography_changed(&before));
@@ -217,7 +237,10 @@ mod tests {
     #[test]
     fn a_new_citation_or_database_is_a_bibliography_change() {
         let before = build_folder(&[("main.aux", "\\citation{knuth}\n\\bibdata{refs}\n")]);
-        let new_cite = build_folder(&[("main.aux", "\\citation{knuth}\n\\citation{lamport}\n\\bibdata{refs}\n")]);
+        let new_cite = build_folder(&[(
+            "main.aux",
+            "\\citation{knuth}\n\\citation{lamport}\n\\bibdata{refs}\n",
+        )]);
         let new_data = build_folder(&[("main.aux", "\\citation{knuth}\n\\bibdata{refs,more}\n")]);
         let before = AuxSnapshot::read(before.path());
         assert!(AuxSnapshot::read(new_cite.path()).bibliography_changed(&before));
@@ -253,8 +276,15 @@ mod tests {
         let read = |name: &str| fs::read_to_string(dir.path().join(name)).unwrap();
         assert_eq!(read("main.aux"), "\\relax\n\\@input{chapters/one.aux}\n");
         assert_eq!(read("chapters/one.aux"), "\\newlabel{a}{{1}{2}}\n");
-        assert!(!dir.path().join("chapters/two.aux").exists(), "created by the killed pass, so removed");
-        assert_eq!(read("main.pdf"), "%PDF half", "outputs are the next build's to rewrite");
+        assert!(
+            !dir.path().join("chapters/two.aux").exists(),
+            "created by the killed pass, so removed"
+        );
+        assert_eq!(
+            read("main.pdf"),
+            "%PDF half",
+            "outputs are the next build's to rewrite"
+        );
         assert!(can_start_warm(dir.path(), "main"));
     }
 

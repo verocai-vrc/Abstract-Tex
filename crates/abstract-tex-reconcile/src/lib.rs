@@ -86,7 +86,9 @@ pub fn diff_ops(old: &str, new: &str) -> Vec<TextOp> {
 
     // General case: character diff of the middle. Myers is the standard choice; `similar`
     // also offers Patience, which reads better for humans but we are not showing this to one.
-    let diff = TextDiff::configure().algorithm(Algorithm::Myers).diff_chars(old_mid, new_mid);
+    let diff = TextDiff::configure()
+        .algorithm(Algorithm::Myers)
+        .diff_chars(old_mid, new_mid);
 
     let mut ops: Vec<TextOp> = Vec::new();
     // Position in the document *as transformed so far*, in UTF-16 units.
@@ -105,12 +107,21 @@ pub fn diff_ops(old: &str, new: &str) -> Vec<TextOp> {
                 cursor += utf16_len(text);
             }
             ChangeTag::Delete => {
-                pending.get_or_insert_with(|| TextOp { index: cursor, delete: 0, insert: String::new() }).delete +=
-                    utf16_len(text);
+                pending
+                    .get_or_insert_with(|| TextOp {
+                        index: cursor,
+                        delete: 0,
+                        insert: String::new(),
+                    })
+                    .delete += utf16_len(text);
             }
             ChangeTag::Insert => {
                 pending
-                    .get_or_insert_with(|| TextOp { index: cursor, delete: 0, insert: String::new() })
+                    .get_or_insert_with(|| TextOp {
+                        index: cursor,
+                        delete: 0,
+                        insert: String::new(),
+                    })
                     .insert
                     .push_str(text);
             }
@@ -129,7 +140,11 @@ pub fn apply_ops(text: &str, ops: &[TextOp]) -> String {
     let mut units: Vec<u16> = text.encode_utf16().collect();
     for op in ops {
         let end = op.index + op.delete;
-        assert!(end <= units.len(), "op {op:?} out of range for length {}", units.len());
+        assert!(
+            end <= units.len(),
+            "op {op:?} out of range for length {}",
+            units.len()
+        );
         let insert: Vec<u16> = op.insert.encode_utf16().collect();
         units.splice(op.index..end, insert);
     }
@@ -153,13 +168,27 @@ mod tests {
     #[test]
     fn pure_insertion_is_one_op() {
         let ops = diff_ops("hello world", "hello brave world");
-        assert_eq!(ops, vec![TextOp { index: 6, delete: 0, insert: "brave ".into() }]);
+        assert_eq!(
+            ops,
+            vec![TextOp {
+                index: 6,
+                delete: 0,
+                insert: "brave ".into()
+            }]
+        );
     }
 
     #[test]
     fn pure_deletion_is_one_op() {
         let ops = diff_ops("hello brave world", "hello world");
-        assert_eq!(ops, vec![TextOp { index: 6, delete: 6, insert: String::new() }]);
+        assert_eq!(
+            ops,
+            vec![TextOp {
+                index: 6,
+                delete: 6,
+                insert: String::new()
+            }]
+        );
     }
 
     #[test]
@@ -176,7 +205,14 @@ mod tests {
         let old = "é𝑥 = 1";
         let new = "é𝑥 = 2";
         let ops = diff_ops(old, new);
-        assert_eq!(ops, vec![TextOp { index: 6, delete: 1, insert: "2".into() }]);
+        assert_eq!(
+            ops,
+            vec![TextOp {
+                index: 6,
+                delete: 1,
+                insert: "2".into()
+            }]
+        );
         assert_eq!(apply_ops(old, &ops), new);
     }
 

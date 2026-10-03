@@ -50,7 +50,10 @@ fn fake_github_answering(answers: Vec<(u16, &'static str)>) -> (String, mpsc::Re
                 if reader.read_line(&mut line).unwrap_or(0) == 0 {
                     break;
                 }
-                if let Some(value) = line.strip_prefix("Content-Length: ").or_else(|| line.strip_prefix("content-length: ")) {
+                if let Some(value) = line
+                    .strip_prefix("Content-Length: ")
+                    .or_else(|| line.strip_prefix("content-length: "))
+                {
                     length = value.trim().parse().unwrap_or(0);
                 }
                 request.push_str(&line);
@@ -112,7 +115,10 @@ fn a_code_request_sends_what_github_documents_and_reads_back_the_code() {
     assert!(request.starts_with("POST /login/device/code"), "{request}");
     // The `Accept` header is load-bearing: without it GitHub answers in form encoding, which
     // would need a second parser.
-    assert!(request.contains("accept: application/json") || request.contains("Accept: application/json"), "{request}");
+    assert!(
+        request.contains("accept: application/json") || request.contains("Accept: application/json"),
+        "{request}"
+    );
     assert!(request.contains("client_id=Iv1.test"), "{request}");
     // The one scope, as it crosses the wire.
     assert!(request.contains("scope=repo"), "{request}");
@@ -131,14 +137,23 @@ fn the_five_answers_a_poll_can_give_are_five_different_things() {
 
     assert_eq!(flow.poll("Iv1.test", "dc-1").unwrap(), Poll::Pending);
     // Mandatory, not advisory: the new interval comes back so the caller can obey it.
-    assert_eq!(flow.poll("Iv1.test", "dc-1").unwrap(), Poll::SlowDown(Duration::from_secs(10)));
-    assert_eq!(flow.poll("Iv1.test", "dc-1").unwrap(), Poll::Token("gho_signed_in".to_string()));
+    assert_eq!(
+        flow.poll("Iv1.test", "dc-1").unwrap(),
+        Poll::SlowDown(Duration::from_secs(10))
+    );
+    assert_eq!(
+        flow.poll("Iv1.test", "dc-1").unwrap(),
+        Poll::Token("gho_signed_in".to_string())
+    );
     assert!(matches!(flow.poll("Iv1.test", "dc-1"), Err(GitHubError::Denied)));
     assert!(matches!(flow.poll("Iv1.test", "dc-1"), Err(GitHubError::Expired)));
 
     // And the grant type, without which GitHub rejects the request outright.
     let first = requests.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert!(first.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"), "{first}");
+    assert!(
+        first.contains("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code"),
+        "{first}"
+    );
     assert!(first.contains("device_code=dc-1"), "{first}");
 }
 
@@ -147,7 +162,10 @@ fn a_slow_down_with_no_interval_still_slows_down() {
     // GitHub documents the field, and a server that leaves it out must not be read as "carry on
     // at the same rate" — that is how a flow gets itself rate-limited into a false expiry.
     let (origin, _requests) = fake_github(vec![r#"{"error":"slow_down"}"#]);
-    assert_eq!(flow(&origin).poll("Iv1.test", "dc-1").unwrap(), Poll::SlowDown(Duration::from_secs(10)));
+    assert_eq!(
+        flow(&origin).poll("Iv1.test", "dc-1").unwrap(),
+        Poll::SlowDown(Duration::from_secs(10))
+    );
 }
 
 #[test]
@@ -157,7 +175,10 @@ fn an_unregistered_client_id_comes_back_as_githubs_own_sentence() {
     ]);
     let error = flow(&origin).request_code("Iv1.nope").unwrap_err();
     // The description, not the slug: "incorrect_client_credentials" is not a sentence for anyone.
-    assert_eq!(error.to_string(), "GitHub said: The client_id passed is incorrect.");
+    assert_eq!(
+        error.to_string(),
+        "GitHub said: The client_id passed is incorrect."
+    );
 }
 
 #[test]
@@ -173,7 +194,10 @@ fn an_answer_this_crate_cannot_read_says_so_and_keeps_the_body() {
 fn a_code_response_missing_the_fields_is_not_a_code() {
     // No `error`, no `user_code` either: a well-formed JSON object that is still not an answer.
     let (origin, _requests) = fake_github(vec![r#"{"expires_in":900}"#]);
-    assert!(matches!(flow(&origin).request_code("Iv1.test"), Err(GitHubError::Unreadable(_))));
+    assert!(matches!(
+        flow(&origin).request_code("Iv1.test"),
+        Err(GitHubError::Unreadable(_))
+    ));
 }
 
 #[test]
@@ -185,14 +209,25 @@ fn the_account_call_carries_the_token_as_a_bearer_and_reads_the_login() {
 
     let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(request.starts_with("GET /user"), "{request}");
-    assert!(request.contains("authorization: Bearer gho_signed_in") || request.contains("Authorization: Bearer gho_signed_in"), "{request}");
-    assert!(request.contains("x-github-api-version: 2022-11-28") || request.contains("X-GitHub-Api-Version: 2022-11-28"), "{request}");
+    assert!(
+        request.contains("authorization: Bearer gho_signed_in")
+            || request.contains("Authorization: Bearer gho_signed_in"),
+        "{request}"
+    );
+    assert!(
+        request.contains("x-github-api-version: 2022-11-28")
+            || request.contains("X-GitHub-Api-Version: 2022-11-28"),
+        "{request}"
+    );
 }
 
 #[test]
 fn an_account_with_no_login_is_not_an_account() {
     let (origin, _requests) = fake_github(vec![r#"{"login":""}"#]);
-    assert!(matches!(flow(&origin).account("gho_x"), Err(GitHubError::Unreadable(_))));
+    assert!(matches!(
+        flow(&origin).account("gho_x"),
+        Err(GitHubError::Unreadable(_))
+    ));
 }
 
 #[test]
@@ -221,7 +256,11 @@ fn repos(origin: &str) -> abstract_tex_github::Repos {
 }
 
 fn wanted(name: &str, visibility: abstract_tex_github::Visibility) -> abstract_tex_github::NewRepository {
-    abstract_tex_github::NewRepository { name: name.to_string(), visibility, description: None }
+    abstract_tex_github::NewRepository {
+        name: name.to_string(),
+        visibility,
+        description: None,
+    }
 }
 
 #[test]
@@ -231,12 +270,18 @@ fn a_new_repository_is_private_and_empty_on_the_wire() {
     ]);
 
     let created = repos(&origin)
-        .create("gho_token", &wanted("thesis", abstract_tex_github::Visibility::Private))
+        .create(
+            "gho_token",
+            &wanted("thesis", abstract_tex_github::Visibility::Private),
+        )
         .unwrap();
 
     assert_eq!(created.full_name, "ada/thesis");
     assert_eq!(created.clone_url, "https://github.com/ada/thesis.git");
-    assert!(created.private, "read back from GitHub's answer, not assumed from the request");
+    assert!(
+        created.private,
+        "read back from GitHub's answer, not assumed from the request"
+    );
 
     let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(request.starts_with("POST /user/repos"), "{request}");
@@ -253,15 +298,30 @@ fn a_public_repository_is_only_sent_once_it_has_been_confirmed() {
     // Refused before any request is made: nothing is listening on this port, and the test passes
     // precisely because nothing needed to be.
     let unconfirmed = repos("http://127.0.0.1:1")
-        .create("gho_token", &wanted("thesis", abstract_tex_github::Visibility::Public { confirmed: false }))
+        .create(
+            "gho_token",
+            &wanted(
+                "thesis",
+                abstract_tex_github::Visibility::Public { confirmed: false },
+            ),
+        )
         .unwrap_err();
-    assert!(matches!(unconfirmed, GitHubError::PublicNotConfirmed), "{unconfirmed}");
+    assert!(
+        matches!(unconfirmed, GitHubError::PublicNotConfirmed),
+        "{unconfirmed}"
+    );
 
     let (origin, requests) = fake_github(vec![
         r#"{"full_name":"ada/open","clone_url":"https://github.com/ada/open.git","html_url":"https://github.com/ada/open","private":false}"#,
     ]);
     let created = repos(&origin)
-        .create("gho_token", &wanted("open", abstract_tex_github::Visibility::Public { confirmed: true }))
+        .create(
+            "gho_token",
+            &wanted(
+                "open",
+                abstract_tex_github::Visibility::Public { confirmed: true },
+            ),
+        )
         .unwrap();
     assert!(!created.private);
     let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -276,7 +336,10 @@ fn a_name_github_will_not_take_comes_back_as_both_halves_of_its_sentence() {
     )]);
 
     let error = repos(&origin)
-        .create("gho_token", &wanted("thesis", abstract_tex_github::Visibility::Private))
+        .create(
+            "gho_token",
+            &wanted("thesis", abstract_tex_github::Visibility::Private),
+        )
         .unwrap_err();
     assert_eq!(
         error.to_string(),
@@ -295,7 +358,9 @@ fn repository_json(name: &str) -> String {
 /// A page of `count` repositories, leaked so the fake server (which wants `&'static str`) can
 /// hold it. Test-only, and a few kilobytes.
 fn page_of(count: usize, start: usize) -> &'static str {
-    let items: Vec<String> = (start..start + count).map(|n| repository_json(&format!("paper-{n}"))).collect();
+    let items: Vec<String> = (start..start + count)
+        .map(|n| repository_json(&format!("paper-{n}")))
+        .collect();
     Box::leak(format!("[{}]", items.join(",")).into_boxed_str())
 }
 
@@ -305,13 +370,27 @@ fn listing_asks_for_the_accounts_repositories_with_the_token_and_reads_each_one(
 
     let found = repos(&origin).list("gho_signed_in").unwrap();
 
-    assert_eq!(found.iter().map(|r| r.full_name.as_str()).collect::<Vec<_>>(), ["ada/paper-0", "ada/paper-1"]);
+    assert_eq!(
+        found.iter().map(|r| r.full_name.as_str()).collect::<Vec<_>>(),
+        ["ada/paper-0", "ada/paper-1"]
+    );
     assert_eq!(found[0].clone_url, "https://github.com/ada/paper-0.git");
     let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(request.starts_with("GET /user/repos?"), "{request}");
-    assert!(request.contains("per_page=100") && request.contains("sort=pushed"), "{request}");
-    assert!(request.contains("collaborator"), "a coauthor's paper is the commonest case: {request}");
-    assert!(request.to_lowercase().contains("authorization: bearer gho_signed_in"), "{request}");
+    assert!(
+        request.contains("per_page=100") && request.contains("sort=pushed"),
+        "{request}"
+    );
+    assert!(
+        request.contains("collaborator"),
+        "a coauthor's paper is the commonest case: {request}"
+    );
+    assert!(
+        request
+            .to_lowercase()
+            .contains("authorization: bearer gho_signed_in"),
+        "{request}"
+    );
 }
 
 #[test]
@@ -325,7 +404,10 @@ fn a_full_page_asks_for_the_next_and_a_short_one_stops() {
     let second = requests.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(first.contains("page=1"), "{first}");
     assert!(second.contains("page=2"), "{second}");
-    assert!(requests.recv_timeout(Duration::from_millis(300)).is_err(), "a short page must end the walk");
+    assert!(
+        requests.recv_timeout(Duration::from_millis(300)).is_err(),
+        "a short page must end the walk"
+    );
 }
 
 #[test]
@@ -337,11 +419,17 @@ fn an_account_with_no_repositories_is_an_empty_list_and_not_an_error() {
 #[test]
 fn listing_with_a_revoked_token_is_rejected_so_the_app_can_forget_it() {
     let (origin, _requests) = fake_github_answering(vec![(401, r#"{"message":"Bad credentials"}"#)]);
-    assert!(matches!(repos(&origin).list("t"), Err(GitHubError::TokenRejected)));
+    assert!(matches!(
+        repos(&origin).list("t"),
+        Err(GitHubError::TokenRejected)
+    ));
 }
 
 #[test]
 fn a_listing_that_is_not_a_list_says_so() {
     let (origin, _requests) = fake_github(vec![r#"{"unexpected":"object"}"#]);
-    assert!(matches!(repos(&origin).list("t"), Err(GitHubError::Unreadable(_))));
+    assert!(matches!(
+        repos(&origin).list("t"),
+        Err(GitHubError::Unreadable(_))
+    ));
 }

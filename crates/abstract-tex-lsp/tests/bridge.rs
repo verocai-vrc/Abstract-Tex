@@ -13,7 +13,9 @@ fn rpc_server() -> TexLab {
 }
 
 async fn start() -> (Bridge, tokio::sync::mpsc::UnboundedReceiver<Incoming>) {
-    Bridge::start(rpc_server(), Path::new(".")).await.expect("the fake server starts")
+    Bridge::start(rpc_server(), Path::new("."))
+        .await
+        .expect("the fake server starts")
 }
 
 #[tokio::test]
@@ -67,7 +69,9 @@ async fn large_messages_both_ways_at_once_do_not_deadlock() {
     bridge.notify("flood", json!({})).unwrap();
     let document = "y".repeat(50 * 1024);
     for _ in 0..10 {
-        bridge.notify("textDocument/didChange", json!({ "text": document })).unwrap();
+        bridge
+            .notify("textDocument/didChange", json!({ "text": document }))
+            .unwrap();
     }
     let answer = tokio::time::timeout(Duration::from_secs(10), bridge.request("hello", json!({})))
         .await
@@ -115,7 +119,9 @@ async fn an_unsolicited_notification_reaches_the_incoming_stream() {
 async fn a_crashed_server_is_restarted_and_the_waiting_caller_is_released() {
     let (bridge, mut incoming) = start().await;
 
-    let before = bridge.request("who", json!({})).await.unwrap()["pid"].as_u64().unwrap();
+    let before = bridge.request("who", json!({})).await.unwrap()["pid"]
+        .as_u64()
+        .unwrap();
 
     // `boom` exits without replying. The caller must come back as `Dropped`, not wait forever.
     let result = tokio::time::timeout(Duration::from_secs(5), bridge.request("boom", json!({})))
@@ -127,7 +133,10 @@ async fn a_crashed_server_is_restarted_and_the_waiting_caller_is_released() {
         .await
         .expect("the crash must be announced")
         .unwrap();
-    assert!(matches!(message, Incoming::Crashed { restarts: 1 }), "{message:?}");
+    assert!(
+        matches!(message, Incoming::Crashed { restarts: 1 }),
+        "{message:?}"
+    );
 
     // The restarted server answers, and it is not the process that died.
     let after = tokio::time::timeout(Duration::from_secs(5), bridge.request("who", json!({})))
@@ -186,7 +195,10 @@ async fn the_real_texlab_completes_an_environment_name() {
     std::fs::write(&file, source).unwrap();
 
     let (bridge, _incoming) = Bridge::start(texlab, root.path()).await.unwrap();
-    bridge.initialize(root.path(), json!({"textDocument": {"completion": {}}}), None).await.unwrap();
+    bridge
+        .initialize(root.path(), json!({"textDocument": {"completion": {}}}), None)
+        .await
+        .unwrap();
 
     let uri = abstract_tex_lsp::bridge::path_to_uri(&file);
     bridge
@@ -214,8 +226,14 @@ async fn the_real_texlab_completes_an_environment_name() {
         .and_then(Value::as_array)
         .or_else(|| completions.as_array())
         .expect("a completion list");
-    let labels: Vec<&str> = items.iter().filter_map(|i| i.get("label").and_then(Value::as_str)).collect();
-    assert!(labels.contains(&"itemize"), "expected environment names, got {labels:?}");
+    let labels: Vec<&str> = items
+        .iter()
+        .filter_map(|i| i.get("label").and_then(Value::as_str))
+        .collect();
+    assert!(
+        labels.contains(&"itemize"),
+        "expected environment names, got {labels:?}"
+    );
 
     bridge.shutdown().await.unwrap();
 }

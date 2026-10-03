@@ -55,8 +55,12 @@ pub fn quick_errors(log: &str) -> Vec<QuickError> {
         let Some(message) = line.strip_prefix("! ") else {
             continue;
         };
-        let mut error =
-            QuickError { message: message.trim().to_string(), line: None, context: None, file: None };
+        let mut error = QuickError {
+            message: message.trim().to_string(),
+            line: None,
+            context: None,
+            file: None,
+        };
 
         // TeX prints the `l.NN` marker within the next few lines; stop looking at the next `!`
         // or after a generous window, whichever comes first.
@@ -150,6 +154,9 @@ l.87 The sample size n_
         let log = include_str!("../fixtures/broken-underscore/main.log");
         let errs = quick_errors(log);
         assert!(!errs.is_empty(), "fixture log should contain at least one error");
-        assert!(errs.iter().any(|e| e.message.starts_with("Missing $ inserted")), "{errs:?}");
+        assert!(
+            errs.iter().any(|e| e.message.starts_with("Missing $ inserted")),
+            "{errs:?}"
+        );
     }
 }

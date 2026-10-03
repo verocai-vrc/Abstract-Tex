@@ -156,7 +156,9 @@ fn classify_warning(line: &str) -> Option<String> {
 /// same-line `(a.sty)(b.sty)` reports two candidates instead of one run swallowing both.
 fn candidate_after(line: &str, start: usize) -> &str {
     let rest = &line[start..];
-    let end = rest.find(|c: char| c.is_whitespace() || c == '(' || c == ')').unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '(' || c == ')')
+        .unwrap_or(rest.len());
     &rest[..end]
 }
 
@@ -165,7 +167,10 @@ fn paren_events(line: &str) -> Vec<ParenEvent> {
     let mut events = Vec::new();
     for (at, ch) in line.char_indices() {
         match ch {
-            '(' => events.push(ParenEvent::Open { at, candidate: candidate_after(line, at + 1).to_string() }),
+            '(' => events.push(ParenEvent::Open {
+                at,
+                candidate: candidate_after(line, at + 1).to_string(),
+            }),
             ')' => events.push(ParenEvent::Close { at }),
             _ => {}
         }
@@ -178,7 +183,10 @@ fn classify(line: &str) -> LineKind {
         return LineKind::Error(message.trim_end().to_string());
     }
     if let Some((line_no, context)) = parse_line_marker(line) {
-        return LineKind::LineMarker { line: line_no, context: context.to_string() };
+        return LineKind::LineMarker {
+            line: line_no,
+            context: context.to_string(),
+        };
     }
     if let Some(message) = classify_warning(line) {
         return LineKind::Warning { message };
@@ -190,7 +198,11 @@ fn classify(line: &str) -> LineKind {
 pub fn tokenize(log: &str) -> Vec<LogLine> {
     unwrap_lines(log)
         .into_iter()
-        .map(|text| LogLine { kind: classify(&text), parens: paren_events(&text), text })
+        .map(|text| LogLine {
+            kind: classify(&text),
+            parens: paren_events(&text),
+            text,
+        })
         .collect()
 }
 
@@ -212,7 +224,13 @@ mod tests {
             let first = "a".repeat(79);
             let log = format!("{first}\nrest of the message\nunrelated next line\n");
             let joined = unwrap_lines(&log);
-            assert_eq!(joined, vec![format!("{first}rest of the message"), "unrelated next line".to_string()]);
+            assert_eq!(
+                joined,
+                vec![
+                    format!("{first}rest of the message"),
+                    "unrelated next line".to_string()
+                ]
+            );
         }
 
         #[test]
@@ -223,7 +241,13 @@ mod tests {
             // a join even though the *combined* length is never 79 again after the first one.
             let log = format!("{}\n{}\n{}\nunrelated\n", "a".repeat(79), "b".repeat(79), "ccccc");
             let joined = unwrap_lines(&log);
-            assert_eq!(joined, vec![format!("{}{}ccccc", "a".repeat(79), "b".repeat(79)), "unrelated".to_string()]);
+            assert_eq!(
+                joined,
+                vec![
+                    format!("{}{}ccccc", "a".repeat(79), "b".repeat(79)),
+                    "unrelated".to_string()
+                ]
+            );
         }
 
         #[test]
@@ -261,7 +285,10 @@ mod tests {
 
         #[test]
         fn recognises_an_error() {
-            assert_eq!(classify("! Undefined control sequence."), LineKind::Error("Undefined control sequence.".to_string()));
+            assert_eq!(
+                classify("! Undefined control sequence."),
+                LineKind::Error("Undefined control sequence.".to_string())
+            );
         }
 
         #[test]
@@ -278,18 +305,36 @@ mod tests {
         fn recognises_a_line_marker() {
             assert_eq!(
                 classify("l.87 The sample size n_"),
-                LineKind::LineMarker { line: 87, context: " The sample size n_".to_string() }
+                LineKind::LineMarker {
+                    line: 87,
+                    context: " The sample size n_".to_string()
+                }
             );
         }
 
         #[test]
         fn recognises_the_three_shapes_of_warning_banner() {
             for (line, who) in [
-                ("LaTeX Warning: Citation `x' undefined.", "Citation `x' undefined."),
-                ("LaTeX Font Warning: Font shape undefined.", "Font shape undefined."),
-                ("Package hyperref Warning: Rerun to get /PageLabels entry.", "Rerun to get /PageLabels entry."),
+                (
+                    "LaTeX Warning: Citation `x' undefined.",
+                    "Citation `x' undefined.",
+                ),
+                (
+                    "LaTeX Font Warning: Font shape undefined.",
+                    "Font shape undefined.",
+                ),
+                (
+                    "Package hyperref Warning: Rerun to get /PageLabels entry.",
+                    "Rerun to get /PageLabels entry.",
+                ),
             ] {
-                assert_eq!(classify(line), LineKind::Warning { message: who.to_string() }, "{line}");
+                assert_eq!(
+                    classify(line),
+                    LineKind::Warning {
+                        message: who.to_string()
+                    },
+                    "{line}"
+                );
             }
         }
 
@@ -311,7 +356,13 @@ mod tests {
         #[test]
         fn finds_a_simple_file_open_and_its_candidate_path() {
             let events = paren_events("(article.cls");
-            assert_eq!(events, vec![ParenEvent::Open { at: 0, candidate: "article.cls".to_string() }]);
+            assert_eq!(
+                events,
+                vec![ParenEvent::Open {
+                    at: 0,
+                    candidate: "article.cls".to_string()
+                }]
+            );
         }
 
         #[test]
@@ -326,9 +377,15 @@ mod tests {
             assert_eq!(
                 events,
                 vec![
-                    ParenEvent::Open { at: 0, candidate: "hycolor.sty".to_string() },
+                    ParenEvent::Open {
+                        at: 0,
+                        candidate: "hycolor.sty".to_string()
+                    },
                     ParenEvent::Close { at: 12 },
-                    ParenEvent::Open { at: 14, candidate: "letltxmacro.sty".to_string() },
+                    ParenEvent::Open {
+                        at: 14,
+                        candidate: "letltxmacro.sty".to_string()
+                    },
                     ParenEvent::Close { at: 30 },
                 ]
             );
@@ -343,7 +400,10 @@ mod tests {
             assert_eq!(
                 events,
                 vec![
-                    ParenEvent::Open { at: 34, candidate: "Unicode".to_string() },
+                    ParenEvent::Open {
+                        at: 34,
+                        candidate: "Unicode".to_string()
+                    },
                     ParenEvent::Close { at: 42 },
                 ]
             );
@@ -352,7 +412,13 @@ mod tests {
         #[test]
         fn a_candidate_stops_at_whitespace_not_just_at_the_next_paren() {
             let events = paren_events("(main.tex and some trailing prose");
-            assert_eq!(events, vec![ParenEvent::Open { at: 0, candidate: "main.tex".to_string() }]);
+            assert_eq!(
+                events,
+                vec![ParenEvent::Open {
+                    at: 0,
+                    candidate: "main.tex".to_string()
+                }]
+            );
         }
 
         #[test]
@@ -369,12 +435,27 @@ mod tests {
             let log = "! Undefined control sequence.\nl.12 \\textbold\n(main.aux)\n";
             let lines = tokenize(log);
             assert_eq!(lines.len(), 3);
-            assert_eq!(lines[0].kind, LineKind::Error("Undefined control sequence.".to_string()));
-            assert_eq!(lines[1].kind, LineKind::LineMarker { line: 12, context: " \\textbold".to_string() });
+            assert_eq!(
+                lines[0].kind,
+                LineKind::Error("Undefined control sequence.".to_string())
+            );
+            assert_eq!(
+                lines[1].kind,
+                LineKind::LineMarker {
+                    line: 12,
+                    context: " \\textbold".to_string()
+                }
+            );
             assert_eq!(lines[2].kind, LineKind::Text);
             assert_eq!(
                 lines[2].parens,
-                vec![ParenEvent::Open { at: 0, candidate: "main.aux".to_string() }, ParenEvent::Close { at: 9 }]
+                vec![
+                    ParenEvent::Open {
+                        at: 0,
+                        candidate: "main.aux".to_string()
+                    },
+                    ParenEvent::Close { at: 9 }
+                ]
             );
         }
 
@@ -388,7 +469,10 @@ mod tests {
                     ParenEvent::Close { .. } => false,
                 })
             });
-            assert!(opened_the_long_path, "the wrapped path should survive as one candidate: {lines:#?}");
+            assert!(
+                opened_the_long_path,
+                "the wrapped path should survive as one candidate: {lines:#?}"
+            );
         }
 
         #[test]
@@ -397,9 +481,13 @@ mod tests {
             // classification is judged against the same real bytes the rule catalog is.
             let log = include_str!("../fixtures/undefined-control-sequence/main.log");
             let lines = tokenize(log);
-            assert!(matches!(&lines.iter().find(|l| matches!(l.kind, LineKind::Error(_))).unwrap().kind,
-                LineKind::Error(m) if m == "Undefined control sequence."));
-            assert!(lines.iter().any(|l| matches!(l.kind, LineKind::LineMarker { line: 4, .. })));
+            assert!(
+                matches!(&lines.iter().find(|l| matches!(l.kind, LineKind::Error(_))).unwrap().kind,
+                LineKind::Error(m) if m == "Undefined control sequence.")
+            );
+            assert!(lines
+                .iter()
+                .any(|l| matches!(l.kind, LineKind::LineMarker { line: 4, .. })));
         }
     }
 }

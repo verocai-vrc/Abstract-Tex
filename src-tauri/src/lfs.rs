@@ -45,10 +45,18 @@ pub async fn track_with(git: &Path, project_dir: &Path, paths: &[String]) -> Res
         bail!("No files to track.");
     }
     if !is_installed(git).await {
-        bail!("Git LFS isn't installed on this machine. Install it from https://git-lfs.com, then try again.");
+        bail!(
+            "Git LFS isn't installed on this machine. Install it from https://git-lfs.com, then try again."
+        );
     }
 
-    run(git, project_dir, &["lfs", "install", "--local"], "setting up Git LFS for this repository").await?;
+    run(
+        git,
+        project_dir,
+        &["lfs", "install", "--local"],
+        "setting up Git LFS for this repository",
+    )
+    .await?;
     let mut track_args: Vec<&str> = vec!["lfs", "track"];
     track_args.extend(paths.iter().map(String::as_str));
     run(git, project_dir, &track_args, "tracking the file with Git LFS").await?;
@@ -66,7 +74,11 @@ pub async fn track_with(git: &Path, project_dir: &Path, paths: &[String]) -> Res
 /// `abstract-tex-lsp` and `abstract-tex-engine` already spawn their own subprocesses — a process
 /// launch and wait is exactly what that type exists not to block a worker thread for.
 async fn is_installed(git: &Path) -> bool {
-    Command::new(git).args(["lfs", "version"]).output().await.is_ok_and(|output| output.status.success())
+    Command::new(git)
+        .args(["lfs", "version"])
+        .output()
+        .await
+        .is_ok_and(|output| output.status.success())
 }
 
 /// Run `git <args>` in `project_dir`, failing with one complete sentence that names both what was
@@ -74,10 +86,17 @@ async fn is_installed(git: &Path) -> bool {
 /// and its source, where `anyhow::Error`'s `Display` (what `to_message` actually sends the
 /// frontend) only ever shows the outer one.
 async fn run(git: &Path, project_dir: &Path, args: &[&str], action: &str) -> Result<()> {
-    let output =
-        Command::new(git).args(args).current_dir(project_dir).output().await.with_context(|| format!("running git to {action}"))?;
+    let output = Command::new(git)
+        .args(args)
+        .current_dir(project_dir)
+        .output()
+        .await
+        .with_context(|| format!("running git to {action}"))?;
     if !output.status.success() {
-        bail!("Git LFS failed while {action}: {}", String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "Git LFS failed while {action}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(())
 }

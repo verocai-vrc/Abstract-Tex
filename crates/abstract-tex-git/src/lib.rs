@@ -102,7 +102,9 @@ pub enum GitError {
     /// S11.5a: `clone` into a folder that already has something in it. libgit2 would refuse too,
     /// but with a message about its own bookkeeping; the author needs to hear which folder, and
     /// that nothing was touched.
-    #[error("{0} already has files in it, so nothing was downloaded there. Pick an empty folder, or a new name.")]
+    #[error(
+        "{0} already has files in it, so nothing was downloaded there. Pick an empty folder, or a new name."
+    )]
     DestinationNotEmpty(String),
 
     /// S11.7: a side-by-side view of a file that is not text. The view is offered for `.tex` and
@@ -165,8 +167,13 @@ impl Status {
     /// What the activity bar's badge counts: every path with something to say about it, counted
     /// once however many lists it is in.
     pub fn changed_file_count(&self) -> usize {
-        let mut paths: Vec<&str> =
-            self.staged.iter().chain(&self.unstaged).chain(&self.conflicted).map(|change| change.path.as_str()).collect();
+        let mut paths: Vec<&str> = self
+            .staged
+            .iter()
+            .chain(&self.unstaged)
+            .chain(&self.conflicted)
+            .map(|change| change.path.as_str())
+            .collect();
         paths.sort_unstable();
         paths.dedup();
         paths.len()
@@ -218,17 +225,33 @@ pub fn status(repository: &Repository) -> Result<Status, GitError> {
 
         if let Some(kind) = staged_kind(flags) {
             let diff = entry.head_to_index();
-            let path = diff.as_ref().and_then(|d| d.new_file().path()).map(path_string).or_else(|| entry.path().map(str::to_string));
+            let path = diff
+                .as_ref()
+                .and_then(|d| d.new_file().path())
+                .map(path_string)
+                .or_else(|| entry.path().map(str::to_string));
             let from = diff.as_ref().and_then(|d| d.old_file().path()).map(path_string);
-            if let Some(change) = to_change(path.as_deref(), from.filter(|_| kind == ChangeKind::Renamed), kind) {
+            if let Some(change) = to_change(
+                path.as_deref(),
+                from.filter(|_| kind == ChangeKind::Renamed),
+                kind,
+            ) {
                 status.staged.push(change);
             }
         }
         if let Some(kind) = unstaged_kind(flags) {
             let diff = entry.index_to_workdir();
-            let path = diff.as_ref().and_then(|d| d.new_file().path()).map(path_string).or_else(|| entry.path().map(str::to_string));
+            let path = diff
+                .as_ref()
+                .and_then(|d| d.new_file().path())
+                .map(path_string)
+                .or_else(|| entry.path().map(str::to_string));
             let from = diff.as_ref().and_then(|d| d.old_file().path()).map(path_string);
-            if let Some(change) = to_change(path.as_deref(), from.filter(|_| kind == ChangeKind::Renamed), kind) {
+            if let Some(change) = to_change(
+                path.as_deref(),
+                from.filter(|_| kind == ChangeKind::Renamed),
+                kind,
+            ) {
                 status.unstaged.push(change);
             }
         }
@@ -252,11 +275,18 @@ pub fn large_files(repository: &Repository, threshold_bytes: u64) -> Result<Vec<
 
     let mut seen = std::collections::BTreeSet::new();
     let mut found = Vec::new();
-    for change in status.staged.iter().chain(&status.unstaged).chain(&status.conflicted) {
+    for change in status
+        .staged
+        .iter()
+        .chain(&status.unstaged)
+        .chain(&status.conflicted)
+    {
         if change.kind == ChangeKind::Deleted || !seen.insert(change.path.clone()) {
             continue;
         }
-        let Ok(metadata) = std::fs::metadata(workdir.join(&change.path)) else { continue };
+        let Ok(metadata) = std::fs::metadata(workdir.join(&change.path)) else {
+            continue;
+        };
         if metadata.len() <= threshold_bytes {
             continue;
         }
@@ -265,7 +295,10 @@ pub fn large_files(repository: &Repository, threshold_bytes: u64) -> Result<Vec<
             Ok(Some("lfs"))
         );
         if !already_tracked {
-            found.push(LargeFile { path: change.path.clone(), size_bytes: metadata.len() });
+            found.push(LargeFile {
+                path: change.path.clone(),
+                size_bytes: metadata.len(),
+            });
         }
     }
     found.sort_by(|a, b| a.path.cmp(&b.path));
@@ -311,7 +344,11 @@ fn to_change(path: Option<&str>, renamed_from: Option<String>, kind: ChangeKind)
     if is_ours(path) {
         return None;
     }
-    Some(FileChange { path: path.to_string(), renamed_from, kind })
+    Some(FileChange {
+        path: path.to_string(),
+        renamed_from,
+        kind,
+    })
 }
 
 fn is_ours(path: &str) -> bool {
@@ -320,7 +357,10 @@ fn is_ours(path: &str) -> bool {
 
 /// Git always reports `/`, whatever the platform; this only exists because `Path` does not.
 fn path_string(path: &Path) -> String {
-    path.components().filter_map(|c| c.as_os_str().to_str()).collect::<Vec<_>>().join("/")
+    path.components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// Stage one path: add it to the index, or record its deletion there.
@@ -372,7 +412,10 @@ pub enum Discarded {
 
 /// Throw away the working-tree changes to one path.
 pub fn discard(repository: &Repository, path: &str) -> Result<Discarded, GitError> {
-    let tracked = repository.status_file(Path::new(path)).map(|flags| !flags.is_wt_new()).unwrap_or(false);
+    let tracked = repository
+        .status_file(Path::new(path))
+        .map(|flags| !flags.is_wt_new())
+        .unwrap_or(false);
     if !tracked {
         if let Some(full) = workdir_path(repository, path) {
             if full.exists() {
@@ -476,7 +519,11 @@ pub fn log(repository: &Repository, skip: usize, limit: usize) -> Result<Vec<Com
             summary: commit.summary().unwrap_or_default().to_string(),
             author: commit.author().name().unwrap_or_default().to_string(),
             time: commit.time().seconds(),
-            tags: tags.iter().filter(|(commit_id, _)| *commit_id == id).map(|(_, name)| name.clone()).collect(),
+            tags: tags
+                .iter()
+                .filter(|(commit_id, _)| *commit_id == id)
+                .map(|(_, name)| name.clone())
+                .collect(),
             word_delta: word_delta(repository, &commit),
             id,
         });
@@ -507,7 +554,9 @@ pub fn export_tree(repository: &Repository, commit: git2::Oid, dest_dir: &Path) 
         if entry.kind() != Some(git2::ObjectType::Blob) {
             return git2::TreeWalkResult::Ok;
         }
-        let Some(name) = entry.name() else { return git2::TreeWalkResult::Ok };
+        let Some(name) = entry.name() else {
+            return git2::TreeWalkResult::Ok;
+        };
         let full_path = dest_dir.join(format!("{root}{name}"));
         let write = entry
             .to_object(repository)
@@ -557,7 +606,11 @@ pub fn has_path(repository: &Repository, commit: git2::Oid, path: &str) -> Resul
 /// has the same timestamp, so time alone cannot order the very pair a single-lane graph shows
 /// most often. Two commits neither of which descends from the other (a merge's two sides) have no
 /// ancestry to go by, and there the committer's clock is the only answer there is.
-pub fn older_first(repository: &Repository, a: git2::Oid, b: git2::Oid) -> Result<(git2::Oid, git2::Oid), GitError> {
+pub fn older_first(
+    repository: &Repository,
+    a: git2::Oid,
+    b: git2::Oid,
+) -> Result<(git2::Oid, git2::Oid), GitError> {
     if repository.graph_descendant_of(a, b)? {
         return Ok((b, a));
     }
@@ -601,14 +654,29 @@ pub fn branch_state(repository: &Repository) -> Result<BranchState, GitError> {
     let Ok(head) = repository.head() else {
         // `head()` fails before the first commit, where `HEAD` names a branch with no commit on
         // it. The branch's *name* is still there and still worth showing.
-        let name = repository.find_reference("HEAD").ok().and_then(|head| head.symbolic_target().map(shorthand_of));
-        return Ok(BranchState { name, ahead_behind: None, unborn: true, head: None });
+        let name = repository
+            .find_reference("HEAD")
+            .ok()
+            .and_then(|head| head.symbolic_target().map(shorthand_of));
+        return Ok(BranchState {
+            name,
+            ahead_behind: None,
+            unborn: true,
+            head: None,
+        });
     };
 
     let name = head.shorthand().map(str::to_string).filter(|_| head.is_branch());
-    let ahead_behind = name.as_deref().and_then(|name| upstream_drift(repository, name, &head));
+    let ahead_behind = name
+        .as_deref()
+        .and_then(|name| upstream_drift(repository, name, &head));
     let head_id = head.target().map(|id| id.to_string());
-    Ok(BranchState { name, ahead_behind, unborn: false, head: head_id })
+    Ok(BranchState {
+        name,
+        ahead_behind,
+        unborn: false,
+        head: head_id,
+    })
 }
 
 fn upstream_drift(repository: &Repository, name: &str, head: &git2::Reference<'_>) -> Option<(usize, usize)> {
@@ -691,7 +759,10 @@ pub fn amend(repository: &Repository, message: &str) -> Result<String, GitError>
     if message.is_empty() {
         return Err(GitError::EmptyMessage);
     }
-    let head_commit = repository.head().map_err(|_| GitError::NothingToAmend)?.peel_to_commit()?;
+    let head_commit = repository
+        .head()
+        .map_err(|_| GitError::NothingToAmend)?
+        .peel_to_commit()?;
     let who = repository.signature().map_err(|_| GitError::NoIdentity)?;
 
     let mut index = repository.index()?;
@@ -699,7 +770,14 @@ pub fn amend(repository: &Repository, message: &str) -> Result<String, GitError>
 
     // `amend` keeps the original commit's parents untouched — passing a tree and a message but no
     // parent list is what makes this a reword-or-reshape of the same commit rather than a new one.
-    let id = head_commit.amend(Some("HEAD"), Some(&who), Some(&who), None, Some(message), Some(&tree))?;
+    let id = head_commit.amend(
+        Some("HEAD"),
+        Some(&who),
+        Some(&who),
+        None,
+        Some(message),
+        Some(&tree),
+    )?;
     Ok(id.to_string())
 }
 
@@ -761,7 +839,11 @@ pub fn prose_summary(repository: &Repository) -> Result<ProseSummary, GitError> 
 
     let mut summary = ProseSummary::default();
     for (index, delta) in diff.deltas().enumerate() {
-        let Some(path) = delta.new_file().path().map(path_string).or_else(|| delta.old_file().path().map(path_string))
+        let Some(path) = delta
+            .new_file()
+            .path()
+            .map(path_string)
+            .or_else(|| delta.old_file().path().map(path_string))
         else {
             continue;
         };
@@ -789,7 +871,9 @@ pub fn prose_summary(repository: &Repository) -> Result<ProseSummary, GitError> 
         }
         if let Ok(Some(patch)) = git2::Patch::from_diff(&diff, index) {
             for hunk_index in 0..patch.num_hunks() {
-                let Ok((hunk, _)) = patch.hunk(hunk_index) else { continue };
+                let Ok((hunk, _)) = patch.hunk(hunk_index) else {
+                    continue;
+                };
                 if let Some(section) = texwords::section_of(&headings, hunk.new_start() as usize) {
                     if !summary.sections.contains(&section.title) {
                         summary.sections.push(section.title.clone());
@@ -818,13 +902,18 @@ fn word_delta(repository: &Repository, commit: &git2::Commit<'_>) -> i64 {
     let old_tree = commit.parent(0).ok().and_then(|parent| parent.tree().ok());
 
     let mut options = git2::DiffOptions::new();
-    let Ok(diff) = repository.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut options)) else {
+    let Ok(diff) = repository.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut options))
+    else {
         return 0;
     };
 
     let mut delta: i64 = 0;
     for change in diff.deltas() {
-        let path = change.new_file().path().map(path_string).or_else(|| change.old_file().path().map(path_string));
+        let path = change
+            .new_file()
+            .path()
+            .map(path_string)
+            .or_else(|| change.old_file().path().map(path_string));
         let Some(path) = path else { continue };
         if is_ours(&path) || !is_tex(&path) {
             continue;
@@ -851,12 +940,18 @@ fn blob_text(repository: &Repository, id: git2::Oid) -> String {
 
 /// A file's text as it is on disk right now, or `""` if it is not there.
 fn workdir_text(repository: &Repository, path: &str) -> String {
-    let Some(dir) = repository.workdir() else { return String::new() };
-    std::fs::read(dir.join(path)).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default()
+    let Some(dir) = repository.workdir() else {
+        return String::new();
+    };
+    std::fs::read(dir.join(path))
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
 }
 
 fn is_tex(path: &str) -> bool {
-    path.rsplit('.').next().is_some_and(|extension| extension.eq_ignore_ascii_case("tex"))
+    path.rsplit('.')
+        .next()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("tex"))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -922,7 +1017,10 @@ pub struct Initialised {
 /// subfolder of a repository is almost never what anyone meant, and it is unpleasant to undo.
 pub fn initialise(project_dir: &Path) -> Result<Initialised, GitError> {
     if let Ok(existing) = Repository::discover(project_dir) {
-        let found = existing.workdir().map(|dir| dir.display().to_string()).unwrap_or_else(|| "a Git repository".into());
+        let found = existing
+            .workdir()
+            .map(|dir| dir.display().to_string())
+            .unwrap_or_else(|| "a Git repository".into());
         return Err(GitError::AlreadyARepository(found));
     }
 
@@ -946,13 +1044,22 @@ fn stage_and_commit_everything(repository: &Repository) -> Result<Initialised, G
     index.write()?;
 
     match commit(repository, "Initial commit") {
-        Ok(id) => Ok(Initialised { first_commit: Some(id), needs_identity: false }),
+        Ok(id) => Ok(Initialised {
+            first_commit: Some(id),
+            needs_identity: false,
+        }),
         // The one refusal that is not a failure here: everything else about this worked, and the
         // staged tree is waiting for the author's own first commit.
-        Err(GitError::NoIdentity) => Ok(Initialised { first_commit: None, needs_identity: true }),
+        Err(GitError::NoIdentity) => Ok(Initialised {
+            first_commit: None,
+            needs_identity: true,
+        }),
         // An empty folder has nothing to commit, and that is fine too — a repository with no
         // commits is where S10.2b's `unborn` branch state comes from.
-        Err(GitError::NothingStaged) => Ok(Initialised { first_commit: None, needs_identity: false }),
+        Err(GitError::NothingStaged) => Ok(Initialised {
+            first_commit: None,
+            needs_identity: false,
+        }),
         Err(error) => Err(error),
     }
 }
@@ -1012,7 +1119,10 @@ pub const ORIGIN: &str = "origin";
 /// What the panel needs to know before it offers to create one: a project that already has a
 /// remote is not a project to publish, whatever else might be true about it.
 pub fn origin_url(repository: &Repository) -> Option<String> {
-    repository.find_remote(ORIGIN).ok().and_then(|remote| remote.url().map(str::to_string))
+    repository
+        .find_remote(ORIGIN)
+        .ok()
+        .and_then(|remote| remote.url().map(str::to_string))
 }
 
 /// Point this repository at `url` as `origin`, replacing whatever was there.
@@ -1061,7 +1171,10 @@ pub enum SyncOutcome {
 /// no commits yet — neither has anything to push, fetch, or sync.
 fn current_branch(repository: &Repository) -> Result<String, GitError> {
     let head = repository.head().map_err(|_| GitError::NoBranch)?;
-    head.shorthand().filter(|_| head.is_branch()).map(str::to_string).ok_or(GitError::NoBranch)
+    head.shorthand()
+        .filter(|_| head.is_branch())
+        .map(str::to_string)
+        .ok_or(GitError::NoBranch)
 }
 
 /// `origin`, or [`GitError::NoRemote`] rather than `git2`'s "remote 'origin' does not exist" —
@@ -1086,7 +1199,9 @@ fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
                 return git2::Cred::userpass_plaintext(token, "x-oauth-basic");
             }
         }
-        Err(git2::Error::from_str("this remote asked for a credential and none was given"))
+        Err(git2::Error::from_str(
+            "this remote asked for a credential and none was given",
+        ))
     });
     callbacks
 }
@@ -1100,7 +1215,9 @@ fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
 /// and `evilgithub.com` are different hosts, and user-info tricks (`https://github.com@evil/…`)
 /// are caught because the host is read after the `@`.
 fn is_github_https(url: &str) -> bool {
-    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     let host = authority.rsplit('@').next().unwrap_or("");
     let host = host.split(':').next().unwrap_or("");
@@ -1140,7 +1257,10 @@ pub fn push(repository: &Repository, token: Option<&str>) -> Result<(), GitError
     // is `None` on a branch's first push, the same "whole history is ahead" case `sync` already
     // walks in `commits_since`.
     let remote_ref = format!("refs/remotes/{ORIGIN}/{branch_name}");
-    let already_on_remote = repository.find_reference(&remote_ref).ok().and_then(|r| r.target());
+    let already_on_remote = repository
+        .find_reference(&remote_ref)
+        .ok()
+        .and_then(|r| r.target());
     let oversized = oversized_blobs(repository, already_on_remote, target, GITHUB_FILE_LIMIT_BYTES)?;
     if let Some((path, size)) = oversized.into_iter().max_by_key(|(_, size)| *size) {
         let megabytes = size.div_ceil(1024 * 1024);
@@ -1200,7 +1320,12 @@ pub fn push(repository: &Repository, token: Option<&str>) -> Result<(), GitError
 fn fast_forward(repository: &Repository, branch_name: &str, target: git2::Oid) -> Result<(), GitError> {
     let commit = repository.find_commit(target)?;
     repository.checkout_tree(commit.as_object(), None)?;
-    repository.reference(&format!("refs/heads/{branch_name}"), target, true, "abstract-tex: sync")?;
+    repository.reference(
+        &format!("refs/heads/{branch_name}"),
+        target,
+        true,
+        "abstract-tex: sync",
+    )?;
     Ok(())
 }
 
@@ -1218,7 +1343,11 @@ pub fn sync(repository: &Repository, token: Option<&str>) -> Result<SyncOutcome,
     fetch(repository, token)?;
 
     let remote_ref = format!("refs/remotes/{ORIGIN}/{branch_name}");
-    let Some(remote_target) = repository.find_reference(&remote_ref).ok().and_then(|r| r.target()) else {
+    let Some(remote_target) = repository
+        .find_reference(&remote_ref)
+        .ok()
+        .and_then(|r| r.target())
+    else {
         // `origin` exists, but has never seen this branch: everything local is "ahead", counted
         // by walking it, the same way `log`'s own paging does.
         let ahead = commits_since(repository, None, local)?;
@@ -1251,7 +1380,11 @@ pub fn sync(repository: &Repository, token: Option<&str>) -> Result<SyncOutcome,
 /// conflicted one is left exactly as a terminal `git merge` would leave it, because a future
 /// conflict view reading anything other than what `git status` already agrees on would be two
 /// kinds of Git disagreeing with each other.
-fn merge(repository: &Repository, their_target: git2::Oid, token: Option<&str>) -> Result<SyncOutcome, GitError> {
+fn merge(
+    repository: &Repository,
+    their_target: git2::Oid,
+    token: Option<&str>,
+) -> Result<SyncOutcome, GitError> {
     let their_commit = repository.find_annotated_commit(their_target)?;
     repository.merge(&[&their_commit], None, None)?;
 
@@ -1261,7 +1394,9 @@ fn merge(repository: &Repository, their_target: git2::Oid, token: Option<&str>) 
 
     // libgit2 writes `MERGE_MSG` itself as part of `merge`, above — the same sentence `git commit`
     // would default to ("Merge branch 'origin/main'..."), read back rather than invented again.
-    let message = repository.message().unwrap_or_else(|_| format!("Merge {ORIGIN} into the local branch"));
+    let message = repository
+        .message()
+        .unwrap_or_else(|_| format!("Merge {ORIGIN} into the local branch"));
     commit(repository, &message)?;
     push(repository, token)?;
     Ok(SyncOutcome::Merged)
@@ -1357,7 +1492,9 @@ pub struct DiffSides {
 pub fn diff_sides(repository: &Repository, path: &str, staged: bool) -> Result<DiffSides, GitError> {
     let relative = Path::new(path);
     let stays_inside = !relative.is_absolute()
-        && relative.components().all(|component| matches!(component, std::path::Component::Normal(_)));
+        && relative
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
     if !stays_inside {
         return Err(GitError::OutsideProject(path.to_string()));
     }
@@ -1378,7 +1515,10 @@ pub fn diff_sides(repository: &Repository, path: &str, staged: bool) -> Result<D
             },
             Err(_) => String::new(), // an unborn branch has no `HEAD` tree
         };
-        Ok(DiffSides { before, after: in_index()? })
+        Ok(DiffSides {
+            before,
+            after: in_index()?,
+        })
     } else {
         let after = match workdir_path(repository, path) {
             Some(file) if file.is_file() => {
@@ -1386,7 +1526,10 @@ pub fn diff_sides(repository: &Repository, path: &str, staged: bool) -> Result<D
             }
             _ => String::new(),
         };
-        Ok(DiffSides { before: in_index()?, after })
+        Ok(DiffSides {
+            before: in_index()?,
+            after,
+        })
     }
 }
 
@@ -1415,7 +1558,10 @@ pub fn folder_name_for(url: &str) -> Option<String> {
         Some((_scheme, rest)) => rest.split_once('/').map_or("", |(_host, path)| path),
         None => url,
     };
-    let last = path.trim_end_matches(['/', '\\']).rsplit(['/', '\\', ':']).next()?;
+    let last = path
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\', ':'])
+        .next()?;
     let name = last.strip_suffix(".git").unwrap_or(last).trim();
     if name.is_empty() || name == "." || name == ".." {
         None
@@ -1459,7 +1605,11 @@ pub fn clone(url: &str, destination: &Path, token: Option<&str>) -> Result<Repos
                 if let Ok(entries) = std::fs::read_dir(destination) {
                     for entry in entries.flatten() {
                         let path = entry.path();
-                        let _ = if path.is_dir() { std::fs::remove_dir_all(&path) } else { std::fs::remove_file(&path) };
+                        let _ = if path.is_dir() {
+                            std::fs::remove_dir_all(&path)
+                        } else {
+                            std::fs::remove_file(&path)
+                        };
                     }
                 }
             } else {
@@ -1497,7 +1647,9 @@ mod tests {
         let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
         let parents = repository.head().ok().and_then(|h| h.peel_to_commit().ok());
         let parents: Vec<&git2::Commit<'_>> = parents.iter().collect();
-        repository.commit(Some("HEAD"), &who, &who, message, &tree, &parents).unwrap();
+        repository
+            .commit(Some("HEAD"), &who, &who, message, &tree, &parents)
+            .unwrap();
     }
 
     /// Every list, every letter, in one repository — the card's first done-when.
@@ -1527,9 +1679,19 @@ mod tests {
         assert!(staged.contains(&("staged.tex", ChangeKind::Added)), "{staged:?}");
         assert!(staged.contains(&("both.tex", ChangeKind::Modified)), "{staged:?}");
 
-        let unstaged: Vec<_> = status.unstaged.iter().map(|c| (c.path.as_str(), c.kind)).collect();
-        assert!(unstaged.contains(&("untracked.tex", ChangeKind::Untracked)), "{unstaged:?}");
-        assert!(unstaged.contains(&("both.tex", ChangeKind::Modified)), "{unstaged:?}");
+        let unstaged: Vec<_> = status
+            .unstaged
+            .iter()
+            .map(|c| (c.path.as_str(), c.kind))
+            .collect();
+        assert!(
+            unstaged.contains(&("untracked.tex", ChangeKind::Untracked)),
+            "{unstaged:?}"
+        );
+        assert!(
+            unstaged.contains(&("both.tex", ChangeKind::Modified)),
+            "{unstaged:?}"
+        );
 
         // `both.tex` really is in two lists at once, with a letter in each — the case one list
         // and a flag cannot express — and the badge still counts four paths, not five.
@@ -1547,7 +1709,11 @@ mod tests {
         assert!(!tmp.path().join(".gitignore").exists());
 
         let status = changes(&repository);
-        assert_eq!(status, Status::default(), "our folder reached the author's Changes list");
+        assert_eq!(
+            status,
+            Status::default(),
+            "our folder reached the author's Changes list"
+        );
     }
 
     /// Staging and unstaging move a path between lists and change nothing on disk.
@@ -1567,7 +1733,10 @@ mod tests {
         assert_eq!(status.unstaged.len(), 1);
 
         // The edit itself survived both moves. Unstaging is not discarding.
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "edited\n");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "edited\n"
+        );
     }
 
     /// Staging a *deleted* file has to go through `remove_path`; `add_path` would fail on a file
@@ -1580,7 +1749,10 @@ mod tests {
         stage(&repository, "main.tex").unwrap();
 
         let status = changes(&repository);
-        assert_eq!(status.staged.iter().map(|c| c.kind).collect::<Vec<_>>(), vec![ChangeKind::Deleted]);
+        assert_eq!(
+            status.staged.iter().map(|c| c.kind).collect::<Vec<_>>(),
+            vec![ChangeKind::Deleted]
+        );
         assert!(status.unstaged.is_empty(), "{status:?}");
     }
 
@@ -1593,7 +1765,10 @@ mod tests {
         fs::write(tmp.path().join("scratch.tex"), "never committed\n").unwrap();
 
         assert_eq!(discard(&repository, "main.tex").unwrap(), Discarded::Restored);
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the manuscript\n"
+        );
 
         assert_eq!(discard(&repository, "scratch.tex").unwrap(), Discarded::Deleted);
         assert!(!tmp.path().join("scratch.tex").exists());
@@ -1612,8 +1787,14 @@ mod tests {
 
         discard(&repository, "main.tex").unwrap();
 
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n");
-        assert_eq!(fs::read_to_string(tmp.path().join("other.tex")).unwrap(), "but keep this\n");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the manuscript\n"
+        );
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("other.tex")).unwrap(),
+            "but keep this\n"
+        );
     }
 
     /// A renamed chapter is one row, not a delete and an add — the design asks for `R`, and an
@@ -1626,7 +1807,11 @@ mod tests {
         stage(&repository, "thesis.tex").unwrap();
 
         let status = changes(&repository);
-        let renamed: Vec<_> = status.staged.iter().filter(|c| c.kind == ChangeKind::Renamed).collect();
+        let renamed: Vec<_> = status
+            .staged
+            .iter()
+            .filter(|c| c.kind == ChangeKind::Renamed)
+            .collect();
         assert_eq!(renamed.len(), 1, "{status:?}");
         assert_eq!(renamed[0].path, "thesis.tex");
         assert_eq!(renamed[0].renamed_from.as_deref(), Some("main.tex"));
@@ -1644,7 +1829,13 @@ mod tests {
 
         let found = large_files(&repository, 10).unwrap();
 
-        assert_eq!(found, vec![LargeFile { path: "figure.png".to_string(), size_bytes: 20 }]);
+        assert_eq!(
+            found,
+            vec![LargeFile {
+                path: "figure.png".to_string(),
+                size_bytes: 20
+            }]
+        );
     }
 
     /// A large file already routed through the `lfs` filter is not a candidate — the whole point
@@ -1654,7 +1845,11 @@ mod tests {
         let (tmp, repository) = repo();
         // `.gitattributes` itself must stay under the threshold too, or it becomes a spurious
         // candidate of its own — it has no `filter=lfs` line naming itself.
-        fs::write(tmp.path().join(".gitattributes"), "*.png filter=lfs diff=lfs merge=lfs -text\n").unwrap();
+        fs::write(
+            tmp.path().join(".gitattributes"),
+            "*.png filter=lfs diff=lfs merge=lfs -text\n",
+        )
+        .unwrap();
         fs::write(tmp.path().join("figure.png"), vec![0u8; 100]).unwrap();
 
         assert!(large_files(&repository, 50).unwrap().is_empty());
@@ -1671,7 +1866,13 @@ mod tests {
 
         let found = large_files(&repository, 10).unwrap();
 
-        assert_eq!(found, vec![LargeFile { path: "figure.png".to_string(), size_bytes: 20 }]);
+        assert_eq!(
+            found,
+            vec![LargeFile {
+                path: "figure.png".to_string(),
+                size_bytes: 20
+            }]
+        );
     }
 
     // --- S10.2b -----------------------------------------------------------------------------
@@ -1686,9 +1887,15 @@ mod tests {
         }
 
         let page = log(&repository, 0, 2).unwrap();
-        assert_eq!(page.iter().map(|row| row.summary.as_str()).collect::<Vec<_>>(), ["commit 5", "commit 4"]);
+        assert_eq!(
+            page.iter().map(|row| row.summary.as_str()).collect::<Vec<_>>(),
+            ["commit 5", "commit 4"]
+        );
         let next = log(&repository, 2, 2).unwrap();
-        assert_eq!(next.iter().map(|row| row.summary.as_str()).collect::<Vec<_>>(), ["commit 3", "commit 2"]);
+        assert_eq!(
+            next.iter().map(|row| row.summary.as_str()).collect::<Vec<_>>(),
+            ["commit 3", "commit 2"]
+        );
         // Paging must not overlap or skip: five commits, read two at a time, are five distinct ids.
         let all = log(&repository, 0, 100).unwrap();
         assert_eq!(all.len(), 5);
@@ -1716,8 +1923,14 @@ mod tests {
         let dest = tempfile::tempdir().unwrap();
         export_tree(&repository, commit, dest.path()).unwrap();
 
-        assert_eq!(fs::read_to_string(dest.path().join("main.tex")).unwrap(), "the manuscript\n");
-        assert_eq!(fs::read_to_string(dest.path().join("sections/intro.tex")).unwrap(), "the introduction\n");
+        assert_eq!(
+            fs::read_to_string(dest.path().join("main.tex")).unwrap(),
+            "the manuscript\n"
+        );
+        assert_eq!(
+            fs::read_to_string(dest.path().join("sections/intro.tex")).unwrap(),
+            "the introduction\n"
+        );
     }
 
     /// An older commit's export never sees what a later one added — this is reading history, not
@@ -1767,7 +1980,10 @@ mod tests {
         assert!(has_path(&repository, before, "main.tex").unwrap());
         assert!(!has_path(&repository, before, "paper/main.tex").unwrap());
         assert!(has_path(&repository, after, "paper/main.tex").unwrap());
-        assert!(!has_path(&repository, after, "paper").unwrap(), "a folder is not a root file");
+        assert!(
+            !has_path(&repository, after, "paper").unwrap(),
+            "a folder is not a root file"
+        );
     }
 
     /// Whichever order the two are handed over in, the parent comes first — even when both were
@@ -1795,11 +2011,15 @@ mod tests {
         abstract_tex_snapshot::snapshot(tmp.path()).unwrap();
         // Point the snapshot ref straight at HEAD, the worst case this filter exists for.
         let head = repository.head().unwrap().peel_to_commit().unwrap();
-        repository.reference(abstract_tex_snapshot::SNAPSHOT_REF, head.id(), true, "test").unwrap();
+        repository
+            .reference(abstract_tex_snapshot::SNAPSHOT_REF, head.id(), true, "test")
+            .unwrap();
 
         let rows = log(&repository, 0, 10).unwrap();
         assert!(
-            !rows.iter().any(|row| row.tags.iter().any(|tag| tag.contains("snapshot"))),
+            !rows
+                .iter()
+                .any(|row| row.tags.iter().any(|tag| tag.contains("snapshot"))),
             "the snapshot ref leaked into the graph: {rows:?}"
         );
     }
@@ -1824,7 +2044,10 @@ mod tests {
 
         let state = branch_state(&repository).unwrap();
         assert!(state.unborn);
-        assert!(state.name.is_some(), "the branch name exists before the commit does: {state:?}");
+        assert!(
+            state.name.is_some(),
+            "the branch name exists before the commit does: {state:?}"
+        );
         assert!(log(&repository, 0, 10).unwrap().is_empty());
     }
 
@@ -1860,7 +2083,10 @@ mod tests {
 
         // A file that is only edited, never staged, is still nothing to commit.
         fs::write(tmp.path().join("main.tex"), "edited but not staged\n").unwrap();
-        assert!(matches!(commit(&repository, "still nothing"), Err(GitError::NothingStaged)));
+        assert!(matches!(
+            commit(&repository, "still nothing"),
+            Err(GitError::NothingStaged)
+        ));
     }
 
     /// A folder with no repository anywhere above it is a sentence, not a crash — the Source
@@ -1876,7 +2102,8 @@ mod tests {
     // -----------------------------------------------------------------------------------------
 
     /// A manuscript with two sections, so a change can be attributed to one of them.
-    const TWO_SECTIONS: &str = "\\section{Methods}\nWe sampled forty people.\n\\section{Results}\nThe effect held.\n";
+    const TWO_SECTIONS: &str =
+        "\\section{Methods}\nWe sampled forty people.\n\\section{Results}\nThe effect held.\n";
 
     #[test]
     fn the_summary_counts_prose_and_names_the_section_the_change_landed_in() {
@@ -1902,7 +2129,11 @@ mod tests {
     #[test]
     fn a_new_file_is_named_as_added_and_all_of_its_words_are_new() {
         let (tmp, repository) = repo();
-        fs::write(tmp.path().join("notes.tex"), "\\section{Notes}\nOne two three four.\n").unwrap();
+        fs::write(
+            tmp.path().join("notes.tex"),
+            "\\section{Notes}\nOne two three four.\n",
+        )
+        .unwrap();
 
         let summary = prose_summary(&repository).unwrap();
         assert_eq!(summary.added_paths, vec!["notes.tex".to_string()]);
@@ -1915,7 +2146,11 @@ mod tests {
     fn markup_that_adds_lines_and_no_words_is_not_progress() {
         let tmp = tempfile::tempdir().unwrap();
         let repository = Repository::init(tmp.path()).unwrap();
-        fs::write(tmp.path().join("main.tex"), "\\section{Theory}\nIt follows that x = y.\n").unwrap();
+        fs::write(
+            tmp.path().join("main.tex"),
+            "\\section{Theory}\nIt follows that x = y.\n",
+        )
+        .unwrap();
         commit_all(&repository, "first");
 
         // Four more lines, one fewer prose word ("x = y" becomes maths).
@@ -1937,10 +2172,18 @@ mod tests {
     #[test]
     fn a_bib_file_a_figure_and_the_build_folder_are_not_prose() {
         let (tmp, repository) = repo();
-        fs::write(tmp.path().join("refs.bib"), "@article{a, title = {Several words of title here}}\n").unwrap();
+        fs::write(
+            tmp.path().join("refs.bib"),
+            "@article{a, title = {Several words of title here}}\n",
+        )
+        .unwrap();
         fs::write(tmp.path().join("figure.pdf"), b"%PDF and some words").unwrap();
         fs::create_dir_all(tmp.path().join(".abstract-tex/build")).unwrap();
-        fs::write(tmp.path().join(".abstract-tex/build/main.tex"), "words words words words\n").unwrap();
+        fs::write(
+            tmp.path().join(".abstract-tex/build/main.tex"),
+            "words words words words\n",
+        )
+        .unwrap();
 
         let summary = prose_summary(&repository).unwrap();
         assert_eq!(summary.paths, Vec::<String>::new());
@@ -1987,7 +2230,10 @@ mod tests {
         assert!(!done.needs_identity);
 
         let repository = open(tmp.path()).unwrap();
-        assert_eq!(files_in_head(&repository), vec![".gitignore", "main.tex", "sections/intro.tex"]);
+        assert_eq!(
+            files_in_head(&repository),
+            vec![".gitignore", "main.tex", "sections/intro.tex"]
+        );
         // The two things that must not be in it: our folder, and a stray `.aux`.
         assert!(our_folder_is_ignored(&repository));
         assert!(repository.is_path_ignored("main.aux").unwrap());
@@ -2036,19 +2282,28 @@ mod tests {
 
         let error = initialise(&paper).unwrap_err();
         assert!(matches!(error, GitError::AlreadyARepository(_)), "{error}");
-        assert!(error.to_string().contains("already inside a Git repository"), "{error}");
+        assert!(
+            error.to_string().contains("already inside a Git repository"),
+            "{error}"
+        );
     }
 
     #[test]
     fn an_existing_gitignore_is_added_to_and_never_replaced() {
         let (tmp, repository) = repo();
         fs::write(tmp.path().join(".gitignore"), "# mine\nscratch/\n").unwrap();
-        assert!(!our_folder_is_ignored(&repository), "a repository that predates this app");
+        assert!(
+            !our_folder_is_ignored(&repository),
+            "a repository that predates this app"
+        );
 
         ignore_our_folder(&repository).unwrap();
 
         let written = fs::read_to_string(tmp.path().join(".gitignore")).unwrap();
-        assert!(written.starts_with("# mine\nscratch/\n"), "the author's lines come first: {written}");
+        assert!(
+            written.starts_with("# mine\nscratch/\n"),
+            "the author's lines come first: {written}"
+        );
         assert!(written.contains(".abstract-tex/"));
         assert!(our_folder_is_ignored(&repository));
 
@@ -2068,7 +2323,10 @@ mod tests {
         assert_eq!(origin_url(&repository), None, "nothing to publish to yet");
 
         set_origin(&repository, "https://github.com/ada/thesis.git").unwrap();
-        assert_eq!(origin_url(&repository).as_deref(), Some("https://github.com/ada/thesis.git"));
+        assert_eq!(
+            origin_url(&repository).as_deref(),
+            Some("https://github.com/ada/thesis.git")
+        );
     }
 
     #[test]
@@ -2078,13 +2336,21 @@ mod tests {
 
         // A remote-tracking branch, as a fetch would have left behind.
         let head = repository.head().unwrap().peel_to_commit().unwrap();
-        repository.reference("refs/remotes/origin/main", head.id(), true, "test").unwrap();
+        repository
+            .reference("refs/remotes/origin/main", head.id(), true, "test")
+            .unwrap();
 
         set_origin(&repository, "https://github.com/ada/second.git").unwrap();
 
-        assert_eq!(origin_url(&repository).as_deref(), Some("https://github.com/ada/second.git"));
+        assert_eq!(
+            origin_url(&repository).as_deref(),
+            Some("https://github.com/ada/second.git")
+        );
         // Delete-and-add would have taken this with it.
-        assert!(repository.find_reference("refs/remotes/origin/main").is_ok(), "tracking refs survive");
+        assert!(
+            repository.find_reference("refs/remotes/origin/main").is_ok(),
+            "tracking refs survive"
+        );
     }
 
     #[test]
@@ -2100,7 +2366,10 @@ mod tests {
 
         let rows = log(&repository, 0, 10).unwrap();
         assert_eq!(rows[0].summary, "cut it back");
-        assert_eq!(rows[0].word_delta, -4, "a commit that cuts prose reads as negative");
+        assert_eq!(
+            rows[0].word_delta, -4,
+            "a commit that cuts prose reads as negative"
+        );
         assert_eq!(rows[1].word_delta, 2);
         // The root commit has no parent, so everything in it is new.
         assert_eq!(rows[2].word_delta, 3);
@@ -2138,21 +2407,37 @@ mod tests {
     /// Write a commit straight into a bare repository, standing in for a coauthor's `git push` —
     /// there is no working tree here to `fs::write` into, which is the whole reason this cannot
     /// just reuse `commit_all`.
-    fn commit_into_bare(bare_path: &Path, branch: &str, file: &str, contents: &str, message: &str) -> git2::Oid {
+    fn commit_into_bare(
+        bare_path: &Path,
+        branch: &str,
+        file: &str,
+        contents: &str,
+        message: &str,
+    ) -> git2::Oid {
         let bare = Repository::open_bare(bare_path).unwrap();
         let branch_ref = format!("refs/heads/{branch}");
-        let parent = bare.find_reference(&branch_ref).unwrap().peel_to_commit().unwrap();
+        let parent = bare
+            .find_reference(&branch_ref)
+            .unwrap()
+            .peel_to_commit()
+            .unwrap();
         let mut builder = bare.treebuilder(Some(&parent.tree().unwrap())).unwrap();
         let blob = bare.blob(contents.as_bytes()).unwrap();
         builder.insert(file, blob, 0o100_644).unwrap();
         let tree = bare.find_tree(builder.write().unwrap()).unwrap();
         let who = git2::Signature::now("Coauthor", "coauthor@example.invalid").unwrap();
-        bare.commit(Some(&branch_ref), &who, &who, message, &tree, &[&parent]).unwrap()
+        bare.commit(Some(&branch_ref), &who, &who, message, &tree, &[&parent])
+            .unwrap()
     }
 
     /// The branch ref a bare repository has, read the same way a real clone would.
     fn bare_tip(bare_path: &Path, branch: &str) -> git2::Oid {
-        Repository::open_bare(bare_path).unwrap().find_reference(&format!("refs/heads/{branch}")).unwrap().target().unwrap()
+        Repository::open_bare(bare_path)
+            .unwrap()
+            .find_reference(&format!("refs/heads/{branch}"))
+            .unwrap()
+            .target()
+            .unwrap()
     }
 
     /// The card's first done-when: a push moves the remote and its own tracking ref, with no
@@ -2164,9 +2449,20 @@ mod tests {
 
         push(&repository, None).unwrap();
 
-        assert_eq!(bare_tip(bare.path(), &branch), local_head, "the remote did not move");
-        let tracking = repository.find_reference(&format!("refs/remotes/origin/{branch}")).unwrap().target();
-        assert_eq!(tracking, Some(local_head), "the local tracking ref was not updated by the push itself");
+        assert_eq!(
+            bare_tip(bare.path(), &branch),
+            local_head,
+            "the remote did not move"
+        );
+        let tracking = repository
+            .find_reference(&format!("refs/remotes/origin/{branch}"))
+            .unwrap()
+            .target();
+        assert_eq!(
+            tracking,
+            Some(local_head),
+            "the local tracking ref was not updated by the push itself"
+        );
 
         // The upstream relationship is set, which is what lets `branch_state` read ahead/behind
         // at all rather than reporting `None` ("no remote yet" by S10.2b's own distinction).
@@ -2194,14 +2490,31 @@ mod tests {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
         let local_head = repository.head().unwrap().target().unwrap();
-        let coauthor_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+        let coauthor_commit = commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "a coauthor's words\n",
+            "coauthor",
+        );
 
         fetch(&repository, None).unwrap();
 
-        assert_eq!(repository.head().unwrap().target(), Some(local_head), "HEAD moved on a fetch");
-        let tracking = repository.find_reference(&format!("refs/remotes/origin/{branch}")).unwrap().target();
+        assert_eq!(
+            repository.head().unwrap().target(),
+            Some(local_head),
+            "HEAD moved on a fetch"
+        );
+        let tracking = repository
+            .find_reference(&format!("refs/remotes/origin/{branch}"))
+            .unwrap()
+            .target();
         assert_eq!(tracking, Some(coauthor_commit));
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n", "the working tree moved on a fetch");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the manuscript\n",
+            "the working tree moved on a fetch"
+        );
     }
 
     /// The card's third done-when: a remote that moved ahead, with nothing local to lose, fast-
@@ -2210,14 +2523,27 @@ mod tests {
     fn syncing_fast_forwards_the_branch_and_the_working_tree_when_only_the_remote_moved() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        let coauthor_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+        let coauthor_commit = commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "a coauthor's words\n",
+            "coauthor",
+        );
 
         let outcome = sync(&repository, None).unwrap();
 
         assert_eq!(outcome, SyncOutcome::FastForwarded { behind: 1 });
         assert_eq!(repository.head().unwrap().target(), Some(coauthor_commit));
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "a coauthor's words\n");
-        assert_eq!(changes(&repository), Status::default(), "a fast-forward must not look like a change");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "a coauthor's words\n"
+        );
+        assert_eq!(
+            changes(&repository),
+            Status::default(),
+            "a fast-forward must not look like a change"
+        );
     }
 
     /// The other half of the same decision: nothing to pull, something to push.
@@ -2246,7 +2572,13 @@ mod tests {
     fn syncing_a_clean_divergence_merges_and_pushes_it_on() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        let remote_commit = commit_into_bare(bare.path(), &branch, "notes.tex", "a coauthor's notes\n", "coauthor");
+        let remote_commit = commit_into_bare(
+            bare.path(),
+            &branch,
+            "notes.tex",
+            "a coauthor's notes\n",
+            "coauthor",
+        );
         fs::write(tmp.path().join("chapter.tex"), "a local chapter\n").unwrap();
         commit_all(&repository, "local edit");
         let local_head = repository.head().unwrap().target().unwrap();
@@ -2258,9 +2590,19 @@ mod tests {
         assert_eq!(merged.parent_count(), 2, "a merge commit has both parents");
         assert!(merged.parent_ids().any(|id| id == local_head));
         assert!(merged.parent_ids().any(|id| id == remote_commit));
-        assert_eq!(fs::read_to_string(tmp.path().join("notes.tex")).unwrap(), "a coauthor's notes\n");
-        assert_eq!(fs::read_to_string(tmp.path().join("chapter.tex")).unwrap(), "a local chapter\n");
-        assert_eq!(bare_tip(bare.path(), &branch), merged.id(), "the merge reached the remote");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("notes.tex")).unwrap(),
+            "a coauthor's notes\n"
+        );
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("chapter.tex")).unwrap(),
+            "a local chapter\n"
+        );
+        assert_eq!(
+            bare_tip(bare.path(), &branch),
+            merged.id(),
+            "the merge reached the remote"
+        );
         assert_eq!(repository.state(), git2::RepositoryState::Clean);
     }
 
@@ -2271,7 +2613,13 @@ mod tests {
     fn syncing_a_real_conflict_leaves_real_markers_and_merge_head() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        commit_into_bare(bare.path(), &branch, "main.tex", "the coauthor's version\n", "coauthor");
+        commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "the coauthor's version\n",
+            "coauthor",
+        );
         fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
         commit_all(&repository, "local edit");
 
@@ -2281,8 +2629,14 @@ mod tests {
         assert_eq!(repository.state(), git2::RepositoryState::Merge);
         assert!(repository.path().join("MERGE_HEAD").exists());
         let on_disk = fs::read_to_string(tmp.path().join("main.tex")).unwrap();
-        assert!(on_disk.contains("<<<<<<<"), "a real conflict marker belongs on disk: {on_disk}");
-        assert!(changes(&repository).conflicted.iter().any(|c| c.path == "main.tex"));
+        assert!(
+            on_disk.contains("<<<<<<<"),
+            "a real conflict marker belongs on disk: {on_disk}"
+        );
+        assert!(changes(&repository)
+            .conflicted
+            .iter()
+            .any(|c| c.path == "main.tex"));
     }
 
     /// Resolving needs no new verb: fix the file, stage it the ordinary way, commit — and the
@@ -2291,7 +2645,13 @@ mod tests {
     fn resolving_a_conflict_and_committing_finishes_the_merge() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        let remote_commit = commit_into_bare(bare.path(), &branch, "main.tex", "the coauthor's version\n", "coauthor");
+        let remote_commit = commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "the coauthor's version\n",
+            "coauthor",
+        );
         fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
         commit_all(&repository, "local edit");
         let local_head = repository.head().unwrap().target().unwrap();
@@ -2299,7 +2659,10 @@ mod tests {
 
         fs::write(tmp.path().join("main.tex"), "the resolved version\n").unwrap();
         stage(&repository, "main.tex").unwrap();
-        assert!(changes(&repository).conflicted.is_empty(), "staging the fixed file resolves it");
+        assert!(
+            changes(&repository).conflicted.is_empty(),
+            "staging the fixed file resolves it"
+        );
 
         let id = commit(&repository, "resolve the conflict").unwrap();
 
@@ -2307,8 +2670,15 @@ mod tests {
         assert_eq!(merged.parent_count(), 2);
         assert!(merged.parent_ids().any(|parent_id| parent_id == local_head));
         assert!(merged.parent_ids().any(|parent_id| parent_id == remote_commit));
-        assert_eq!(repository.state(), git2::RepositoryState::Clean, "MERGE_HEAD should be gone");
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the resolved version\n");
+        assert_eq!(
+            repository.state(),
+            git2::RepositoryState::Clean,
+            "MERGE_HEAD should be gone"
+        );
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the resolved version\n"
+        );
     }
 
     /// The card's one new refusal: a commit attempted while anything is still conflicted.
@@ -2316,7 +2686,13 @@ mod tests {
     fn committing_while_still_conflicted_is_refused() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        commit_into_bare(bare.path(), &branch, "main.tex", "the coauthor's version\n", "coauthor");
+        commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "the coauthor's version\n",
+            "coauthor",
+        );
         fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
         commit_all(&repository, "local edit");
         assert_eq!(sync(&repository, None).unwrap(), SyncOutcome::Conflicted);
@@ -2334,7 +2710,13 @@ mod tests {
     fn pushing_a_stale_branch_is_refused_rather_than_overwriting_the_remote() {
         let (tmp, repository, bare, branch) = repo_with_empty_remote();
         push(&repository, None).unwrap();
-        let remote_commit = commit_into_bare(bare.path(), &branch, "main.tex", "a coauthor's words\n", "coauthor");
+        let remote_commit = commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "a coauthor's words\n",
+            "coauthor",
+        );
         // A local commit built on the *old* tip, so this push really is non-fast-forward and not
         // a no-op.
         fs::write(tmp.path().join("notes.tex"), "a local addition\n").unwrap();
@@ -2343,7 +2725,11 @@ mod tests {
         let error = push(&repository, None).unwrap_err();
 
         assert!(matches!(error, GitError::Git(_)), "{error:?}");
-        assert_eq!(bare_tip(bare.path(), &branch), remote_commit, "the rejected push must not have moved the remote");
+        assert_eq!(
+            bare_tip(bare.path(), &branch),
+            remote_commit,
+            "the rejected push must not have moved the remote"
+        );
     }
 
     // -----------------------------------------------------------------------------------------
@@ -2405,12 +2791,26 @@ mod tests {
         match error {
             GitError::FileTooLarge(path, megabytes) => {
                 assert_eq!(path, "figure.png");
-                assert!(megabytes > 100, "{megabytes} MB should read as over the 100 MB limit");
+                assert!(
+                    megabytes > 100,
+                    "{megabytes} MB should read as over the 100 MB limit"
+                );
             }
             other => panic!("{other:?}"),
         }
-        assert!(repository.find_reference(&format!("refs/remotes/origin/{branch}")).is_err(), "a refused push must not update the tracking ref");
-        assert!(Repository::open_bare(bare.path()).unwrap().find_reference(&format!("refs/heads/{branch}")).is_err(), "the bare remote must still have no branch at all");
+        assert!(
+            repository
+                .find_reference(&format!("refs/remotes/origin/{branch}"))
+                .is_err(),
+            "a refused push must not update the tracking ref"
+        );
+        assert!(
+            Repository::open_bare(bare.path())
+                .unwrap()
+                .find_reference(&format!("refs/heads/{branch}"))
+                .is_err(),
+            "the bare remote must still have no branch at all"
+        );
     }
 
     /// `push` and `fetch` both refuse the same way on a repository with no commits yet — there is
@@ -2449,11 +2849,22 @@ mod tests {
 
         let after = repository.head().unwrap().peel_to_commit().unwrap();
         assert_eq!(after.id().to_string(), new_id, "HEAD moved to the amended commit");
-        assert_ne!(after.id(), before.id(), "amending still writes a new commit object");
+        assert_ne!(
+            after.id(),
+            before.id(),
+            "amending still writes a new commit object"
+        );
         assert_eq!(after.summary(), Some("a better first line"));
-        assert_eq!(after.tree_id(), before.tree_id(), "nothing was staged, so the tree is untouched");
+        assert_eq!(
+            after.tree_id(),
+            before.tree_id(),
+            "nothing was staged, so the tree is untouched"
+        );
         assert_eq!(after.parent_count(), 0, "the root commit is still parentless");
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the manuscript\n");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the manuscript\n"
+        );
     }
 
     /// The card's second done-when: a staged change folds into `HEAD` rather than becoming its
@@ -2469,9 +2880,16 @@ mod tests {
         let rows = log(&repository, 0, 10).unwrap();
         assert_eq!(rows.len(), 1, "no second commit was created: {rows:?}");
         let tree = repository.head().unwrap().peel_to_tree().unwrap();
-        let blob = tree.get_path(Path::new("main.tex")).unwrap().to_object(&repository).unwrap();
+        let blob = tree
+            .get_path(Path::new("main.tex"))
+            .unwrap()
+            .to_object(&repository)
+            .unwrap();
         assert_eq!(blob.as_blob().unwrap().content(), b"a better manuscript\n");
-        assert!(changes(&repository).staged.is_empty(), "the amend consumed the staged change");
+        assert!(
+            changes(&repository).staged.is_empty(),
+            "the amend consumed the staged change"
+        );
     }
 
     /// Amending the newest of several commits must not touch what it is built on.
@@ -2480,13 +2898,23 @@ mod tests {
         let (tmp, repository) = repo();
         fs::write(tmp.path().join("main.tex"), "second version\n").unwrap();
         commit_all(&repository, "second");
-        let first_parent = repository.head().unwrap().peel_to_commit().unwrap().parent_id(0).unwrap();
+        let first_parent = repository
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .parent_id(0)
+            .unwrap();
 
         amend(&repository, "a better second message").unwrap();
 
         let amended = repository.head().unwrap().peel_to_commit().unwrap();
         assert_eq!(amended.parent_count(), 1);
-        assert_eq!(amended.parent_id(0).unwrap(), first_parent, "amending rewrote what it is built on");
+        assert_eq!(
+            amended.parent_id(0).unwrap(),
+            first_parent,
+            "amending rewrote what it is built on"
+        );
     }
 
     /// An empty message is refused exactly like a plain commit's, and refuses before writing
@@ -2509,7 +2937,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let repository = Repository::init(tmp.path()).unwrap();
 
-        assert!(matches!(amend(&repository, "anything"), Err(GitError::NothingToAmend)));
+        assert!(matches!(
+            amend(&repository, "anything"),
+            Err(GitError::NothingToAmend)
+        ));
     }
 
     // -----------------------------------------------------------------------------------------
@@ -2533,7 +2964,10 @@ mod tests {
 
         let cloned = clone(bare.path().to_str().unwrap(), &destination, None).unwrap();
 
-        assert_eq!(fs::read_to_string(destination.join("main.tex")).unwrap(), "the manuscript\n");
+        assert_eq!(
+            fs::read_to_string(destination.join("main.tex")).unwrap(),
+            "the manuscript\n"
+        );
         assert_eq!(log(&cloned, 0, 10).unwrap().len(), 1);
         assert_eq!(origin_url(&cloned).as_deref(), bare.path().to_str());
         // Tracking is set up, so the Sync button's arrows have something to compare against.
@@ -2567,10 +3001,15 @@ mod tests {
         let destination = tempfile::tempdir().unwrap();
         fs::write(destination.path().join("mine.txt"), "keep me").unwrap();
 
-        let error = clone(bare.path().to_str().unwrap(), destination.path(), None).err().unwrap();
+        let error = clone(bare.path().to_str().unwrap(), destination.path(), None)
+            .err()
+            .unwrap();
 
         assert!(matches!(error, GitError::DestinationNotEmpty(_)), "{error:?}");
-        assert_eq!(fs::read_to_string(destination.path().join("mine.txt")).unwrap(), "keep me");
+        assert_eq!(
+            fs::read_to_string(destination.path().join("mine.txt")).unwrap(),
+            "keep me"
+        );
         assert!(!destination.path().join("main.tex").exists());
     }
 
@@ -2580,7 +3019,9 @@ mod tests {
         let destination = parent.path().join("paper");
         let nowhere = parent.path().join("no-such-repository");
 
-        let error = clone(nowhere.to_str().unwrap(), &destination, None).err().unwrap();
+        let error = clone(nowhere.to_str().unwrap(), &destination, None)
+            .err()
+            .unwrap();
 
         assert!(matches!(error, GitError::Git(_)), "{error:?}");
         assert!(!destination.exists(), "a half-made folder was left behind");
@@ -2592,7 +3033,9 @@ mod tests {
         let destination = tempfile::tempdir().unwrap();
         let nowhere = parent.path().join("no-such-repository");
 
-        clone(nowhere.to_str().unwrap(), destination.path(), None).err().unwrap();
+        clone(nowhere.to_str().unwrap(), destination.path(), None)
+            .err()
+            .unwrap();
 
         assert!(destination.path().is_dir());
         assert_eq!(fs::read_dir(destination.path()).unwrap().count(), 0);
@@ -2611,10 +3054,22 @@ mod tests {
 
     #[test]
     fn folder_names_follow_what_git_clone_picks() {
-        assert_eq!(folder_name_for("https://github.com/ada/thesis.git").as_deref(), Some("thesis"));
-        assert_eq!(folder_name_for("https://github.com/ada/thesis").as_deref(), Some("thesis"));
-        assert_eq!(folder_name_for("https://github.com/ada/thesis/").as_deref(), Some("thesis"));
-        assert_eq!(folder_name_for("git@github.com:ada/thesis.git").as_deref(), Some("thesis"));
+        assert_eq!(
+            folder_name_for("https://github.com/ada/thesis.git").as_deref(),
+            Some("thesis")
+        );
+        assert_eq!(
+            folder_name_for("https://github.com/ada/thesis").as_deref(),
+            Some("thesis")
+        );
+        assert_eq!(
+            folder_name_for("https://github.com/ada/thesis/").as_deref(),
+            Some("thesis")
+        );
+        assert_eq!(
+            folder_name_for("git@github.com:ada/thesis.git").as_deref(),
+            Some("thesis")
+        );
         assert_eq!(folder_name_for(r"C:\repos\thesis.git").as_deref(), Some("thesis"));
         assert_eq!(folder_name_for("https://github.com/"), None);
         assert_eq!(folder_name_for(""), None);
@@ -2632,7 +3087,10 @@ mod tests {
         assert!(!is_github_https("https://github.com.evil.example/ada/thesis.git"));
         assert!(!is_github_https("https://evilgithub.com/ada/thesis.git"));
         assert!(!is_github_https("https://github.com@evil.example/ada/thesis.git"));
-        assert!(!is_github_https("http://github.com/ada/thesis.git"), "plain http would send it in the clear");
+        assert!(
+            !is_github_https("http://github.com/ada/thesis.git"),
+            "plain http would send it in the clear"
+        );
         assert!(!is_github_https("git@github.com:ada/thesis.git"));
         assert!(!is_github_https("/home/ada/thesis.git"));
     }
@@ -2673,8 +3131,20 @@ mod tests {
         stage(&repository, "main.tex").unwrap();
         fs::write(tmp.path().join("main.tex"), "edited again\n").unwrap();
 
-        assert_eq!(diff_sides(&repository, "main.tex", false).unwrap(), DiffSides { before: "staged\n".into(), after: "edited again\n".into() });
-        assert_eq!(diff_sides(&repository, "main.tex", true).unwrap(), DiffSides { before: "the manuscript\n".into(), after: "staged\n".into() });
+        assert_eq!(
+            diff_sides(&repository, "main.tex", false).unwrap(),
+            DiffSides {
+                before: "staged\n".into(),
+                after: "edited again\n".into()
+            }
+        );
+        assert_eq!(
+            diff_sides(&repository, "main.tex", true).unwrap(),
+            DiffSides {
+                before: "the manuscript\n".into(),
+                after: "staged\n".into()
+            }
+        );
     }
 
     #[test]
@@ -2682,11 +3152,17 @@ mod tests {
         let (tmp, repository) = repo();
         fs::write(tmp.path().join("new.tex"), "brand new\n").unwrap();
         let untracked = diff_sides(&repository, "new.tex", false).unwrap();
-        assert_eq!((untracked.before.as_str(), untracked.after.as_str()), ("", "brand new\n"));
+        assert_eq!(
+            (untracked.before.as_str(), untracked.after.as_str()),
+            ("", "brand new\n")
+        );
 
         fs::remove_file(tmp.path().join("main.tex")).unwrap();
         let deleted = diff_sides(&repository, "main.tex", false).unwrap();
-        assert_eq!((deleted.before.as_str(), deleted.after.as_str()), ("the manuscript\n", ""));
+        assert_eq!(
+            (deleted.before.as_str(), deleted.after.as_str()),
+            ("the manuscript\n", "")
+        );
     }
 
     #[test]
@@ -2698,7 +3174,10 @@ mod tests {
 
         let sides = diff_sides(&repository, "first.tex", true).unwrap();
 
-        assert_eq!((sides.before.as_str(), sides.after.as_str()), ("", "first words\n"));
+        assert_eq!(
+            (sides.before.as_str(), sides.after.as_str()),
+            ("", "first words\n")
+        );
     }
 
     #[test]
@@ -2710,9 +3189,19 @@ mod tests {
         diff_sides(&repository, "main.tex", false).unwrap();
         diff_sides(&repository, "main.tex", true).unwrap();
 
-        assert_eq!(changes(&repository), before, "looking at a diff must not stage anything");
+        assert_eq!(
+            changes(&repository),
+            before,
+            "looking at a diff must not stage anything"
+        );
         for bad in ["../elsewhere.tex", "/etc/passwd", "a/../../b.tex"] {
-            assert!(matches!(diff_sides(&repository, bad, false), Err(GitError::OutsideProject(_))), "{bad}");
+            assert!(
+                matches!(
+                    diff_sides(&repository, bad, false),
+                    Err(GitError::OutsideProject(_))
+                ),
+                "{bad}"
+            );
         }
     }
 
@@ -2721,6 +3210,9 @@ mod tests {
         let (tmp, repository) = repo();
         fs::write(tmp.path().join("main.tex"), [0xff, 0xfe, 0x00]).unwrap();
 
-        assert!(matches!(diff_sides(&repository, "main.tex", false), Err(GitError::NotText(_))));
+        assert!(matches!(
+            diff_sides(&repository, "main.tex", false),
+            Err(GitError::NotText(_))
+        ));
     }
 }

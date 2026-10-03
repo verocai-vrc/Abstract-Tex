@@ -75,7 +75,10 @@ impl Latexmk {
 
     /// Use a specific `latexmk`. Tests use this.
     pub fn at(binary: impl Into<PathBuf>, program: TexProgram) -> Self {
-        Self { binary: binary.into(), program }
+        Self {
+            binary: binary.into(),
+            program,
+        }
     }
 
     /// Where this build runs, what `latexmk` is told, and what is added to its environment.
@@ -130,13 +133,22 @@ impl Latexmk {
         }
         if !job.shell_escape {
             args.push(job.root_file.to_string_lossy().into_owned());
-            return Invocation { working_dir: job.project_dir.clone(), args, env: Vec::new() };
+            return Invocation {
+                working_dir: job.project_dir.clone(),
+                args,
+                env: Vec::new(),
+            };
         }
         args.push("-shell-escape".to_string());
         // From the build folder the root file's own name names nothing, so pass the whole path.
         // The full path rather than a `../..` walk out of the build folder: either would build,
         // but only one of them is readable in a log.
-        args.push(job.project_dir.join(&job.root_file).to_string_lossy().into_owned());
+        args.push(
+            job.project_dir
+                .join(&job.root_file)
+                .to_string_lossy()
+                .into_owned(),
+        );
         Invocation {
             working_dir: job.out_dir.clone(),
             args,
@@ -227,7 +239,12 @@ impl Engine for Latexmk {
         let output = cmd.output().await.map_err(EngineError::Spawn)?;
         // `latexmk -v` prints a blank line, then "Latexmk, John Collins, <date>. Version 4.x".
         let text = String::from_utf8_lossy(&output.stdout);
-        let version = text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_string();
+        let version = text
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or_default()
+            .to_string();
         Ok(EngineInfo {
             name: format!("latexmk ({})", self.program.binary_name()),
             version,
@@ -245,16 +262,32 @@ impl Engine for Latexmk {
         tokio::fs::create_dir_all(&job.out_dir).await?;
         let started = Instant::now();
         let invocation = self.invocation(job);
-        let (status, stderr) =
-            process::run(&self.binary, &invocation.working_dir, &invocation.args, &invocation.env, &cancel, progress).await?;
+        let (status, stderr) = process::run(
+            &self.binary,
+            &invocation.working_dir,
+            &invocation.args,
+            &invocation.env,
+            &cancel,
+            progress,
+        )
+        .await?;
         let duration = started.elapsed();
 
-        let stem = job.root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".to_string());
+        let stem = job
+            .root_file
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "main".to_string());
         let artifact = |ext: &str| {
             let path = job.out_dir.join(format!("{stem}.{ext}"));
             path.is_file().then_some(path)
         };
-        info!(success = status.success(), ms = duration.as_millis(), program = self.program.binary_name(), "latexmk finished");
+        info!(
+            success = status.success(),
+            ms = duration.as_millis(),
+            program = self.program.binary_name(),
+            "latexmk finished"
+        );
         Ok(BuildOutcome {
             success: status.success(),
             pdf: artifact("pdf"),
@@ -264,7 +297,10 @@ impl Engine for Latexmk {
             exit_code: status.code(),
             duration,
             // latexmk decides its own passes and does not report them; from here it is one step.
-            steps: BuildSteps { single_passes: 0, full: true },
+            steps: BuildSteps {
+                single_passes: 0,
+                full: true,
+            },
         })
     }
 }
@@ -321,7 +357,9 @@ mod tests {
         assert_eq!(args.last().map(String::as_str), Some("thesis.tex"));
         assert!(args.contains(&"-halt-on-error".to_string()));
         assert!(args.contains(&"-synctex=1".to_string()));
-        assert!(args.iter().any(|a| a.starts_with("-outdir=") && a.ends_with("build")));
+        assert!(args
+            .iter()
+            .any(|a| a.starts_with("-outdir=") && a.ends_with("build")));
     }
 
     #[test]
@@ -335,11 +373,24 @@ mod tests {
         for program in [TexProgram::PdfLatex, TexProgram::XeLatex, TexProgram::LuaLatex] {
             let engine = Latexmk::at("latexmk", program);
             let args = engine.invocation(&job(true)).args;
-            assert!(!args.iter().any(|a| a.contains("shell-escape") || a == "-shell-restricted"), "{args:?}");
-            let allowed = engine.invocation(&BuildJob { shell_escape: true, ..job(true) }).args;
+            assert!(
+                !args
+                    .iter()
+                    .any(|a| a.contains("shell-escape") || a == "-shell-restricted"),
+                "{args:?}"
+            );
+            let allowed = engine
+                .invocation(&BuildJob {
+                    shell_escape: true,
+                    ..job(true)
+                })
+                .args;
             assert!(allowed.contains(&"-shell-escape".to_string()), "{allowed:?}");
             // The root file is still last, now named by its path from outside the project folder.
-            assert_eq!(allowed.last().map(String::as_str), Some(Path::new("proj").join("thesis.tex").to_string_lossy().as_ref()));
+            assert_eq!(
+                allowed.last().map(String::as_str),
+                Some(Path::new("proj").join("thesis.tex").to_string_lossy().as_ref())
+            );
         }
     }
 
@@ -357,12 +408,19 @@ mod tests {
     /// land in the source tree, because the process is not standing in it.
     #[test]
     fn with_shell_escape_the_build_runs_in_the_build_folder_with_the_project_on_every_search_path() {
-        let job = BuildJob { shell_escape: true, ..job(true) };
+        let job = BuildJob {
+            shell_escape: true,
+            ..job(true)
+        };
         let invocation = Latexmk::at("latexmk", TexProgram::PdfLatex).invocation(&job);
         assert_eq!(invocation.working_dir, job.out_dir);
 
         let named = |name: &str| {
-            invocation.env.iter().find(|(key, _)| *key == name).map(|(_, value)| value.clone())
+            invocation
+                .env
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, value)| value.clone())
         };
         // All three, because kpathsea has one variable per kind of file and a missing one is a
         // silent failure: no `.sty` beside the manuscript, or no `.bib`, or no `.bst`.
@@ -373,7 +431,10 @@ mod tests {
                 "{name} must look in the project folder first: {value:?}"
             );
         }
-        assert_eq!(named("TEXMF_OUTPUT_DIRECTORY"), Some(job.out_dir.as_os_str().to_os_string()));
+        assert_eq!(
+            named("TEXMF_OUTPUT_DIRECTORY"),
+            Some(job.out_dir.as_os_str().to_os_string())
+        );
     }
 
     /// The trailing separator is the whole reason `article.cls` is still found: to kpathsea an
@@ -384,15 +445,24 @@ mod tests {
         assert_eq!(unset.to_string_lossy(), format!("proj{SEARCH_PATH_SEPARATOR}"));
 
         let already = prepend_search_path(Path::new("proj"), Some(OsString::from("/opt/tex/local")));
-        assert_eq!(already.to_string_lossy(), format!("proj{SEARCH_PATH_SEPARATOR}/opt/tex/local"));
+        assert_eq!(
+            already.to_string_lossy(),
+            format!("proj{SEARCH_PATH_SEPARATOR}/opt/tex/local")
+        );
     }
 
     #[test]
     fn the_setting_parses_to_a_choice_and_rejects_anything_else_in_a_sentence() {
         assert_eq!(EngineChoice::parse(None), Ok(EngineChoice::Tectonic));
         assert_eq!(EngineChoice::parse(Some("tectonic")), Ok(EngineChoice::Tectonic));
-        assert_eq!(EngineChoice::parse(Some(" pdflatex ")), Ok(EngineChoice::System(TexProgram::PdfLatex)));
-        assert_eq!(EngineChoice::parse(Some("lualatex")), Ok(EngineChoice::System(TexProgram::LuaLatex)));
+        assert_eq!(
+            EngineChoice::parse(Some(" pdflatex ")),
+            Ok(EngineChoice::System(TexProgram::PdfLatex))
+        );
+        assert_eq!(
+            EngineChoice::parse(Some("lualatex")),
+            Ok(EngineChoice::System(TexProgram::LuaLatex))
+        );
         let error = EngineChoice::parse(Some("pdftex")).unwrap_err();
         assert!(error.contains("\"pdftex\"") && error.ends_with('.'), "{error}");
     }

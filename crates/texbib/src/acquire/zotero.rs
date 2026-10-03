@@ -126,7 +126,9 @@ pub fn list_libraries() -> Result<Vec<Library>, ZoteroError> {
 
 fn list_libraries_with(transport: &impl Transport) -> Result<Vec<Library>, ZoteroError> {
     let request = r#"{"jsonrpc":"2.0","method":"user.groups","params":[true]}"#;
-    let (status, body) = transport.post_json_rpc(ENDPOINT, request).map_err(|_| ZoteroError::NotReachable)?;
+    let (status, body) = transport
+        .post_json_rpc(ENDPOINT, request)
+        .map_err(|_| ZoteroError::NotReachable)?;
     if status != 200 {
         return Err(ZoteroError::UnexpectedReply(body));
     }
@@ -161,7 +163,9 @@ fn add_autoexport_with(
         escape_json(collection_path),
         escape_json(output_path),
     );
-    let (status, body) = transport.post_json_rpc(ENDPOINT, &request).map_err(|_| ZoteroError::NotReachable)?;
+    let (status, body) = transport
+        .post_json_rpc(ENDPOINT, &request)
+        .map_err(|_| ZoteroError::NotReachable)?;
     if status != 200 || !looks_like_json_rpc_reply(&body) || body.contains("\"error\"") {
         return Err(ZoteroError::UnexpectedReply(body));
     }
@@ -180,20 +184,32 @@ fn escape_json(text: &str) -> String {
 fn parse_groups_reply(body: &str) -> Result<Vec<Library>, ZoteroError> {
     let value: serde_json::Value =
         serde_json::from_str(body).map_err(|_| ZoteroError::UnexpectedReply(body.to_string()))?;
-    let result = value.get("result").ok_or_else(|| ZoteroError::UnexpectedReply(body.to_string()))?;
-    let groups = result.as_array().ok_or_else(|| ZoteroError::UnexpectedReply(body.to_string()))?;
+    let result = value
+        .get("result")
+        .ok_or_else(|| ZoteroError::UnexpectedReply(body.to_string()))?;
+    let groups = result
+        .as_array()
+        .ok_or_else(|| ZoteroError::UnexpectedReply(body.to_string()))?;
 
     Ok(groups
         .iter()
         .map(|group| {
             let id = group.get("id").and_then(|v| v.as_i64()).unwrap_or_default();
-            let name = group.get("name").and_then(|v| v.as_str()).unwrap_or("Untitled library").to_string();
+            let name = group
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Untitled library")
+                .to_string();
             let collections = group
                 .get("collections")
                 .and_then(|v| v.as_array())
                 .map(|items| collections_from_json(items, &name))
                 .unwrap_or_default();
-            Library { id, name, collections }
+            Library {
+                id,
+                name,
+                collections,
+            }
         })
         .collect())
 }
@@ -308,7 +324,10 @@ mod tests {
         assert_eq!(libraries.len(), 2);
         assert_eq!(libraries[0].name, "My Library");
         assert_eq!(libraries[0].collections[0].path, "My Library/Reading");
-        assert_eq!(libraries[0].collections[0].children[0].path, "My Library/Reading/2024");
+        assert_eq!(
+            libraries[0].collections[0].children[0].path,
+            "My Library/Reading/2024"
+        );
         assert_eq!(libraries[0].collections[1].path, "My Library/Archive");
         assert_eq!(libraries[1].name, "Team Group");
         assert!(libraries[1].collections.is_empty());
@@ -317,13 +336,19 @@ mod tests {
     #[test]
     fn list_libraries_rejects_a_connection_refusal_as_not_reachable() {
         let transport = FixedReply(Err("connection refused".to_string()));
-        assert!(matches!(list_libraries_with(&transport), Err(ZoteroError::NotReachable)));
+        assert!(matches!(
+            list_libraries_with(&transport),
+            Err(ZoteroError::NotReachable)
+        ));
     }
 
     #[test]
     fn list_libraries_rejects_a_non_json_body() {
         let transport = FixedReply(Ok((200, "<html>hello</html>".to_string())));
-        assert!(matches!(list_libraries_with(&transport), Err(ZoteroError::UnexpectedReply(_))));
+        assert!(matches!(
+            list_libraries_with(&transport),
+            Err(ZoteroError::UnexpectedReply(_))
+        ));
     }
 
     #[test]

@@ -38,12 +38,14 @@ pub fn restore_file(project_dir: &Path, absolute: &Path, id: &str, path: &str) -
     let old = abstract_tex_snapshot::read(project_dir, id, path)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| format!("That version of the project has no {path}."))?;
-    let old = String::from_utf8(old).map_err(|_| format!("{path} is not a text file, so it cannot be restored here."))?;
+    let old = String::from_utf8(old)
+        .map_err(|_| format!("{path} is not a text file, so it cannot be restored here."))?;
 
     {
         let _guard = AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        abstract_tex_snapshot::snapshot(project_dir)
-            .map_err(|error| format!("The current version could not be kept first, so nothing was changed: {error}"))?;
+        abstract_tex_snapshot::snapshot(project_dir).map_err(|error| {
+            format!("The current version could not be kept first, so nothing was changed: {error}")
+        })?;
     }
 
     write_atomically(absolute, &old).map_err(|error| format!("{path} could not be written: {error}"))
@@ -58,7 +60,9 @@ mod tests {
     fn project_with_two_versions() -> (tempfile::TempDir, crate::project::Project, String) {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("main.tex"), "the first draft").unwrap();
-        let abstract_tex_snapshot::Snapshot::Took(first) = abstract_tex_snapshot::snapshot(tmp.path()).unwrap() else {
+        let abstract_tex_snapshot::Snapshot::Took(first) =
+            abstract_tex_snapshot::snapshot(tmp.path()).unwrap()
+        else {
             panic!("expected a snapshot")
         };
         fs::write(tmp.path().join("main.tex"), "the second draft, better").unwrap();
@@ -68,7 +72,12 @@ mod tests {
     }
 
     /// What the command does before calling in: resolve the path inside the project.
-    fn restore(tmp: &tempfile::TempDir, project: &crate::project::Project, id: &str, path: &str) -> Result<(), String> {
+    fn restore(
+        tmp: &tempfile::TempDir,
+        project: &crate::project::Project,
+        id: &str,
+        path: &str,
+    ) -> Result<(), String> {
         let absolute = project.resolve(path).map_err(|error| error.to_string())?;
         restore_file(tmp.path(), &absolute, id, path)
     }
@@ -77,7 +86,10 @@ mod tests {
     fn restoring_puts_the_old_text_back() {
         let (tmp, project, first) = project_with_two_versions();
         restore(&tmp, &project, &first, "main.tex").unwrap();
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the first draft");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the first draft"
+        );
     }
 
     #[test]
@@ -89,28 +101,53 @@ mod tests {
         restore(&tmp, &project, &first, "main.tex").unwrap();
 
         let rows = abstract_tex_snapshot::list(tmp.path(), 10).unwrap();
-        assert_eq!(rows.len(), 3, "the unsaved-to-history version was snapshotted before it was replaced");
-        let kept = abstract_tex_snapshot::read(tmp.path(), &rows[0].id, "main.tex").unwrap().unwrap();
+        assert_eq!(
+            rows.len(),
+            3,
+            "the unsaved-to-history version was snapshotted before it was replaced"
+        );
+        let kept = abstract_tex_snapshot::read(tmp.path(), &rows[0].id, "main.tex")
+            .unwrap()
+            .unwrap();
         assert_eq!(kept, b"typed since the last build");
 
         restore(&tmp, &project, &rows[0].id, "main.tex").unwrap();
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "typed since the last build");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "typed since the last build"
+        );
     }
 
     #[test]
     fn a_path_outside_the_project_or_not_in_the_snapshot_is_refused_and_nothing_changes() {
         let (tmp, project, first) = project_with_two_versions();
         for bad in ["../elsewhere.tex", "/etc/passwd", "chapters/missing.tex"] {
-            assert!(restore(&tmp, &project, &first, bad).is_err(), "{bad} was accepted");
+            assert!(
+                restore(&tmp, &project, &first, bad).is_err(),
+                "{bad} was accepted"
+            );
         }
-        assert_eq!(fs::read_to_string(tmp.path().join("main.tex")).unwrap(), "the second draft, better");
-        assert_eq!(abstract_tex_snapshot::list(tmp.path(), 10).unwrap().len(), 2, "a refusal must not snapshot");
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "the second draft, better"
+        );
+        assert_eq!(
+            abstract_tex_snapshot::list(tmp.path(), 10).unwrap().len(),
+            2,
+            "a refusal must not snapshot"
+        );
     }
 
     #[test]
     fn an_id_that_is_not_a_snapshot_is_refused() {
         let (tmp, project, _first) = project_with_two_versions();
-        let error = restore(&tmp, &project, "0000000000000000000000000000000000000000", "main.tex").unwrap_err();
+        let error = restore(
+            &tmp,
+            &project,
+            "0000000000000000000000000000000000000000",
+            "main.tex",
+        )
+        .unwrap_err();
         assert!(error.contains("not one of this project's snapshots"), "{error}");
     }
 
@@ -118,7 +155,10 @@ mod tests {
     fn a_file_that_is_not_text_is_refused() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("figure.bin"), [0xff, 0xfe, 0x00, 0x80]).unwrap();
-        let abstract_tex_snapshot::Snapshot::Took(id) = abstract_tex_snapshot::snapshot(tmp.path()).unwrap() else { panic!() };
+        let abstract_tex_snapshot::Snapshot::Took(id) = abstract_tex_snapshot::snapshot(tmp.path()).unwrap()
+        else {
+            panic!()
+        };
         let project = crate::project::Project::open(tmp.path()).unwrap();
 
         let error = restore(&tmp, &project, &id.to_string(), "figure.bin").unwrap_err();

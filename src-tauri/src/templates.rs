@@ -67,7 +67,11 @@ fn describe(template: &Template) -> TemplateInfo {
         fields: template
             .fields
             .iter()
-            .map(|Field { id, label, example }| FieldInfo { id: id.clone(), label: label.clone(), example: example.clone() })
+            .map(|Field { id, label, example }| FieldInfo {
+                id: id.clone(),
+                label: label.clone(),
+                example: example.clone(),
+            })
             .collect(),
     }
 }
@@ -82,13 +86,18 @@ pub fn list() -> Result<Vec<TemplateInfo>, String> {
 ///
 /// The name comes from the title; if that folder is already taken the answer says so by name, and
 /// the author changes the title. An existing *empty* folder is fine: the crate writes into it.
-pub fn destination_for(parent: &Path, fields: &BTreeMap<String, String>, template_id: &str) -> Result<PathBuf, String> {
+pub fn destination_for(
+    parent: &Path,
+    fields: &BTreeMap<String, String>,
+    template_id: &str,
+) -> Result<PathBuf, String> {
     // A template with no title field (none ships today) is named after itself.
     let source = fields.get("title").map(String::as_str).unwrap_or(template_id);
     let name = abstract_tex_templates::folder_name_for_title(source);
     let destination = parent.join(&name);
-    let is_empty_folder =
-        std::fs::read_dir(&destination).map(|mut entries| entries.next().is_none()).unwrap_or(false);
+    let is_empty_folder = std::fs::read_dir(&destination)
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(false);
     if destination.exists() && !is_empty_folder {
         return Err(format!(
             "There is already something called \"{name}\" in {}. Change the title to give this project another folder name, or choose a different place.",
@@ -100,16 +109,25 @@ pub fn destination_for(parent: &Path, fields: &BTreeMap<String, String>, templat
 
 /// Make a new project from template `template_id` inside `parent`, with `fields` filled in, and
 /// answer with the folder.
-pub fn create(parent: &Path, template_id: &str, fields: &BTreeMap<String, String>) -> Result<PathBuf, String> {
+pub fn create(
+    parent: &Path,
+    template_id: &str,
+    fields: &BTreeMap<String, String>,
+) -> Result<PathBuf, String> {
     let catalog = Catalog::embedded().map_err(|error| error.to_string())?;
     let destination = destination_for(parent, fields, template_id)?;
-    catalog.instantiate(template_id, &destination, fields).map_err(|error| match error {
-        // Raced with something else creating the folder since `destination_for` looked.
-        TemplateError::DestinationNotEmpty(path) => {
-            format!("{} already has something in it, so nothing was written there.", path.display())
-        }
-        other => other.to_string(),
-    })?;
+    catalog
+        .instantiate(template_id, &destination, fields)
+        .map_err(|error| match error {
+            // Raced with something else creating the folder since `destination_for` looked.
+            TemplateError::DestinationNotEmpty(path) => {
+                format!(
+                    "{} already has something in it, so nothing was written there.",
+                    path.display()
+                )
+            }
+            other => other.to_string(),
+        })?;
     Ok(destination)
 }
 
@@ -118,20 +136,28 @@ mod tests {
     use super::*;
 
     fn answers(title: &str, author: &str) -> BTreeMap<String, String> {
-        [("title", title), ("author", author)].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        [("title", title), ("author", author)]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn the_list_has_every_template_with_a_preview_the_webview_can_show() {
         let templates = list().unwrap();
         let ids: Vec<&str> = templates.iter().map(|t| t.id.as_str()).collect();
-        for expected in ["blank", "essay", "report", "letter", "paper", "cv", "thesis", "slides"] {
+        for expected in [
+            "blank", "essay", "report", "letter", "paper", "cv", "thesis", "slides",
+        ] {
             assert!(ids.contains(&expected), "{expected} is missing from {ids:?}");
         }
         let cv = templates.iter().find(|t| t.id == "cv").unwrap();
         assert_eq!(cv.category, "cv");
         assert!(cv.preview_url.starts_with("data:image/png;base64,"));
-        assert_eq!(cv.fields.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["title", "author"]);
+        assert_eq!(
+            cv.fields.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+            ["title", "author"]
+        );
     }
 
     #[test]
@@ -152,8 +178,14 @@ mod tests {
 
         let message = create(parent.path(), "essay", &answers("My essay", "Ada")).unwrap_err();
 
-        assert!(message.contains("\"my-essay\"") && message.contains("Change the title"), "{message}");
-        let left: Vec<_> = std::fs::read_dir(&taken).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert!(
+            message.contains("\"my-essay\"") && message.contains("Change the title"),
+            "{message}"
+        );
+        let left: Vec<_> = std::fs::read_dir(&taken)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
         assert_eq!(left, ["notes.txt"]);
         // And no staging folder is left beside it.
         assert_eq!(std::fs::read_dir(parent.path()).unwrap().count(), 1);

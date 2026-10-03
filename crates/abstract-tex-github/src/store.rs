@@ -34,25 +34,34 @@ pub struct Keychain {
 impl Keychain {
     /// The app's own entry — [`crate::KEYCHAIN_SERVICE`] and [`crate::KEYCHAIN_ACCOUNT`].
     pub fn for_this_app() -> Self {
-        Self { service: crate::KEYCHAIN_SERVICE.to_string(), account: crate::KEYCHAIN_ACCOUNT.to_string() }
+        Self {
+            service: crate::KEYCHAIN_SERVICE.to_string(),
+            account: crate::KEYCHAIN_ACCOUNT.to_string(),
+        }
     }
 
     /// A named entry, so a test can use one that is not the real app's.
     pub fn named(service: &str, account: &str) -> Self {
-        Self { service: service.to_string(), account: account.to_string() }
+        Self {
+            service: service.to_string(),
+            account: account.to_string(),
+        }
     }
 
     /// `keyring` opens the entry lazily, and every operation can fail for the same reason (no
     /// keychain service on this machine), so the handle is built per call and the error is
     /// translated in one place.
     fn entry(&self) -> Result<keyring::Entry, GitHubError> {
-        keyring::Entry::new(&self.service, &self.account).map_err(|error| GitHubError::Keychain(error.to_string()))
+        keyring::Entry::new(&self.service, &self.account)
+            .map_err(|error| GitHubError::Keychain(error.to_string()))
     }
 }
 
 impl SecretStore for Keychain {
     fn save(&self, token: &str) -> Result<(), GitHubError> {
-        self.entry()?.set_password(token).map_err(|error| GitHubError::Keychain(error.to_string()))
+        self.entry()?
+            .set_password(token)
+            .map_err(|error| GitHubError::Keychain(error.to_string()))
     }
 
     fn read(&self) -> Result<Option<String>, GitHubError> {
@@ -135,6 +144,10 @@ mod tests {
         store.save("gho_a_test_token").unwrap();
         assert_eq!(store.read().unwrap().as_deref(), Some("gho_a_test_token"));
         store.clear().unwrap();
-        assert_eq!(store.read().unwrap(), None, "a signed-out machine must hold nothing");
+        assert_eq!(
+            store.read().unwrap(),
+            None,
+            "a signed-out machine must hold nothing"
+        );
     }
 }

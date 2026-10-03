@@ -87,20 +87,32 @@ selection.";
 /// `document` is the whole manuscript, when the caller wants the model to read it: it goes in as a
 /// system block carrying a cache breakpoint, so a second action on the same manuscript re-reads it
 /// at a fraction of the cost (S13.1 decides when to send it). `None` sends the selection alone.
-pub fn build_prompt(action: &Action, selection: &str, document: Option<&str>) -> Result<Prompt, AssistantError> {
+pub fn build_prompt(
+    action: &Action,
+    selection: &str,
+    document: Option<&str>,
+) -> Result<Prompt, AssistantError> {
     if selection.trim().is_empty() {
         return Err(AssistantError::EmptyPrompt);
     }
-    let mut system = vec![SystemPart::plain(&format!("{BASE_INSTRUCTIONS}\n\n{}", action.instruction(document.is_some())))];
+    let mut system = vec![SystemPart::plain(&format!(
+        "{BASE_INSTRUCTIONS}\n\n{}",
+        action.instruction(document.is_some())
+    ))];
     if let Some(document) = document {
-        system.push(SystemPart::cached(&format!("<document>\n{document}\n</document>")));
+        system.push(SystemPart::cached(&format!(
+            "<document>\n{document}\n</document>"
+        )));
     }
     // Room for an answer about twice the selection's length, which a translation can need.
     let estimated_tokens = u32::try_from(selection.len() / 3).unwrap_or(u32::MAX / 4);
     Ok(Prompt {
         system,
         messages: vec![Message::user(&format!("<selection>\n{selection}\n</selection>"))],
-        max_tokens: estimated_tokens.saturating_mul(2).saturating_add(512).clamp(512, 8192),
+        max_tokens: estimated_tokens
+            .saturating_mul(2)
+            .saturating_add(512)
+            .clamp(512, 8192),
     })
 }
 
@@ -121,8 +133,12 @@ pub fn proposed_selection(selection: &str, reply: &Reply) -> Result<String, Assi
 
 /// Models wrap an answer in a code fence even when told not to.
 fn strip_fences(text: &str) -> &str {
-    let Some(rest) = text.strip_prefix("```") else { return text };
-    let Some(newline) = rest.find('\n') else { return text };
+    let Some(rest) = text.strip_prefix("```") else {
+        return text;
+    };
+    let Some(newline) = rest.find('\n') else {
+        return text;
+    };
     let after_language = &rest[newline + 1..];
     match after_language.trim_end().strip_suffix("```") {
         Some(inside) => inside.trim(),
@@ -141,7 +157,9 @@ pub struct Hunk {
 /// The changes from `original` to `proposed`, in order, word by word. Changes with only
 /// whitespace between them are one hunk: "very quickly" → "swiftly" is one decision, not three.
 pub fn hunks(original: &str, proposed: &str) -> Vec<Hunk> {
-    let diff = TextDiff::configure().algorithm(Algorithm::Patience).diff_words(original, proposed);
+    let diff = TextDiff::configure()
+        .algorithm(Algorithm::Patience)
+        .diff_words(original, proposed);
 
     let mut finished: Vec<Hunk> = Vec::new();
     let mut open: Option<Hunk> = None;
@@ -163,7 +181,10 @@ pub fn hunks(original: &str, proposed: &str) -> Vec<Hunk> {
                 position += text.len();
             }
             ChangeTag::Delete | ChangeTag::Insert => {
-                let hunk = open.get_or_insert_with(|| Hunk { original: position..position, replacement: String::new() });
+                let hunk = open.get_or_insert_with(|| Hunk {
+                    original: position..position,
+                    replacement: String::new(),
+                });
                 if !pending_equal.is_empty() {
                     hunk.original.end += pending_equal.len();
                     hunk.replacement.push_str(&pending_equal);
@@ -246,8 +267,12 @@ impl Review {
             let mut refused_any = false;
             for (index, range) in applied.landed.iter().enumerate() {
                 let Some(range) = range else { continue };
-                let touching: Vec<Finding> =
-                    verdict.findings.iter().filter(|finding| overlaps(range, &finding.span)).cloned().collect();
+                let touching: Vec<Finding> = verdict
+                    .findings
+                    .iter()
+                    .filter(|finding| overlaps(range, &finding.span))
+                    .cloned()
+                    .collect();
                 if !touching.is_empty() {
                     accepted[index] = false;
                     refusals[index] = touching;
@@ -258,7 +283,11 @@ impl Review {
                 break;
             }
         }
-        Self { original: original.to_string(), hunks, refusals }
+        Self {
+            original: original.to_string(),
+            hunks,
+            refusals,
+        }
     }
 
     pub fn hunks(&self) -> &[Hunk] {
@@ -267,7 +296,10 @@ impl Review {
 
     /// The findings that keep hunk `index` from being accepted, or `None` if it may be.
     pub fn refusal(&self, index: usize) -> Option<&[Finding]> {
-        self.refusals.get(index).filter(|findings| !findings.is_empty()).map(Vec::as_slice)
+        self.refusals
+            .get(index)
+            .filter(|findings| !findings.is_empty())
+            .map(Vec::as_slice)
     }
 
     /// The selection as it would be with exactly the hunks in `accepted` (one entry per hunk).
@@ -276,7 +308,10 @@ impl Review {
     /// `.bib` edited since the review was made is honoured, and so is any combination of choices.
     pub fn apply(&self, accepted: &[bool], guard: &Guard) -> Result<String, ApplyError> {
         if accepted.len() != self.hunks.len() {
-            return Err(ApplyError::WrongNumberOfChoices { hunks: self.hunks.len(), choices: accepted.len() });
+            return Err(ApplyError::WrongNumberOfChoices {
+                hunks: self.hunks.len(),
+                choices: accepted.len(),
+            });
         }
         let applied = apply_hunks(&self.original, &self.hunks, accepted);
         let verdict = guard.check(&self.original, &applied.text);

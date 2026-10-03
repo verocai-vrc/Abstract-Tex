@@ -12,7 +12,11 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("version" | "install") => {}
         Some("track") => {
-            let mut file = std::fs::OpenOptions::new().create(true).append(true).open(".gitattributes").unwrap();
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(".gitattributes")
+                .unwrap();
             for path in &args[1..] {
                 writeln!(file, "{path} filter=lfs diff=lfs merge=lfs -text").unwrap();
             }

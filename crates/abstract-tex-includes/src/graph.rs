@@ -43,7 +43,11 @@ pub enum Unresolved {
     /// The directive itself could not be read as a plain path — see `Directive::Unparsed`.
     Unparsed { in_file: String, line: u32, raw: String },
     /// The literal argument resolves outside the project folder.
-    OutsideProject { in_file: String, line: u32, argument: String },
+    OutsideProject {
+        in_file: String,
+        line: u32,
+        argument: String,
+    },
     /// The target is inside the project and was reached, but its content could not be read
     /// (permissions, or bytes that are not valid text), so the graph cannot see what it includes.
     Unreadable { path: String },
@@ -117,7 +121,11 @@ pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
     let root_path = to_forward_slashes(root_relative);
     let root_exists = project_dir.join(&root_path).is_file();
 
-    let mut nodes: Vec<Node> = vec![Node { path: root_path.clone(), included_by: Vec::new(), exists: root_exists }];
+    let mut nodes: Vec<Node> = vec![Node {
+        path: root_path.clone(),
+        included_by: Vec::new(),
+        exists: root_exists,
+    }];
     let mut unresolved: Vec<Unresolved> = Vec::new();
     let mut chapters: Vec<Chapter> = Vec::new();
     // Keyed by resolved, forward-slash path, so `{intro}` and `{intro.tex}` collapse onto the
@@ -146,29 +154,49 @@ pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
 
         for directive in scan_includes(&text) {
             match directive {
-                Directive::Include { command, argument, line } => {
-                    match resolve_include_argument(project_dir, &base_dir, &argument) {
-                        Some(resolved) => {
-                            if command == "include" && !chapters.iter().any(|chapter| chapter.path == resolved) {
-                                chapters.push(Chapter { argument: argument.clone(), path: resolved.clone() });
-                            }
-                            add_edge(&mut nodes, &mut queue, &mut visited, &current_path, &resolved, depth, project_dir);
+                Directive::Include {
+                    command,
+                    argument,
+                    line,
+                } => match resolve_include_argument(project_dir, &base_dir, &argument) {
+                    Some(resolved) => {
+                        if command == "include" && !chapters.iter().any(|chapter| chapter.path == resolved) {
+                            chapters.push(Chapter {
+                                argument: argument.clone(),
+                                path: resolved.clone(),
+                            });
                         }
-                        None => unresolved.push(Unresolved::OutsideProject {
-                            in_file: current_path.clone(),
-                            line,
-                            argument,
-                        }),
+                        add_edge(
+                            &mut nodes,
+                            &mut queue,
+                            &mut visited,
+                            &current_path,
+                            &resolved,
+                            depth,
+                            project_dir,
+                        );
                     }
-                }
-                Directive::Unparsed { raw, line } => {
-                    unresolved.push(Unresolved::Unparsed { in_file: current_path.clone(), line, raw })
-                }
+                    None => unresolved.push(Unresolved::OutsideProject {
+                        in_file: current_path.clone(),
+                        line,
+                        argument,
+                    }),
+                },
+                Directive::Unparsed { raw, line } => unresolved.push(Unresolved::Unparsed {
+                    in_file: current_path.clone(),
+                    line,
+                    raw,
+                }),
             }
         }
     }
 
-    IncludeGraph { root: to_forward_slashes(root_relative), nodes, unresolved, chapters }
+    IncludeGraph {
+        root: to_forward_slashes(root_relative),
+        nodes,
+        unresolved,
+        chapters,
+    }
 }
 
 /// Records that `parent` includes `resolved`: adds a new node the first time `resolved` is seen,
@@ -185,7 +213,11 @@ fn add_edge(
 ) {
     if visited.insert(resolved.to_string()) {
         let exists = project_dir.join(resolved).is_file();
-        nodes.push(Node { path: resolved.to_string(), included_by: vec![parent.to_string()], exists });
+        nodes.push(Node {
+            path: resolved.to_string(),
+            included_by: vec![parent.to_string()],
+            exists,
+        });
         if exists {
             queue.push_back((resolved.to_string(), parent_depth + 1));
         }
@@ -226,7 +258,10 @@ pub fn resolve_include_argument(project_dir: &Path, base_dir: &Path, argument: &
 /// losing the `2024` — reported by reviewer on S4.1. Building the new name as a string and
 /// reattaching it with `with_file_name` appends instead of replacing.
 fn append_tex_extension(path: &Path) -> PathBuf {
-    let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     path.with_file_name(format!("{file_name}.tex"))
 }
 
@@ -293,7 +328,15 @@ mod tests {
         let graph = build_graph(dir.path(), Path::new("main.tex"));
 
         let paths: Vec<&str> = graph.nodes.iter().map(|n| n.path.as_str()).collect();
-        assert_eq!(paths, vec!["main.tex", "preamble.tex", "sections/intro.tex", "sections/fig.tex"]);
+        assert_eq!(
+            paths,
+            vec![
+                "main.tex",
+                "preamble.tex",
+                "sections/intro.tex",
+                "sections/fig.tex"
+            ]
+        );
         assert!(graph.nodes.iter().all(|n| n.exists));
         assert!(graph.is_complete());
         // Nothing in the document includes figures/plot.tex, so it is not a node even though it
@@ -342,7 +385,9 @@ mod tests {
 
         assert!(!graph.is_complete());
         assert_eq!(graph.unresolved.len(), 1);
-        assert!(matches!(&graph.unresolved[0], Unresolved::Unparsed { raw, .. } if raw == "\\input{\\chapdir/x}"));
+        assert!(
+            matches!(&graph.unresolved[0], Unresolved::Unparsed { raw, .. } if raw == "\\input{\\chapdir/x}")
+        );
     }
 
     #[test]
@@ -351,7 +396,9 @@ mod tests {
         let graph = build_graph(dir.path(), Path::new("main.tex"));
 
         assert!(!graph.is_complete());
-        assert!(matches!(&graph.unresolved[0], Unresolved::OutsideProject { argument, .. } if argument == "../outside"));
+        assert!(
+            matches!(&graph.unresolved[0], Unresolved::OutsideProject { argument, .. } if argument == "../outside")
+        );
         assert_eq!(graph.nodes.len(), 1); // just the root
     }
 
@@ -383,7 +430,10 @@ mod tests {
         // Reviewer's S4.1 scenario: the scanner reads raw text, so it sees straight through a
         // macro *definition* to the `\input` in its body, with `#1` still a placeholder.
         let dir = scaffold(&[
-            ("main.tex", "\\newcommand{\\loadchapter}[1]{\\input{chapters/#1}}\n\\loadchapter{intro}\n"),
+            (
+                "main.tex",
+                "\\newcommand{\\loadchapter}[1]{\\input{chapters/#1}}\n\\loadchapter{intro}\n",
+            ),
             ("chapters/intro.tex", "hello\n"),
         ]);
         let graph = build_graph(dir.path(), Path::new("main.tex"));
@@ -395,7 +445,10 @@ mod tests {
     #[test]
     fn resolve_include_argument_refuses_to_leave_the_project() {
         let dir = scaffold(&[("main.tex", "")]);
-        assert_eq!(resolve_include_argument(dir.path(), Path::new(""), "../../etc/passwd"), None);
+        assert_eq!(
+            resolve_include_argument(dir.path(), Path::new(""), "../../etc/passwd"),
+            None
+        );
         // Climbing back down inside the project is fine.
         assert_eq!(
             resolve_include_argument(dir.path(), Path::new("sections"), "../main"),
@@ -409,7 +462,13 @@ mod tests {
     fn chapters_are_the_includes_as_written_and_inputs_are_not() {
         let dir = done_when_scaffold();
         let graph = build_graph(dir.path(), Path::new("main.tex"));
-        assert_eq!(graph.chapters, vec![Chapter { argument: "sections/intro".into(), path: "sections/intro.tex".into() }]);
+        assert_eq!(
+            graph.chapters,
+            vec![Chapter {
+                argument: "sections/intro".into(),
+                path: "sections/intro.tex".into()
+            }]
+        );
     }
 
     #[test]
@@ -418,10 +477,22 @@ mod tests {
         let graph = build_graph(dir.path(), Path::new("main.tex"));
         let chapter = |file: &str| graph.chapter_of(file).map(|chapter| chapter.argument.as_str());
         assert_eq!(chapter("sections/intro.tex"), Some("sections/intro"));
-        assert_eq!(chapter("sections/fig.tex"), Some("sections/intro"), "a file a chapter inputs is part of it");
-        assert_eq!(chapter("preamble.tex"), None, "the preamble belongs to no chapter");
+        assert_eq!(
+            chapter("sections/fig.tex"),
+            Some("sections/intro"),
+            "a file a chapter inputs is part of it"
+        );
+        assert_eq!(
+            chapter("preamble.tex"),
+            None,
+            "the preamble belongs to no chapter"
+        );
         assert_eq!(chapter("main.tex"), None);
-        assert_eq!(chapter("figures/plot.tex"), None, "a file outside the document has no chapter");
+        assert_eq!(
+            chapter("figures/plot.tex"),
+            None,
+            "a file outside the document has no chapter"
+        );
     }
 
     #[test]
@@ -433,12 +504,21 @@ mod tests {
             ("shared.tex", "Used twice.\n"),
         ]);
         let graph = build_graph(dir.path(), Path::new("main.tex"));
-        assert_eq!(graph.chapter_of("shared.tex").map(|chapter| chapter.argument.as_str()), Some("one"));
+        assert_eq!(
+            graph
+                .chapter_of("shared.tex")
+                .map(|chapter| chapter.argument.as_str()),
+            Some("one")
+        );
     }
 
     #[test]
     fn chapter_of_terminates_on_a_cycle_with_no_chapter_in_it() {
-        let dir = scaffold(&[("main.tex", "\\input{a}\n"), ("a.tex", "\\input{b}\n"), ("b.tex", "\\input{a}\n")]);
+        let dir = scaffold(&[
+            ("main.tex", "\\input{a}\n"),
+            ("a.tex", "\\input{b}\n"),
+            ("b.tex", "\\input{a}\n"),
+        ]);
         let graph = build_graph(dir.path(), Path::new("main.tex"));
         assert!(graph.chapters.is_empty());
         assert_eq!(graph.chapter_of("b.tex"), None);

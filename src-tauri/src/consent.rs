@@ -38,7 +38,9 @@ impl ShellEscapeConsent {
     /// wrong reading it — no file, a file that does not parse — means no.
     pub fn allows(&self, project_dir: &Path) -> bool {
         let key = key_for(project_dir);
-        self.read().map(|consent| consent.allowed.contains(&key)).unwrap_or(false)
+        self.read()
+            .map(|consent| consent.allowed.contains(&key))
+            .unwrap_or(false)
     }
 
     pub fn allow(&self, project_dir: &Path) -> Result<()> {
@@ -71,7 +73,8 @@ impl ShellEscapeConsent {
             fs::create_dir_all(folder).with_context(|| format!("could not create {}", folder.display()))?;
         }
         let text = toml::to_string(consent)?;
-        write_atomically(&self.file, &text).with_context(|| format!("could not write {}", self.file.display()))
+        write_atomically(&self.file, &text)
+            .with_context(|| format!("could not write {}", self.file.display()))
     }
 }
 
@@ -104,7 +107,10 @@ mod tests {
         consent.allow(Path::new("/work/thesis")).unwrap();
         consent.allow(Path::new("/work/thesis")).unwrap();
         assert!(consent.allows(Path::new("/work/thesis")));
-        assert!(!consent.allows(Path::new("/work/thesis-clone")), "a copy elsewhere is another folder");
+        assert!(
+            !consent.allows(Path::new("/work/thesis-clone")),
+            "a copy elsewhere is another folder"
+        );
         assert!(!consent.allows(Path::new("/work")), "nor is its parent");
 
         let text = fs::read_to_string(&consent.file).unwrap();

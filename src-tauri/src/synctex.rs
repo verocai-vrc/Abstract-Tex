@@ -41,7 +41,11 @@ pub struct ForwardResult {
 
 impl From<PdfPosition> for ForwardResult {
     fn from(position: PdfPosition) -> Self {
-        Self { page: position.page, x: position.x, y: position.y }
+        Self {
+            page: position.page,
+            x: position.x,
+            y: position.y,
+        }
     }
 }
 
@@ -77,9 +81,7 @@ pub struct InverseResult {
 pub fn open(build_dir: &Path, root_file: &Path) -> Result<SyncTex, String> {
     let path = synctex_path(build_dir, root_file);
     SyncTex::open(&path).map_err(|error| match error {
-        SyncTexError::Io { .. } => {
-            "No SyncTeX data yet. Build the project first.".to_string()
-        }
+        SyncTexError::Io { .. } => "No SyncTeX data yet. Build the project first.".to_string(),
         SyncTexError::Gzip { .. } | SyncTexError::NotSyncTex { .. } => {
             "The SyncTeX data from the last build could not be read. Try building again.".to_string()
         }
@@ -87,7 +89,10 @@ pub fn open(build_dir: &Path, root_file: &Path) -> Result<SyncTex, String> {
 }
 
 fn synctex_path(build_dir: &Path, root_file: &Path) -> PathBuf {
-    let stem = root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".into());
+    let stem = root_file
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "main".into());
     build_dir.join(format!("{stem}.synctex.gz"))
 }
 
@@ -96,8 +101,15 @@ fn synctex_path(build_dir: &Path, root_file: &Path) -> PathBuf {
 /// outside the project folder (a package's own `.sty`, say): there is no tab to open for that,
 /// and the frontend's `InverseResult::file` being `None` says exactly that.
 pub fn to_relative(project_root: &Path, hit: SourceLocation) -> InverseResult {
-    let relative = hit.file.strip_prefix(project_root).ok().map(|p| p.to_string_lossy().replace('\\', "/"));
-    InverseResult { file: relative, line: hit.line }
+    let relative = hit
+        .file
+        .strip_prefix(project_root)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"));
+    InverseResult {
+        file: relative,
+        line: hit.line,
+    }
 }
 
 #[cfg(test)]
@@ -124,7 +136,10 @@ mod tests {
 
     #[test]
     fn a_hit_inside_the_project_becomes_a_relative_path() {
-        let hit = SourceLocation { file: PathBuf::from("/proj/sections/intro.tex"), line: 12 };
+        let hit = SourceLocation {
+            file: PathBuf::from("/proj/sections/intro.tex"),
+            line: 12,
+        };
         let result = to_relative(Path::new("/proj"), hit);
         assert_eq!(result.file.as_deref(), Some("sections/intro.tex"));
         assert_eq!(result.line, 12);
@@ -132,7 +147,10 @@ mod tests {
 
     #[test]
     fn a_hit_outside_the_project_has_no_relative_path() {
-        let hit = SourceLocation { file: PathBuf::from("/usr/share/texmf/article.cls"), line: 1 };
+        let hit = SourceLocation {
+            file: PathBuf::from("/usr/share/texmf/article.cls"),
+            line: 1,
+        };
         let result = to_relative(Path::new("/proj"), hit);
         assert_eq!(result.file, None);
     }
@@ -154,8 +172,14 @@ mod tests {
         let source = project.path().join("multi.tex");
         let forward = table.forward_search(&source, 3).expect("line 3 is on page 1");
 
-        let position = abstract_tex_synctex::PdfPosition { page: forward.page, x: forward.x, y: forward.y };
-        let hit = table.inverse_search(position).expect("a record exists at this exact point");
+        let position = abstract_tex_synctex::PdfPosition {
+            page: forward.page,
+            x: forward.x,
+            y: forward.y,
+        };
+        let hit = table
+            .inverse_search(position)
+            .expect("a record exists at this exact point");
         let result = to_relative(project.path(), hit);
 
         assert_eq!(result.file.as_deref(), Some("multi.tex"));
@@ -180,36 +204,81 @@ mod tests {
             .expect("run `pnpm fetch-engine`")
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .find(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with("tectonic-")))
+            .find(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with("tectonic-"))
+            })
             .expect("run `pnpm fetch-engine`");
         let engine = Tectonic::at(tectonic);
 
         let folder = tempfile::tempdir().unwrap();
-        copy_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/corpus/thesis"), folder.path());
+        copy_dir(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/corpus/thesis"),
+            folder.path(),
+        );
         let mut project = crate::project::Project::open(folder.path()).unwrap();
         let root_file = project.root_file().unwrap();
-        let job = BuildJob { project_dir: project.root_dir.clone(), root_file: root_file.clone(), out_dir: project.build_dir(), synctex: true, shell_escape: false };
-        assert!(engine.build(&job, CancellationToken::new(), None).await.unwrap().success);
+        let job = BuildJob {
+            project_dir: project.root_dir.clone(),
+            root_file: root_file.clone(),
+            out_dir: project.build_dir(),
+            synctex: true,
+            shell_escape: false,
+        };
+        assert!(
+            engine
+                .build(&job, CancellationToken::new(), None)
+                .await
+                .unwrap()
+                .success
+        );
 
-        let chapter = project.chapter_of("chapters/03-method.tex").expect("chapter 3 is an \\include");
-        let draft_job = DraftJob { chapter, dir: project.draft_dir() };
-        let layout = draft::prepare(&job, &draft_job).unwrap().expect("a warm thesis has a draft");
-        let drafted = engine.build_draft(&job, &layout, CancellationToken::new()).await.unwrap().unwrap();
+        let chapter = project
+            .chapter_of("chapters/03-method.tex")
+            .expect("chapter 3 is an \\include");
+        let draft_job = DraftJob {
+            chapter,
+            dir: project.draft_dir(),
+        };
+        let layout = draft::prepare(&job, &draft_job)
+            .unwrap()
+            .expect("a warm thesis has a draft");
+        let drafted = engine
+            .build_draft(&job, &layout, CancellationToken::new())
+            .await
+            .unwrap()
+            .unwrap();
         assert!(drafted.success, "{}", drafted.stderr);
 
-        let table = open(&draft::build_folder(&project.draft_dir()), &root_file).expect("the draft wrote SyncTeX");
+        let table =
+            open(&draft::build_folder(&project.draft_dir()), &root_file).expect("the draft wrote SyncTeX");
         // Chapter 3, line 7: the first line of prose after the generated text.
         let chapter_file = project.root_dir.join("chapters/03-method.tex");
-        let spot = table.forward_search(&chapter_file, 7).expect("line 7 is typeset in the draft");
-        let hit = to_relative(&project.root_dir, table.inverse_search(spot).expect("and can be clicked"));
+        let spot = table
+            .forward_search(&chapter_file, 7)
+            .expect("line 7 is typeset in the draft");
+        let hit = to_relative(
+            &project.root_dir,
+            table.inverse_search(spot).expect("and can be clicked"),
+        );
         assert_eq!(hit.file.as_deref(), Some("chapters/03-method.tex"));
-        assert!((7..=9).contains(&hit.line), "the click landed on line {}, not the paragraph at 7–9", hit.line);
+        assert!(
+            (7..=9).contains(&hit.line),
+            "the click landed on line {}, not the paragraph at 7–9",
+            hit.line
+        );
 
         // The root is recorded through `..` from the draft's folder; its front matter still maps.
         // Line 13, `\\tableofcontents`: `\\maketitle` on line 12 leaves no record in any build.
-        let contents = table.forward_search(&project.root_dir.join("main.tex"), 13).expect("the contents are in the draft");
+        let contents = table
+            .forward_search(&project.root_dir.join("main.tex"), 13)
+            .expect("the contents are in the draft");
         let back = to_relative(&project.root_dir, table.inverse_search(contents).unwrap());
-        assert_eq!(back.file.as_deref(), Some("main.tex"), "not .abstract-tex/draft/../../main.tex");
+        assert_eq!(
+            back.file.as_deref(),
+            Some("main.tex"),
+            "not .abstract-tex/draft/../../main.tex"
+        );
     }
 
     fn copy_dir(from: &Path, to: &Path) {
@@ -236,14 +305,23 @@ mod tests {
         use flate2::{read::GzDecoder, write::GzEncoder, Compression};
         use std::io::{Read, Write};
 
-        let committed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/abstract-tex-synctex/fixtures/multi.synctex.gz");
+        let committed = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../crates/abstract-tex-synctex/fixtures/multi.synctex.gz");
         let mut text = String::new();
-        GzDecoder::new(std::fs::File::open(committed).unwrap()).read_to_string(&mut text).unwrap();
+        GzDecoder::new(std::fs::File::open(committed).unwrap())
+            .read_to_string(&mut text)
+            .unwrap();
 
         let relocated_input = format!("Input:1:{}", folder.join("multi.tex").display());
         let relocated: Vec<String> = text
             .lines()
-            .map(|line| if line.starts_with("Input:1:") { relocated_input.clone() } else { line.to_string() })
+            .map(|line| {
+                if line.starts_with("Input:1:") {
+                    relocated_input.clone()
+                } else {
+                    line.to_string()
+                }
+            })
             .collect();
 
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());

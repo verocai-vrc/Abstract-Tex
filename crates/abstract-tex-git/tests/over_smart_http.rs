@@ -23,7 +23,9 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use abstract_tex_git::{branch_state, clone, push, set_origin, stage, sync, GitError, Repository, SyncOutcome};
+use abstract_tex_git::{
+    branch_state, clone, push, set_origin, stage, sync, GitError, Repository, SyncOutcome,
+};
 
 /// A running fake server and what it has seen.
 struct Server {
@@ -82,7 +84,11 @@ fn serve(needs_password: bool) -> Server {
         }
     });
 
-    Server { origin, authorization_seen, root }
+    Server {
+        origin,
+        authorization_seen,
+        root,
+    }
 }
 
 /// A commit of whatever is staged, authored by nobody in particular.
@@ -92,7 +98,9 @@ fn commit(repository: &Repository, message: &str) {
     let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
     let parent = repository.head().ok().and_then(|head| head.peel_to_commit().ok());
     let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
-    repository.commit(Some("HEAD"), &who, &who, message, &tree, &parents).unwrap();
+    repository
+        .commit(Some("HEAD"), &who, &who, message, &tree, &parents)
+        .unwrap();
 }
 
 /// One request: parse it, run `git http-backend` on it, send back what it said.
@@ -106,7 +114,10 @@ fn handle(
     let mut request_line = String::new();
     reader.read_line(&mut request_line)?;
     let mut parts = request_line.split_whitespace();
-    let (method, target) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("/").to_string());
+    let (method, target) = (
+        parts.next().unwrap_or("").to_string(),
+        parts.next().unwrap_or("/").to_string(),
+    );
 
     let mut content_length = 0usize;
     let mut content_type = String::new();
@@ -120,7 +131,10 @@ fn handle(
         let lower = line.to_ascii_lowercase();
         if let Some(value) = lower.strip_prefix("content-length:") {
             content_length = value.trim().parse().unwrap_or(0);
-        } else if let Some(value) = line.get("content-type:".len()..).filter(|_| lower.starts_with("content-type:")) {
+        } else if let Some(value) = line
+            .get("content-type:".len()..)
+            .filter(|_| lower.starts_with("content-type:"))
+        {
             content_type = value.trim().to_string();
         } else if lower.starts_with("transfer-encoding:") && lower.contains("chunked") {
             chunked = true;
@@ -193,11 +207,17 @@ fn handle(
         .map(|status| status.trim().to_string())
         .unwrap_or_else(|| "200 OK".to_string());
     let mut reply = format!("HTTP/1.1 {status}\r\n");
-    for line in headers.lines().filter(|line| !line.starts_with("Status:") && !line.is_empty()) {
+    for line in headers
+        .lines()
+        .filter(|line| !line.starts_with("Status:") && !line.is_empty())
+    {
         reply.push_str(line);
         reply.push_str("\r\n");
     }
-    reply.push_str(&format!("Content-Length: {}\r\nConnection: close\r\n\r\n", payload.len()));
+    reply.push_str(&format!(
+        "Content-Length: {}\r\nConnection: close\r\n\r\n",
+        payload.len()
+    ));
     stream.write_all(reply.as_bytes())?;
     stream.write_all(payload)
 }
@@ -216,7 +236,10 @@ fn clone_push_fetch_and_sync_work_over_smart_http() {
     // Machine two clones what machine one pushed.
     let second = workspace.path().join("second");
     let cloned = clone(&server.url(), &second, None).expect("a clone over HTTP");
-    assert_eq!(std::fs::read_to_string(second.join("main.tex")).unwrap(), "the manuscript\n");
+    assert_eq!(
+        std::fs::read_to_string(second.join("main.tex")).unwrap(),
+        "the manuscript\n"
+    );
     assert_eq!(branch_state(&cloned).unwrap().ahead_behind, Some((0, 0)));
 
     // It writes something and pushes, over HTTP.
@@ -225,21 +248,38 @@ fn clone_push_fetch_and_sync_work_over_smart_http() {
     commit(&cloned, "second machine");
     push(&cloned, None).expect("a push over HTTP");
     let served = Repository::open_bare(server.bare()).unwrap();
-    assert_eq!(head_id(&served), head_id(&cloned), "the server has the pushed commit");
+    assert_eq!(
+        head_id(&served),
+        head_id(&cloned),
+        "the server has the pushed commit"
+    );
 
     // A third clone starts from the pushed state, and sync reports being up to date.
     let third = workspace.path().join("third");
     let third_repository = clone(&server.url(), &third, None).unwrap();
-    assert_eq!(std::fs::read_to_string(third.join("main.tex")).unwrap(), "the manuscript\nand a new line\n");
+    assert_eq!(
+        std::fs::read_to_string(third.join("main.tex")).unwrap(),
+        "the manuscript\nand a new line\n"
+    );
     assert_eq!(sync(&third_repository, None).unwrap(), SyncOutcome::UpToDate);
 
     // The second machine writes again and pushes; the third's *Sync* fast-forwards it in.
-    std::fs::write(second.join("main.tex"), "the manuscript\nand a new line\nand another\n").unwrap();
+    std::fs::write(
+        second.join("main.tex"),
+        "the manuscript\nand a new line\nand another\n",
+    )
+    .unwrap();
     stage(&cloned, "main.tex").unwrap();
     commit(&cloned, "second machine again");
     push(&cloned, None).unwrap();
-    assert_eq!(sync(&third_repository, None).unwrap(), SyncOutcome::FastForwarded { behind: 1 });
-    assert_eq!(std::fs::read_to_string(third.join("main.tex")).unwrap(), "the manuscript\nand a new line\nand another\n");
+    assert_eq!(
+        sync(&third_repository, None).unwrap(),
+        SyncOutcome::FastForwarded { behind: 1 }
+    );
+    assert_eq!(
+        std::fs::read_to_string(third.join("main.tex")).unwrap(),
+        "the manuscript\nand a new line\nand another\n"
+    );
 }
 
 /// The thing the credential callback must never do, now tested against a server that asks:
@@ -265,7 +305,9 @@ fn a_server_that_asks_for_a_password_never_receives_the_github_token_and_the_clo
         let outcome = clone(&url, &target, Some("gho_a_real_looking_token")).map(|_| ());
         let _ = done.send(outcome);
     });
-    let outcome = finished.recv_timeout(Duration::from_secs(30)).expect("the clone hung instead of failing");
+    let outcome = finished
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the clone hung instead of failing");
 
     assert!(matches!(outcome, Err(GitError::Git(_))), "{outcome:?}");
     assert!(
