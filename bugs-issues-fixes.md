@@ -31,8 +31,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   shell opened outside the snap would not need it.
   **First cause fixed (3 Oct 2026):** `default-run = "abstract-tex"` added to `src-tauri/Cargo.toml`;
   `cargo run -p abstract-tex` now starts the app binary (checked: it got as far as the snap error
-  above). **Still Open:** the snap environment (second cause) and the `tauri` / `@tauri-apps/api`
-  minor mismatch (2.12.0 vs 2.11.1; bring the npm side up with `pnpm add --store-dir …`, see the
+  above). **Second cause worked around (3 Oct 2026):** `scripts/dev.sh` unsets the snap's GTK
+  variables and restores `XDG_DATA_DIRS` / `XDG_CONFIG_DIRS` from their `_VSCODE_SNAP_ORIG`
+  copies, then runs `pnpm tauri dev`; with that environment `cargo run -p abstract-tex` ran for
+  60 s with no libc error. A shell outside the snap needs nothing. **Still Open:** the
+  `tauri` / `@tauri-apps/api` minor mismatch (2.12.0 vs 2.11.1; bring the npm side up with `pnpm add --store-dir …`, see the
   pnpm store note).
 
 - **`credentials()` may offer a rejected token for ever.** (3 Oct 2026, suspected while building

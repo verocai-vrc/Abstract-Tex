@@ -96,6 +96,7 @@ commands you will use day to day:
 pnpm install          # frontend dependencies
 pnpm fetch-sidecars   # Tectonic 0.17.0 and TexLab 5.26.0 for this host, into src-tauri/binaries/
 pnpm tauri dev        # build the Rust core, start Vite, open the window
+scripts/dev.sh         # the same, from a terminal inside the VS Code snap (clears its GTK variables)
 pnpm verify           # the gate: cargo test + clippy -D warnings, svelte-check, Vitest
 cargo test -p <crate> # one crate
 cargo test -p abstract-tex-engine -- --ignored                               # build a fixture with the real engine
