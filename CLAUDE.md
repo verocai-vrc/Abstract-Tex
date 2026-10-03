@@ -60,7 +60,10 @@ mid-session.
   `%USERPROFILE%\.cargo\bin`, and new shells may need it on `PATH`. A security suite there blocks
   DNS for compiled binaries, so real-network tests need `scripts/dev-proxy.py` until the exception
   in `bugs-issues-fixes.md` is in place.
-- **Linux** (agent sessions): cargo is at `~/.cargo/bin`. **It cannot push to GitHub** — commit
+- **Linux** (agent sessions): rung 4 can be run here: `scripts/xvfb-app.sh <folder copy>` starts the
+  app on a virtual display and `scripts/xvfb-ui.py shot|click|key|type` drives and photographs it (see
+  the scripts' headers for limits). Run `cargo fmt --all` before committing Rust: `pnpm verify` fails
+  on unformatted code. cargo is at `~/.cargo/bin`. **It cannot push to GitHub** — commit
   locally, and the maintainer pushes from another machine. Native builds use the system
   `/usr/bin/cc`: the `zig cc` wrappers that used to shadow it were moved to
   `~/.local/zig-wrappers/` on 2 Oct 2026, so no `CC=` prefix is needed any more. WebKitGTK is

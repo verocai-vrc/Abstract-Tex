@@ -5909,6 +5909,27 @@ answers the drawer's *Raw output* with the comparison's `main.log` instead of th
 tail; it takes no argument, so the webview never sends a path. The log is read only when *Raw
 output* is opened. Still owed in a real window: a failed comparison's *Raw output*.
 
+**Rung 4 on Linux, under Xvfb (3 October 2026).** Xvfb is installed now, so the app was run for the
+first time on this machine and driven with `scripts/xvfb-app.sh` and `scripts/xvfb-ui.py` (a
+screenshot, click, key and type helper on libxdo; nothing new to install). It found **six defects
+in loops marked `[~]` or `[x]`, all logged and fixed** (`bugs-issues-fixes.md`): every build
+triggered another, for ever, on Linux (the watcher reported reads) — the most serious, since no
+PDF ever arrived; a document longer than the window pushed the status bar and outline out of it;
+`Ctrl Shift G` also opened the editor's find panel; modal dialogs took no keyboard focus, so
+`Escape` failed and typing reached the editor behind them and was saved; the merge view's folded
+bars were white in the dark theme; and the previous project's PDF stayed under "Compiling…".
+Seen working, in the real window: the empty state's three doors; the New project window (search,
+chips, preview, the two questions, the folder picker, Create) to a compiled CV with its title
+and `% FILL IN:` gutter marks and line highlights, the cursor on the first, and "4 left to fill
+in" in the status bar, its button jumping to the next; Source Control with the pre-filled commit
+message, the Graph, and Snapshots; the merge view; the Snapshot viewer; the Clone window; and the
+comparison's "latexdiff isn't installed" sentence. **Not walked:** the toolbar and palette routes
+to New project, a thesis and a letter, the taken-folder sentence and `Esc` at every step (the GTK
+file chooser could not be driven reliably), a *successful* comparison (no `latexdiff` here), the
+draft PDF (S9.9), the conflict view, and function keys (`F5`, `F8` do not reach the page through
+libxdo; the same actions work by button and by `Ctrl B`). So S11.11, S11.12, S11.7b and S11.6b
+stay `[~]`, with less owed than before.
+
 Not placed, deliberately: **a catalog fetched from the web at run time** (the one network feature
 this would add; it is opt-in or it is not built, §2 commitment 4), **user templates** ("save this
 project as a template", kept in the app data folder), and **journal templates** (publisher-owned
