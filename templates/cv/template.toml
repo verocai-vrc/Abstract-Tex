@@ -1,0 +1,17 @@
+name = "Curriculum vitae"
+category = "cv"
+description = "A one-page CV with education, experience and skills, without a photo."
+licence = "CC0-1.0"
+source = "Written for Abstract-Tex"
+files = ["main.tex"]
+preview = "preview.png"
+
+[[fields]]
+id = "title"
+label = "Heading"
+example = "Curriculum vitae"
+
+[[fields]]
+id = "author"
+label = "Author"
+example = "Your name"

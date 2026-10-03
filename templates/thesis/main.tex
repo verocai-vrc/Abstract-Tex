@@ -1,0 +1,25 @@
+\documentclass[12pt,a4paper]{report}
+
+% The settings every chapter shares live in their own file, so this one stays short.
+\input{preamble}
+
+\title{{{title}}}
+\author{{{author}}}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+% Each chapter is its own file in the sections folder. \include starts a new page and lets the
+% build skip chapters you have not changed. To add a chapter, make a file and add a line here.
+\include{sections/introduction}
+\include{sections/background}
+\include{sections/method}
+\include{sections/results}
+\include{sections/conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

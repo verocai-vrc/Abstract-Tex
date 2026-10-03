@@ -1,0 +1,17 @@
+name = "Thesis"
+category = "thesis"
+description = "A thesis with a chapter in each file, a shared preamble and a bibliography."
+licence = "CC0-1.0"
+source = "Written for Abstract-Tex"
+files = ["main.tex", "preamble.tex", "references.bib", "sections/introduction.tex", "sections/background.tex", "sections/method.tex", "sections/results.tex", "sections/conclusion.tex"]
+preview = "preview.png"
+
+[[fields]]
+id = "title"
+label = "Title"
+example = "My thesis"
+
+[[fields]]
+id = "author"
+label = "Author"
+example = "Your name"

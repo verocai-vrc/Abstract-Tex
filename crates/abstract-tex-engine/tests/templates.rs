@@ -8,6 +8,8 @@
 //! must produce no diagnostic at all. A starter whose first build shows a warning card breaks
 //! DESIGN.md §2's *zero setup to first PDF* for the person who has not written a word yet.
 //!
+//! `the_thesis_include_graph_finds_every_file` needs no engine and runs on every `cargo test`.
+//!
 //! The PDFs are also copied to `target/template-pdfs/<id>.pdf`, which is what
 //! `scripts/template-previews.mjs` turns into each template's `preview.png`.
 
@@ -63,4 +65,38 @@ async fn every_template_builds_clean_from_its_instantiated_folder() {
         fs::copy(project.join(".abstract-tex/build/main.pdf"), pdf_folder.join(format!("{}.pdf", template.id)))
             .unwrap_or_else(|e| panic!("template `{}` built but left no main.pdf: {e}", template.id));
     }
+}
+
+/// S11.10b: the thesis is the one template that is several files, so the include graph (S4.1) —
+/// which drives the outline, the chapter drafts and "which file is this error in" — must find
+/// all of them from `main.tex`, with nothing missing and nothing left over.
+#[test]
+fn the_thesis_include_graph_finds_every_file() {
+    let catalog = Catalog::embedded().unwrap();
+    let answers: BTreeMap<String, String> = [("title", "T"), ("author", "A")]
+        .iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+    let parent = tempfile::tempdir().unwrap();
+    let project = parent.path().join("thesis");
+    catalog.instantiate("thesis", &project, &answers).unwrap();
+
+    let graph = abstract_tex_includes::build_graph(&project, Path::new("main.tex"));
+
+    assert!(graph.is_complete(), "unresolved includes: {:?}", graph.unresolved);
+    let mut found: Vec<&str> = graph.nodes.iter().map(|node| node.path.as_str()).collect();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            "main.tex",
+            "preamble.tex",
+            "sections/background.tex",
+            "sections/conclusion.tex",
+            "sections/introduction.tex",
+            "sections/method.tex",
+            "sections/results.tex",
+        ]
+    );
+    assert_eq!(graph.chapters.len(), 5, "each section file is an \\include chapter");
 }

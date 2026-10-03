@@ -1,0 +1,35 @@
+\documentclass[11pt,a4paper,sans]{moderncv}
+
+% The look of the page. Try `casual` instead of `classic`, or another colour such as `green`.
+\moderncvstyle{classic}
+\moderncvcolor{blue}
+\usepackage[scale=0.8]{geometry}
+
+% FILL IN: your name goes in the author box when you start; add your contact details below.
+\name{{{author}}}{}
+\title{{{title}}}
+\address{Your street}{Your town and postcode}
+\phone[mobile]{000 000 0000}
+\email{you@example.com}
+
+\begin{document}
+% moderncv leaves one empty line box in its heading, and TeX would report it as a warning.
+% This line keeps TeX quiet about it; it changes nothing on the page.
+\hbadness=10000
+\makecvtitle
+
+\section{Education}
+% FILL IN: one \cventry per course or degree, most recent first. The arguments are, in order:
+% years, qualification, institution, place, grade (or empty), and a line of detail.
+\cventry{2018--2021}{Degree or course}{Institution}{Town}{}{A line about what you studied.}
+
+\section{Experience}
+% FILL IN: the same shape for each job. Copy a \cventry and change its text.
+\cventry{2021--now}{Job title}{Employer}{Town}{}{One or two lines about what you did and achieved.}
+
+\section{Skills}
+% FILL IN: each \cvitem is a label on the left and a line of text on the right.
+\cvitem{Languages}{English (native), another language (fluent)}
+\cvitem{Tools}{The programs and methods you use well}
+
+\end{document}

@@ -5784,6 +5784,27 @@ Done when the three compile for real, the thesis opens with its outline and incl
           (S4.1's walk finds every file), and every row of `SOURCES.md` passes S11.9's catalog test.
 ```
 
+**S11.10b (3 October 2026).** `[x]` (no UI, C1b): `pnpm verify` exit 0, and
+`cargo test -p abstract-tex-engine --test templates -- --ignored` builds all eight templates with
+no diagnostics. What a reader should take from the diff:
+
+1. **Nothing was adapted from outside, so there is nothing to attribute.** The card expected an
+   adapted CV and thesis; both were written here instead (CC0), the thesis following the folder
+   structure of `fixtures/thesis` and none of its text. `SOURCES.md` says so per row. `cv` and
+   `slides` use `moderncv` and `beamer` from Tectonic's bundle, so each folder is a single
+   `main.tex`.
+2. **`moderncv`'s `\makecvtitle` always reports an underfull box** on this engine — bisected down
+   to a document with only a name; no option, style or contact line changes it. The CV sets
+   `\hbadness=10000` before it, with a comment, rather than loosening the "no diagnostics" bar for
+   every template. Not logged as a bug: nothing is wrong on the page.
+3. **The thesis include graph is a test that runs on every `cargo test`** (it needs no engine):
+   `the_thesis_include_graph_finds_every_file` asserts `main.tex`, `preamble.tex` and the five
+   chapter files, nothing unresolved, five chapters. The outline half of "outline and include
+   graph intact" is the same graph; the document map itself is not re-tested here.
+4. **`cv` takes the same two fields as the rest.** *Heading* is the line under the name
+   ("Curriculum vitae", or a job title); *Author* is the name, set as the first name with an empty
+   family name, because one text box cannot be split reliably.
+
 ```
 Loop      S11.11 · New project from a template · M
 Reads     DESIGN.md §6 (the "Start a document" flow); CloneWindow.svelte as the pattern

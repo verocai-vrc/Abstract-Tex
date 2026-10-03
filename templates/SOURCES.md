@@ -12,5 +12,8 @@ Rules: `0.1/DESIGN.md` §10 "Templates".
 | `report` | Written for Abstract-Tex | CC0-1.0 | Standard `report` class, no packages. |
 | `letter` | Written for Abstract-Tex | CC0-1.0 | Standard `letter` class, no packages. |
 | `paper` | Written for Abstract-Tex | CC0-1.0 | `article` and BibTeX `plain` style, no packages. `references.bib` cites two published books (Knuth, *The TeXbook*; Lamport, *LaTeX: A Document Preparation System*) as bibliographic facts. |
+| `cv` | Written for Abstract-Tex | CC0-1.0 | Uses the `moderncv` class from Tectonic's bundle (LPPL, not redistributed here), so the folder holds only `main.tex`. No photo. |
+| `thesis` | Written for Abstract-Tex, following the structure of `fixtures/thesis` | CC0-1.0 | `report` class; `main.tex`, `preamble.tex`, five chapter files in `sections/`, `references.bib` (same two books as `paper`). The fixture's text and its `\sysname` example were not carried over. |
+| `slides` | Written for Abstract-Tex | CC0-1.0 | `beamer` class from Tectonic's bundle (LPPL, not redistributed here), Madrid theme. |
 
 Previews are rendered from a real build by `node scripts/template-previews.mjs`.
