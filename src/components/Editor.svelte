@@ -7,8 +7,11 @@
     lspDiagnosticsFor,
     lspGoToDefinition,
     lspHover,
+    openFolder,
     pasteCite,
     resolveConflict,
+    showCloneWindow,
+    showNewProjectWindow,
     syncTexForward,
   } from '../lib/controller.svelte';
   import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
@@ -153,11 +156,17 @@
       {#if app.project}
         <p>Pick a file on the left, or press <kbd>Ctrl</kbd> <kbd>P</kbd>.</p>
       {:else}
-        <p>
-          <strong>Abstract-Tex</strong><br />
-          Open a folder with a <code>.tex</code> file in it.<br />
-          <kbd>Ctrl</kbd> <kbd>O</kbd>
-        </p>
+        <div>
+          <strong>Abstract-Tex</strong>
+          <p>Start a document, or open one you already have.</p>
+          <div class="doors">
+            <button class="primary" onclick={() => showNewProjectWindow()}>
+              New from template… <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>N</kbd>
+            </button>
+            <button onclick={() => void openFolder()}>Open folder… <kbd>Ctrl</kbd> <kbd>O</kbd></button>
+            <button onclick={() => showCloneWindow()}>Clone a repository…</button>
+          </div>
+        </div>
       {/if}
     </div>
   {/if}

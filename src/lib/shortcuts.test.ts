@@ -32,6 +32,11 @@ describe('shortcutFor', () => {
     expect(shortcutFor(press('G', { ctrlKey: true, shiftKey: true }))).toBe('view-source-control');
   });
 
+  it('starts a project from a template with Ctrl Shift N (S11.11)', () => {
+    expect(shortcutFor(press('N', { ctrlKey: true, shiftKey: true }))).toBe('new-project');
+    expect(shortcutFor(press('n', { ctrlKey: true }))).toBeNull();
+  });
+
   it('does not steal a chord that carries Shift or Alt and is not in the table', () => {
     // `Ctrl Shift S` is the platform's, and `Ctrl E` is not "Files" — Shift is matched exactly,
     // not ignored, so neither the chord with it nor the one without it reaches the other's action.

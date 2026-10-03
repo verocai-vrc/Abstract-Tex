@@ -28,6 +28,7 @@ pub mod paste;
 pub mod project;
 pub mod snapshots;
 pub mod synctex;
+pub mod templates;
 pub mod watcher;
 
 use std::sync::{Arc, Mutex};
@@ -158,6 +159,8 @@ pub fn run() {
             commands::github_create_repository,
             commands::github_list_repositories,
             commands::git_clone,
+            commands::template_list,
+            commands::template_create,
             commands::git_diff_sides,
             commands::snapshot_list,
             commands::snapshot_files,

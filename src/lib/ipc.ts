@@ -368,6 +368,19 @@ export interface GitHubRepository {
   private: boolean;
 }
 
+/** One starter template as the New project window draws it (`abstract_tex::templates::TemplateInfo`). */
+export interface TemplateInfo {
+  id: string;
+  name: string;
+  /** `essay`, `cv`, … — the filter's vocabulary. */
+  category: string;
+  description: string;
+  /** A `data:image/png` URL, so showing it needs no file path. */
+  previewUrl: string;
+  /** What the form asks, in order. */
+  fields: Array<{ id: string; label: string; example: string }>;
+}
+
 /** Whose GitHub account this machine is signed in to (`abstract_tex_github::Account`). */
 export interface GitHubAccount {
   /** The `@handle`. The only field of `GET /user` this app has any use for. */
@@ -577,6 +590,13 @@ export const ipc = {
    * and leaves nothing on disk. */
   gitClone: (url: string, parentDir: string, folderName: string | null) =>
     invoke<string>('git_clone', { url, parentDir, folderName }),
+  /** S11.11: the starter templates, for the New project window. */
+  templateList: () => invoke<TemplateInfo[]>('template_list'),
+  /** S11.11: make a project from template `templateId` inside `parentDir`, in a folder named after
+   * `fields.title`, and answer with that folder. Rejects with a sentence — a taken name included —
+   * and writes nothing. */
+  templateCreate: (templateId: string, parentDir: string, fields: Record<string, string>) =>
+    invoke<string>('template_create', { templateId, parentDir, fields }),
   /** S11.7: the two sides of a row's diff. `staged` false: the index against the working tree (what
    * *Stage* would add); true: `HEAD` against the index (what the next commit would hold). */
   gitDiffSides: (path: string, staged: boolean) => invoke<DiffSides>('git_diff_sides', { path, staged }),

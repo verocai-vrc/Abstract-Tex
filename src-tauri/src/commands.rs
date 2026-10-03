@@ -863,6 +863,26 @@ pub async fn git_clone(
     Ok(cloned.to_string_lossy().into_owned())
 }
 
+/// The starter templates, for the New project window's cards (S11.11).
+#[tauri::command]
+pub fn template_list() -> CommandResult<Vec<crate::templates::TemplateInfo>> {
+    crate::templates::list()
+}
+
+/// Make a new project from a starter template inside `parent_dir`, in a folder named after the
+/// title, and answer with the folder for the window to open (S11.11).
+///
+/// No project needs to be open, and none is touched.
+#[tauri::command]
+pub fn template_create(
+    template_id: String,
+    parent_dir: String,
+    fields: std::collections::BTreeMap<String, String>,
+) -> CommandResult<String> {
+    let folder = crate::templates::create(Path::new(&parent_dir), &template_id, &fields)?;
+    Ok(folder.to_string_lossy().into_owned())
+}
+
 /// The URL of this project's `origin`, or `None` when it has no remote — and `None` too when
 /// there is no repository at all, which the panel tells apart by `git_status` (S10.5b).
 #[tauri::command]

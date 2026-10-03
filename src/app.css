@@ -282,6 +282,16 @@ kbd {
   line-height: 1.8;
 }
 
+/* The three doors of the empty state (S11.11): new, open, clone. */
+.editor-column .empty .doors {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 12px;
+  line-height: 1.4;
+}
+
 .pdf-pane {
   position: relative;
   overflow: auto;

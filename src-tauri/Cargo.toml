@@ -52,11 +52,13 @@ abstract-tex-includes = { path = "../crates/abstract-tex-includes" }
 abstract-tex-lsp = { path = "../crates/abstract-tex-lsp" }
 abstract-tex-reconcile = { path = "../crates/abstract-tex-reconcile" }
 abstract-tex-synctex = { path = "../crates/abstract-tex-synctex" }
+abstract-tex-templates = { path = "../crates/abstract-tex-templates" }
 texbib = { path = "../crates/texbib", features = ["acquire"] }
 texlog = { path = "../crates/texlog" }
 
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

@@ -11,6 +11,7 @@ export type Action =
   | 'save'
   | 'compile'
   | 'open-folder'
+  | 'new-project'
   | 'quick-open'
   | 'command-palette'
   | 'view-files'
@@ -29,6 +30,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'compile', keys: 'Mod-B', label: 'Build' },
   { action: 'compile', keys: 'F5', label: 'Build' },
   { action: 'open-folder', keys: 'Mod-O', label: 'Open folder…' },
+  // S11.11: the front door for someone with no .tex yet (DESIGN.md §6).
+  { action: 'new-project', keys: 'Mod-Shift-N', label: 'New project from template…' },
   { action: 'quick-open', keys: 'Mod-P', label: 'Go to file…' },
   { action: 'command-palette', keys: 'Mod-K', label: 'Command palette…' },
   // S10.3a: the activity bar, bound exactly as VS Code binds it (DESIGN.md §6). These are the

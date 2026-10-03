@@ -5824,6 +5824,42 @@ Done when a person who has never seen the app can go from launch to a PDF of a f
           error; and Esc backs out of every step with nothing written.
 ```
 
+**S11.11 (3 October 2026).** `[~]`: rungs 1–2 green — `pnpm verify` exit 0: `cargo test
+--workspace` 666 passed / 0 failed (8 new: the folder-name rule and the app edge's `create`),
+Vitest 616/616 (18 new: the filter, the flow, the chord, the palette entry), `pnpm check` 468 files
+/ 0 errors / 0 warnings. `[~]` because rung 4 is owed: nobody has seen the window, and this machine
+has no display to open it on (Xvfb is not installed). The card's *Done when* — launch to a PDF of a
+filled-in CV without typing a path — is therefore unproven in the real window. What a reader
+should take from the diff:
+
+1. **Two commands, and the window opens the result.** `template_list` and `template_create` in
+   `src-tauri/src/templates.rs`; the second answers with a folder and `openFolder` does the rest,
+   so a template project and an opened one go through one code path, and the compile "at once" is
+   the open's own compile, not a second one.
+2. **The folder is named after the title** (`folder_name_for_title` in the crate: "My thesis: draft
+   2" → `my-thesis-draft-2`, any script's letters kept, `new-project` when nothing is left). A taken
+   name is a sentence that names the folder and says to change the title; an existing *empty*
+   folder is used. The check runs before anything is written, and a test proves the taken folder
+   and its parent are left exactly as they were.
+3. **A list, not a grid, with ↑ ↓.** The card said "cards"; a single column of preview-and-sentence
+   rows keeps the arrow keys honest (a grid would make ↓ mean "next" in one direction and "below"
+   in another). Search box focused on open, Enter chooses, Enter in a question creates, Esc steps
+   back from the questions and then closes. Clicking the backdrop is the same as Esc.
+4. **Where it asks for the folder is at *Create*,** as Clone does, so cancelling the picker does
+   nothing and a refusal leaves the window open with everything typed.
+5. **The empty state now has the three doors** (new, open, clone) in the editor column, and the
+   toolbar no longer says "No project open"; a *New…* button sits beside *Open folder…*, and
+   `Ctrl Shift N` and the palette's *New project from template…* open the same window. `base64` is
+   a new direct dependency (already in the tree through Tauri) so a preview crosses IPC as a
+   `data:` URL.
+6. **A title is required, an author is not:** an empty author is sent as `""` (Rust insists every
+   declared field is present). The one rule is hard-coded to a field called `title`, because it
+   names the folder; a template without one is named after its own id.
+
+Owed to the next smoke campaign: open the window by each of the four routes, make a CV, a thesis
+and a letter, make the same title twice, press Esc at each step, and check the previews are
+legible at 48 px.
+
 ```
 Loop      S11.12 · Finding what to replace · S
 Reads     DESIGN.md §5.3; S11.10a's marker convention

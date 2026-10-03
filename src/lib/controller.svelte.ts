@@ -5,6 +5,7 @@
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
+import { filterTemplates, neighbour, newProject } from './templates.svelte';
 import { diffView, isDiffable } from './diffview.svelte';
 import { defaultFile, snapshots, SNAPSHOT_PAGE } from './snapshots.svelte';
 import {
@@ -739,6 +740,97 @@ export async function cloneRepository(): Promise<void> {
     clone.error = String(error);
   } finally {
     clone.cloning = false;
+  }
+}
+
+// ---- Starting from a template (S11.11, DESIGN.md §6 "Start a document") -----------------------
+
+/** Open the New project window on its first step. Nothing is written until *Create*. */
+export function showNewProjectWindow(): void {
+  newProject.visible = true;
+  newProject.step = 'choose';
+  newProject.error = null;
+  newProject.query = '';
+  newProject.category = 'all';
+  if (newProject.catalog === null) void loadTemplates();
+  else newProject.selectedId = newProject.catalog[0]?.id ?? null;
+}
+
+/** Close the window with nothing written. */
+export function closeNewProjectWindow(): void {
+  newProject.visible = false;
+}
+
+/** *Esc*: back from the questions to the cards, and from the cards out of the window. */
+export function newProjectBack(): void {
+  if (newProject.step === 'fill' && !newProject.creating) {
+    newProject.step = 'choose';
+    newProject.error = null;
+  } else if (!newProject.creating) {
+    closeNewProjectWindow();
+  }
+}
+
+/** Ask Rust for the catalog. It is compiled into the app, so a failure here is a broken build and
+ * says so in a sentence rather than showing an empty picker. */
+export async function loadTemplates(): Promise<void> {
+  newProject.loadError = null;
+  try {
+    newProject.catalog = await ipc.templateList();
+    newProject.selectedId = newProject.catalog[0]?.id ?? null;
+  } catch (error) {
+    newProject.loadError = String(error);
+  }
+}
+
+/** Move the highlight along the cards that survive the filter, or to the first when the
+ * highlighted one has been filtered away. */
+export function moveTemplateSelection(delta: number): void {
+  if (newProject.catalog === null) return;
+  const shown = filterTemplates(newProject.catalog, newProject.category, newProject.query);
+  newProject.selectedId = neighbour(shown, newProject.selectedId, delta);
+}
+
+/** Re-aim the highlight after the filter changed: keep it if the card is still shown. */
+export function templateFilterChanged(): void {
+  if (newProject.catalog === null) return;
+  const shown = filterTemplates(newProject.catalog, newProject.category, newProject.query);
+  if (!shown.some((template) => template.id === newProject.selectedId)) newProject.selectedId = shown[0]?.id ?? null;
+}
+
+/** Choose a card: on to the questions. */
+export function chooseTemplate(id: string): void {
+  newProject.selectedId = id;
+  newProject.step = 'fill';
+  newProject.error = null;
+}
+
+/** *Create*: ask where to put it, make the project there, and open it like any other — which
+ * builds it at once, so the first thing the author sees is a PDF. Cancelling the folder picker
+ * does nothing; a refusal (a taken folder name above all) is a sentence and the window stays open
+ * with everything typed. */
+export async function createProject(): Promise<void> {
+  const template = newProject.catalog?.find((candidate) => candidate.id === newProject.selectedId);
+  if (!template || newProject.creating) return;
+  const answers: Record<string, string> = {};
+  for (const field of template.fields) answers[field.id] = (newProject.values[field.id] ?? '').trim();
+  if ('title' in answers && answers.title === '') {
+    newProject.error = 'Give the project a title; its folder is named after it.';
+    return;
+  }
+  newProject.error = null;
+  try {
+    const parent = await ipc.pickParentFolder();
+    if (!parent) return;
+    newProject.creating = true;
+    const folder = await ipc.templateCreate(template.id, parent, answers);
+    newProject.visible = false;
+    newProject.step = 'choose';
+    await openFolder(folder);
+  } catch (error) {
+    newProject.error = String(error);
+  } finally {
+    newProject.creating = false;
   }
 }
 
@@ -1561,6 +1653,13 @@ registerCommand({
   title: 'Recover an earlier version…',
   category: 'action',
   run: () => showSnapshots(),
+});
+registerCommand({
+  id: 'new-project',
+  title: 'New project from template…',
+  category: 'action',
+  shortcut: 'Ctrl Shift N',
+  run: () => showNewProjectWindow(),
 });
 registerCommand({
   id: 'clone-repository',

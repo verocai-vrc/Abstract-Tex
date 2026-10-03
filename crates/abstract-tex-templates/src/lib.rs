@@ -191,6 +191,33 @@ impl Catalog {
     }
 }
 
+/// The name of the folder a new project goes in, taken from what the author called it: "My
+/// thesis: draft 2" becomes `my-thesis-draft-2`.
+///
+/// Letters and digits (of any script) are kept, lowercased; every run of anything else becomes one
+/// hyphen. That is safe on every filesystem this app runs on, and easy to type in a terminal. A
+/// title with no letters or digits at all falls back to `new-project`, so the answer is always a
+/// usable name and never empty.
+pub fn folder_name_for_title(title: &str) -> String {
+    let mut name = String::new();
+    for character in title.chars() {
+        if character.is_alphanumeric() {
+            name.extend(character.to_lowercase());
+        } else if !name.is_empty() && !name.ends_with('-') {
+            name.push('-');
+        }
+    }
+    let name = name.trim_end_matches('-');
+    // Sixty characters is plenty of title; cutting by `chars` never splits a character.
+    let name: String = name.chars().take(60).collect();
+    let name = name.trim_end_matches('-');
+    if name.is_empty() {
+        "new-project".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
 /// Add every file under `folder` to `files`, keyed by its path relative to the template's own
 /// folder. `include_dir` reports paths from the root of `templates/`, so the id is cut off.
 fn collect_files(folder: &Dir, id: &str, files: &mut BTreeMap<String, Vec<u8>>) {
@@ -354,6 +381,23 @@ example = "T"
     fn every_shipped_template_passes_every_check() {
         let catalog = Catalog::embedded().expect("a template in templates/ breaks a catalog rule");
         assert!(!catalog.templates().is_empty());
+    }
+
+    #[test]
+    fn a_title_becomes_one_plain_folder_name() {
+        assert_eq!(folder_name_for_title("My thesis: draft 2"), "my-thesis-draft-2");
+        assert_eq!(folder_name_for_title("  Rate limiting -- without a coordinator!  "), "rate-limiting-without-a-coordinator");
+        assert_eq!(folder_name_for_title("Über die Elektrodynamik"), "über-die-elektrodynamik");
+        assert_eq!(folder_name_for_title("论文"), "论文");
+    }
+
+    #[test]
+    fn a_title_with_no_letters_gets_a_fallback_and_a_long_one_is_cut() {
+        assert_eq!(folder_name_for_title(""), "new-project");
+        assert_eq!(folder_name_for_title("?!.."), "new-project");
+        assert_eq!(folder_name_for_title("../../etc"), "etc");
+        let long = folder_name_for_title(&"word ".repeat(40));
+        assert!(long.chars().count() <= 60 && !long.ends_with('-'));
     }
 
     /// S11.10a: a starter that does not say what to replace is a document the author has to read

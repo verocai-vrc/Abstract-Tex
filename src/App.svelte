@@ -5,6 +5,7 @@
     openFolder,
     saveNow,
     showCloneWindow,
+    showNewProjectWindow,
     showActivityView,
     start,
     toggleCommandPalette,
@@ -22,6 +23,7 @@
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
   import CloneWindow from './components/CloneWindow.svelte';
+  import NewProjectWindow from './components/NewProjectWindow.svelte';
   import DiffView from './components/DiffView.svelte';
   import SnapshotViewer from './components/SnapshotViewer.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
@@ -45,6 +47,9 @@
       case 'compile':
         // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
         void triggerCompile();
+        break;
+      case 'new-project':
+        showNewProjectWindow();
         break;
       case 'open-folder':
         void openFolder();
@@ -70,9 +75,10 @@
 <div class="app">
   <header class="toolbar">
     <span class="title">Abstract-Tex</span>
+    <button onclick={() => showNewProjectWindow()}>New…</button>
     <button onclick={() => void openFolder()}>Open folder…</button>
     <button onclick={() => showCloneWindow()}>Clone…</button>
-    <span class="project-name">{app.project ? app.project.rootDir : 'No project open'}</span>
+    <span class="project-name">{app.project ? app.project.rootDir : ''}</span>
     <button
       class="primary"
       disabled={!app.project || app.compile.phase === 'running'}
@@ -102,6 +108,7 @@
 <QuickOpen />
 <CommandPalette />
 <CloneWindow />
+<NewProjectWindow />
 <DiffView />
 <SnapshotViewer />
 <ZoteroLink />
