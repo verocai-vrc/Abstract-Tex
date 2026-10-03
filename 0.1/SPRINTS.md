@@ -5899,6 +5899,16 @@ diff:
 5. **Nothing is said when there is nothing to say:** no marker, no status-bar item (never "0 left").
    `F8` with none left gives the notice "Nothing left to fill in."
 
+**S11.4e (3 October 2026).** `[~]` (a ledger sweep, not a card; rung 4 owed): `pnpm verify` exit 0 —
+`cargo test --workspace` 668 passed / 0 failed (2 new in `latexdiff.rs`), Vitest 640/640 (3 new),
+`pnpm check` 0 errors. Closes two S11.4d ledger entries. **(1)** `cancel_comparison`: leaving a
+comparison that is still *building* (Back to live PDF, ×, `Esc`) now stops it — `DiffLane::cancel`
+takes a ticket nobody holds, so a comparison still exporting finds itself retired, and cancels the
+orchestrator for one already compiling; the live lane is never touched. **(2)** `read_comparison_log`
+answers the drawer's *Raw output* with the comparison's `main.log` instead of the engine's stderr
+tail; it takes no argument, so the webview never sends a path. The log is read only when *Raw
+output* is opened. Still owed in a real window: a failed comparison's *Raw output*.
+
 Not placed, deliberately: **a catalog fetched from the web at run time** (the one network feature
 this would add; it is opt-in or it is not built, §2 commitment 4), **user templates** ("save this
 project as a template", kept in the app data folder), and **journal templates** (publisher-owned

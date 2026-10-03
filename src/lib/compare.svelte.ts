@@ -163,6 +163,9 @@ class CompareState {
   /** Why a comparison was refused before anything was written — no `latexdiff`, or a commit
    * without the root file — drawn under the Graph toolbar (A12). */
   refusal = $state<string | null>(null);
+  /** The comparison's TeX transcript, read when the author asks for the drawer's "Raw output" and
+   * never before. `null` until then, and again whenever the comparison changes. */
+  rawLog = $state<string | null>(null);
   /** Why *Save as…* did not write a file, shown beside the button. */
   saveError = $state<string | null>(null);
 

@@ -16,6 +16,7 @@
     allowShellEscape,
     applyDiagnosticFix,
     jumpToDiagnostic,
+    loadComparisonLog,
     setDrawerFilter,
     showRawLogFor,
     toggleRawLog,
@@ -74,6 +75,11 @@
     if (mark && nonce !== undefined) mark.scrollIntoView({ block: 'center' });
   });
 
+  function toggleComparisonOutput() {
+    showComparisonOutput = !showComparisonOutput;
+    if (showComparisonOutput) void loadComparisonLog();
+  }
+
   const severityKinds: readonly SeverityFilter[] = ['all', 'errors', 'warnings'];
 
   function severityLabel(kind: SeverityFilter): string {
@@ -116,14 +122,14 @@
     <header>
       <strong>The comparison could not be built.</strong>
       <span class="spacer"></span>
-      <button class="ghost" onclick={() => (showComparisonOutput = !showComparisonOutput)}>
+      <button class="ghost" onclick={toggleComparisonOutput}>
         {showComparisonOutput ? 'Back to explanations' : 'Raw output'}
       </button>
       <button class="ghost" title="Close" onclick={() => (app.drawerOpen = false)}>×</button>
     </header>
     <div class="body">
       {#if showComparisonOutput}
-        <pre>{comparisonProblems.stderr || '(no output)'}</pre>
+        <pre>{compare.rawLog || comparisonProblems.stderr || '(no output)'}</pre>
       {:else}
         <p>{comparisonProblems.message}</p>
         {#each comparisonProblems.diagnostics as diagnostic, i (i)}

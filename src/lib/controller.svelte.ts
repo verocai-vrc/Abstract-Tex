@@ -871,6 +871,7 @@ async function startComparison(from: string, to: string): Promise<void> {
   earlyDiffEvents = [];
   compare.refusal = null;
   compare.saveError = null;
+  compare.rawLog = null;
   compare.view = startedComparison();
   try {
     const answer = await ipc.compareRevisions(from, to);
@@ -919,12 +920,29 @@ export function markGraphRow(id: string): void {
 }
 
 function leaveComparisonKeepingMarks(): void {
-  // Bumping the request number makes any answer still on its way to be ignored. The diff build,
-  // if one is running, finishes unseen: it is cancelled by the next comparison, never by us.
+  // Bumping the request number makes any answer still on its way to be ignored. A comparison still
+  // being built is also told to stop, so a thirty-second compile nobody will look at does not
+  // run to the end; one that has already finished has nothing left to stop.
+  const stillBuilding = compare.view.phase === 'building';
   comparisonRequest++;
   earlyDiffEvents = [];
   compare.view = NO_COMPARISON;
   compare.saveError = null;
+  compare.rawLog = null;
+  if (stillBuilding) ipc.cancelComparison().catch(() => {});
+}
+
+/** The drawer's "Raw output" on a failed comparison: the comparison's own `main.log`, which is
+ * what the engine's last few stderr lines are only a tail of. Falls back to nothing, and the
+ * drawer then shows the stderr it already has. */
+export async function loadComparisonLog(): Promise<void> {
+  const mine = comparisonRequest;
+  try {
+    const log = await ipc.readComparisonLog();
+    if (mine === comparisonRequest) compare.rawLog = log;
+  } catch {
+    // The stderr the failed event carried is still on screen; a missing log adds nothing to say.
+  }
 }
 
 /** *Back to live PDF*, the toolbar's ×, and `Esc`: leave diff mode and clear the marks (A6). */

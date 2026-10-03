@@ -63,6 +63,18 @@ impl DiffLane {
         let number = self.latest_request.fetch_add(1, Ordering::SeqCst) + 1;
         Ticket { number, latest: Arc::clone(&self.latest_request) }
     }
+
+    /// Stop whatever the lane is doing for a comparison the author has walked away from.
+    ///
+    /// Two halves, because a comparison has two stages. A build already compiling is cancelled
+    /// through the orchestrator. One still exporting or running `latexdiff` cannot be interrupted,
+    /// so taking a ticket nobody holds makes it find, at its next check, that it is no longer the
+    /// latest — and stop before asking for a compile. Idempotent: with nothing running it only
+    /// raises the ticket count.
+    pub fn cancel(&self) {
+        self.take_ticket();
+        self.orchestrator.cancel();
+    }
 }
 
 /// One comparison's place in line. Exporting and running `latexdiff` cannot be cancelled halfway,
@@ -131,6 +143,25 @@ where
     }
     let generation = lane.orchestrator.request(plan.job(&request.root_file, request.shell_escape), None, on_event);
     Ok(ComparisonStarted::Building { older, newer, generation })
+}
+
+/// The TeX transcript of the comparison on disk, or an empty string when there is none.
+///
+/// `.abstract-tex/latexdiff/` only ever holds the latest comparison (see [`make_room`]), so no
+/// pair needs naming — and nothing the webview sends is turned into a path, which is the point of
+/// not offering a "read this log file" command. The log is the engine's `<stem>.log` inside the
+/// comparison's `build/` folder, where the live lane's `read_log` finds its own.
+pub fn read_comparison_log(latexdiff_dir: &Path, root_file: &Path) -> String {
+    let stem = root_file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "main".into());
+    let Ok(entries) = std::fs::read_dir(latexdiff_dir) else {
+        return String::new(); // no comparison has ever run here
+    };
+    for entry in entries.flatten() {
+        if let Ok(bytes) = std::fs::read(entry.path().join("build").join(format!("{stem}.log"))) {
+            return String::from_utf8_lossy(&bytes).into_owned();
+        }
+    }
+    String::new()
 }
 
 /// A full commit id from the frontend, or a sentence saying it is not one.
@@ -467,6 +498,48 @@ mod tests {
 
         assert_eq!(first, Ok(ComparisonStarted::Superseded));
         assert!(second.is_err(), "the latest comparison runs, and is refused by name: {second:?}");
+    }
+
+    #[test]
+    fn the_comparisons_own_log_is_read_from_its_build_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let latexdiff_dir = tmp.path().join("latexdiff");
+        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("main.tex")), "", "no comparison yet");
+
+        let build = latexdiff_dir.join("aaaaaaa-bbbbbbb/build");
+        fs::create_dir_all(&build).unwrap();
+        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("main.tex")), "", "a build with no log");
+
+        fs::write(build.join("main.log"), "! Undefined control sequence.\n").unwrap();
+        fs::write(build.join("other.log"), "not this one").unwrap();
+        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("main.tex")), "! Undefined control sequence.\n");
+        assert_eq!(read_comparison_log(&latexdiff_dir, Path::new("chapters/other.tex")), "not this one");
+    }
+
+    /// Walking away from a comparison that is still exporting makes it stop before it compiles,
+    /// and one already compiling is cancelled, without a newer comparison having to be asked for.
+    #[tokio::test]
+    async fn cancelling_stops_a_build_and_retires_a_comparison_still_preparing() {
+        let lane = DiffLane::new(Some(Arc::new(SleepyEngine(Duration::from_secs(5))) as Arc<dyn Engine>));
+        let preparing = lane.take_ticket();
+        let (tx, mut rx) = mpsc::unbounded_channel::<CompileEvent>();
+        lane.orchestrator.request(job(), None, move |event| {
+            let _ = tx.send(event);
+        });
+
+        lane.cancel();
+
+        assert!(!preparing.is_latest(), "a comparison still exporting must find it was retired");
+        let outcome = tokio::time::timeout(Duration::from_millis(500), async {
+            while let Some(event) = rx.recv().await {
+                if matches!(event, CompileEvent::Finished { .. }) {
+                    return true;
+                }
+            }
+            false
+        })
+        .await;
+        assert_ne!(outcome, Ok(true), "a cancelled build must not report a finished comparison");
     }
 
     #[test]

@@ -148,7 +148,8 @@ const restores: Array<[string, string]> = [];
 let diffAnswer: DiffSides | Error = { before: 'a', after: 'b' };
 const diffsAsked: Array<[string, boolean]> = [];
 const clones = { asked: [] as Array<[string, string, string | null]>, lists: 0 };
-const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[] };
+const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[], cancelled: 0, logReads: 0 };
+let comparisonLog: string | Error = '';
 let lspHandler: (event: LspEvent) => void = () => {};
 
 const project: ProjectInfo = {
@@ -279,6 +280,14 @@ vi.mock('./ipc', () => ({
       clones.asked.push([url, parent, name]);
       if (cloneAnswer instanceof Error) throw cloneAnswer;
       return cloneAnswer;
+    },
+    cancelComparison: async () => {
+      comparisons.cancelled++;
+    },
+    readComparisonLog: async () => {
+      comparisons.logReads++;
+      if (comparisonLog instanceof Error) throw comparisonLog;
+      return comparisonLog;
     },
     saveComparisonPdf: async (_older: string, _newer: string, destination: string) => {
       comparisons.saved.push(destination);
@@ -504,6 +513,7 @@ const {
   trackLargeFilesWithLfs,
   triggerCompile,
   clearComparison,
+  loadComparisonLog,
   compareWithPreviousCommit,
   markGraphRow,
   saveComparisonAs,
@@ -611,6 +621,9 @@ beforeEach(async () => {
   calls.discardQuestions = [];
   comparisons.asked = [];
   comparisons.saved = [];
+  comparisons.cancelled = 0;
+  comparisons.logReads = 0;
+  comparisonLog = '';
   savePathAnswer = '/out/diff.pdf';
   snapshotRows = [];
   snapshotFilesOnDisk = {};
@@ -2607,6 +2620,43 @@ describe('comparing two commits (S11.4d)', () => {
     answer({ status: 'building', older: 'a1a1a1a1', newer: 'c3c3c3c3', generation: 1 });
     await vi.advanceTimersByTimeAsync(0);
     expect(compare.mode).toBe(false);
+  });
+
+  it('leaving a comparison that is still building tells Rust to stop it; leaving a finished one does not', async () => {
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    clearComparison();
+    expect(comparisons.cancelled).toBe(1);
+
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    diffHandler(finishedDiff(1));
+    expect(compare.view.phase).toBe('ready');
+    clearComparison();
+    expect(comparisons.cancelled).toBe(1);
+  });
+
+  it('the raw output is the comparison’s own log, read only when asked for, and dropped with the comparison', async () => {
+    markGraphRow('a1a1a1a1');
+    markGraphRow('c3c3c3c3');
+    await vi.advanceTimersByTimeAsync(0);
+    diffHandler({ ...finishedDiff(1), success: false, pdfPath: null, stderr: 'tail' } as CompileEvent);
+    expect(comparisons.logReads).toBe(0);
+
+    comparisonLog = '! Undefined control sequence.';
+    await loadComparisonLog();
+    expect(compare.rawLog).toBe('! Undefined control sequence.');
+
+    clearComparison();
+    expect(compare.rawLog).toBeNull();
+  });
+
+  it('a log that cannot be read leaves the stderr the failure carried on show', async () => {
+    comparisonLog = new Error('gone');
+    await loadComparisonLog();
+    expect(compare.rawLog).toBeNull();
   });
 
   it('the palette entry compares the last two commits, newest as the end', async () => {

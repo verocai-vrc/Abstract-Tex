@@ -56,13 +56,17 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   last lines and not the full transcript. The diagnostics cards (from `texlog`) are unaffected.
   What closes it: a Rust command that reads `<comparison folder>/build/main.log`, or `logPath`
   from the event passed to a generic read — a small card, noted here rather than widened into
-  S11.4d (which has no Rust in it). **Open.**
+  S11.4d (which has no Rust in it). **Fixed (3 Oct 2026, S11.4e):** `read_comparison_log` takes no
+  path (the folder holds only the latest comparison) and the drawer reads it when *Raw output* is
+  opened, falling back to stderr if there is no log.
 
 - **Leaving a comparison does not cancel its build.** (3 Oct 2026, S11.4d) *Back to live PDF*, the
   toolbar's × and `Esc` make the frontend ignore the comparison's answer and events, but no
   command asks the diff lane to stop, so a build in flight finishes unseen (and the next
   comparison cancels it, as S11.4c's lane always does). Harmless except for the CPU a thirty-second
-  compile of a thesis takes. Closing it needs a `cancel_comparison` command. **Open**, low priority.
+  compile of a thesis takes. Closing it needs a `cancel_comparison` command. **Fixed (3 Oct 2026,
+  S11.4e):** `cancel_comparison` bumps the lane's ticket (retiring a comparison still exporting) and
+  cancels the orchestrator; the controller calls it when a *building* comparison is left.
 
 - **S9.9's draft PDF was probably never loadable in the PDF pane: it sits outside the only folder
   the asset protocol was allowed to serve.** (2 Oct 2026, found reading `open_project` while

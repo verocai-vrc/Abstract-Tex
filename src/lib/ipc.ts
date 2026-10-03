@@ -631,6 +631,12 @@ export const ipc = {
    * cancels, or is cancelled by, a live build. Rejects with a sentence — `latexdiff` missing, or
    * a commit without the root file — before anything is written. */
   compareRevisions: (a: string, b: string) => invoke<ComparisonStarted>('compare_revisions', { a, b }),
+  /** Stop the comparison in progress — one still exporting as well as one compiling — because
+   * the author left it. Never touches the live build; safe with nothing running. */
+  cancelComparison: () => invoke<void>('cancel_comparison'),
+  /** The comparison's full TeX transcript, for the drawer's "Raw output". Empty when it has none.
+   * Takes no path: the folder holds only the latest comparison. */
+  readComparisonLog: () => invoke<string>('read_comparison_log'),
   /** S11.4c: copy that pair's PDF to a path the author picked in the save dialog. */
   saveComparisonPdf: (older: string, newer: string, destination: string) =>
     invoke<void>('save_comparison_pdf', { older, newer, destination }),

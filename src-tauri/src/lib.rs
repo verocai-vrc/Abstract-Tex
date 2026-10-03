@@ -125,6 +125,8 @@ pub fn run() {
             commands::allow_shell_escape,
             commands::disallow_shell_escape,
             commands::read_log,
+            commands::cancel_comparison,
+            commands::read_comparison_log,
             commands::diff_ops,
             commands::synctex_forward,
             commands::synctex_inverse,

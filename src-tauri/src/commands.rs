@@ -974,6 +974,25 @@ pub async fn compare_revisions(
     .await
 }
 
+/// Stop the comparison in progress, because the author left it (*Back to live PDF*, ×, `Esc`).
+/// Safe with nothing running. The live build is a different lane and is never touched.
+#[tauri::command]
+pub fn cancel_comparison(state: State<'_, AppState>) -> CommandResult<()> {
+    state.diff_lane.cancel();
+    Ok(())
+}
+
+/// The full TeX transcript of the comparison on disk, for the drawer's "Raw output" — one click
+/// away and never the default (DESIGN.md §2). Empty when there is none; takes no path, because the
+/// folder holds only the latest comparison.
+#[tauri::command]
+pub fn read_comparison_log(state: State<'_, AppState>) -> CommandResult<String> {
+    with_project(&state, |project| {
+        let root_file = project.root_file().ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
+        Ok(latexdiff::read_comparison_log(&project.latexdiff_dir(), &root_file))
+    })
+}
+
 /// Copy the comparison of `older` and `newer` to `destination`, a path the author just picked in
 /// the save dialog (design interview A9). Named by its pair rather than "whatever is showing", so
 /// a comparison replaced while the dialog was open can never be saved under the other one's name.
