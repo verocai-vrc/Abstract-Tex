@@ -104,6 +104,31 @@ export type AssistantProvider =
   | { kind: 'anthropic'; model: string; address: string }
   | { kind: 'openAiCompatible'; model: string; address: string };
 
+/** S12.3b: which rewrite to ask for. */
+export type AssistantAction =
+  | { kind: 'tighten' }
+  | { kind: 'clarify' }
+  | { kind: 'matchVoice' }
+  | { kind: 'translate'; language: string };
+
+/** One change in a proposal, in UTF-16 units of the selection (what `String.slice` counts in). */
+export interface AssistantHunk {
+  start: number;
+  end: number;
+  replacement: string;
+  /** Sentences saying why this change may not be accepted, or `null` if it may. */
+  refusal: string[] | null;
+}
+
+export interface AssistantProposal {
+  id: number;
+  /** The selection as it was sent. */
+  original: string;
+  hunks: AssistantHunk[];
+  /** Citation keys the guard held back, each once. */
+  unknownKeys: string[];
+}
+
 /** What the window may know about the assistant: never the key, only whether one is saved. */
 export interface AssistantStatus {
   provider: AssistantProvider | null;
@@ -590,6 +615,14 @@ export const ipc = {
   assistantClearKey: () => invoke<void>('assistant_clear_key'),
   /** Switch the assistant on or off for the open project, on this machine only. */
   assistantSetEnabled: (enabled: boolean) => invoke<void>('assistant_set_enabled', { enabled }),
+  /** S12.3b: ask the model to rewrite `selection`. The one call that sends text out of the machine;
+   * rejects with a sentence if the assistant is not set up and switched on for this project. */
+  assistantPropose: (action: AssistantAction, selection: string) =>
+    invoke<AssistantProposal>('assistant_propose', { action, selection }),
+  /** The selection's new text for exactly the hunks in `accepted`, produced and guard-checked in
+   * Rust. Rejects with the guard's sentences if the text would hold a citation the .bib lacks. */
+  assistantApply: (id: number, accepted: boolean[]) => invoke<string>('assistant_apply', { id, accepted }),
+  assistantDiscard: (id: number) => invoke<void>('assistant_discard', { id }),
   /** The only request the assistant's settings make: a few tokens to the chosen provider, on a click. */
   assistantTest: () => invoke<string>('assistant_test'),
   githubAccount: () => invoke<GitHubAccount | null>('github_account'),

@@ -6243,6 +6243,43 @@ take from the diff:
 Not done: any assistant entry point in the editor (S12.3b), the payload inspector (S13.3), and the
 real Anthropic and OpenAI answers (needs an account; the wire shapes are from their documentation).
 
+**S12.3b (3 October 2026).** `[x]` — rung 4 walked: `pnpm verify` exit 0, `cargo test --workspace`
+757 passed / 0 failed (7 new in `src-tauri/src/assistant_review.rs`), Vitest 701/701 (23 new: the
+review helpers, the controller flow, the base keymap). The window, driven against a throwaway
+model server that "tightens" and also slips in a fabricated `\cite{invented2021}`: select a
+line, `Ctrl K` → *Assistant: Tighten (selection)*; one request, carrying **only the selected
+text**; a dialog shows the selection with each change marked in place — the honest deletion
+accepted, the fabricated citation drawn dashed and struck, refused, with the guard's sentence and
+"add that reference to your bibliography first" beneath; *Apply* wrote the one accepted change
+into the buffer, and one `Ctrl Z` took it back. The file on disk never held `invented2021`. What a
+reader should take from the diff:
+
+1. **The text that reaches the buffer is made in Rust.** The window sends which hunks it
+   accepted; `assistant_apply` returns `Review::apply`'s text, checked against the guard built
+   *now* from the `.bib` files on disk. The dialog's preview is only a preview, so a window that
+   gets the logic wrong still cannot put a fabricated key in the buffer.
+2. **Nothing is sent unless everything agrees, and Rust checks it, not the window:** a provider, a
+   key where needed, and this project switched on; the entry points are also *absent* (not greyed)
+   until the same is true. Only the selection leaves the machine: not the file, not the project —
+   S13.1's whole-document context is deliberately not here, because the payload inspector (S13.3)
+   must exist before it does.
+3. **One undo step, even right after typing.** Yjs folds edits within 500 ms into one undo item;
+   `replaceRange` cuts the history on both sides so *Ctrl Z* takes back the suggestion and not the
+   sentence typed just before it. It also refuses (writing nothing) if the selected text changed
+   while the model thought.
+4. **Hunk positions cross the boundary in UTF-16 units,** which is what `String.slice` counts;
+   a test slices an astral-plane selection the way JavaScript will.
+5. **Rung 4 found a bug the unit tests could not: *Ctrl Z did nothing on Linux*.** y-codemirror
+   undoes through the browser's native `beforeinput` event, which WebKitGTK does not fire, and the
+   app never bound the key itself (own commit, ledger). Without the walk, "undoable in one step"
+   would have been asserted in a test and false on this platform.
+
+Not done: *Translate to…* takes a fixed list of five languages in the palette (a free-text language
+needs a small prompt, a later card); *Explain this reviewer comment* and *does this paragraph
+support the claim* answer in prose and have no diff, so they are not here; the lookup the card
+promises for a held-back key is a sentence telling the author to add it (the DOI-paste path already
+exists) rather than a button. Untested against a real Anthropic or OpenAI answer.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2

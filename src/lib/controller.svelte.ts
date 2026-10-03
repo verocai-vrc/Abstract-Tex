@@ -6,7 +6,8 @@ import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
 import { filterTemplates, neighbour, newProject } from './templates.svelte';
-import { assistant, resetForm } from './assistant.svelte';
+import { assistant, resetForm, reviewFrom } from './assistant.svelte';
+import { toggled } from './assistant-review';
 import { providerFromForm } from './assistant';
 import { placeholders } from './placeholders.svelte';
 import { findPlaceholderLines, nextPlaceholder, orderedTexFiles, texPathsOf } from './editor/placeholders';
@@ -23,8 +24,8 @@ import {
 } from './compare.svelte';
 import { git, GRAPH_PAGE, NO_CHANGES, relativeTime, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
-import { registerCommand } from './commands';
-import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
+import { registerCommand, type Command } from './commands';
+import { ipc, type AssistantAction, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
@@ -543,6 +544,114 @@ export async function testAssistant(): Promise<void> {
     say(String(error), true);
   } finally {
     assistant.busy = false;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// S12.3b: asking the assistant to rewrite the selection, reviewing the changes, applying some.
+// ---------------------------------------------------------------------------------------------
+
+/** The menu entry for an action, which is also what the review's title says. */
+export function assistantActionLabel(action: AssistantAction): string {
+  switch (action.kind) {
+    case 'tighten':
+      return 'Tighten';
+    case 'clarify':
+      return 'Clarify';
+    case 'matchVoice':
+      return 'Match the voice of the document';
+    case 'translate':
+      return `Translate to ${action.language}`;
+  }
+}
+
+/**
+ * Ask the model to rewrite what is selected. Does nothing unless the assistant is ready (the entry
+ * points are absent otherwise, and Rust refuses again), and sends only the selection: not the file,
+ * not the project. The answer opens the review; nothing touches the buffer until *Apply*.
+ */
+export async function askAssistant(action: AssistantAction): Promise<void> {
+  if (!assistant.ready || assistant.asking) return;
+  const doc = app.activeDoc;
+  const selection = assistant.selection;
+  const path = app.activePath;
+  if (!doc || !path || !selection) {
+    app.notice = 'Select some text first, then choose an assistant action.';
+    return;
+  }
+  const original = doc.text().slice(selection.from, selection.to);
+  if (!original.trim()) {
+    app.notice = 'Select some text first, then choose an assistant action.';
+    return;
+  }
+  app.notice = null;
+  assistant.asking = true;
+  try {
+    const proposal = await ipc.assistantPropose(action, original);
+    assistant.review = reviewFrom(proposal, path, selection.from, assistantActionLabel(action));
+  } catch (error) {
+    app.notice = String(error);
+  } finally {
+    assistant.asking = false;
+  }
+}
+
+/** The palette's assistant entries — absent unless the assistant is ready (a provider, a key where
+ * one is needed, and this project switched on), never greyed. Each acts on the current selection. */
+export function assistantPaletteCommands(): Command[] {
+  if (!assistant.ready) return [];
+  const languages = ['English', 'German', 'French', 'Spanish', 'Portuguese'];
+  const actions: AssistantAction[] = [
+    { kind: 'tighten' },
+    { kind: 'clarify' },
+    { kind: 'matchVoice' },
+    ...languages.map((language): AssistantAction => ({ kind: 'translate', language })),
+  ];
+  return actions.map((action) => ({
+    id: `assistant:${action.kind}${action.kind === 'translate' ? `:${action.language}` : ''}`,
+    title: `Assistant: ${assistantActionLabel(action)} (selection)`,
+    category: 'action',
+    run: () => void askAssistant(action),
+  }));
+}
+
+/** Accept or leave one change. A change the guard refused cannot be turned on. */
+export function toggleReviewHunk(index: number): void {
+  const review = assistant.review;
+  if (!review) return;
+  assistant.review = { ...review, choices: toggled(review.hunks, review.choices, index), error: null };
+}
+
+/** Close the review and forget the suggestion on both sides. Nothing was written. */
+export function closeReview(): void {
+  const review = assistant.review;
+  assistant.review = null;
+  if (review) void ipc.assistantDiscard(review.id).catch(() => {});
+}
+
+/** Put the accepted changes in the buffer, as one undoable edit. The text comes from Rust, which has
+ * checked it against the citation guard; a refusal is shown as the guard's sentences and nothing is
+ * written. If the selection's text has changed since it was sent, nothing is written either. */
+export async function applyReview(): Promise<void> {
+  const review = assistant.review;
+  if (!review || review.applying) return;
+  assistant.review = { ...review, applying: true, error: null };
+  try {
+    const text = await ipc.assistantApply(review.id, review.choices);
+    const doc = app.activePath === review.path ? app.activeDoc : null;
+    const to = review.from + review.original.length;
+    if (!doc || !doc.replaceRange(review.from, to, text, review.original)) {
+      assistant.review = {
+        ...review,
+        applying: false,
+        error: 'The text changed while the assistant was thinking, so nothing was applied. Ask again.',
+      };
+      return;
+    }
+    assistant.review = null;
+    void ipc.assistantDiscard(review.id).catch(() => {});
+  } catch (error) {
+    assistant.review = { ...review, applying: false, error: String(error) };
   }
 }
 

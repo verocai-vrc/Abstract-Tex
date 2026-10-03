@@ -239,6 +239,27 @@ export class OpenDocument {
     return true;
   }
 
+  /**
+   * Replace `from`–`to` with `insert` in one transaction, so Ctrl Z undoes it in one step. The
+   * assistant's accepted changes arrive this way (S12.3b): in place, through the normal undo stack.
+   * Returns `false` and changes nothing if the text there is no longer `expected` — the author kept
+   * typing while the model thought — because an edit to text that has moved on is an edit to the
+   * wrong text.
+   */
+  replaceRange(from: number, to: number, insert: string, expected: string): boolean {
+    if (to < from || to > this.ytext.length || this.ytext.toString().slice(from, to) !== expected) return false;
+    // The undo manager folds edits made within `captureTimeout` into one step. Cutting the history
+    // on both sides makes the assistant's edit exactly one step: Ctrl Z takes back the suggestion
+    // and not the sentence typed just before it.
+    this.undo.stopCapturing();
+    this.ydoc.transact(() => {
+      this.ytext.delete(from, to - from);
+      this.ytext.insert(from, insert);
+    });
+    this.undo.stopCapturing();
+    return true;
+  }
+
   dispose() {
     this.disposed = true;
     if (this.saveTimer) clearTimeout(this.saveTimer);

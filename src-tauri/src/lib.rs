@@ -16,6 +16,7 @@
 //! borrowed by commands as `State<'_, AppState>`.
 
 pub mod assistant;
+pub mod assistant_review;
 pub mod bibliography;
 pub mod commands;
 pub mod compile;
@@ -114,6 +115,7 @@ pub fn run() {
             // S12.1b: the assistant's settings are per machine, in the same folder and for the same
             // reason; its key goes to the OS keychain and nowhere else (`assistant.rs`).
             app.manage(assistant::AssistantSettings::at(config.join("assistant.json")));
+            app.manage(assistant_review::AssistantReviews::default());
             app.manage(assistant::AssistantKeys(std::sync::Arc::new(
                 abstract_tex_assistant::Keychain::for_this_app(),
             )));
@@ -139,6 +141,9 @@ pub fn run() {
             assistant::assistant_clear_key,
             assistant::assistant_set_enabled,
             assistant::assistant_test,
+            assistant_review::assistant_propose,
+            assistant_review::assistant_apply,
+            assistant_review::assistant_discard,
             commands::cancel_comparison,
             commands::read_comparison_log,
             commands::diff_ops,

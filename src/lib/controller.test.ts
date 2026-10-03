@@ -4,6 +4,8 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AssistantAction,
+  AssistantProposal,
   AssistantProvider,
   AssistantStatus,
   BibliographyIndex,
@@ -114,6 +116,9 @@ let accountOnDisk: { login: string } | null = null;
 // S12.1b: what the backend would say about the assistant, and what was asked of it.
 let assistantStatusOnDisk: AssistantStatus = { provider: null, hasKey: false, enabled: false };
 let assistantError: string | null = null;
+let proposalAnswer: AssistantProposal | Error = { id: 1, original: '', hunks: [], unknownKeys: [] };
+let applyAnswer: string | Error = '';
+const reviewCalls = { proposed: [] as Array<[AssistantAction, string]>, applied: [] as Array<[number, boolean[]]>, discarded: [] as number[] };
 const assistantCalls = { saved: [] as Array<[AssistantProvider, string | null]>, enabled: [] as boolean[], tests: 0, clears: 0 };
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
@@ -435,6 +440,19 @@ vi.mock('./ipc', () => ({
       assistantCalls.enabled.push(enabled);
       assistantStatusOnDisk = { ...assistantStatusOnDisk, enabled };
     },
+    assistantPropose: async (action: AssistantAction, selection: string) => {
+      reviewCalls.proposed.push([action, selection]);
+      if (proposalAnswer instanceof Error) throw proposalAnswer;
+      return proposalAnswer;
+    },
+    assistantApply: async (id: number, accepted: boolean[]) => {
+      reviewCalls.applied.push([id, accepted]);
+      if (applyAnswer instanceof Error) throw applyAnswer;
+      return applyAnswer;
+    },
+    assistantDiscard: async (id: number) => {
+      reviewCalls.discarded.push(id);
+    },
     assistantTest: async () => {
       assistantCalls.tests++;
       if (assistantError) throw new Error(assistantError);
@@ -547,6 +565,11 @@ const {
   saveAssistantSettings,
   setAssistantEnabled,
   testAssistant,
+  askAssistant,
+  applyReview,
+  closeReview,
+  toggleReviewHunk,
+  assistantPaletteCommands,
   loadComparisonLog,
   compareWithPreviousCommit,
   markGraphRow,
@@ -666,6 +689,14 @@ beforeEach(async () => {
   assistantCalls.tests = 0;
   assistantCalls.clears = 0;
   assistant.status = null;
+  assistant.selection = null;
+  assistant.review = null;
+  assistant.asking = false;
+  reviewCalls.proposed = [];
+  reviewCalls.applied = [];
+  reviewCalls.discarded = [];
+  proposalAnswer = { id: 1, original: '', hunks: [], unknownKeys: [] };
+  applyAnswer = '';
   assistant.keyInput = '';
   assistant.message = null;
   assistant.busy = false;
@@ -3367,5 +3398,165 @@ describe('the assistant settings (S12.1b)', () => {
     await openAssistantSettings();
     expect(assistant.form).toEqual({ kind: 'openAiCompatible', model: 'llama3', address: 'http://localhost:11434/v1' });
     expect(assistant.keyInput).toBe('');
+  });
+});
+
+describe('rewriting a selection with the assistant (S12.3b)', () => {
+  const ready: AssistantStatus = {
+    provider: { kind: 'anthropic', model: 'claude-x', address: 'https://api.anthropic.com' },
+    hasKey: true,
+    enabled: true,
+  };
+  const guardSentence = 'The edit cites “invented”, which is not an entry in your .bib files, so it was held back.';
+
+  /** The buffer holds `Prior work is very very old. Done.`; `very very ` is selected. */
+  async function readyWithSelection(from = 14, to = 24) {
+    app.activeDoc!.ytext.delete(0, app.activeDoc!.ytext.length);
+    app.activeDoc!.ytext.insert(0, 'Prior work is very very old. Done.');
+    assistantStatusOnDisk = ready;
+    await refreshAssistant();
+    assistant.selection = { from, to };
+  }
+
+  const honest: AssistantProposal = {
+    id: 3,
+    original: 'very very ',
+    hunks: [{ start: 0, end: 10, replacement: '', refusal: null }],
+    unknownKeys: [],
+  };
+
+  it('does nothing, and sends nothing, unless the assistant is ready', async () => {
+    assistant.selection = { from: 0, to: 5 };
+    await askAssistant({ kind: 'tighten' });
+    expect(reviewCalls.proposed).toEqual([]);
+    expect(assistant.review).toBeNull();
+    expect(assistantPaletteCommands()).toEqual([]); // absent, not greyed
+  });
+
+  it('offers its palette entries only once ready', async () => {
+    await readyWithSelection();
+    const titles = assistantPaletteCommands().map((command) => command.title);
+    expect(titles).toContain('Assistant: Tighten (selection)');
+    expect(titles).toContain('Assistant: Translate to German (selection)');
+    expect(new Set(assistantPaletteCommands().map((command) => command.id)).size).toBe(titles.length);
+  });
+
+  it('says so, and sends nothing, when nothing is selected', async () => {
+    await readyWithSelection();
+    assistant.selection = null;
+    await askAssistant({ kind: 'tighten' });
+    expect(reviewCalls.proposed).toEqual([]);
+    expect(app.notice).toMatch(/Select some text/);
+
+    assistant.selection = { from: 3, to: 3 + 0 };
+    app.activeDoc!.ytext.delete(0, app.activeDoc!.ytext.length);
+    app.activeDoc!.ytext.insert(0, '   ');
+    assistant.selection = { from: 0, to: 3 };
+    await askAssistant({ kind: 'tighten' });
+    expect(reviewCalls.proposed).toEqual([]);
+  });
+
+  it('sends exactly the selected text and nothing else of the file, and opens the review', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+
+    expect(reviewCalls.proposed).toEqual([[{ kind: 'tighten' }, 'very very ']]);
+    expect(assistant.review).toMatchObject({ id: 3, path: 'main.tex', from: 14, actionLabel: 'Tighten', choices: [true] });
+    expect(assistant.asking).toBe(false);
+    expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done.'); // nothing written yet
+  });
+
+  it('shows the sentence when the request fails, and opens no review', async () => {
+    await readyWithSelection();
+    proposalAnswer = new Error('The provider did not accept the key. Check it in the assistant’s settings.');
+    await askAssistant({ kind: 'clarify' });
+    expect(app.notice).toContain('did not accept the key');
+    expect(assistant.review).toBeNull();
+    expect(assistant.asking).toBe(false);
+  });
+
+  it('starts a refused change left, and never lets it be turned on', async () => {
+    await readyWithSelection();
+    proposalAnswer = {
+      id: 4,
+      original: 'very very ',
+      hunks: [
+        { start: 0, end: 5, replacement: '', refusal: null },
+        { start: 10, end: 10, replacement: '\\cite{invented}', refusal: [guardSentence] },
+      ],
+      unknownKeys: ['invented'],
+    };
+    await askAssistant({ kind: 'tighten' });
+    expect(assistant.review?.choices).toEqual([true, false]);
+    toggleReviewHunk(1);
+    expect(assistant.review?.choices).toEqual([true, false]);
+    toggleReviewHunk(0);
+    expect(assistant.review?.choices).toEqual([false, false]);
+  });
+
+  it('applies the accepted changes in one undoable step, with the text Rust made', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+    applyAnswer = '';
+    await applyReview();
+
+    expect(reviewCalls.applied).toEqual([[3, [true]]]);
+    expect(app.activeDoc!.text()).toBe('Prior work is old. Done.');
+    expect(assistant.review).toBeNull();
+    expect(reviewCalls.discarded).toEqual([3]);
+
+    app.activeDoc!.undo.undo();
+    expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done.');
+  });
+
+  it('is its own undo step even right after the author typed', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+    app.activeDoc!.ytext.insert(app.activeDoc!.ytext.length, ' More.'); // typed just now, inside the capture window
+    // the text before the selection is unchanged, so the review still applies
+    applyAnswer = '';
+    await applyReview();
+    expect(app.activeDoc!.text()).toBe('Prior work is old. Done. More.');
+
+    app.activeDoc!.undo.undo();
+    expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done. More.');
+  });
+
+  it('writes nothing when the selected text changed while the assistant thought', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+    app.activeDoc!.ytext.insert(14, 'X'); // the author typed inside the selection
+    applyAnswer = '';
+    await applyReview();
+
+    expect(app.activeDoc!.text()).toBe('Prior work is Xvery very old. Done.');
+    expect(assistant.review?.error).toMatch(/changed while the assistant was thinking/);
+    expect(assistant.review?.applying).toBe(false);
+  });
+
+  it('shows the guard’s sentences and writes nothing when Rust refuses the text', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+    applyAnswer = new Error(guardSentence);
+    await applyReview();
+
+    expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done.');
+    expect(assistant.review?.error).toContain('invented');
+  });
+
+  it('forgets the suggestion on both sides when cancelled, writing nothing', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+    closeReview();
+    expect(assistant.review).toBeNull();
+    expect(reviewCalls.discarded).toEqual([3]);
+    expect(reviewCalls.applied).toEqual([]);
+    expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done.');
   });
 });

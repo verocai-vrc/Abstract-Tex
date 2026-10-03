@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { assistant } from '../lib/assistant.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
   import { branchLabel, git, syncArrows } from '../lib/git.svelte';
   import { github } from '../lib/github.svelte';
@@ -108,6 +109,11 @@
     <button class="ghost" title="Go to next placeholder (F8)" onclick={() => void goToNextPlaceholder()}>
       {leftText}
     </button>
+  {/if}
+
+  {#if assistant.asking}
+    <!-- The one moment text leaves the machine for the assistant, so it says so. -->
+    <span class="muted"><span class="dot pulse"></span>Asking the assistant…</span>
   {/if}
 
   <span class="spacer"></span>

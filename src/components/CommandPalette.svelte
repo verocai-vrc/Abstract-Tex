@@ -6,7 +6,7 @@
   // copy of the ranking and highlighting logic.
   import { tick } from 'svelte';
   import { app } from '../lib/state.svelte';
-  import { goToOutlineItem, openFile } from '../lib/controller.svelte';
+  import { assistantPaletteCommands, goToOutlineItem, openFile } from '../lib/controller.svelte';
   import { allCommands, searchCommands, type Command } from '../lib/commands';
   import { fuzzyMatch, highlightMatch } from '../lib/fuzzy';
   import { listFiles } from '../lib/paths';
@@ -44,7 +44,7 @@
 
   // Actions first, so an empty query — the state right after `Ctrl K` — leads with "every
   // action reachable" (DESIGN.md §5.3) rather than a file list `Ctrl P` already gives.
-  const candidates = $derived([...allCommands(), ...fileCommands, ...sectionCommands]);
+  const candidates = $derived([...allCommands(), ...assistantPaletteCommands(), ...fileCommands, ...sectionCommands]);
   const results = $derived(searchCommands(query, candidates).slice(0, 50));
 
   $effect(() => {

@@ -18,6 +18,7 @@
   import ActivityBar from './components/ActivityBar.svelte';
   import SourceControl from './components/SourceControl.svelte';
   import AssistantView from './components/AssistantView.svelte';
+  import AssistantReview from './components/AssistantReview.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Editor from './components/Editor.svelte';
   import PdfPane from './components/PdfPane.svelte';
@@ -118,5 +119,6 @@
 <NewProjectWindow />
 <DiffView />
 <SnapshotViewer />
+<AssistantReview />
 <ZoteroLink />
 <BibliographyHealth />

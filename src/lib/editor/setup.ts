@@ -34,6 +34,7 @@ import { diagnosticGutter } from './diagnostics';
 import { focusModeExtension } from './focus';
 import { lspHoverSource, type HoverRequester } from './hover';
 import { mathPreview } from './math-preview';
+import { selectionReporter } from './selection';
 import { placeholderMarks } from './placeholders';
 import { pasteCiteHandler, type PasteCiteRequester } from './paste';
 import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
@@ -139,6 +140,7 @@ export function createEditor(
   typewriterModeEnabled = false,
   pasteCiteRequest?: PasteCiteRequester,
   onCursorLine?: (line: number) => void,
+  onSelection?: (from: number, to: number) => void,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -148,6 +150,7 @@ export function createEditor(
       diagnosticGutter(),
       // S11.12: a mark and a quiet highlight on `% FILL IN:` lines, from a template.
       placeholderMarks(onCursorLine),
+      ...(onSelection ? [selectionReporter(onSelection)] : []),
       highlightActiveLineGutter(),
       highlightSpecialChars(),
       drawSelection(),
