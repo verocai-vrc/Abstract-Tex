@@ -15,6 +15,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **On Linux, every build triggers another build, for ever: the watcher reports reads.** (3 Oct
+  2026, found by running the app under Xvfb for the first time — rung 4 of S11.11/S11.12 — on a
+  template project and on `fixtures/minimal` alike) Tectonic opening `main.tex` produces an inotify
+  access event; the debounced watcher forwards it as a change; the controller's `handleFsEvent`
+  calls `triggerCompile`; the new build opens `main.tex`. Observed: ~940 builds in two minutes,
+  each cancelling the last before it finished, the PDF pane stuck on "Compiling…" and the status
+  bar on "Compiling… -0.0s". Reproduced by `watcher::tests::reading_a_file_is_not_a_change`.
+  Never seen on Windows, which reports no reads. **Cause:** `notify` 8.2 hard-codes the inotify
+  `OPEN` mask, and `notify-debouncer-mini` throws away each event's kind. **Fixed (3 Oct 2026):** the
+  watcher uses `notify-debouncer-full`, which keeps the kind, and drops `Access` events; one report
+  per path per window. Checked in the running app: one build, "Built in 0.5s", PDF shown.
+
 - **`pnpm tauri dev` fails: `cargo run` cannot pick a binary.** (3 Oct 2026, found launching the
   app for a hand walk-through) `src-tauri` declares three `fake-git-lfs-*` `[[bin]]` targets
   beside the app, and without a `default-run` key `cargo run` refuses to guess among four. The

@@ -7,7 +7,11 @@
 //!    of it is an edit to the manuscript. Paths under `.git/` are not an edit either, but a
 //!    handful of them change what `git status` would say, so they are reported as
 //!    [`Change::GitMetadata`] instead of as a file the author touched (S10.3a).
-//! 2. Files whose content matches what *we* just wrote are dropped. Otherwise every debounced
+//! 2. Reads are not changes. `notify` asks inotify for *open* events too, so a build opening
+//!    `main.tex` arrives as an event for `main.tex`, and reporting it would make every build
+//!    trigger the next. The debouncer is `notify-debouncer-full` rather than the mini one because
+//!    only it keeps each event's kind, which is what lets an access event be told from a write.
+//! 3. Files whose content matches what *we* just wrote are dropped. Otherwise every debounced
 //!    save would come back as an "external change" and the reconciler would run a no-op diff.
 //!    We compare a content hash rather than a timestamp window because a slow disk can deliver
 //!    the event after any window we pick, and a hash cannot be late.
@@ -15,15 +19,15 @@
 //! Must never decide what an external change *means*. That is the frontend's job: it reads the
 //! file, diffs it into the CRDT, or asks the author if the buffer is dirty.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use notify::RecursiveMode;
-use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
+use notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_full::{new_debouncer, DebounceEventResult, Debouncer, RecommendedCache};
 use serde::Serialize;
 use tracing::{debug, warn};
 
@@ -63,7 +67,7 @@ pub enum Change {
 
 /// Keeps the watcher thread alive. Drop it to stop watching.
 pub struct ProjectWatcher {
-    _debouncer: Debouncer<notify::RecommendedWatcher>,
+    _debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
 }
 
 /// Remember that we wrote these bytes to this path, so the echo can be recognised.
@@ -93,34 +97,49 @@ where
             // index, `HEAD` and a ref in the same burst, and three identical "ask again" events
             // would mean three status reads for one answer.
             let mut git_changed = false;
+            // One report per path per window: this debouncer can hand back several events for
+            // the same file (a create and a modify), and the frontend only needs to hear once.
+            let mut reported: HashSet<PathBuf> = HashSet::new();
             for event in events {
-                if is_ignored(&event.path) {
+                // A read is not a change (see the module comment, point 2).
+                if event.kind.is_access() {
                     continue;
                 }
-                if inside_git_dir(&event.path) {
-                    git_changed |= changes_git_status(&event.path);
-                    continue;
+                for path in &event.paths {
+                    if is_ignored(path) {
+                        continue;
+                    }
+                    if inside_git_dir(path) {
+                        git_changed |= changes_git_status(path);
+                        continue;
+                    }
+                    if !reported.insert(path.clone()) {
+                        continue;
+                    }
+                    let exists = path.exists();
+                    if exists && path.is_file() && is_our_own_write(&written, path) {
+                        debug!(path = %path.display(), "ignoring echo of our own write");
+                        continue;
+                    }
+                    on_event(Change::Manuscript(FsEvent {
+                        path: path.to_string_lossy().into_owned(),
+                        exists,
+                    }));
                 }
-                let exists = event.path.exists();
-                if exists && event.path.is_file() && is_our_own_write(&written, &event.path) {
-                    debug!(path = %event.path.display(), "ignoring echo of our own write");
-                    continue;
-                }
-                on_event(Change::Manuscript(FsEvent {
-                    path: event.path.to_string_lossy().into_owned(),
-                    exists,
-                }));
             }
             if git_changed {
                 on_event(Change::GitMetadata);
             }
         }
-        Err(error) => warn!(%error, "file watcher error"),
+        Err(errors) => {
+            for error in errors {
+                warn!(%error, "file watcher error");
+            }
+        }
     };
 
-    let mut debouncer = new_debouncer(DEBOUNCE, handler).context("could not create file watcher")?;
+    let mut debouncer = new_debouncer(DEBOUNCE, None, handler).context("could not create file watcher")?;
     debouncer
-        .watcher()
         .watch(root, RecursiveMode::Recursive)
         .with_context(|| format!("could not watch {}", root.display()))?;
     Ok(ProjectWatcher {
@@ -225,6 +244,32 @@ mod tests {
         assert!(
             wait_for_change(&rx, Duration::from_millis(1500)).is_none(),
             "a write whose hash we recorded must not be reported"
+        );
+    }
+
+    /// Reading a file is not changing it. A build opens `main.tex`, and if that were reported the
+    /// build would trigger another build, for ever.
+    #[test]
+    fn reading_a_file_is_not_a_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("main.tex");
+        std::fs::write(&target, "hello").unwrap();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = watch(dir.path(), WrittenHashes::default(), move |e| {
+            let _ = tx.send(e);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+
+        for _ in 0..3 {
+            let _ = std::fs::read_to_string(&target).unwrap();
+            let _ = std::fs::File::open(&target).unwrap();
+        }
+
+        assert_eq!(
+            wait_for_change(&rx, Duration::from_millis(1500)),
+            None,
+            "a read must not be reported"
         );
     }
 
