@@ -15,6 +15,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Opening another project left the previous project's PDF on screen under "Compiling…".** (3 Oct
+  2026, found under Xvfb) `app.pdfUrl` was reset on open, but `PdfPane`'s effect returned early on a
+  null URL and the viewer kept its rendered pages. **Fixed (3 Oct 2026):** `PdfViewer.clear()`,
+  called when there is no PDF to show (also covers a comparison still being built). Checked in the
+  running app: opening an empty folder shows "The PDF will appear here after the first build."
+
 - **A modal dialog did not take keyboard focus: `Escape` did nothing and typed text reached the
   editor behind it, and was saved.** (3 Oct 2026, found under Xvfb, rung 4 of S11.7b) The merge view,
   the Snapshot viewer and the Clone window were `<div role="dialog">` with a key handler on the

@@ -189,6 +189,17 @@ export class PdfViewer {
     return this.zoom;
   }
 
+  /** Show no pages, and stop any load still in flight from showing some later. Used when there is
+   * no PDF to show — a different project just opened — so the previous one's pages do not sit under
+   * the "Compiling…" note. */
+  async clear(): Promise<void> {
+    this.renderToken++;
+    this.pagesHost.replaceChildren();
+    const previous = this.document;
+    this.document = null;
+    await previous?.destroy();
+  }
+
   async destroy(): Promise<void> {
     this.renderToken++;
     await this.document?.destroy();

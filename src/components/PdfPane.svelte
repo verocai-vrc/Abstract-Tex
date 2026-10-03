@@ -38,7 +38,13 @@
 
   $effect(() => {
     const url = shownUrl;
-    if (!url || !viewer) return;
+    if (!viewer) return;
+    if (!url) {
+      // Nothing to show (another project just opened, or a comparison is still being built):
+      // the pages of whatever was here before must not stay on screen under the placeholder.
+      void viewer.clear();
+      return;
+    }
     loadError = null;
     viewer.load(url).catch((error: unknown) => {
       console.error('[pdf] load failed', url, error);
