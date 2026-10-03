@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categoriesOf, filterTemplates, neighbour } from './templates.svelte';
+import { categoriesOf, categoryLabel, filterTemplates, neighbour } from './templates.svelte';
 import type { TemplateInfo } from './ipc';
 
 function template(id: string, category: string, description = ''): TemplateInfo {
@@ -17,6 +17,15 @@ const catalog = [
 describe('categoriesOf', () => {
   it('lists each category once, in the order the catalog first uses it', () => {
     expect(categoriesOf([...catalog, template('essay-two', 'essay')])).toEqual(['other', 'essay', 'report', 'paper', 'cv']);
+  });
+});
+
+describe('categoryLabel', () => {
+  it('capitalises, and knows that a CV is a CV', () => {
+    expect(categoryLabel('essay')).toBe('Essay');
+    expect(categoryLabel('cv')).toBe('CV');
+    expect(categoryLabel('all')).toBe('All');
+    expect(categoryLabel('other')).toBe('Other');
   });
 });
 

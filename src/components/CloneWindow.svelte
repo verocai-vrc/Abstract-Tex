@@ -6,6 +6,7 @@
   // The account list is a convenience and never a gate (rule 6): with nobody signed in the window
   // says so in a sentence, and the address field beside it works regardless.
   import { clone, filterRepositories } from '../lib/clone.svelte';
+  import { modalFocus } from '../lib/dialog';
   import { github, timeLeft } from '../lib/github.svelte';
   import {
     chooseRepositoryToClone,
@@ -36,7 +37,7 @@
 {#if clone.visible}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeCloneWindow()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="Clone a repository" tabindex="-1" onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-label="Clone a repository" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>Clone a repository</span>
         <button class="ghost" onclick={closeCloneWindow} aria-label="Close">✕</button>

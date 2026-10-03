@@ -14,6 +14,14 @@ export function categoriesOf(catalog: readonly TemplateInfo[]): string[] {
   return seen;
 }
 
+/** A category as a chip says it: "Essay", and "CV" rather than "Cv". Plain CSS capitalising cannot
+ * know an initialism. */
+export function categoryLabel(category: string): string {
+  if (category === 'all') return 'All';
+  if (category.toLowerCase() === 'cv') return 'CV';
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
 /**
  * The templates in `category` (or all of them, for `'all'`) whose name, category or description
  * contains every word of `query`. Case-insensitive; an empty query keeps everything; the

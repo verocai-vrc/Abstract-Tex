@@ -15,6 +15,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **A modal dialog did not take keyboard focus: `Escape` did nothing and typed text reached the
+  editor behind it, and was saved.** (3 Oct 2026, found under Xvfb, rung 4 of S11.7b) The merge view,
+  the Snapshot viewer and the Clone window were `<div role="dialog">` with a key handler on the
+  dialog element and nothing focusing it, so with focus still on the Source Control row behind,
+  `Escape` was never heard and typing went to the previous focus. Reproduced: "curric⏎" typed with
+  the merge view open appeared as a new first line of `main.tex` on disk. **Fixed (3 Oct 2026):**
+  `use:modalFocus` (`src/lib/dialog.ts`) focuses the dialog on open, keeps Tab inside it, and
+  returns focus to what had it on close; on those three and on New project. Tab arithmetic is
+  unit-tested; the DOM part was checked in the running app (typed text stays out of the editor,
+  `Escape` closes). Also in the same pass: the New project chips say "CV" not "Cv", and the example
+  text in the fields is muted so it no longer looks like a typed answer.
+
 - **`Ctrl Shift G` in the editor opened the find panel as well as switching to Source Control; the
   merge view's "N unchanged lines" bars were white bands in the dark theme.** (3 Oct 2026, found
   under Xvfb, rung 4 of S10.3a / S11.7b) The first: CodeMirror's search keymap binds `Mod-g` with a

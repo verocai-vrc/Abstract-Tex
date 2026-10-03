@@ -6,7 +6,8 @@
   //
   // Everything is reachable from the keyboard: the search box has focus when the window opens, ↑ ↓
   // move the highlight, Enter chooses, Enter in a question creates, Esc goes back.
-  import { newProject, categoriesOf, filterTemplates } from '../lib/templates.svelte';
+  import { newProject, categoriesOf, categoryLabel, filterTemplates } from '../lib/templates.svelte';
+  import { modalFocus } from '../lib/dialog';
   import {
     chooseTemplate,
     closeNewProjectWindow,
@@ -57,7 +58,7 @@
 {#if newProject.visible}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && newProjectBack()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="New project from template" tabindex="-1" onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-label="New project from template" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{newProject.step === 'choose' ? 'New project' : chosen?.name ?? 'New project'}</span>
         <button class="ghost" onclick={closeNewProjectWindow} aria-label="Close">✕</button>
@@ -87,7 +88,7 @@
                 templateFilterChanged();
               }}
             >
-              {category === 'all' ? 'All' : category}
+              {categoryLabel(category)}
             </button>
           {/each}
         </div>
@@ -205,6 +206,13 @@
   .search input {
     flex: 1;
   }
+  /* An example is a hint, not an answer: the default placeholder is as bright as typed text in the
+     dark theme, and "Your name" looked like something already filled in. */
+  input::placeholder {
+    color: var(--fg-muted);
+    opacity: 0.55;
+    font-style: italic;
+  }
   .chips {
     display: flex;
     flex-wrap: wrap;
@@ -214,7 +222,6 @@
   .chip {
     padding: 2px 10px;
     font-size: 12px;
-    text-transform: capitalize;
     border: 1px solid var(--border);
     border-radius: 999px;
     background: none;
