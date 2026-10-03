@@ -62,6 +62,10 @@ fn the_document_goes_in_as_a_cached_block_and_only_when_given() {
     assert_eq!(with.system.len(), 2);
     assert!(with.system[1].cache_breakpoint && with.system[1].text.contains("THE WHOLE MANUSCRIPT"));
     assert!(with.system[0].text.contains("surrounding <document>"));
+    assert_eq!(
+        with.system[1].label.as_deref(),
+        Some(abstract_tex_assistant::DOCUMENT_LABEL)
+    );
 
     let without = build_prompt(&Action::MatchVoice, "Text.", None).unwrap();
     assert!(!without.system[0].text.contains("<document>"));

@@ -32,7 +32,7 @@ pub mod keys;
 pub mod provider;
 
 pub use client::Assistant;
-pub use edit::{build_prompt, hunks, proposed_selection, Action, ApplyError, Hunk, Review};
+pub use edit::{build_prompt, hunks, proposed_selection, Action, ApplyError, Hunk, Review, DOCUMENT_LABEL};
 pub use guard::{citation_macros, Finding, FindingKind, Guard, Verdict};
 pub use inspect::{inspect, Payload, PayloadHeader, PayloadPart};
 pub use keys::{KeyStore, Keychain, MemoryKeyStore};

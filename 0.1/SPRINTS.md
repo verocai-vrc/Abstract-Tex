@@ -6325,11 +6325,38 @@ document" will need a label on `SystemPart` when S13.1 adds it); the dialog is n
 third of the characters, labelled a guess. Whole-document context should be forced through this
 dialog whatever the setting says — decide in S13.1.
 
+**S13.1 (3 October 2026).** `[x]` — rung 4 walked: `pnpm verify` exit 0, `cargo test --workspace` 770
+passed / 0 failed (4 new at the app edge, 1 assertion in the crate), Vitest 714/714 (3 new). The
+whole-document context, scoped to the one action that cannot work without it: *Match the voice of
+the document*. In the window, with "show me each request" switched **off**: the palette entry reads
+"…(sends the whole document)"; choosing it still stopped at the dialog, headed **Your whole
+document**, listing `main.tex` then `chapters/one.tex` under marker lines; the fake model had heard
+nothing until *Send*; *Ctrl Enter* sent one request. What a reader should take from the diff:
+
+1. **The decision S13.3 left open is made: a request carrying the manuscript is always shown,**
+   whatever the setting. `show_first(setting, sends_document)` is a pure function with its own
+   test; the dialog says why, and hides the "show me each request" box when it was forced.
+2. **The document is the include graph, read from disk.** Every file `build_graph` reaches that
+   exists and is text, root first, each under `% ==== file: path ====`. Files the root never
+   includes are not sent; a missing `\input` target is skipped. Over 300,000 characters (about
+   100k tokens) the request is refused with a sentence, not cut: half a manuscript read as the
+   whole would teach the wrong voice without the author knowing.
+3. **A label is for the reader, not the wire.** `SystemPart::labelled` names a block in the
+   inspector; a test asserts the label never appears in the body. The cache breakpoint was already
+   on this block (S12.3a), so a second *Match the voice* re-reads it at the cheap rate on Anthropic.
+4. **Only `MatchVoice` sends it.** Tighten, Clarify and Translate work on the selection alone and
+   say "selection" in the palette. Offering the document to those is a later, optional card.
+
+Not done: the document is read from disk, so text typed in the last moment before the click may be
+older there than in the selection (the editor saves as you type, so the gap is small and the
+selection itself is always the buffer's); Anthropic's actual cache hit is unmeasured without an
+account; a manuscript over the limit has no "just the chapter" option yet.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2
 **citation-fabrication guard with adversarial tests, written first** · S12.3 selection-scoped
-diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint ·
+diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint (done, above) ·
 S13.2 model fallback for unmatched errors, cached by log signature · S13.3 payload inspector (done, above) ·
 S13.4 no-network test: zero outbound requests with no key.
 

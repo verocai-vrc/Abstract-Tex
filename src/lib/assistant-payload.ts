@@ -8,6 +8,7 @@ import type { AssistantPayload, AssistantPayloadPart } from './ipc';
 
 /** What a part is, for the heading above its text. */
 export function partLabel(part: AssistantPayloadPart, position: number, parts: readonly AssistantPayloadPart[]): string {
+  if (part.label) return part.label;
   if (part.role === 'user') return 'Your request';
   if (part.role === 'assistant') return 'An earlier answer';
   const systemBefore = parts.slice(0, position).filter((other) => other.role === 'system').length;
@@ -37,6 +38,11 @@ export function prettyBody(body: string): string {
   } catch {
     return body;
   }
+}
+
+/** Whether the request carries the manuscript itself, not only what was selected. */
+export function carriesDocument(payload: AssistantPayload): boolean {
+  return payload.parts.some((part) => part.label !== null);
 }
 
 /** Whether the request carries more than the selection's own text and the standing instructions:

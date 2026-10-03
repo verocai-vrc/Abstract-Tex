@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { carriesContext, destinationLine, partLabel, prettyBody, sizeLine } from './assistant-payload';
+import { carriesContext, carriesDocument, destinationLine, partLabel, prettyBody, sizeLine } from './assistant-payload';
 import type { AssistantPayload } from './ipc';
 
 const payload = (over: Partial<AssistantPayload> = {}): AssistantPayload => ({
@@ -7,8 +7,8 @@ const payload = (over: Partial<AssistantPayload> = {}): AssistantPayload => ({
   url: 'https://api.anthropic.com/v1/messages',
   model: 'claude-x',
   parts: [
-    { role: 'system', text: 'Instructions.', cached: false },
-    { role: 'user', text: '<selection>\nHi\n</selection>', cached: false },
+    { role: 'system', text: 'Instructions.', label: null, cached: false },
+    { role: 'user', text: '<selection>\nHi\n</selection>', label: null, cached: false },
   ],
   headers: [],
   body: '{"a":1}',
@@ -21,10 +21,10 @@ const payload = (over: Partial<AssistantPayload> = {}): AssistantPayload => ({
 describe('the payload inspector’s wording', () => {
   it('labels each part by what it is', () => {
     const parts = [
-      { role: 'system' as const, text: 'a', cached: false },
-      { role: 'system' as const, text: 'b', cached: true },
-      { role: 'system' as const, text: 'c', cached: false },
-      { role: 'user' as const, text: 'd', cached: false },
+      { role: 'system' as const, text: 'a', label: null, cached: false },
+      { role: 'system' as const, text: 'b', label: null, cached: true },
+      { role: 'system' as const, text: 'c', label: null, cached: false },
+      { role: 'user' as const, text: 'd', label: null, cached: false },
     ];
     expect(parts.map((part, i) => partLabel(part, i, parts))).toEqual([
       'Instructions to the model',
@@ -54,6 +54,14 @@ describe('the payload inspector’s wording', () => {
 
   it('says there is context beyond the selection exactly when a part is cached', () => {
     expect(carriesContext(payload())).toBe(false);
-    expect(carriesContext(payload({ parts: [{ role: 'system', text: 'doc', cached: true }] }))).toBe(true);
+    expect(carriesContext(payload({ parts: [{ role: 'system', text: 'doc', label: null, cached: true }] }))).toBe(true);
+  });
+
+  it('names the manuscript by its label, and says so when the whole document is in the request', () => {
+    const document = { role: 'system' as const, text: '<document>…</document>', label: 'Your whole document', cached: true };
+    const parts = [{ role: 'system' as const, text: 'i', label: null, cached: false }, document];
+    expect(partLabel(document, 1, parts)).toBe('Your whole document');
+    expect(carriesDocument(payload({ parts }))).toBe(true);
+    expect(carriesDocument(payload())).toBe(false);
   });
 });

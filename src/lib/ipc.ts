@@ -143,6 +143,8 @@ export interface AssistantStatus {
 export interface AssistantPayloadPart {
   role: 'system' | 'user' | 'assistant';
   text: string;
+  /** A name for this block when it has one: "Your whole document". */
+  label: string | null;
   /** The provider is asked to remember everything up to and including this part. */
   cached: boolean;
 }
@@ -168,8 +170,10 @@ export interface AssistantPayload {
 export interface AssistantPrepared {
   id: number;
   payload: AssistantPayload;
-  /** The person asked to look first, so the window stops and shows it. */
+  /** The window stops and shows it: the person asked to look first, or the whole document is in it. */
   inspectFirst: boolean;
+  /** Shown although looking was switched off, because the whole document is in the request. */
+  forced: boolean;
 }
 
 /** Anything the language server says without being asked (`src-tauri/src/lsp.rs`).

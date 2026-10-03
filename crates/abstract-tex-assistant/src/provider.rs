@@ -103,6 +103,9 @@ impl Provider {
 pub struct SystemPart {
     pub text: String,
     pub cache_breakpoint: bool,
+    /// What the payload inspector calls this block ("Your whole document"). Never sent: a label is
+    /// for the person reading the request, not part of it.
+    pub label: Option<String>,
 }
 
 impl SystemPart {
@@ -110,6 +113,7 @@ impl SystemPart {
         Self {
             text: text.to_string(),
             cache_breakpoint: false,
+            label: None,
         }
     }
 
@@ -117,7 +121,14 @@ impl SystemPart {
         Self {
             text: text.to_string(),
             cache_breakpoint: true,
+            label: None,
         }
+    }
+
+    /// The same block with a name the inspector shows above it.
+    pub fn labelled(mut self, label: &str) -> Self {
+        self.label = Some(label.to_string());
+        self
     }
 }
 

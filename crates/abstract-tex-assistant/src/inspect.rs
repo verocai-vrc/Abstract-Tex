@@ -26,6 +26,8 @@ pub struct PayloadPart {
     /// `system` (instructions, and any context the model reads first), `user` or `assistant`.
     pub role: &'static str,
     pub text: String,
+    /// A name for this block when it has one ("Your whole document").
+    pub label: Option<String>,
     /// The provider is asked to remember everything up to and including this part for next time.
     pub cached: bool,
 }
@@ -79,6 +81,7 @@ fn payload_of(provider: &Provider, prompt: &Prompt, request: HttpRequest) -> Pay
         .map(|part| PayloadPart {
             role: "system",
             text: part.text.clone(),
+            label: part.label.clone(),
             cached: part.cache_breakpoint,
         })
         .collect();
@@ -88,6 +91,7 @@ fn payload_of(provider: &Provider, prompt: &Prompt, request: HttpRequest) -> Pay
             Role::Assistant => "assistant",
         },
         text: message.text.clone(),
+        label: None,
         cached: false,
     }));
 
@@ -141,7 +145,8 @@ mod tests {
         Prompt {
             system: vec![
                 SystemPart::plain("You tighten prose."),
-                SystemPart::cached("<document>\nThe whole \"manuscript\".\n</document>"),
+                SystemPart::cached("<document>\nThe whole \"manuscript\".\n</document>")
+                    .labelled("Your whole document"),
             ],
             messages: vec![Message::user("<selection>\nTighten é𝒳 this.\n</selection>")],
             max_tokens: 300,
@@ -279,6 +284,8 @@ mod tests {
         assert_eq!(roles, ["system", "system", "user"]);
         let cached: Vec<bool> = payload.parts.iter().map(|part| part.cached).collect();
         assert_eq!(cached, [false, true, false]);
+        let labels: Vec<Option<&str>> = payload.parts.iter().map(|part| part.label.as_deref()).collect();
+        assert_eq!(labels, [None, Some("Your whole document"), None]);
         let expected: usize = payload.parts.iter().map(|part| part.text.chars().count()).sum();
         assert_eq!(payload.characters, expected);
         assert_eq!(payload.approximate_tokens, expected.div_ceil(3));

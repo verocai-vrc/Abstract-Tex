@@ -49,6 +49,12 @@ pub enum ActionRequest {
 }
 
 impl ActionRequest {
+    /// Whether the action is meaningless without reading the manuscript. Only matching the voice
+    /// "of the document" is: the others work on the selection alone and send nothing more.
+    fn needs_document(&self) -> bool {
+        matches!(self, Self::MatchVoice)
+    }
+
     fn action(&self) -> Action {
         match self {
             Self::Tighten => Action::Tighten,
@@ -145,6 +151,58 @@ pub fn view_of(id: u64, original: &str, review: &Review) -> ProposalView {
     }
 }
 
+/// The most the whole manuscript may be, in characters, to be sent as context: about 100,000 tokens,
+/// which fits the models this is likely to be pointed at with room for the answer. Past it the
+/// request is refused with a sentence, not cut: half a manuscript read as the whole would teach the
+/// model the wrong voice and the author would never know.
+const MAX_DOCUMENT_CHARS: usize = 300_000;
+
+/// The manuscript as one text: every file the root includes, root first, each under a marker line
+/// naming it, so the model can tell where one file ends. Read from disk as it is now. Files that
+/// are missing or not text are skipped (the graph lists targets that do not exist yet).
+///
+/// Returns the text and how many files went into it.
+fn document_text(root_dir: &Path, root_file: &Path) -> Result<(String, usize), String> {
+    let graph = abstract_tex_includes::build_graph(root_dir, root_file);
+    let mut text = String::new();
+    let mut files = 0;
+    let mut characters = 0;
+    for node in graph.nodes.iter().filter(|node| node.exists) {
+        let Ok(contents) = std::fs::read_to_string(root_dir.join(&node.path)) else {
+            continue;
+        };
+        let block = format!("% ==== file: {} ====\n{}\n", node.path, contents.trim_end());
+        characters += block.chars().count();
+        text.push_str(&block);
+        files += 1;
+        if characters > MAX_DOCUMENT_CHARS {
+            return Err(format!(
+                "The whole document is too long to send as context (over {} characters). Use an action that sends only the selection.",
+                MAX_DOCUMENT_CHARS
+            ));
+        }
+    }
+    Ok((text, files))
+}
+
+/// Whether to stop and show the request, and whether that is because the manuscript is in it
+/// rather than the person's setting. A request carrying the document is always shown.
+fn show_first(setting: bool, sends_document: bool) -> (bool, bool) {
+    (setting || sends_document, sends_document && !setting)
+}
+
+/// The open project's folder and root file.
+fn project_root(state: &AppState) -> Result<(PathBuf, PathBuf), String> {
+    let project = state.project.lock().unwrap();
+    let project = project
+        .as_ref()
+        .ok_or_else(|| "No project is open.".to_string())?;
+    let root_file = project
+        .root_file()
+        .ok_or_else(|| "This project has no root .tex file.".to_string())?;
+    Ok((project.root_dir.clone(), root_file))
+}
+
 /// The project's guard, built from disk: the index of the `.bib` files the document names, and the
 /// preamble of the root file for the author's own citation commands.
 fn project_guard(state: &AppState) -> Result<(Guard, PathBuf), String> {
@@ -233,8 +291,11 @@ pub struct PreparedView {
     /// Names this request in `assistant_send`; a newer one replaces it.
     pub id: u64,
     pub payload: Payload,
-    /// The person asked to look first (a setting), so the window should stop and show it.
+    /// The window should stop and show it: the person asked to look first (a setting), or the
+    /// request carries the manuscript, which is always shown.
     pub inspect_first: bool,
+    /// Shown although the person switched looking off, because the whole document is in it.
+    pub forced: bool,
 }
 
 /// Build the request for rewriting `selection`, and answer with exactly what it would carry.
@@ -268,7 +329,15 @@ pub fn assistant_prepare(
         .map_err(|error| error.to_string())?
         .is_some();
 
-    let prompt = build_prompt(&action.action(), &selection, None).map_err(|error| error.to_string())?;
+    // The manuscript goes only to an action that needs it, and then it is always shown first.
+    let document = if action.needs_document() {
+        let (root_dir, root_file) = project_root(&state)?;
+        Some(document_text(&root_dir, &root_file)?.0)
+    } else {
+        None
+    };
+    let prompt =
+        build_prompt(&action.action(), &selection, document.as_deref()).map_err(|error| error.to_string())?;
     let payload = inspect(&provider, has_key, &prompt).map_err(|error| error.to_string())?;
     let id = reviews.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     *reviews.prepared.lock().unwrap() = Some(PreparedRequest {
@@ -277,10 +346,12 @@ pub fn assistant_prepare(
         prompt,
         selection,
     });
+    let (inspect_first, forced) = show_first(settings.inspect_first(), document.is_some());
     Ok(PreparedView {
         id,
         payload,
-        inspect_first: settings.inspect_first(),
+        inspect_first,
+        forced,
     })
 }
 
@@ -565,6 +636,82 @@ mod tests {
             !shown.body.contains("<document>"),
             "a selection-only request carries no manuscript"
         );
+    }
+
+    #[test]
+    fn the_document_is_every_included_file_root_first_each_under_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("chapters")).unwrap();
+        std::fs::write(
+            dir.path().join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\\input{chapters/one}\n\\input{chapters/missing}\n\\end{document}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("chapters/one.tex"), "Chapter one text.\n").unwrap();
+        std::fs::write(dir.path().join("unrelated.tex"), "NOT IN THE DOCUMENT").unwrap();
+
+        let (text, files) = document_text(dir.path(), Path::new("main.tex")).unwrap();
+        assert_eq!(
+            files, 2,
+            "the missing file is skipped, the unrelated one never reached"
+        );
+        assert!(text.starts_with("% ==== file: main.tex ====\n"), "{text}");
+        assert!(text.find("main.tex").unwrap() < text.find("chapters/one.tex").unwrap());
+        assert!(text.contains("% ==== file: chapters/one.tex ====\nChapter one text."));
+        assert!(!text.contains("NOT IN THE DOCUMENT"));
+    }
+
+    #[test]
+    fn a_document_too_long_to_send_is_refused_not_cut() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.tex"), "x".repeat(MAX_DOCUMENT_CHARS + 1)).unwrap();
+        let error = document_text(dir.path(), Path::new("main.tex")).unwrap_err();
+        assert!(error.contains("too long"), "{error}");
+    }
+
+    #[test]
+    fn only_matching_the_voice_reads_the_manuscript_and_then_it_is_always_shown() {
+        assert!(ActionRequest::MatchVoice.needs_document());
+        for action in [
+            ActionRequest::Tighten,
+            ActionRequest::Clarify,
+            ActionRequest::Translate {
+                language: "German".into(),
+            },
+        ] {
+            assert!(!action.needs_document(), "{action:?}");
+        }
+        assert_eq!(show_first(true, false), (true, false));
+        assert_eq!(
+            show_first(false, false),
+            (false, false),
+            "selection only, looking switched off"
+        );
+        assert_eq!(
+            show_first(false, true),
+            (true, true),
+            "the manuscript overrides the setting"
+        );
+        assert_eq!(show_first(true, true), (true, false), "nothing was overridden");
+    }
+
+    #[test]
+    fn a_document_request_shows_the_manuscript_labelled_and_a_selection_request_does_not() {
+        let provider = abstract_tex_assistant::Provider::anthropic("claude-x");
+        let selection = build_prompt(&Action::MatchVoice, "Some text.", None).unwrap();
+        let alone = inspect(&provider, true, &selection).unwrap();
+        assert!(alone
+            .parts
+            .iter()
+            .all(|part| part.label.is_none() && !part.cached));
+
+        let with = build_prompt(&Action::MatchVoice, "Some text.", Some("THE MANUSCRIPT")).unwrap();
+        let shown = inspect(&provider, true, &with).unwrap();
+        let manuscript = shown.parts.iter().find(|part| part.label.is_some()).unwrap();
+        assert_eq!(manuscript.label.as_deref(), Some("Your whole document"));
+        assert!(manuscript.text.contains("THE MANUSCRIPT") && manuscript.cached);
+        assert!(shown.body.contains("THE MANUSCRIPT"));
+        assert!(!shown.body.contains("Your whole document"), "a label is not sent");
     }
 
     #[test]

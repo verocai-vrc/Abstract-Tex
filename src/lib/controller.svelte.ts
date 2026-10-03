@@ -596,6 +596,7 @@ export async function askAssistant(action: AssistantAction): Promise<void> {
       from: selection.from,
       actionLabel: assistantActionLabel(action),
       payload: prepared.payload,
+      forced: prepared.forced,
       sending: false,
     };
     if (prepared.inspectFirst) {
@@ -660,7 +661,8 @@ export function assistantPaletteCommands(): Command[] {
   ];
   return actions.map((action) => ({
     id: `assistant:${action.kind}${action.kind === 'translate' ? `:${action.language}` : ''}`,
-    title: `Assistant: ${assistantActionLabel(action)} (selection)`,
+    // The one action that sends more than the selection says so before it is chosen.
+    title: `Assistant: ${assistantActionLabel(action)} (${action.kind === 'matchVoice' ? 'sends the whole document' : 'selection'})`,
     category: 'action',
     run: () => void askAssistant(action),
   }));

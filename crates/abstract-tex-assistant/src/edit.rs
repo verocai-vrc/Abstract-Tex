@@ -72,6 +72,10 @@ impl Action {
     }
 }
 
+/// How the payload inspector names the manuscript block, so the person sees at a glance that more
+/// than the selection is leaving.
+pub const DOCUMENT_LABEL: &str = "Your whole document";
+
 /// What every action is told first. The last sentence is a request and is not relied on: the
 /// guard is what enforces it.
 const BASE_INSTRUCTIONS: &str = "You are a careful copy editor working on a LaTeX manuscript. You will be given a <selection> \
@@ -100,9 +104,9 @@ pub fn build_prompt(
         action.instruction(document.is_some())
     ))];
     if let Some(document) = document {
-        system.push(SystemPart::cached(&format!(
-            "<document>\n{document}\n</document>"
-        )));
+        system.push(
+            SystemPart::cached(&format!("<document>\n{document}\n</document>")).labelled(DOCUMENT_LABEL),
+        );
     }
     // Room for an answer about twice the selection's length, which a translation can need.
     let estimated_tokens = u32::try_from(selection.len() / 3).unwrap_or(u32::MAX / 4);

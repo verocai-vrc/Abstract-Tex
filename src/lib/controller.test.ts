@@ -450,14 +450,15 @@ vi.mock('./ipc', () => ({
       const id = proposalAnswer instanceof Error ? 1 : proposalAnswer.id;
       return {
         id,
-        inspectFirst: assistantStatusOnDisk.inspectFirst,
+        inspectFirst: assistantStatusOnDisk.inspectFirst || action.kind === 'matchVoice',
+        forced: !assistantStatusOnDisk.inspectFirst && action.kind === 'matchVoice',
         payload: {
           destination: 'api.anthropic.com',
           url: 'https://api.anthropic.com/v1/messages',
           model: 'claude-x',
           parts: [
-            { role: 'system' as const, text: 'You are a careful copy editor.', cached: false },
-            { role: 'user' as const, text: `<selection>\n${selection}\n</selection>`, cached: false },
+            { role: 'system' as const, text: 'You are a careful copy editor.', label: null, cached: false },
+            { role: 'user' as const, text: `<selection>\n${selection}\n</selection>`, label: null, cached: false },
           ],
           headers: [{ name: 'x-api-key', value: '(your key, sent, never shown)' }],
           body: '{}',
@@ -3476,6 +3477,7 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     await readyWithSelection();
     const titles = assistantPaletteCommands().map((command) => command.title);
     expect(titles).toContain('Assistant: Tighten (selection)');
+    expect(titles).toContain('Assistant: Match the voice of the document (sends the whole document)');
     expect(titles).toContain('Assistant: Translate to German (selection)');
     expect(new Set(assistantPaletteCommands().map((command) => command.id)).size).toBe(titles.length);
   });
@@ -3656,6 +3658,18 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
       expect(reviewCalls.proposed).toEqual([3]);
       expect(reviewCalls.dialogUpAtSend).toEqual([false]); // no dialog was ever put up
       expect(assistant.review).not.toBeNull();
+    });
+
+    it('stops to show a request that carries the whole document even with looking switched off', async () => {
+      await ready_to_look();
+      await setAssistantInspectFirst(false);
+      await askAssistant({ kind: 'matchVoice' });
+
+      expect(reviewCalls.proposed).toEqual([]); // not sent: the dialog is up
+      expect(assistant.prepared).toMatchObject({ id: 3, forced: true, sending: false });
+
+      await sendPrepared();
+      expect(reviewCalls.proposed).toEqual([3]);
     });
 
     it('says why, and leaves no request waiting, when the send fails', async () => {

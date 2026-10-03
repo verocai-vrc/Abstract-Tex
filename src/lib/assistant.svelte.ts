@@ -46,6 +46,8 @@ export interface PreparedState {
   from: number;
   actionLabel: string;
   payload: AssistantPayload;
+  /** Shown although looking was switched off: the whole document is in it. */
+  forced: boolean;
   /** The click was made and the request is out. */
   sending: boolean;
 }

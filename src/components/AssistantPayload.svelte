@@ -8,7 +8,7 @@
   // replaced by a phrase: it never reaches the window.
   import { cancelPrepared, sendPrepared, setAssistantInspectFirst } from '../lib/controller.svelte';
   import { assistant } from '../lib/assistant.svelte';
-  import { carriesContext, destinationLine, partLabel, prettyBody, sizeLine } from '../lib/assistant-payload';
+  import { carriesContext, carriesDocument, destinationLine, partLabel, prettyBody, sizeLine } from '../lib/assistant-payload';
   import { modalFocus } from '../lib/dialog';
 
   const prepared = $derived(assistant.prepared);
@@ -34,7 +34,10 @@
           <strong>Nothing has been sent yet.</strong>
           {destinationLine(payload)}
           {sizeLine(payload)}.
-          {#if carriesContext(payload)}
+          {#if carriesDocument(payload)}
+            <strong>This includes your whole document</strong>, not only the selection: every file it includes, marked below.
+            It is always shown first.
+          {:else if carriesContext(payload)}
             This includes text you did not select, marked below.
           {:else}
             Only the text you selected leaves, with the instructions below; not the rest of the file, and not your project.
@@ -64,15 +67,18 @@
           <p class="note">Laid out for reading; the bytes sent differ only in whitespace.</p>
         </details>
 
-        <label class="remember">
-          <input
-            type="checkbox"
-            checked={assistant.status?.inspectFirst ?? true}
-            onchange={(event) => void setAssistantInspectFirst(event.currentTarget.checked)}
-          />
-          <span>Show me each request before it is sent (you can change this in the Assistant view)</span>
-        </label>
-
+        {#if prepared.forced}
+          <p class="note remember">Shown even though you turned this off, because your whole document is in the request.</p>
+        {:else}
+          <label class="remember">
+            <input
+              type="checkbox"
+              checked={assistant.status?.inspectFirst ?? true}
+              onchange={(event) => void setAssistantInspectFirst(event.currentTarget.checked)}
+            />
+            <span>Show me each request before it is sent (you can change this in the Assistant view)</span>
+          </label>
+        {/if}
       </div>
 
       <footer>
