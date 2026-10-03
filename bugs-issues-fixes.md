@@ -28,7 +28,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   snap's `GTK_PATH`, `GIO_MODULE_DIR`, `GDK_PIXBUF_*`, `GSETTINGS_SCHEMA_DIR`, `LOCPATH` and
   rewritten `XDG_DATA_DIRS` make GTK load the snap's old libc-era modules. Workaround: unset those
   and restore `XDG_DATA_DIRS` from `XDG_DATA_DIRS_VSCODE_SNAP_ORIG` before `pnpm tauri dev`. A
-  shell opened outside the snap would not need it. **Open.**
+  shell opened outside the snap would not need it.
+  **First cause fixed (3 Oct 2026):** `default-run = "abstract-tex"` added to `src-tauri/Cargo.toml`;
+  `cargo run -p abstract-tex` now starts the app binary (checked: it got as far as the snap error
+  above). **Still Open:** the snap environment (second cause) and the `tauri` / `@tauri-apps/api`
+  minor mismatch (2.12.0 vs 2.11.1; bring the npm side up with `pnpm add --store-dir …`, see the
+  pnpm store note).
 
 - **`credentials()` may offer a rejected token for ever.** (3 Oct 2026, suspected while building
   S11.5a) libgit2 calls a credential callback again after the server refuses what it returned, until

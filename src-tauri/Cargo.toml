@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
+# Four binaries live in this package (the app and three fake `git lfs` helpers the tests run), and
+# without this `cargo run` — which `pnpm tauri dev` calls — refuses to pick one and exits 101.
+default-run = "abstract-tex"
 
 # Tauri wants the app as a library plus a thin binary (main.rs) so that mobile targets and
 # tests can link the same code. We have no mobile target (DESIGN.md §1.3) but keep the shape.
