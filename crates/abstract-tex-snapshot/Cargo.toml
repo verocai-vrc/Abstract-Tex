@@ -12,7 +12,11 @@ rust-version.workspace = true
 # OpenSSL and libssh2: this crate only ever writes objects to a repository on this disk, and the
 # network half of v0.6 (S10.4 sign-in, S11.1 sync) is a different crate's problem.
 git2 = { version = "0.20", default-features = false }
+# Rows cross to the frontend as they are (S11.6), as `abstract-tex-git`'s do.
+serde = { workspace = true }
 thiserror = { workspace = true }
+# S11.6: a snapshot row says how many words of prose that version held.
+texwords = { path = "../texwords" }
 tracing = { workspace = true }
 
 [dev-dependencies]

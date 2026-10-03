@@ -26,6 +26,7 @@ pub mod lfs;
 pub mod lsp;
 pub mod paste;
 pub mod project;
+pub mod snapshots;
 pub mod synctex;
 pub mod watcher;
 
@@ -157,6 +158,10 @@ pub fn run() {
             commands::github_create_repository,
             commands::github_list_repositories,
             commands::git_clone,
+            commands::snapshot_list,
+            commands::snapshot_files,
+            commands::snapshot_read,
+            commands::snapshot_restore,
             commands::git_origin_url,
             commands::git_push,
             commands::git_sync,

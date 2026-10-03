@@ -5522,6 +5522,35 @@ without those.** What a reader should take from the diff:
    *Clone a repository…*, and — not built — the "empty state" the card mentioned: the app has no
    empty-state screen to put it on, and the toolbar button is where *Open folder…* already is.
 
+**S11.6 splits two ways, 3 October 2026**: **S11.6a** the Rust (reading snapshots in the crate,
+restoring one file at the app edge) and **S11.6b** the Snapshots list and viewer.
+
+```
+Loop      S11.6a · Reading snapshots back, and restoring a file · M
+Reads     DESIGN.md §5.7 ("always a recoverable state"), §7 v0.6 exit; design-interview.md B3
+Depends   S10.1 (the snapshot ref)
+Files     crates/abstract-tex-snapshot/src/lib.rs, src-tauri/src/snapshots.rs (new),
+          src-tauri/src/commands.rs, src-tauri/src/lib.rs
+Build     In the crate: `list` (newest first, with each version's prose word count), `files`, `read`
+          — every one refusing an id that is not on the snapshot ref, because in a project that is
+          also the author's repository "any commit" would be anything they ever committed, rooted
+          at the repository and not at this folder. At the edge: `snapshot_list`, `snapshot_files`
+          (`.tex` and `.bib` only: what an author writes), `snapshot_read`, `snapshot_restore`.
+          **A restore snapshots the project as it stands before it replaces the file**, so
+          pressing the button is never a gamble and a restore is undone by restoring the snapshot
+          it just made. The write is *not* recorded as our own echo: an open tab must hear about it.
+Verify    cargo test -p abstract-tex-snapshot; cargo test -p abstract-tex -- snapshots
+Done when the list is newest first with word counts; an older version reads back as it was; an id
+          that is not a snapshot, a path outside the project, a file the snapshot lacks and a file
+          that is not text are each refused with nothing changed (and no snapshot taken); and the
+          version a restore replaces is itself restorable.
+```
+
+**S11.6a (3 October 2026).** `[x]` (no UI, C1b): `cargo test --workspace` 630 passed / 0 failed
+(11 new: 6 in the crate, 5 for restore), clippy and `cargo doc` clean. The two decisions with a
+reason: the id check above, and the snapshot-before-restore. Snapshot ordering is topological and
+not by clock, because two compiles in one second share a timestamp.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

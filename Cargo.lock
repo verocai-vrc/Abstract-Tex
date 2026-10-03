@@ -130,7 +130,9 @@ name = "abstract-tex-snapshot"
 version = "0.1.0"
 dependencies = [
  "git2",
+ "serde",
  "tempfile",
+ "texwords",
  "thiserror 2.0.20",
  "tracing",
 ]

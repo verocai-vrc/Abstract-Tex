@@ -240,15 +240,6 @@ pub fn compile(
     Ok(generation)
 }
 
-/// At most one snapshot runs at a time.
-///
-/// Builds are serialised (S9.9), but a snapshot outlives the build that triggered it, so a slow
-/// one could still be hashing a folder of figures when the next compile finishes. Two snapshots
-/// racing would each read the same parent and each move the ref, leaving one of the two commits
-/// written but off the chain — no corruption, but a version silently missing from the history
-/// the author would go looking through. One lock is cheaper than reasoning about that again.
-static SNAPSHOT_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 /// Take a snapshot of the project, off the build's path and out of its way.
 ///
 /// `spawn_blocking` and not `spawn`: libgit2 is ordinary blocking file I/O, and hashing every
@@ -260,13 +251,67 @@ fn take_snapshot(project_dir: PathBuf) {
     tauri::async_runtime::spawn_blocking(move || {
         // A poisoned lock means a previous snapshot panicked. That is worth knowing about, but
         // not worth refusing every later snapshot over, so the guard is taken either way.
-        let _guard = SNAPSHOT_AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = crate::snapshots::AT_A_TIME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         match abstract_tex_snapshot::snapshot(&project_dir) {
             Ok(abstract_tex_snapshot::Snapshot::Took(id)) => tracing::debug!(%id, "snapshot taken"),
             Ok(abstract_tex_snapshot::Snapshot::Unchanged) => tracing::debug!("no snapshot: nothing changed"),
             Err(error) => tracing::warn!(%error, "no snapshot taken"),
         }
     });
+}
+
+// ---------------------------------------------------------------------------------------------
+// S11.6: the Snapshots list. Reads go to `abstract-tex-snapshot` through `spawn_blocking` — a
+// word count walks every `.tex` file of each version, which is real work, not a handful of `stat`s.
+// ---------------------------------------------------------------------------------------------
+
+/// The newest snapshots, newest first, with each version's word count. How many is the caller's
+/// choice, so the list can be a short page and a longer one.
+#[tauri::command]
+pub async fn snapshot_list(state: State<'_, AppState>, limit: usize) -> CommandResult<Vec<abstract_tex_snapshot::SnapshotRow>> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    tauri::async_runtime::spawn_blocking(move || abstract_tex_snapshot::list(&root, limit))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)
+}
+
+/// The `.tex` and `.bib` files one snapshot holds — the ones the list offers to show, since they
+/// are the ones an author writes. Everything else is in the snapshot too, and recoverable with
+/// plain `git`; it is just not offered here.
+#[tauri::command]
+pub async fn snapshot_files(state: State<'_, AppState>, id: String) -> CommandResult<Vec<String>> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    let all = tauri::async_runtime::spawn_blocking(move || abstract_tex_snapshot::files(&root, &id))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)?;
+    Ok(all.into_iter().filter(|path| path.ends_with(".tex") || path.ends_with(".bib")).collect())
+}
+
+/// One file as it was in one snapshot, as text. Read-only: nothing here touches the project.
+#[tauri::command]
+pub async fn snapshot_read(state: State<'_, AppState>, id: String, path: String) -> CommandResult<String> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    let shown = path.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || abstract_tex_snapshot::read(&root, &id, &path))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)?
+        .ok_or_else(|| format!("That version of the project has no {shown}."))?;
+    String::from_utf8(bytes).map_err(|_| format!("{shown} is not a text file."))
+}
+
+/// Put one file back as it was in a snapshot, keeping the version it replaces
+/// (`crate::snapshots::restore_file`). The open tab, if any, hears about it from the watcher.
+#[tauri::command]
+pub async fn snapshot_restore(app: AppHandle, state: State<'_, AppState>, id: String, path: String) -> CommandResult<()> {
+    let (root, absolute) = with_project(&state, |project| Ok((project.root_dir.clone(), project.resolve(&path)?)))?;
+    tauri::async_runtime::spawn_blocking(move || crate::snapshots::restore_file(&root, &absolute, &id, &path))
+        .await
+        .map_err(to_message)??;
+    git::emit_status_changed(&app);
+    Ok(())
 }
 
 /// Whether the open project's builds may run programs (S9.8). An error with no project open.

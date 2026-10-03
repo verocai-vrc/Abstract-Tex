@@ -65,6 +65,12 @@ pub enum SnapshotError {
 
     #[error("a snapshot could not be read back: {0}")]
     ReadBack(#[source] git2::Error),
+
+    /// S11.6: an id that is not on [`SNAPSHOT_REF`]. In a project that is also the author's own
+    /// repository, "any commit" would be anything they ever committed, whose tree is rooted at the
+    /// repository and not at this folder — so a recovery path must only ever name a snapshot.
+    #[error("that is not one of this project's snapshots")]
+    NotASnapshot,
 }
 
 /// What one call to [`snapshot`] did.
@@ -266,6 +272,116 @@ pub fn read_from_latest(project_dir: &Path, file: &Path) -> Result<Option<Vec<u8
     Ok(object.as_blob().map(|blob| blob.content().to_vec()))
 }
 
+// ---------------------------------------------------------------------------------------------
+// S11.6: reading snapshots back, for the Snapshots list.
+// ---------------------------------------------------------------------------------------------
+
+/// One snapshot, as the Snapshots list shows it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotRow {
+    pub id: String,
+    /// The first seven characters, as `git log --oneline` shows them.
+    pub short_id: String,
+    /// Seconds since the Unix epoch, UTC; the frontend phrases it, as it does for the Graph.
+    pub time: i64,
+    /// Words of prose in the `.tex` files of that version, so the list reads as a progress log:
+    /// the author recognises "the one with 4,200 words" long before a time.
+    pub words: usize,
+}
+
+/// The snapshots, newest first, at most `limit` of them. Empty for a project that has never been
+/// compiled — and, like [`read_from_latest`], leaves nothing behind for having asked.
+pub fn list(project_dir: &Path, limit: usize) -> Result<Vec<SnapshotRow>, SnapshotError> {
+    let Some(repository) = open_existing(project_dir) else { return Ok(Vec::new()) };
+    if repository.find_reference(SNAPSHOT_REF).is_err() {
+        return Ok(Vec::new());
+    }
+    let mut walk = repository.revwalk().map_err(SnapshotError::ReadBack)?;
+    walk.push_ref(SNAPSHOT_REF).map_err(SnapshotError::ReadBack)?;
+    // Newest first by ancestry, not by clock: two compiles in one second have the same timestamp.
+    walk.set_sorting(git2::Sort::TOPOLOGICAL).map_err(SnapshotError::ReadBack)?;
+
+    let mut rows = Vec::new();
+    for id in walk.take(limit) {
+        let commit = repository.find_commit(id.map_err(SnapshotError::ReadBack)?).map_err(SnapshotError::ReadBack)?;
+        rows.push(SnapshotRow {
+            id: commit.id().to_string(),
+            short_id: commit.id().to_string().chars().take(7).collect(),
+            time: commit.time().seconds(),
+            words: prose_words(&repository, &commit)?,
+        });
+    }
+    Ok(rows)
+}
+
+/// Every file of one snapshot, project-relative with forward slashes, sorted.
+pub fn files(project_dir: &Path, id: &str) -> Result<Vec<String>, SnapshotError> {
+    let repository = open_existing(project_dir).ok_or(SnapshotError::NotASnapshot)?;
+    let commit = snapshot_commit(&repository, id)?;
+    let mut paths = Vec::new();
+    commit
+        .tree()
+        .and_then(|tree| {
+            tree.walk(git2::TreeWalkMode::PreOrder, |folder, entry| {
+                if entry.kind() == Some(git2::ObjectType::Blob) {
+                    if let Some(name) = entry.name() {
+                        paths.push(format!("{folder}{name}"));
+                    }
+                }
+                git2::TreeWalkResult::Ok
+            })
+        })
+        .map_err(SnapshotError::ReadBack)?;
+    paths.sort();
+    Ok(paths)
+}
+
+/// One file as it was in one snapshot, or `None` if that snapshot did not have it.
+pub fn read(project_dir: &Path, id: &str, file: &str) -> Result<Option<Vec<u8>>, SnapshotError> {
+    let repository = open_existing(project_dir).ok_or(SnapshotError::NotASnapshot)?;
+    let commit = snapshot_commit(&repository, id)?;
+    let Ok(entry) = commit.tree().map_err(SnapshotError::ReadBack)?.get_path(Path::new(file)) else {
+        return Ok(None);
+    };
+    let object = entry.to_object(&repository).map_err(SnapshotError::ReadBack)?;
+    Ok(object.as_blob().map(|blob| blob.content().to_vec()))
+}
+
+/// The commit `id` names, but only if it is on [`SNAPSHOT_REF`] — see [`SnapshotError::NotASnapshot`].
+fn snapshot_commit<'repo>(repository: &'repo Repository, id: &str) -> Result<Commit<'repo>, SnapshotError> {
+    let wanted = Oid::from_str(id).map_err(|_| SnapshotError::NotASnapshot)?;
+    let mut walk = repository.revwalk().map_err(SnapshotError::ReadBack)?;
+    walk.push_ref(SNAPSHOT_REF).map_err(|_| SnapshotError::NotASnapshot)?;
+    if !walk.flatten().any(|found| found == wanted) {
+        return Err(SnapshotError::NotASnapshot);
+    }
+    repository.find_commit(wanted).map_err(SnapshotError::ReadBack)
+}
+
+/// Words of prose across every `.tex` file in a snapshot's tree.
+fn prose_words(repository: &Repository, commit: &Commit<'_>) -> Result<usize, SnapshotError> {
+    let mut words = 0;
+    commit
+        .tree()
+        .and_then(|tree| {
+            tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
+                if entry.kind() == Some(git2::ObjectType::Blob) && entry.name().is_some_and(|name| name.ends_with(".tex")) {
+                    if let Ok(blob) = repository.find_blob(entry.id()) {
+                        // Not UTF-8 is not prose; a lossy read would count the replacement
+                        // characters' neighbours as words.
+                        if let Ok(text) = std::str::from_utf8(blob.content()) {
+                            words += texwords::count_prose(text);
+                        }
+                    }
+                }
+                git2::TreeWalkResult::Ok
+            })
+        })
+        .map_err(SnapshotError::ReadBack)?;
+    Ok(words)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,5 +574,86 @@ mod tests {
             .filter_map(|branch| branch.ok())
             .filter_map(|(branch, _)| branch.name().ok().flatten().map(str::to_string))
             .collect()
+    }
+
+    // -----------------------------------------------------------------------------------------
+    // S11.6: reading snapshots back.
+    // -----------------------------------------------------------------------------------------
+
+    /// Three snapshots of `main.tex`, newest last, and their ids oldest first.
+    fn three_versions() -> (tempfile::TempDir, Vec<String>) {
+        let tmp = project("one two three");
+        let mut ids = Vec::new();
+        for text in ["one two three", "one two three four five", "one two three four five six seven"] {
+            fs::write(tmp.path().join("main.tex"), text).unwrap();
+            let Snapshot::Took(id) = snapshot(tmp.path()).unwrap() else { panic!("expected a snapshot") };
+            ids.push(id.to_string());
+        }
+        (tmp, ids)
+    }
+
+    #[test]
+    fn the_list_is_newest_first_with_each_versions_word_count() {
+        let (tmp, ids) = three_versions();
+
+        let rows = list(tmp.path(), 10).unwrap();
+
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), [ids[2].as_str(), ids[1].as_str(), ids[0].as_str()]);
+        assert_eq!(rows.iter().map(|r| r.words).collect::<Vec<_>>(), [7, 5, 3]);
+        assert_eq!(rows[0].short_id, ids[2][..7]);
+        assert!(rows[0].time > 0);
+    }
+
+    #[test]
+    fn the_list_honours_its_limit() {
+        let (tmp, ids) = three_versions();
+        let rows = list(tmp.path(), 2).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].id, ids[2]);
+    }
+
+    #[test]
+    fn a_project_never_compiled_has_no_snapshots_and_asking_leaves_nothing_behind() {
+        let tmp = project("never built");
+        assert!(list(tmp.path(), 10).unwrap().is_empty());
+        assert!(!tmp.path().join(OWN_REPOSITORY).exists());
+    }
+
+    #[test]
+    fn an_older_version_of_a_file_reads_back_as_it_was() {
+        let (tmp, ids) = three_versions();
+        assert_eq!(read(tmp.path(), &ids[0], "main.tex").unwrap().unwrap(), b"one two three");
+        assert_eq!(read(tmp.path(), &ids[1], "main.tex").unwrap().unwrap(), b"one two three four five");
+        assert_eq!(read(tmp.path(), &ids[0], "no-such.tex").unwrap(), None);
+    }
+
+    #[test]
+    fn files_lists_every_path_of_a_snapshot_with_folders_spelled_out() {
+        let tmp = project("x");
+        fs::create_dir(tmp.path().join("chapters")).unwrap();
+        fs::write(tmp.path().join("chapters").join("intro.tex"), "intro").unwrap();
+        let Snapshot::Took(id) = snapshot(tmp.path()).unwrap() else { panic!() };
+
+        assert_eq!(files(tmp.path(), &id.to_string()).unwrap(), ["chapters/intro.tex", "main.tex"]);
+    }
+
+    #[test]
+    fn only_a_commit_on_the_snapshot_ref_can_be_read() {
+        // The author's own repository: their commit is not a snapshot, and its tree is rooted at
+        // the repository, not necessarily at this folder.
+        let tmp = project("committed by hand");
+        let repository = Repository::init(tmp.path()).unwrap();
+        let who = Signature::now("Ada", "ada@example.invalid").unwrap();
+        let mut index = repository.index().unwrap();
+        index.add_path(Path::new("main.tex")).unwrap();
+        let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+        let theirs = repository.commit(Some("HEAD"), &who, &who, "mine", &tree, &[]).unwrap();
+        snapshot(tmp.path()).unwrap();
+
+        assert!(matches!(read(tmp.path(), &theirs.to_string(), "main.tex"), Err(SnapshotError::NotASnapshot)));
+        assert!(matches!(files(tmp.path(), &theirs.to_string()), Err(SnapshotError::NotASnapshot)));
+        assert!(matches!(read(tmp.path(), "not an id", "main.tex"), Err(SnapshotError::NotASnapshot)));
+        // …and listing shows only snapshots.
+        assert_eq!(list(tmp.path(), 10).unwrap().len(), 1);
     }
 }
