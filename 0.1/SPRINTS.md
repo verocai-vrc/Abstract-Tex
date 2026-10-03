@@ -5634,6 +5634,27 @@ way to bind the merge view to that `Y.Text` (`y-codemirror.next` on the right-ha
 change to the editor's own setup, not a view. *Open file* is the way to edit. The follow-up, if the
 maintainer wants it: an unplaced card, "editable right side bound to the open document".
 
+**S11.8 begun, 3 October 2026 — the half that needs no maintainer.** S11.8 is two things: a bare
+remote served over smart HTTP in CI, and the two-machine exit demo (with the OAuth app registered
+at its start, B1). Only the first can be done without the maintainer, so it was done first.
+
+**S11.8a (3 October 2026).** `[x]`: `crates/abstract-tex-git/tests/over_smart_http.rs` — two
+`#[ignore]`d tests (they need `git` and its `http-backend`, like every test here that needs a
+binary we do not ship), run on Linux CI by a new step in `verify.yml`. `git http-backend`, Git's
+own CGI, sits behind a thirty-line loopback listener, so the transport is the real one. (1) A
+clone, a push, a second clone, a fast-forward sync and an up-to-date sync, all over HTTP — passed
+on first run, so libgit2 over smart HTTP works here and the app's `clone`/`push`/`sync` are not
+merely correct against a local path. (2) A server that demands a password is never given the
+GitHub token, the clone fails rather than hangs, and leaves nothing on disk. Run here:
+`cargo test -p abstract-tex-git --test over_smart_http -- --ignored`, 2 passed. **Not yet run on
+CI** (nothing here can push), so the new `verify.yml` step is unproven there. What it does *not*
+settle: whether a *rejected* token is re-offered for ever — see the ledger, still open — because
+the callback gives the token only to `github.com`, and no test server is that.
+
+**S11.8b — still to do, the maintainer's:** register the OAuth app (B1) and put its client id in the
+release environment; choose the two machines; walk the exit demo (B9's script); record it here the
+way S6.4's torture demo was. S11.8 stays unticked until then.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

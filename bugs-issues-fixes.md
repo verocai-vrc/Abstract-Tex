@@ -19,10 +19,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   S11.5a) libgit2 calls a credential callback again after the server refuses what it returned, until
   the callback answers with an error. `abstract_tex_git::credentials` returns the same token every
   time it is asked, so a revoked or wrong token would not produce "authentication failed" but a
-  fetch, push or clone that never finishes. **Not confirmed**: every test remote here is a local
-  path, which never asks for a credential at all. What settles it: S11.8's smart-HTTP bare remote
-  with a deliberately wrong token. The fix, if it loops, is a flag so the token is offered once.
-  **Open.**
+  fetch, push or clone that never finishes. **Not confirmed**: every unit-test remote here is a
+  local path, which never asks for a credential at all. S11.8's smart-HTTP test (3 Oct 2026) does
+  put a server that demands a password in front of the callback, but that server is not
+  github.com, so the callback correctly gives it nothing and the loop cannot start; it narrows
+  the suspicion and does not settle it. What settles it: a real GitHub with a revoked token (the
+  OAuth app, B1). The fix, if it loops, is a flag so the token is offered once. **Open.**
 
 - **A comparison's "Raw output" is the engine's stderr, not its `main.log`.** (3 Oct 2026, S11.4d)
   The drawer's comparison section (A7: "raw log one click away") can only show what the

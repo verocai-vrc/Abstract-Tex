@@ -77,6 +77,14 @@ jobs:
       - name: Real engine build of a fixture
         run: cargo test -p abstract-tex-engine -- --ignored
 
+      # S11.8: clone, push, fetch and sync over real smart HTTP (`git http-backend` behind a
+      # loopback listener), which no unit test touches — libgit2's local transport shares almost
+      # nothing with it. Linux only: the runner's `git` has `http-backend` on its exec path, and
+      # the other two OSes' unit tests already cover the same functions over the local transport.
+      - name: Git over smart HTTP
+        if: runner.os == 'Linux'
+        run: cargo test -p abstract-tex-git --test over_smart_http -- --ignored
+
       # S9.5: the golden corpus and its performance gate, Linux only — the corpus already builds
       # on every OS through `pnpm verify` above with no engine; only this real-engine run needs
       # its own step, and running it three times over would only triple the noise a p95 already
