@@ -130,7 +130,7 @@ kbd {
    activity bar to its left chooses which one is in it. */
 .app {
   display: grid;
-  grid-template-rows: auto 1fr var(--statusbar-height);
+  grid-template-rows: auto minmax(0, 1fr) var(--statusbar-height);
   grid-template-columns: var(--activity-bar-width) var(--sidebar-width) minmax(320px, 1fr) minmax(320px, 1fr);
   height: 100%;
 }
@@ -254,6 +254,7 @@ kbd {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid var(--border);
   background: var(--bg-editor);
 }

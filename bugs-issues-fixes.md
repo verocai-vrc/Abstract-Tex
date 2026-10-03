@@ -15,6 +15,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **On WebKitGTK a document longer than the window pushed the status bar, the outline and every
+  scrollbar out of the window.** (3 Oct 2026, found with the entry below, under Xvfb, on a template
+  CV and on `fixtures/paper`) The app grid's middle row was `1fr`, whose minimum is `auto`, so it
+  grew to the editor's content height; nothing scrolled and `Ctrl+End` moved the cursor out of
+  sight. A short document hid it. **Fixed (3 Oct 2026):** `grid-template-rows: auto minmax(0, 1fr)
+  var(--statusbar-height)` and `min-height: 0` on `.editor-column`. Checked in the running app on
+  the paper fixture: status bar, outline and scrollbars present. No unit test is possible (CSS).
+  Whether WebView2 on Windows ever showed it is unknown; the rule is correct on both.
+
 - **On Linux, every build triggers another build, for ever: the watcher reports reads.** (3 Oct
   2026, found by running the app under Xvfb for the first time — rung 4 of S11.11/S11.12 — on a
   template project and on `fixtures/minimal` alike) Tectonic opening `main.tex` produces an inotify
