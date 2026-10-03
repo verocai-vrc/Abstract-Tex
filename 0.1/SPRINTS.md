@@ -6098,6 +6098,63 @@ this crate yet, so the app still makes no request of any kind. Untested against 
 OpenAI account (needs a key); the wire shapes are from the providers' documentation, and the first
 real call is S12.1b's *Test the connection*.
 
+```
+Loop      S12.2 · The citation-fabrication guard, attacked first · L
+Reads     DESIGN.md §5.5 "Hard constraint"; this file §5 (last bullet)
+Depends   S12.1a (for the crate only)
+Files     crates/abstract-tex-assistant/src/guard.rs, tests/citation_guard.rs,
+          crates/texbib/src/lib.rs, src-tauri/src/bibliography.rs
+Build     `Guard::check(original, result) -> Verdict`: every key in a cite command of the result
+          that no `.bib` entry has and the original did not already use, a reference list written
+          into the text, constructs that can hide a citation, and plain-text author–year
+          references — each with the byte range it occupies, so S12.3 can refuse exactly the
+          hunks that touch one. "What is a cite command" is one function in `texbib`, shared with
+          the app's undefined-citation scan.
+Verify    cargo test -p abstract-tex-assistant
+Done when the attack tables (written before the guard) all pass; so do the tables of benign
+          edits; the property tests find every random unknown key and refuse no known one; and a
+          mutation of the guard's scanner makes a test fail.
+```
+
+**S12.2 (3 October 2026).** `[x]` (a crate-only loop, C1b): `pnpm verify` exit 0 — `cargo test
+--workspace` 718 passed / 0 failed (25 new in `tests/citation_guard.rs`, one in `bibliography.rs`).
+The tests were written first, as the card said, and passed against the first implementation; to
+check that was not luck, five deliberate breakages of the scanner were tried and four were caught
+at once. The fifth (comments inside a key list) was not, which produced the one benign test added
+afterwards. What a reader should take from the diff:
+
+1. **The guard compares two texts, not one.** An author who asks to tighten a paragraph that holds
+   their own mistyped `\cite{smtih2020}` must not be refused for it, so what the original already
+   contained (an unknown key, a `\def`, a plain-text "(Smith, 2019)") may stay; a *second* `\def`
+   is new. S12.3 must call it on the text the buffer would hold after the author's per-hunk
+   choices, not on the model's whole answer, so no combination of hunks makes a key it never saw.
+2. **Four ways in, four kinds of finding:** an unknown key; a reference list written into the text
+   (`\bibitem`, `thebibliography`, a `filecontents` that writes a `.bib`, a new `.bib`); a construct
+   that can make a citation the scan would not see (a macro definition, `\csname`, `\catcode`,
+   `\input`, and TeX's `^^5c` spelling of a backslash); and a plain-text "(Smith et al., 2019)".
+   The last is a heuristic and the one place the guard knowingly over-refuses.
+3. **It reads the raw text,** comments and `\verb` included: a citation in a comment is still a
+   fabricated reference to the person reading the diff, and "is this a comment?" is a question an
+   adversarial edit can make a scanner get wrong. It does read as TeX does where that only
+   *widens* what it sees: spaces, newlines and `%` comments between a command and its argument
+   (`\cite%⏎{key}` is `\cite{key}`), biblatex's `(pre)(post)` options, `@` in names, and a
+   citation nested inside another's options.
+4. **Keys are compared exactly,** after trimming ASCII whitespace only. `Smith2020`, a zero-width
+   space and a Cyrillic `і` all make a different key, which is what TeX and Biber would see.
+5. **One definition of "a citation command"** — `texbib::is_citation_command`, any name with
+   "cite" in it in any case — used by the guard and by the app's undefined-citation scan. Sharing it
+   fixed a real gap in the latter: it was case-sensitive and never saw `\Citep` or `\Cite` (ledger).
+6. **The author's own wrappers.** `citation_macros(preamble)` finds `\newcommand{\see}[1]{… \cite{#1}}`
+   and its relatives, and `Guard::with_citation_commands` makes `\see{fake}` a citation. Not
+   wired to anything yet — S12.3 passes the project's preamble — and without it a wrapper is
+   invisible, which is why new definitions are refused outright as well.
+
+Known limits, stated rather than hidden: it cannot tell whether a *known* key is the right one for
+the sentence (the diff exists for that); a macro defined in a file it was not shown, whose name has
+no "cite" in it, is invisible until `citation_macros` is given that file; the plain-text heuristic
+refuses `(COVID-19, 2020)` and passes the narrative `Smith (2019)` on purpose. Nothing in the app
+calls the guard yet.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2

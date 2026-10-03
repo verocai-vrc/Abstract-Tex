@@ -25,10 +25,12 @@
 //! app's edge flattens them into `anyhow`. Every message here is a sentence a person can act on.
 
 pub mod client;
+pub mod guard;
 pub mod keys;
 pub mod provider;
 
 pub use client::Assistant;
+pub use guard::{citation_macros, Finding, FindingKind, Guard, Verdict};
 pub use keys::{KeyStore, Keychain, MemoryKeyStore};
 pub use provider::{
     build_request, parse_response, HttpRequest, Message, Prompt, Provider, Reply, Role, SystemPart, Usage,

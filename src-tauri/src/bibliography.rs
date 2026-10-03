@@ -740,7 +740,7 @@ pub fn scan_bib_resources(source: &str) -> Vec<(String, u32)> {
 pub fn scan_citations(source: &str) -> Vec<(String, u32)> {
     let cleaned = strip_line_comments(source);
     let mut citations = Vec::new();
-    for (_command, arguments, line) in find_commands(&cleaned, |name| name.contains("cite")) {
+    for (_command, arguments, line) in find_commands(&cleaned, texbib::is_citation_command) {
         for argument in arguments {
             for key in argument.split(',').map(str::trim).filter(|key| !key.is_empty() && *key != "*") {
                 citations.push((key.to_string(), line));
@@ -758,7 +758,7 @@ pub fn scan_citations(source: &str) -> Vec<(String, u32)> {
 /// returns.
 fn scan_has_nocite_star(source: &str) -> bool {
     let cleaned = strip_line_comments(source);
-    find_commands(&cleaned, |name| name.contains("cite"))
+    find_commands(&cleaned, texbib::is_citation_command)
         .into_iter()
         .any(|(_command, arguments, _line)| arguments.iter().any(|argument| argument.split(',').any(|key| key.trim() == "*")))
 }
@@ -1325,6 +1325,15 @@ mod tests {
             .map(|(k, l)| (k.to_string(), l))
             .collect();
         assert_eq!(scan_citations(source), expected);
+    }
+
+    /// natbib's `\Citep` and biblatex's `\Cite` start with a capital and contain no lower-case
+    /// "cite"; the scan used to miss them, so an undefined key in one was never reported.
+    #[test]
+    fn scan_citations_reads_capitalised_cite_commands() {
+        let source = "\\Citep{a}\n\\Cite[p.~3]{b}\n\\Citeauthor{c}";
+        let keys: Vec<String> = scan_citations(source).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(keys, vec!["a", "b", "c"]);
     }
 
     #[test]

@@ -14,5 +14,11 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# Only for `is_citation_command`: the one definition of "a citation command" the editor shares with
+# this crate's guard, so the two can never disagree (DESIGN.md §5.5).
+texbib = { path = "../texbib" }
 # The OS keychain (DESIGN.md §4): Credential Manager, Keychain, Secret Service.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]
+proptest = { workspace = true }

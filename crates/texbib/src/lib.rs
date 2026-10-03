@@ -44,6 +44,20 @@ pub mod render;
 pub mod value;
 
 pub use keys::unique_key;
+
+/// Whether a control word (the letters after the backslash, no backslash) is a citation command:
+/// `cite`, `citep`, `parencite`, `Textcite`, `Citep`, `footcites`, `fullcite`, and whatever a
+/// package adds. Any name with "cite" in it, in any case.
+///
+/// This is the one definition. The application's scan for undefined citations and the writing
+/// assistant's citation guard both ask it, so what the editor treats as a citation and what the
+/// guard refuses to let a model invent can never drift apart (DESIGN.md §5.5). Matching on a
+/// substring is deliberate: a missed citation command is a fabricated key that gets through, and
+/// an extra match is a harmless over-check. In any case, because natbib's `\Citep` and biblatex's
+/// `\Cite` start with a capital and contain no lower-case "cite".
+pub fn is_citation_command(name: &str) -> bool {
+    name.to_ascii_lowercase().contains("cite")
+}
 pub use parse::{parse, Bibliography, Comment, Entry, Field, Item, ParseError, Preamble, Span, StringDef};
 pub use render::{append_entry, render_entry};
 pub use value::{Value, ValuePart};

@@ -418,6 +418,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **The undefined-citation scan never saw `\Citep`, `\Cite` or `\Citeauthor`.** (3 Oct 2026, found
+  writing S12.2's attack tables) `scan_citations` matched `name.contains("cite")`, which is
+  case-sensitive, so natbib's and biblatex's capitalised commands — which contain no lower-case
+  "cite" — were skipped: an undefined key in one never produced a warning, and a key used only
+  there looked "never cited". **Fixed (S12.2):** the scan now uses `texbib::is_citation_command`
+  (case-insensitive), the same predicate the assistant's guard uses; test
+  `scan_citations_reads_capitalised_cite_commands`. The editor's completion (`cite.ts`) was
+  already case-insensitive.
+
 - **The GitHub token was offered to whatever remote asked for a password.**
   (3 Oct 2026, found while designing the Clone window, which accepts any URL) `credentials()` in
   `abstract-tex-git` handed the stored OAuth token to any HTTPS remote that asked, so a project
