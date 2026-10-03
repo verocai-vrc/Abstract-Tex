@@ -41,6 +41,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "abstract-tex-assistant"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "abstract-tex-engine"
 version = "0.1.0"
 dependencies = [

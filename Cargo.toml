@@ -10,6 +10,7 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/abstract-tex-sidecar",
+    "crates/abstract-tex-assistant",
     "crates/abstract-tex-engine",
     "crates/abstract-tex-git",
     "crates/abstract-tex-github",

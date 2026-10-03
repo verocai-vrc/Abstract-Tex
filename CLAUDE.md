@@ -9,6 +9,7 @@ Tectonic as a bundled subprocess. Read `0.1/DESIGN.md` for architecture and non-
 ```
 0.1/                            design doc, sprint plan (docs for the v0.1 line)
 Cargo.toml                      workspace root
+crates/abstract-tex-assistant/  model providers (Anthropic, OpenAI-compatible) + keys in the keychain
 crates/abstract-tex-engine/     Engine trait + Tectonic subprocess        (no Tauri, testable alone)
 crates/abstract-tex-reconcile/  text diff → CRDT ops, proptest            (no Tauri, testable alone)
 crates/abstract-tex-includes/   \input/\include graph

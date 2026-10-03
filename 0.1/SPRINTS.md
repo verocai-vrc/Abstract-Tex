@@ -6023,7 +6023,84 @@ models — no subscription sign-in; the opt-in is per machine and per project fo
 project; the model fallback is per call with the payload shown; the fabrication guard scans every
 cite command citation completion knows, from one shared list.
 
-S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain · S12.2
+```
+Loop      S12.1a · The provider abstraction, in its own crate · M
+Reads     DESIGN.md §2 commitments 4 and 6, §5.5 (the "Providers" and "Where the opt-in lives" bullets),
+          §8 "No silent data paths"; crates/abstract-tex-github/src/store.rs as the pattern
+Files     crates/abstract-tex-assistant/ (new: Cargo.toml, src/{lib,provider,keys,client}.rs,
+          tests/against_a_fake_provider.rs), Cargo.toml
+Build     A crate, no Tauri. A `Provider` is an Anthropic Messages endpoint or any OpenAI-compatible
+          one (a local model is the second with a loopback URL and no key). A `Prompt` is system
+          parts (each may carry a cache breakpoint), messages and a token ceiling. Building the HTTP
+          request and reading the response are pure functions, so every wire detail is tested with
+          no socket; `Assistant::complete` is the one function that touches the network, and the
+          only caller of it is a person's explicit action. The answer is the text, whether the
+          model was cut off, and the token counts (cache reads included). Keys live behind a
+          `KeyStore` trait: the OS keychain, one entry per provider, and a memory fake for tests.
+          A key is only ever sent over `https` or to a loopback address. `Debug` never prints one.
+          `thiserror` enum whose messages are sentences, with no key and no response body in them
+          beyond the provider's own error text.
+Verify    cargo test -p abstract-tex-assistant
+Done when both wire formats round-trip against a fake provider on the loopback interface (system
+          parts, the cache breakpoint, a refused key, a rate limit, a truncated answer); a key to a
+          plain-http remote host is refused before any request is made; no key text appears in any
+          error or `Debug` output; and nothing in the crate makes a request unless `complete` is
+          called.
+```
+
+```
+Loop      S12.1b · Assistant settings: provider, key, and the opt-in · M
+Reads     DESIGN.md §5.5; S9.8's shell-escape consent (src-tauri/src/consent.rs) as the pattern
+Depends   S12.1a
+Files     src-tauri/src/assistant.rs (new), commands.rs, lib.rs, src/lib/ipc.ts,
+          src/lib/assistant.svelte.ts + test, src/components/AssistantSettings.svelte (new),
+          ActivityBar/Sidebar wiring for the existing empty Assistant icon
+Build     The Assistant view in the activity bar: pick Anthropic or "other (OpenAI-compatible)",
+          model and URL, paste a key (stored in the keychain, never shown again), a "Test the
+          connection" button that is the only thing here that sends anything, and a switch "Use the
+          assistant in this project". The opt-in and the provider choice are per machine and per
+          project folder, in the app data folder, never in the project. With the switch off, or no
+          provider, every assistant entry point in the app is absent, not greyed.
+Verify    pnpm verify; rung 4 in the next smoke campaign
+Done when a project nobody opted in shows no assistant anywhere and the app makes no request; the
+          opt-in does not follow the folder to a clone; and the key is unreadable from the UI after
+          it is saved.
+```
+
+**S12.1a (3 October 2026).** `[x]` (a crate-only loop, C1b): `pnpm verify` exit 0 — `cargo test
+--workspace` 693 passed / 0 failed (25 new: 16 unit, 9 against a fake provider on loopback; the
+real-keychain round trip is `#[ignore]`d and passes on this machine). What a reader should take
+from the diff:
+
+1. **Building a request and reading an answer are pure functions** (`build_request`,
+   `parse_response`); `Assistant::complete_with_key` is the only code that opens a socket, and a
+   test holds a listener open to prove that constructing the client and building a request connect
+   to nothing (§8's "no silent data paths", at the crate level; S13.4 does it for the whole app).
+2. **A key travels in a header and nowhere else**, so the body — which is exactly the payload the
+   S13.3 inspector will show — never contains one. `HttpRequest`'s `Debug` prints `<hidden>` for
+   `x-api-key` and `authorization`. A key is refused for plain `http` unless the host is
+   `localhost` or a loopback address (a name that merely resolves there is not trusted); with no
+   key, a model on the local network over http is allowed. Redirects are not followed, so a
+   misconfigured endpoint cannot forward the key — tested with a second server that must hear
+   nothing.
+3. **One keychain slot per service, and per host for the open-ended kind**
+   (`openai-compatible@api.openai.com`), so a key typed for OpenAI is never offered to a gateway
+   at work.
+4. **The cache breakpoint is a flag on a system block.** Anthropic gets `cache_control:
+   ephemeral` on it; the OpenAI format joins the blocks and drops the flag, because those endpoints
+   cache a repeated prefix themselves. Token counts are normalised so `input_tokens` never
+   includes cached ones.
+5. **A cut-off answer is a field, not an error** (`Reply::truncated`): S12.3 must not build a diff
+   from half a paragraph, and it is the caller's call what to say.
+
+Not done, because it is S12.1b's: any settings, any Tauri command, any UI. Nothing in the app calls
+this crate yet, so the app still makes no request of any kind. Untested against a real Anthropic or
+OpenAI account (needs a key); the wire shapes are from the providers' documentation, and the first
+real call is S12.1b's *Test the connection*.
+
+S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
+**split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
+account; the settings panel and the per-project opt-in do · S12.2
 **citation-fabrication guard with adversarial tests, written first** · S12.3 selection-scoped
 diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint ·
 S13.2 model fallback for unmatched errors, cached by log signature · S13.3 payload inspector ·

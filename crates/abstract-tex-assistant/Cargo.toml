@@ -1,0 +1,18 @@
+[package]
+name = "abstract-tex-assistant"
+description = "The writing assistant's way of talking to a model: Anthropic Messages or any OpenAI-compatible endpoint, with the key in the OS keychain. Sends nothing unless asked."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Blocking, as in `abstract-tex-github`: one request whose answer the caller is waiting for, run on
+# `spawn_blocking` by the app. `rustls`, so nothing has to be installed on a Windows or macOS box.
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# The OS keychain (DESIGN.md §4): Credential Manager, Keychain, Secret Service.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
