@@ -114,11 +114,11 @@ let initialiseNeedsIdentity = false;
 let ourFolderIgnoredOnDisk: boolean | null = true;
 let accountOnDisk: { login: string } | null = null;
 // S12.1b: what the backend would say about the assistant, and what was asked of it.
-let assistantStatusOnDisk: AssistantStatus = { provider: null, hasKey: false, enabled: false };
+let assistantStatusOnDisk: AssistantStatus = { provider: null, hasKey: false, enabled: false, inspectFirst: false };
 let assistantError: string | null = null;
 let proposalAnswer: AssistantProposal | Error = { id: 1, original: '', hunks: [], unknownKeys: [] };
 let applyAnswer: string | Error = '';
-const reviewCalls = { proposed: [] as Array<[AssistantAction, string]>, applied: [] as Array<[number, boolean[]]>, discarded: [] as number[] };
+const reviewCalls = { prepared: [] as Array<[AssistantAction, string]>, proposed: [] as number[], dialogUpAtSend: [] as boolean[], cancelled: [] as number[], applied: [] as Array<[number, boolean[]]>, discarded: [] as number[] };
 const assistantCalls = { saved: [] as Array<[AssistantProvider, string | null]>, enabled: [] as boolean[], tests: 0, clears: 0 };
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
@@ -440,10 +440,41 @@ vi.mock('./ipc', () => ({
       assistantCalls.enabled.push(enabled);
       assistantStatusOnDisk = { ...assistantStatusOnDisk, enabled };
     },
-    assistantPropose: async (action: AssistantAction, selection: string) => {
-      reviewCalls.proposed.push([action, selection]);
+    assistantSetInspectFirst: async (inspectFirst: boolean) => {
+      assistantStatusOnDisk = { ...assistantStatusOnDisk, inspectFirst };
+    },
+    // Building a request sends nothing; `reviewCalls.prepared` records it. What the real command
+    // answers is exactly what is sent, so the fake carries the selection in the one user part.
+    assistantPrepare: async (action: AssistantAction, selection: string) => {
+      reviewCalls.prepared.push([action, selection]);
+      const id = proposalAnswer instanceof Error ? 1 : proposalAnswer.id;
+      return {
+        id,
+        inspectFirst: assistantStatusOnDisk.inspectFirst,
+        payload: {
+          destination: 'api.anthropic.com',
+          url: 'https://api.anthropic.com/v1/messages',
+          model: 'claude-x',
+          parts: [
+            { role: 'system' as const, text: 'You are a careful copy editor.', cached: false },
+            { role: 'user' as const, text: `<selection>\n${selection}\n</selection>`, cached: false },
+          ],
+          headers: [{ name: 'x-api-key', value: '(your key, sent, never shown)' }],
+          body: '{}',
+          characters: selection.length,
+          approximateTokens: Math.ceil(selection.length / 3),
+          staysOnThisComputer: false,
+        },
+      };
+    },
+    assistantSend: async (id: number) => {
+      reviewCalls.proposed.push(id);
+      reviewCalls.dialogUpAtSend.push(assistant.prepared !== null);
       if (proposalAnswer instanceof Error) throw proposalAnswer;
       return proposalAnswer;
+    },
+    assistantCancelPrepared: async (id: number) => {
+      reviewCalls.cancelled.push(id);
     },
     assistantApply: async (id: number, accepted: boolean[]) => {
       reviewCalls.applied.push([id, accepted]);
@@ -568,6 +599,9 @@ const {
   askAssistant,
   applyReview,
   closeReview,
+  cancelPrepared,
+  sendPrepared,
+  setAssistantInspectFirst,
   toggleReviewHunk,
   assistantPaletteCommands,
   loadComparisonLog,
@@ -682,7 +716,7 @@ beforeEach(async () => {
   comparisons.cancelled = 0;
   comparisons.logReads = 0;
   comparisonLog = '';
-  assistantStatusOnDisk = { provider: null, hasKey: false, enabled: false };
+  assistantStatusOnDisk = { provider: null, hasKey: false, enabled: false, inspectFirst: false };
   assistantError = null;
   assistantCalls.saved = [];
   assistantCalls.enabled = [];
@@ -692,7 +726,10 @@ beforeEach(async () => {
   assistant.selection = null;
   assistant.review = null;
   assistant.asking = false;
+  reviewCalls.prepared = [];
   reviewCalls.proposed = [];
+  reviewCalls.cancelled = [];
+  reviewCalls.dialogUpAtSend = [];
   reviewCalls.applied = [];
   reviewCalls.discarded = [];
   proposalAnswer = { id: 1, original: '', hunks: [], unknownKeys: [] };
@@ -3306,7 +3343,7 @@ describe('the assistant settings (S12.1b)', () => {
 
   it('shows nothing set up, and no entry point is ready, until a provider, a key and the project switch are all there', async () => {
     await openAssistantSettings();
-    expect(assistant.status).toEqual({ provider: null, hasKey: false, enabled: false });
+    expect(assistant.status).toEqual({ provider: null, hasKey: false, enabled: false, inspectFirst: false });
 
     assistant.form = { kind: 'anthropic', model: 'claude-sonnet-5-5', address: '' };
     assistant.keyInput = 'sk-secret';
@@ -3356,7 +3393,7 @@ describe('the assistant settings (S12.1b)', () => {
   });
 
   it('removes the key on request and says so', async () => {
-    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: true };
+    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: true, inspectFirst: false };
     await refreshAssistant();
     await forgetAssistantKey();
     expect(assistantCalls.clears).toBe(1);
@@ -3365,7 +3402,7 @@ describe('the assistant settings (S12.1b)', () => {
   });
 
   it('tests the connection only when asked, and shows the answer or the sentence it failed with', async () => {
-    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: false };
+    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: false, inspectFirst: false };
     await refreshAssistant();
     await testAssistant();
     expect(assistantCalls.tests).toBe(1);
@@ -3380,7 +3417,7 @@ describe('the assistant settings (S12.1b)', () => {
   });
 
   it('forgets the status when no project is open, so nothing can be ready without one', async () => {
-    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: true };
+    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: true, inspectFirst: false };
     await refreshAssistant();
     expect(assistant.ready).toBe(true);
     app.project = null;
@@ -3394,6 +3431,7 @@ describe('the assistant settings (S12.1b)', () => {
       provider: { kind: 'openAiCompatible', model: 'llama3', address: 'http://localhost:11434/v1' },
       hasKey: false,
       enabled: false,
+      inspectFirst: false,
     };
     await openAssistantSettings();
     expect(assistant.form).toEqual({ kind: 'openAiCompatible', model: 'llama3', address: 'http://localhost:11434/v1' });
@@ -3406,6 +3444,7 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     provider: { kind: 'anthropic', model: 'claude-x', address: 'https://api.anthropic.com' },
     hasKey: true,
     enabled: true,
+    inspectFirst: false,
   };
   const guardSentence = 'The edit cites “invented”, which is not an entry in your .bib files, so it was held back.';
 
@@ -3461,7 +3500,8 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     proposalAnswer = honest;
     await askAssistant({ kind: 'tighten' });
 
-    expect(reviewCalls.proposed).toEqual([[{ kind: 'tighten' }, 'very very ']]);
+    expect(reviewCalls.prepared).toEqual([[{ kind: 'tighten' }, 'very very ']]);
+    expect(reviewCalls.proposed).toEqual([3]);
     expect(assistant.review).toMatchObject({ id: 3, path: 'main.tex', from: 14, actionLabel: 'Tighten', choices: [true] });
     expect(assistant.asking).toBe(false);
     expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done.'); // nothing written yet
@@ -3558,5 +3598,84 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     expect(reviewCalls.discarded).toEqual([3]);
     expect(reviewCalls.applied).toEqual([]);
     expect(app.activeDoc!.text()).toBe('Prior work is very very old. Done.');
+  });
+
+  describe('the payload inspector (S13.3)', () => {
+    async function ready_to_look(from = 14, to = 24) {
+      await readyWithSelection(from, to);
+      assistantStatusOnDisk = { ...assistantStatusOnDisk, inspectFirst: true };
+      await refreshAssistant();
+      proposalAnswer = honest;
+    }
+
+    it('builds the request, shows it, and sends nothing until Send is clicked', async () => {
+      await ready_to_look();
+      await askAssistant({ kind: 'tighten' });
+
+      expect(reviewCalls.prepared).toEqual([[{ kind: 'tighten' }, 'very very ']]);
+      expect(reviewCalls.proposed).toEqual([]); // nothing has left
+      expect(assistant.review).toBeNull();
+      expect(assistant.prepared).toMatchObject({ id: 3, path: 'main.tex', from: 14, actionLabel: 'Tighten', sending: false });
+      const texts = assistant.prepared!.payload.parts.map((part) => part.text).join('\n');
+      expect(texts).toContain('very very ');
+      expect(texts).not.toContain('Done.'); // the rest of the file is not in it
+      expect(JSON.stringify(assistant.prepared)).not.toMatch(/sk-/);
+    });
+
+    it('sends the prepared request on Send, once, and opens the review', async () => {
+      await ready_to_look();
+      await askAssistant({ kind: 'tighten' });
+      await sendPrepared();
+
+      expect(reviewCalls.proposed).toEqual([3]);
+      expect(reviewCalls.dialogUpAtSend).toEqual([true]); // the dialog said Sending…
+      expect(assistant.prepared).toBeNull();
+      expect(assistant.review).toMatchObject({ id: 3, from: 14, actionLabel: 'Tighten' });
+
+      await sendPrepared(); // nothing is waiting any more
+      expect(reviewCalls.proposed).toEqual([3]);
+    });
+
+    it('sends nothing, and tells Rust to forget the request, when cancelled', async () => {
+      await ready_to_look();
+      await askAssistant({ kind: 'tighten' });
+      cancelPrepared();
+
+      expect(assistant.prepared).toBeNull();
+      expect(reviewCalls.cancelled).toEqual([3]);
+      expect(reviewCalls.proposed).toEqual([]);
+      expect(assistant.review).toBeNull();
+    });
+
+    it('with the setting off, sends straight away and never shows the dialog', async () => {
+      await ready_to_look();
+      await setAssistantInspectFirst(false);
+      expect(assistant.status?.inspectFirst).toBe(false);
+      await askAssistant({ kind: 'tighten' });
+
+      expect(reviewCalls.proposed).toEqual([3]);
+      expect(reviewCalls.dialogUpAtSend).toEqual([false]); // no dialog was ever put up
+      expect(assistant.review).not.toBeNull();
+    });
+
+    it('says why, and leaves no request waiting, when the send fails', async () => {
+      await ready_to_look();
+      await askAssistant({ kind: 'tighten' });
+      proposalAnswer = new Error('The provider did not accept the key. Check it in the assistant’s settings.');
+      await sendPrepared();
+
+      expect(app.notice).toContain('did not accept the key');
+      expect(assistant.prepared).toBeNull();
+      expect(assistant.asking).toBe(false);
+    });
+
+    it('does not send while another send is out', async () => {
+      await ready_to_look();
+      await askAssistant({ kind: 'tighten' });
+      const first = sendPrepared();
+      const second = sendPrepared();
+      await Promise.all([first, second]);
+      expect(reviewCalls.proposed).toEqual([3]);
+    });
   });
 });

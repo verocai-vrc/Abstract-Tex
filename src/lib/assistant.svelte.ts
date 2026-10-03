@@ -4,7 +4,7 @@
 
 import { assistantReady, blankForm, formFromProvider, type ProviderForm } from './assistant';
 import { defaultChoices } from './assistant-review';
-import type { AssistantHunk, AssistantProposal, AssistantStatus } from './ipc';
+import type { AssistantHunk, AssistantPayload, AssistantProposal, AssistantStatus } from './ipc';
 
 /** One suggestion under review. Replaced whole on every change, like the other lists. */
 export interface ReviewState {
@@ -38,6 +38,18 @@ export function reviewFrom(proposal: AssistantProposal, path: string, from: numb
   };
 }
 
+/** A request that has been built and not yet sent (S13.3): the exact payload, waiting for a click. */
+export interface PreparedState {
+  id: number;
+  /** Where the selection was, as for a review: carried through to the review that follows. */
+  path: string;
+  from: number;
+  actionLabel: string;
+  payload: AssistantPayload;
+  /** The click was made and the request is out. */
+  sending: boolean;
+}
+
 class AssistantState {
   /** `null` until asked, and again when no project is open to ask about. */
   status = $state.raw<AssistantStatus | null>(null);
@@ -57,6 +69,8 @@ class AssistantState {
   selection = $state.raw<{ from: number; to: number } | null>(null);
   /** An action is waiting on the model. */
   asking = $state(false);
+  /** A request shown and not yet sent, if any. Nothing has left the machine while this is set. */
+  prepared = $state.raw<PreparedState | null>(null);
   /** The suggestion being reviewed, if any. */
   review = $state.raw<ReviewState | null>(null);
 

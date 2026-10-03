@@ -155,7 +155,7 @@ pub struct Prompt {
 /// A request, ready to send and not yet sent.
 ///
 /// The body is exactly the payload that leaves the machine, which is what the payload inspector
-/// (S13.3) will show; credentials travel only in `headers`, so the body can be shown, logged or
+/// (S13.3) shows; credentials travel only in `headers`, so the body can be shown, logged or
 /// cached without containing a key.
 #[derive(Clone, PartialEq, Eq)]
 pub struct HttpRequest {
@@ -167,6 +167,11 @@ pub struct HttpRequest {
 /// Header names whose values are credentials, in lower case.
 const SECRET_HEADERS: [&str; 3] = ["x-api-key", "authorization", "proxy-authorization"];
 
+/// Whether a header's value is a credential, by name.
+pub(crate) fn is_secret_header(name: &str) -> bool {
+    SECRET_HEADERS.contains(&name.to_ascii_lowercase().as_str())
+}
+
 impl std::fmt::Debug for HttpRequest {
     /// A hand-written `Debug`, because the derived one would print the key into any test failure,
     /// log line or panic message that mentions a request.
@@ -175,8 +180,14 @@ impl std::fmt::Debug for HttpRequest {
             .headers
             .iter()
             .map(|(name, value)| {
-                let secret = SECRET_HEADERS.contains(&name.to_ascii_lowercase().as_str());
-                (name.as_str(), if secret { "<hidden>" } else { value.as_str() })
+                (
+                    name.as_str(),
+                    if is_secret_header(name) {
+                        "<hidden>"
+                    } else {
+                        value.as_str()
+                    },
+                )
             })
             .collect();
         formatter
@@ -312,7 +323,7 @@ fn checked_address(address: &str, sending_a_key: bool) -> Result<String, Assista
 
 /// `localhost`, or an address that is this computer's own (`127.0.0.1`, `::1`). A name that merely
 /// *resolves* there cannot be told from here, so it is not trusted.
-fn is_on_this_computer(url: &reqwest::Url) -> bool {
+pub(crate) fn is_on_this_computer(url: &reqwest::Url) -> bool {
     let Some(host) = url.host_str() else { return false };
     if host.eq_ignore_ascii_case("localhost") {
         return true;

@@ -16,6 +16,7 @@ const status = (over: Partial<AssistantStatus> = {}): AssistantStatus => ({
   provider: anthropic,
   hasKey: true,
   enabled: true,
+  inspectFirst: true,
   ...over,
 });
 

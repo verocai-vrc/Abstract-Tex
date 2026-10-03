@@ -1,7 +1,8 @@
 //! Asking the assistant to rewrite a selection, and applying the hunks the author accepts (S12.3b;
 //! DESIGN.md §5.5): the app-edge half of `abstract_tex_assistant::edit`.
 //!
-//! Owns the one request that carries a manuscript out of the machine, the guard that is built fresh
+//! Owns the one request that carries a manuscript out of the machine (built and shown first by
+//! `assistant_prepare`, sent by `assistant_send` and by nothing else), the guard that is built fresh
 //! for it from the `.bib` files as they are on disk now, and the single review in progress. The
 //! window never sees a model's raw answer: it sees hunks, each with the sentence that refuses it if
 //! the citation guard would, and it asks this module for the text of the hunks it chose. That text
@@ -23,8 +24,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use abstract_tex_assistant::{
-    build_prompt, citation_macros, proposed_selection, Action, ApplyError, Assistant, AssistantError, Guard,
-    KeyStore, Reply, Review,
+    build_prompt, citation_macros, inspect, proposed_selection, Action, ApplyError, Assistant,
+    AssistantError, Guard, KeyStore, Payload, Reply, Review,
 };
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -88,6 +89,8 @@ pub struct ProposalView {
 /// The review in progress. `Default` is "none"; managed as Tauri state.
 #[derive(Default)]
 pub struct AssistantReviews {
+    /// Built and shown, not yet sent.
+    prepared: Mutex<Option<PreparedRequest>>,
     active: Mutex<Option<(u64, Review)>>,
     next_id: AtomicU64,
 }
@@ -202,17 +205,50 @@ fn ready_to_send(
 
 type CommandResult<T> = Result<T, String>;
 
-/// Ask the model to rewrite `selection`, and answer with the changes as hunks. The one command that
-/// sends text out of the machine.
+/// A request that has been built and shown and not yet sent. What `assistant_send` sends is this
+/// prompt, not one built again, so the request a person looked at is the request that leaves.
+struct PreparedRequest {
+    id: u64,
+    provider: abstract_tex_assistant::Provider,
+    prompt: abstract_tex_assistant::Prompt,
+    /// The selection the prompt was made from; the review is built against it.
+    selection: String,
+}
+
+/// The prepared request, if it is the one named, removed from the slot so it can be sent once. A
+/// different one stays where it is: a stale click must not cancel a newer request.
+fn take_prepared(slot: &Mutex<Option<PreparedRequest>>, id: u64) -> Option<PreparedRequest> {
+    let mut slot = slot.lock().unwrap();
+    if slot.as_ref().is_some_and(|prepared| prepared.id == id) {
+        slot.take()
+    } else {
+        None
+    }
+}
+
+/// What the window is shown before anything is sent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedView {
+    /// Names this request in `assistant_send`; a newer one replaces it.
+    pub id: u64,
+    pub payload: Payload,
+    /// The person asked to look first (a setting), so the window should stop and show it.
+    pub inspect_first: bool,
+}
+
+/// Build the request for rewriting `selection`, and answer with exactly what it would carry.
+/// **Sends nothing.** Every refusal that would stop a send is made here too, so the window never
+/// offers a *Send* that would be turned down.
 #[tauri::command]
-pub async fn assistant_propose(
+pub fn assistant_prepare(
     state: State<'_, AppState>,
     settings: State<'_, AssistantSettings>,
     keys: State<'_, AssistantKeys>,
     reviews: State<'_, AssistantReviews>,
     action: ActionRequest,
     selection: String,
-) -> CommandResult<ProposalView> {
+) -> CommandResult<PreparedView> {
     if selection.trim().is_empty() {
         return Err("Select some text first.".to_string());
     }
@@ -221,15 +257,57 @@ pub async fn assistant_propose(
             "That selection is too long to review hunk by hunk. Select a paragraph or two.".to_string(),
         );
     }
-    let (guard, project_dir) = project_guard(&state)?;
+    let (_, project_dir) = project_guard(&state)?;
     ready_to_send(&settings, keys.0.as_ref(), &project_dir)?;
     let provider = settings
         .provider()
         .ok_or_else(|| "Choose a provider in the Assistant view first.".to_string())?;
+    let has_key = keys
+        .0
+        .read(&provider.key_slot())
+        .map_err(|error| error.to_string())?
+        .is_some();
 
     let prompt = build_prompt(&action.action(), &selection, None).map_err(|error| error.to_string())?;
+    let payload = inspect(&provider, has_key, &prompt).map_err(|error| error.to_string())?;
+    let id = reviews.next_id.fetch_add(1, Ordering::SeqCst) + 1;
+    *reviews.prepared.lock().unwrap() = Some(PreparedRequest {
+        id,
+        provider,
+        prompt,
+        selection,
+    });
+    Ok(PreparedView {
+        id,
+        payload,
+        inspect_first: settings.inspect_first(),
+    })
+}
+
+/// Send the request `assistant_prepare` made, and answer with the changes as hunks. The one command
+/// that sends text out of the machine, and it sends once: the prepared request is taken, so a
+/// second call with the same id has nothing to send.
+#[tauri::command]
+pub async fn assistant_send(
+    state: State<'_, AppState>,
+    settings: State<'_, AssistantSettings>,
+    keys: State<'_, AssistantKeys>,
+    reviews: State<'_, AssistantReviews>,
+    id: u64,
+) -> CommandResult<ProposalView> {
+    let (guard, project_dir) = project_guard(&state)?;
+    // Checked again: the switch may have been turned off between looking and clicking Send.
+    ready_to_send(&settings, keys.0.as_ref(), &project_dir)?;
+    let prepared = take_prepared(&reviews.prepared, id)
+        .ok_or_else(|| "That request is no longer waiting to be sent. Ask again.".to_string())?;
+    let PreparedRequest {
+        provider,
+        prompt,
+        selection: sent,
+        ..
+    } = prepared;
+
     let key_store: Arc<dyn KeyStore> = Arc::clone(&keys.0);
-    let sent = selection.clone();
     // `spawn_blocking`: the HTTP client is blocking, as for the GitHub calls and the connection test.
     let reply = tauri::async_runtime::spawn_blocking(move || {
         Assistant::new().and_then(|assistant| assistant.complete(&provider, key_store.as_ref(), &prompt))
@@ -239,10 +317,19 @@ pub async fn assistant_propose(
     .map_err(|error| error.to_string())?;
 
     let review = review_for_reply(&sent, &reply, &guard).map_err(|error| error.to_string())?;
-    let id = reviews.next_id.fetch_add(1, Ordering::SeqCst) + 1;
     let view = view_of(id, &sent, &review);
     *reviews.active.lock().unwrap() = Some((id, review));
     Ok(view)
+}
+
+/// Forget a prepared request that was looked at and not sent. Not an error when there is none.
+#[tauri::command]
+pub fn assistant_cancel_prepared(reviews: State<'_, AssistantReviews>, id: u64) -> CommandResult<()> {
+    let mut slot = reviews.prepared.lock().unwrap();
+    if slot.as_ref().is_some_and(|prepared| prepared.id == id) {
+        *slot = None;
+    }
+    Ok(())
 }
 
 /// The selection's new text for exactly the hunks in `accepted`, or the sentences the guard refused
@@ -438,6 +525,46 @@ mod tests {
         )
         .unwrap();
         assert!(ready_to_send(&settings, &keys, project).is_ok());
+    }
+
+    fn prepared(id: u64) -> PreparedRequest {
+        PreparedRequest {
+            id,
+            provider: abstract_tex_assistant::Provider::anthropic("claude-x"),
+            prompt: build_prompt(&Action::Tighten, "Some text.", None).unwrap(),
+            selection: "Some text.".into(),
+        }
+    }
+
+    #[test]
+    fn a_prepared_request_can_be_sent_once_and_only_by_its_own_id() {
+        let slot = Mutex::new(Some(prepared(4)));
+        assert!(take_prepared(&slot, 3).is_none(), "an old id is not the request");
+        assert!(
+            slot.lock().unwrap().is_some(),
+            "and does not discard the real one"
+        );
+        assert_eq!(take_prepared(&slot, 4).map(|request| request.id), Some(4));
+        assert!(
+            take_prepared(&slot, 4).is_none(),
+            "a second send has nothing to send"
+        );
+        assert!(slot.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn what_is_shown_for_a_selection_is_the_request_that_is_sent_for_it() {
+        // The inspector's body is the body `build_request` makes from the very prompt that is kept.
+        let request = prepared(1);
+        let shown = inspect(&request.provider, true, &request.prompt).unwrap();
+        let real =
+            abstract_tex_assistant::build_request(&request.provider, Some("sk-x"), &request.prompt).unwrap();
+        assert_eq!(shown.body, real.body);
+        assert!(shown.body.contains("Some text."));
+        assert!(
+            !shown.body.contains("<document>"),
+            "a selection-only request carries no manuscript"
+        );
     }
 
     #[test]

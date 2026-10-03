@@ -6290,12 +6290,47 @@ the person must be able to see exactly what before it does. S13.4's no-network t
 app as a whole (today it holds per piece: the assistant crate connects to nothing until `complete`
 is called, and the app calls it from two places, the test button and a proposal).
 
+**S13.3 (3 October 2026).** `[x]` — rung 4 walked: `pnpm verify` exit 0, `cargo test --workspace` 766
+passed / 0 failed (9 new: 6 in `abstract-tex-assistant/src/inspect.rs`, 3 at the app edge), Vitest
+712/712 (11 new). Built first of Sprint 13, before S13.1, because whole-document context sends a
+manuscript out and the person must be able to see exactly what first. In the window against the
+local fake model: *Assistant: Tighten* → a dialog "what will be sent" with the destination, the
+size, the instructions and the selection each under their own heading, and the exact request
+(URL, header names, body) behind a disclosure; **the model server had heard nothing** until *Send*
+(0 requests), `Esc` sent nothing (0), *Send* sent one. The same walk with the setting off: straight
+to the review, no dialog, one request. What a reader should take from the diff:
+
+1. **The inspector shows the same value that is sent.** `inspect()` runs the real `build_request`
+   (a stand-in where the key would be), and the dialog's *Send* sends the prompt kept by
+   `assistant_prepare`, not one built again. The test that matters parses the body as JSON and
+   fails if any string in it is not a part the dialog lists, the model's name, or a word of the
+   wire format; I added `"user": "secret-account-id"` to the OpenAI body to check, and it failed
+   with that text named. A field added to a request later cannot go out unshown.
+2. **Preparing and sending are two commands.** `assistant_prepare` sends nothing and makes every
+   refusal a send would; `assistant_send` takes the prepared request out of its slot, so it can
+   be sent once and only by its own id (a stale id leaves a newer request alone). `assistant_propose`
+   is gone: there is no path that sends without a prepared request behind it.
+3. **A key is a header name and a phrase.** Credential headers are listed as "(your key, sent, never
+   shown)"; a test serialises the whole payload and asserts the stand-in is nowhere in it.
+4. **On by default, per machine, switchable.** `inspect_first` in `assistant.json` is true unless
+   the person unchecked it (in the dialog or the Assistant view); a settings file written before
+   the field existed means *yes*. Off still means the person chose an action; Rust still refuses
+   unless everything agrees.
+5. **Rung 4 found a layout bug:** the whole dialog scrolled, so *Send* left the screen exactly when
+   the exact request was open (ledger). Only the middle scrolls now.
+
+Not done: parts are labelled by role and the cached flag, not by what they are ("the whole
+document" will need a label on `SystemPart` when S13.1 adds it); the dialog is not offered for the
+*Test the connection* button, whose few fixed words are described beside it; the token count is a
+third of the characters, labelled a guess. Whole-document context should be forced through this
+dialog whatever the setting says — decide in S13.1.
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2
 **citation-fabrication guard with adversarial tests, written first** · S12.3 selection-scoped
 diff-first actions with per-hunk accept · S13.1 whole-document context with cache breakpoint ·
-S13.2 model fallback for unmatched errors, cached by log signature · S13.3 payload inspector ·
+S13.2 model fallback for unmatched errors, cached by log signature · S13.3 payload inspector (done, above) ·
 S13.4 no-network test: zero outbound requests with no key.
 
 ### Sprint 14–15 — v0.8 live

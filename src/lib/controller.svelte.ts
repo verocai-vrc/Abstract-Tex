@@ -6,7 +6,7 @@ import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
 import { filterTemplates, neighbour, newProject } from './templates.svelte';
-import { assistant, resetForm, reviewFrom } from './assistant.svelte';
+import { assistant, resetForm, reviewFrom, type PreparedState } from './assistant.svelte';
 import { toggled } from './assistant-review';
 import { providerFromForm } from './assistant';
 import { placeholders } from './placeholders.svelte';
@@ -568,7 +568,8 @@ export function assistantActionLabel(action: AssistantAction): string {
 /**
  * Ask the model to rewrite what is selected. Does nothing unless the assistant is ready (the entry
  * points are absent otherwise, and Rust refuses again), and sends only the selection: not the file,
- * not the project. The answer opens the review; nothing touches the buffer until *Apply*.
+ * not the project. By default the exact request is shown first and sent on a click (S13.3). The
+ * answer opens the review; nothing touches the buffer until *Apply*.
  */
 export async function askAssistant(action: AssistantAction): Promise<void> {
   if (!assistant.ready || assistant.asking) return;
@@ -587,12 +588,62 @@ export async function askAssistant(action: AssistantAction): Promise<void> {
   app.notice = null;
   assistant.asking = true;
   try {
-    const proposal = await ipc.assistantPropose(action, original);
-    assistant.review = reviewFrom(proposal, path, selection.from, assistantActionLabel(action));
+    // Building the request sends nothing; Rust answers with exactly what it would carry.
+    const prepared = await ipc.assistantPrepare(action, original);
+    const request: PreparedState = {
+      id: prepared.id,
+      path,
+      from: selection.from,
+      actionLabel: assistantActionLabel(action),
+      payload: prepared.payload,
+      sending: false,
+    };
+    if (prepared.inspectFirst) {
+      assistant.prepared = request; // stop here: the dialog shows it, and Send is a click
+    } else {
+      await sendPrepared(request);
+    }
   } catch (error) {
     app.notice = String(error);
   } finally {
     assistant.asking = false;
+  }
+}
+
+/** Send the request the person has looked at (or chose not to look at), and open the review of the
+ * answer. This is the only caller of `assistantSend`. */
+export async function sendPrepared(request: PreparedState | null = assistant.prepared): Promise<void> {
+  if (!request || request.sending) return;
+  // The dialog says "Sending…" only if it is up; with the inspector off there is no dialog to show.
+  if (assistant.prepared?.id === request.id) assistant.prepared = { ...request, sending: true };
+  assistant.asking = true;
+  try {
+    const proposal = await ipc.assistantSend(request.id);
+    assistant.review = reviewFrom(proposal, request.path, request.from, request.actionLabel);
+  } catch (error) {
+    app.notice = String(error);
+  } finally {
+    assistant.prepared = null;
+    assistant.asking = false;
+  }
+}
+
+/** Close the payload dialog without sending. Nothing has left the machine. */
+export function cancelPrepared(): void {
+  const request = assistant.prepared;
+  if (!request || request.sending) return;
+  assistant.prepared = null;
+  void ipc.assistantCancelPrepared(request.id).catch(() => {});
+}
+
+/** Show each request before it is sent, or stop. Per machine. */
+export async function setAssistantInspectFirst(inspectFirst: boolean): Promise<void> {
+  try {
+    await ipc.assistantSetInspectFirst(inspectFirst);
+    say(null);
+    await refreshAssistant();
+  } catch (error) {
+    say(String(error), true);
   }
 }
 

@@ -483,6 +483,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **The payload dialog's Send button scrolled out of reach when the exact request was opened.**
+  (3 Oct 2026, found walking S13.3 under Xvfb) The whole dialog scrolled, so the footer with *Send*
+  and *Cancel* sat below the fold exactly when the person was reading the long request body — the
+  moment they most want to act. **Fixed (S13.3):** only the middle scrolls (`.scroll`), the footer
+  stays. Not caught by a unit test; a screenshot found it.
+
 - **The undefined-citation scan never saw `\Citep`, `\Cite` or `\Citeauthor`.** (3 Oct 2026, found
   writing S12.2's attack tables) `scan_citations` matched `name.contains("cite")`, which is
   case-sensitive, so natbib's and biblatex's capitalised commands — which contain no lower-case

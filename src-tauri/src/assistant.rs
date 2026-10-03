@@ -30,12 +30,30 @@ use crate::project::write_atomically;
 
 /// What this machine has chosen. A list of folders, so a person reading the file sees exactly where
 /// the assistant is on.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SettingsFile {
     #[serde(default)]
     provider: Option<Provider>,
     #[serde(default)]
     enabled: Vec<String>,
+    /// Show the exact request and wait for a click before it is sent. On unless the person turned
+    /// it off: a file without the field is a file written before the inspector existed.
+    #[serde(default = "inspect_first_by_default")]
+    inspect_first: bool,
+}
+
+fn inspect_first_by_default() -> bool {
+    true
+}
+
+impl Default for SettingsFile {
+    fn default() -> Self {
+        Self {
+            provider: None,
+            enabled: Vec::new(),
+            inspect_first: inspect_first_by_default(),
+        }
+    }
 }
 
 /// Where the settings are kept. One per app; handed to commands as Tauri state.
@@ -57,6 +75,8 @@ pub struct AssistantStatus {
     pub has_key: bool,
     /// The assistant is switched on for the open project, on this machine.
     pub enabled: bool,
+    /// Each request is shown, exactly as it will be sent, and waits for a click (S13.3).
+    pub inspect_first: bool,
 }
 
 impl AssistantSettings {
@@ -85,6 +105,10 @@ impl AssistantSettings {
 
     pub fn provider(&self) -> Option<Provider> {
         self.read().provider
+    }
+
+    pub fn inspect_first(&self) -> bool {
+        self.read().inspect_first
     }
 
     fn is_enabled_for(&self, project_dir: &Path) -> bool {
@@ -126,6 +150,7 @@ pub fn status(
         provider,
         has_key,
         enabled,
+        inspect_first: settings.inspect_first(),
     })
 }
 
@@ -171,6 +196,13 @@ pub fn set_enabled(settings: &AssistantSettings, project_dir: &Path, enabled: bo
     if enabled {
         file.enabled.push(key);
     }
+    settings.write(&file)
+}
+
+/// Choose whether each request is shown before it is sent.
+pub fn set_inspect_first(settings: &AssistantSettings, inspect_first: bool) -> Result<(), String> {
+    let mut file = settings.read();
+    file.inspect_first = inspect_first;
     settings.write(&file)
 }
 
@@ -243,6 +275,15 @@ pub fn assistant_set_enabled(
     set_enabled(&settings, &project_dir, enabled)
 }
 
+/// Show each request before it is sent, or stop doing so. Per machine, not per project.
+#[tauri::command]
+pub fn assistant_set_inspect_first(
+    settings: State<'_, AssistantSettings>,
+    inspect_first: bool,
+) -> CommandResult<()> {
+    set_inspect_first(&settings, inspect_first)
+}
+
 /// Test the connection: the only request the assistant's settings ever make, and only on a click.
 #[tauri::command]
 pub async fn assistant_test(
@@ -283,7 +324,8 @@ mod tests {
             AssistantStatus {
                 provider: None,
                 has_key: false,
-                enabled: false
+                enabled: false,
+                inspect_first: true
             }
         );
     }
@@ -385,6 +427,30 @@ mod tests {
         clear_key(&settings, &keys).unwrap();
         clear_key(&settings, &keys).unwrap();
         assert!(!status(&settings, &keys, None).unwrap().has_key);
+    }
+
+    #[test]
+    fn requests_are_shown_first_until_the_person_says_otherwise_and_an_old_file_means_yes() {
+        let (_config, settings) = settings();
+        let keys = MemoryKeyStore::default();
+        assert!(status(&settings, &keys, None).unwrap().inspect_first);
+
+        // A settings file written before this option existed.
+        fs::create_dir_all(settings.file.parent().unwrap()).unwrap();
+        fs::write(&settings.file, r#"{"enabled":["/work/thesis"]}"#).unwrap();
+        assert!(
+            settings.inspect_first(),
+            "an absent field must not switch the inspector off"
+        );
+
+        set_inspect_first(&settings, false).unwrap();
+        assert!(!status(&settings, &keys, None).unwrap().inspect_first);
+        assert!(
+            settings.is_enabled_for(Path::new("/work/thesis")),
+            "the other choices are kept"
+        );
+        set_inspect_first(&settings, true).unwrap();
+        assert!(settings.inspect_first());
     }
 
     #[test]

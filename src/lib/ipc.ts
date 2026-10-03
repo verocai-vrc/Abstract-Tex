@@ -135,6 +135,41 @@ export interface AssistantStatus {
   hasKey: boolean;
   /** Switched on for the open project, on this machine. */
   enabled: boolean;
+  /** Each request is shown, exactly as it will be sent, and waits for a click (S13.3). */
+  inspectFirst: boolean;
+}
+
+/** S13.3: one piece of text in an outgoing request, in the order the model reads it. */
+export interface AssistantPayloadPart {
+  role: 'system' | 'user' | 'assistant';
+  text: string;
+  /** The provider is asked to remember everything up to and including this part. */
+  cached: boolean;
+}
+
+/** S13.3: everything an outgoing request carries. A credential header is named with its value
+ * replaced by a phrase; the key is never here. */
+export interface AssistantPayload {
+  /** Host (and port) the request goes to. */
+  destination: string;
+  url: string;
+  model: string;
+  parts: AssistantPayloadPart[];
+  headers: { name: string; value: string }[];
+  /** The request body, byte for byte. */
+  body: string;
+  characters: number;
+  /** A guess: a third of the characters. */
+  approximateTokens: number;
+  staysOnThisComputer: boolean;
+}
+
+/** A request built and not yet sent: what `assistantPrepare` answers. */
+export interface AssistantPrepared {
+  id: number;
+  payload: AssistantPayload;
+  /** The person asked to look first, so the window stops and shows it. */
+  inspectFirst: boolean;
 }
 
 /** Anything the language server says without being asked (`src-tauri/src/lsp.rs`).
@@ -615,10 +650,17 @@ export const ipc = {
   assistantClearKey: () => invoke<void>('assistant_clear_key'),
   /** Switch the assistant on or off for the open project, on this machine only. */
   assistantSetEnabled: (enabled: boolean) => invoke<void>('assistant_set_enabled', { enabled }),
-  /** S12.3b: ask the model to rewrite `selection`. The one call that sends text out of the machine;
-   * rejects with a sentence if the assistant is not set up and switched on for this project. */
-  assistantPropose: (action: AssistantAction, selection: string) =>
-    invoke<AssistantProposal>('assistant_propose', { action, selection }),
+  /** S13.3: show or stop showing each request before it is sent. Per machine. */
+  assistantSetInspectFirst: (inspectFirst: boolean) =>
+    invoke<void>('assistant_set_inspect_first', { inspectFirst }),
+  /** S13.3: build the request for rewriting `selection` and answer with exactly what it carries.
+   * Sends nothing; rejects with a sentence if the assistant is not set up and on for this project. */
+  assistantPrepare: (action: AssistantAction, selection: string) =>
+    invoke<AssistantPrepared>('assistant_prepare', { action, selection }),
+  /** S12.3b: send the prepared request, once. The one call that sends text out of the machine. */
+  assistantSend: (id: number) => invoke<AssistantProposal>('assistant_send', { id }),
+  /** Forget a prepared request that was looked at and not sent. */
+  assistantCancelPrepared: (id: number) => invoke<void>('assistant_cancel_prepared', { id }),
   /** The selection's new text for exactly the hunks in `accepted`, produced and guard-checked in
    * Rust. Rejects with the guard's sentences if the text would hold a citation the .bib lacks. */
   assistantApply: (id: number, accepted: boolean[]) => invoke<string>('assistant_apply', { id, accepted }),

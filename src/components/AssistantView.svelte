@@ -9,6 +9,7 @@
     forgetAssistantKey,
     saveAssistantSettings,
     setAssistantEnabled,
+    setAssistantInspectFirst,
     testAssistant,
   } from '../lib/controller.svelte';
   import { assistant } from '../lib/assistant.svelte';
@@ -108,6 +109,21 @@
       {:else}
         Only on this computer; a copy of the project elsewhere starts off.
       {/if}
+    </p>
+  </section>
+
+  <section class="group" aria-label="Requests">
+    <label class="switch">
+      <input
+        type="checkbox"
+        checked={status?.inspectFirst ?? true}
+        onchange={(event) => void setAssistantInspectFirst(event.currentTarget.checked)}
+      />
+      <span>Show me each request before it is sent</span>
+    </label>
+    <p class="note">
+      A window shows exactly what would leave this computer, text and model name, and sends it only when you press Send. Off, an
+      assistant action sends as soon as you choose it.
     </p>
   </section>
 
