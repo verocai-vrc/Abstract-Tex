@@ -1065,8 +1065,8 @@ fn origin(repository: &Repository) -> Result<git2::Remote<'_>, GitError> {
 fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
     let token = token.map(str::to_string);
     let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(move |_url, _username_from_url, allowed| {
-        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) {
+    callbacks.credentials(move |url, _username_from_url, allowed| {
+        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) && is_github_https(url) {
             if let Some(token) = &token {
                 // GitHub's own convention for an OAuth token offered over HTTPS: the token is the
                 // username or the password, not both at once as a real login would be. Nothing
@@ -1078,6 +1078,22 @@ fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
         Err(git2::Error::from_str("this remote asked for a credential and none was given"))
     });
     callbacks
+}
+
+/// Whether `url` is an HTTPS address on github.com — the only place the GitHub token belongs.
+///
+/// The token is an OAuth token for *GitHub*. A remote on GitLab, a university server, or a
+/// lookalike host that a pasted URL named (S11.5b lets the author clone from any URL) would be
+/// handed it the moment it asked for a password, so the callback checks where it is going rather
+/// than trusting that the author's remote is GitHub's. Exact host only: `github.com.evil.example`
+/// and `evilgithub.com` are different hosts, and user-info tricks (`https://github.com@evil/…`)
+/// are caught because the host is read after the `@`.
+fn is_github_https(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit('@').next().unwrap_or("");
+    let host = host.split(':').next().unwrap_or("");
+    host.eq_ignore_ascii_case("github.com")
 }
 
 /// Update `origin`'s remote-tracking ref for the current branch, without touching anything else.
@@ -2525,5 +2541,21 @@ mod tests {
         assert_eq!(folder_name_for("https://github.com/"), None);
         assert_eq!(folder_name_for(""), None);
         assert_eq!(folder_name_for("   "), None);
+    }
+
+    #[test]
+    fn the_github_token_is_only_for_github() {
+        assert!(is_github_https("https://github.com/ada/thesis.git"));
+        assert!(is_github_https("https://GitHub.com/ada/thesis"));
+        assert!(is_github_https("https://ada@github.com/ada/thesis.git"));
+        assert!(is_github_https("https://github.com:443/ada/thesis.git"));
+
+        assert!(!is_github_https("https://gitlab.com/ada/thesis.git"));
+        assert!(!is_github_https("https://github.com.evil.example/ada/thesis.git"));
+        assert!(!is_github_https("https://evilgithub.com/ada/thesis.git"));
+        assert!(!is_github_https("https://github.com@evil.example/ada/thesis.git"));
+        assert!(!is_github_https("http://github.com/ada/thesis.git"), "plain http would send it in the clear");
+        assert!(!is_github_https("git@github.com:ada/thesis.git"));
+        assert!(!is_github_https("/home/ada/thesis.git"));
     }
 }

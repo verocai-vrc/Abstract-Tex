@@ -155,6 +155,8 @@ pub fn run() {
             commands::github_cancel_sign_in,
             commands::github_sign_out,
             commands::github_create_repository,
+            commands::github_list_repositories,
+            commands::git_clone,
             commands::git_origin_url,
             commands::git_push,
             commands::git_sync,

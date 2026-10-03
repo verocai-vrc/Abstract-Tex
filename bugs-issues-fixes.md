@@ -392,6 +392,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **The GitHub token was offered to whatever remote asked for a password.**
+  (3 Oct 2026, found while designing the Clone window, which accepts any URL) `credentials()` in
+  `abstract-tex-git` handed the stored OAuth token to any HTTPS remote that asked, so a project
+  whose `origin` is GitLab, a university server or a pasted lookalike host would have received
+  the author's GitHub token on `fetch`, `push`, `sync` or `clone`. It was latent while only
+  GitHub remotes were created, and real the moment B7's "generic remotes" or a clone-by-URL
+  existed. **Status: Fixed (S11.5b).** The callback now checks the URL (`is_github_https`: `https` and the exact
+  host `github.com`, after any `user@`) and answers "no credential" for every other host.
+  Tested as a pure function with the lookalikes (`github.com.evil.example`, `evilgithub.com`,
+  `github.com@evil.example`, plain `http`). **Not yet seen on a real network**; a GitLab remote
+  now simply has no credential to offer, which a generic-remote card (not placed) would add.
+
 - **`cc` on this Linux machine is `zig cc`, which rejects the target triple `cc-rs` passes, so
   `src-tauri` cannot build.** (29 Sep 2026, S9.12) `~/.local/bin/cc` execs `zig cc`, and
   `--target=x86_64-unknown-linux-gnu` — which `cc-rs` adds to every compile — fails with `unable

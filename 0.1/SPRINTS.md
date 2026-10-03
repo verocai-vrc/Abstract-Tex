@@ -5472,6 +5472,38 @@ smart HTTP with a real token. Nothing in this machine's tests exercises `credent
 (every remote is local), which S11.8's HTTP bare remote is for. A rejected token may loop in
 libgit2's credential callback; logged in the ledger as a suspicion, not a finding.
 
+```
+Loop      S11.5b · The Clone window · M
+Reads     DESIGN.md §5.7, §6; design-interview.md B1, B2
+Depends   S11.5a (`clone`), S10.4 (sign-in), S10.5 (`Repos`)
+Files     crates/abstract-tex-github/src/repos.rs, crates/abstract-tex-git/src/lib.rs
+          (token only to github.com), src-tauri/src/{git,github,commands,lib}.rs, then
+          src/lib/ipc.ts, src/lib/clone.svelte.ts, src/components/CloneWindow.svelte, the palette
+Build     Two commits. **S11.5b-1 (Rust)**: `Repos::list` (`GET /user/repos`, newest push first,
+          owner + collaborator + organisation, three pages at most), `github_list_repositories`,
+          and `git_clone(url, parent_dir, folder_name?)`, which derives the folder name the way
+          `git clone` does and refuses anything that is not one plain folder name. And a fix the
+          Clone window made urgent: the git crate offered the GitHub token to *any* HTTPS remote
+          that asked for a password; it now offers it to github.com only (ledger, Fixed).
+          **S11.5b-2 (window)**: the Clone window — the signed-in account's repositories as a
+          searchable list, a field for any URL, a parent folder picked natively, and *Clone*,
+          which opens the result as any other project. Reachable from the palette (*Clone a
+          repository…*) and from the empty state.
+Verify    cargo test --workspace; pnpm verify; the account list against a real account waits on
+          the OAuth app (S11.8)
+Done when a URL clones into a chosen folder and opens; a repository picked from the list clones;
+          a folder that is not empty, an unreachable address and a refused sign-in each come back
+          as a sentence with nothing left on disk; and the GitHub token is never sent anywhere
+          but github.com.
+```
+
+**S11.5b-1 (3 October 2026).** `[~]`: `cargo test --workspace` 619 passed / 0 failed (17 new: the
+list against the fake GitHub — the request it sends, paging, an empty account, a revoked token, a
+body that is not a list; `clone_destination`'s folder naming and refusals; and the host check for
+the token), clippy and `cargo doc` clean. `[~]` because no real account has listed anything and
+no clone has gone over HTTP; S11.8's HTTP remote and the OAuth app close both. The window is
+S11.5b-2.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,

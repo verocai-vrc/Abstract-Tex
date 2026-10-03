@@ -153,6 +153,22 @@ pub async fn create_repository(
     Ok(created)
 }
 
+/// The repositories this account can clone (S11.5b), for the Clone window's list.
+///
+/// A token GitHub no longer accepts is forgotten here exactly as [`account`] forgets it, and the
+/// window is told the same sentence (`TokenRejected`'s own), so the list never sits there empty
+/// beside a status that still claims to be signed in. `spawn_blocking` for [`account`]'s reason.
+pub async fn list_repositories(session: &GitHubSession) -> Result<Vec<Repository>, GitHubError> {
+    let token = session.require_token()?;
+    let listed = tauri::async_runtime::spawn_blocking(move || Repos::new()?.list(&token))
+        .await
+        .map_err(|error| GitHubError::Keychain(error.to_string()))?;
+    if matches!(listed, Err(GitHubError::TokenRejected)) {
+        session.sign_out()?;
+    }
+    listed
+}
+
 /// Start a sign-in. Returns as soon as the thread is running; everything else is events.
 ///
 /// The only thing checked before the thread starts is whether this build has a client id at all,

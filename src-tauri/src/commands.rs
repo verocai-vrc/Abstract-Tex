@@ -788,6 +788,29 @@ pub async fn github_create_repository(
     Ok(created)
 }
 
+/// The repositories the signed-in account can clone, most recently pushed first (S11.5b).
+#[tauri::command]
+pub async fn github_list_repositories(state: State<'_, AppState>) -> CommandResult<Vec<GitHubRepository>> {
+    crate::github::list_repositories(&state.github).await.map_err(to_message)
+}
+
+/// Clone `url` into a new folder inside `parent_dir`, named `folder_name` or, by default, after
+/// the repository. Answers with the folder, for the window to open as it opens any other (S11.5b).
+///
+/// No project needs to be open, and none is touched: the window decides to open the result.
+#[tauri::command]
+pub async fn git_clone(
+    state: State<'_, AppState>,
+    url: String,
+    parent_dir: String,
+    folder_name: Option<String>,
+) -> CommandResult<String> {
+    let destination = git::clone_destination(Path::new(&parent_dir), &url, folder_name.as_deref())?;
+    let token = state.github.token().map_err(to_message)?;
+    let cloned = git::clone_blocking(url.trim().to_string(), destination, token).await?;
+    Ok(cloned.to_string_lossy().into_owned())
+}
+
 /// The URL of this project's `origin`, or `None` when it has no remote — and `None` too when
 /// there is no repository at all, which the panel tells apart by `git_status` (S10.5b).
 #[tauri::command]

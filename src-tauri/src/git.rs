@@ -13,6 +13,8 @@
 //!   nobody has run `git init` in — `Ok(None)` here, one sentence in the view, and the button
 //!   that fixes it arrives in S10.5.
 
+use std::path::{Path, PathBuf};
+
 use abstract_tex_git::{GitError, Repository};
 use tauri::{AppHandle, Emitter};
 
@@ -93,4 +95,76 @@ pub async fn in_repository_blocking<T: Send + 'static>(
         .await
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())
+}
+
+/// Where a clone of `url` goes: a folder named `name` (or, when the author gave none, the one
+/// `git clone` would pick) inside `parent`.
+///
+/// Pure, so the refusals are tested without a window. `name` is typed by the author and joined to
+/// a path, so it must be one folder's name and nothing that walks elsewhere: no separators, no
+/// `..`, and none of the characters Windows refuses in a name, which is also where this
+/// app's projects get synced to.
+pub fn clone_destination(parent: &Path, url: &str, name: Option<&str>) -> Result<PathBuf, String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("Paste the address of a repository to clone.".to_string());
+    }
+    let chosen = match name.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => name.to_string(),
+        None => abstract_tex_git::folder_name_for(url)
+            .ok_or_else(|| "That address does not name a repository. Give the folder a name to clone into.".to_string())?,
+    };
+    let is_one_plain_name = chosen != "."
+        && chosen != ".."
+        && !chosen.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+    if !is_one_plain_name {
+        return Err(format!("\"{chosen}\" cannot be used as a folder name."));
+    }
+    Ok(parent.join(chosen))
+}
+
+/// Download `url` into `destination` on a blocking thread — the same reason
+/// [`in_repository_blocking`] gives — and return the folder to open.
+///
+/// There is no project and so no repository to open first, which is why this is not an
+/// `in_repository_blocking` call. `token` is the GitHub sign-in or `None`; the git crate offers it
+/// only to github.com (`abstract_tex_git::is_github_https`), so passing it for any URL is safe.
+pub async fn clone_blocking(url: String, destination: PathBuf, token: Option<String>) -> Result<PathBuf, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        abstract_tex_git::clone(&url, &destination, token.as_deref()).map(|_| destination)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_folder_is_named_after_the_repository_unless_the_author_says_otherwise() {
+        let parent = Path::new("/papers");
+        assert_eq!(clone_destination(parent, "https://github.com/ada/thesis.git", None).unwrap(), parent.join("thesis"));
+        assert_eq!(clone_destination(parent, "https://github.com/ada/thesis.git", Some("  draft  ")).unwrap(), parent.join("draft"));
+        assert_eq!(clone_destination(parent, "https://github.com/ada/thesis.git", Some("")).unwrap(), parent.join("thesis"));
+    }
+
+    #[test]
+    fn an_address_with_nothing_to_name_a_folder_asks_for_a_name_and_a_given_one_is_enough() {
+        let parent = Path::new("/papers");
+        assert!(clone_destination(parent, "https://github.com/", None).unwrap_err().contains("Give the folder a name"));
+        assert!(clone_destination(parent, "https://github.com/", Some("paper")).is_ok());
+        assert!(clone_destination(parent, "   ", None).unwrap_err().contains("Paste the address"));
+    }
+
+    #[test]
+    fn a_name_that_is_not_one_plain_folder_is_refused() {
+        let parent = Path::new("/papers");
+        for bad in ["..", "a/b", r"a\b", "../elsewhere", "C:", "what?", "a|b"] {
+            assert!(clone_destination(parent, "https://github.com/ada/t.git", Some(bad)).is_err(), "{bad} was accepted");
+        }
+        // The URL's own name goes through the same check.
+        assert!(clone_destination(parent, "https://example.invalid/ada/..", None).is_err());
+    }
 }

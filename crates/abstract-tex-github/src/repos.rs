@@ -1,7 +1,7 @@
 //! Creating a repository on GitHub (S10.5b, DESIGN.md §5.7: "create the repository from inside
-//! the app", "private by default, loudly").
+//! the app", "private by default, loudly"), and listing the ones an account can clone (S11.5b).
 //!
-//! Owns one call — `POST /user/repos` — and the guard that makes the "private by default" part a
+//! Owns two calls on one URL — `POST /user/repos` and `GET /user/repos` — and the guard that makes the "private by default" part a
 //! property of this code rather than of whatever panel calls it.
 //!
 //! **What it must never do:** never create a public repository unless it has been told, as data,
@@ -124,18 +124,64 @@ impl Repos {
             .body(body)
             .send()?;
 
-        let status = response.status();
-        let text = response.text()?;
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            return Err(GitHubError::TokenRejected);
-        }
-        if !status.is_success() {
-            return Err(GitHubError::GitHub(sentence_from(&text)));
-        }
+        let text = answer_text(response)?;
         let created: Repository = serde_json::from_str(&text)
             .map_err(|_| GitHubError::Unreadable(text.chars().take(200).collect()))?;
         Ok(created)
     }
+
+    /// The repositories this account can clone, most recently pushed first (S11.5b).
+    ///
+    /// Owned, collaborated-on and organisation repositories, because a coauthor's paper is
+    /// usually the second kind. Capped at three pages (`MAX_LIST_PAGES`): a picker is for finding one
+    /// project quickly, and an account with more than that is better served by the URL field the
+    /// Clone window has beside it than by an ever longer wait.
+    pub fn list(&self, token: &str) -> Result<Vec<Repository>, GitHubError> {
+        let mut found = Vec::new();
+        for page in 1..=MAX_LIST_PAGES {
+            let response = self
+                .client
+                .get(&self.endpoint)
+                .query(&[
+                    ("per_page", LIST_PAGE_SIZE.to_string()),
+                    ("page", page.to_string()),
+                    ("sort", "pushed".to_string()),
+                    ("affiliation", "owner,collaborator,organization_member".to_string()),
+                ])
+                .bearer_auth(token)
+                .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .send()?;
+            let text = answer_text(response)?;
+            let batch: Vec<Repository> = serde_json::from_str(&text)
+                .map_err(|_| GitHubError::Unreadable(text.chars().take(200).collect()))?;
+            let was_full_page = batch.len() == LIST_PAGE_SIZE;
+            found.extend(batch);
+            if !was_full_page {
+                break;
+            }
+        }
+        Ok(found)
+    }
+}
+
+/// GitHub's own maximum for `per_page`.
+const LIST_PAGE_SIZE: usize = 100;
+/// Three hundred repositories is more than a person scrolls; see [`Repos::list`].
+const MAX_LIST_PAGES: usize = 3;
+
+/// The body of a successful answer, or the right error for an unsuccessful one: a revoked token
+/// is its own variant (the app forgets it), and anything else carries GitHub's own sentence.
+fn answer_text(response: reqwest::blocking::Response) -> Result<String, GitHubError> {
+    let status = response.status();
+    let text = response.text()?;
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(GitHubError::TokenRejected);
+    }
+    if !status.is_success() {
+        return Err(GitHubError::GitHub(sentence_from(&text)));
+    }
+    Ok(text)
 }
 
 /// GitHub's error body, turned into one line.

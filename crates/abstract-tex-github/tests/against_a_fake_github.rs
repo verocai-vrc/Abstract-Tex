@@ -283,3 +283,65 @@ fn a_name_github_will_not_take_comes_back_as_both_halves_of_its_sentence() {
         "GitHub said: Repository creation failed. name already exists on this account"
     );
 }
+
+// ---- S11.5b: listing what an account can clone ----------------------------------------------
+
+fn repository_json(name: &str) -> String {
+    format!(
+        r#"{{"full_name":"ada/{name}","clone_url":"https://github.com/ada/{name}.git","html_url":"https://github.com/ada/{name}","private":true,"id":1,"owner":{{"login":"ada"}}}}"#
+    )
+}
+
+/// A page of `count` repositories, leaked so the fake server (which wants `&'static str`) can
+/// hold it. Test-only, and a few kilobytes.
+fn page_of(count: usize, start: usize) -> &'static str {
+    let items: Vec<String> = (start..start + count).map(|n| repository_json(&format!("paper-{n}"))).collect();
+    Box::leak(format!("[{}]", items.join(",")).into_boxed_str())
+}
+
+#[test]
+fn listing_asks_for_the_accounts_repositories_with_the_token_and_reads_each_one() {
+    let (origin, requests) = fake_github(vec![page_of(2, 0)]);
+
+    let found = repos(&origin).list("gho_signed_in").unwrap();
+
+    assert_eq!(found.iter().map(|r| r.full_name.as_str()).collect::<Vec<_>>(), ["ada/paper-0", "ada/paper-1"]);
+    assert_eq!(found[0].clone_url, "https://github.com/ada/paper-0.git");
+    let request = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(request.starts_with("GET /user/repos?"), "{request}");
+    assert!(request.contains("per_page=100") && request.contains("sort=pushed"), "{request}");
+    assert!(request.contains("collaborator"), "a coauthor's paper is the commonest case: {request}");
+    assert!(request.to_lowercase().contains("authorization: bearer gho_signed_in"), "{request}");
+}
+
+#[test]
+fn a_full_page_asks_for_the_next_and_a_short_one_stops() {
+    let (origin, requests) = fake_github(vec![page_of(100, 0), page_of(3, 100)]);
+
+    let found = repos(&origin).list("t").unwrap();
+
+    assert_eq!(found.len(), 103);
+    let first = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    let second = requests.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(first.contains("page=1"), "{first}");
+    assert!(second.contains("page=2"), "{second}");
+    assert!(requests.recv_timeout(Duration::from_millis(300)).is_err(), "a short page must end the walk");
+}
+
+#[test]
+fn an_account_with_no_repositories_is_an_empty_list_and_not_an_error() {
+    let (origin, _requests) = fake_github(vec!["[]"]);
+    assert!(repos(&origin).list("t").unwrap().is_empty());
+}
+
+#[test]
+fn listing_with_a_revoked_token_is_rejected_so_the_app_can_forget_it() {
+    let (origin, _requests) = fake_github_answering(vec![(401, r#"{"message":"Bad credentials"}"#)]);
+    assert!(matches!(repos(&origin).list("t"), Err(GitHubError::TokenRejected)));
+}
+
+#[test]
+fn a_listing_that_is_not_a_list_says_so() {
+    let (origin, _requests) = fake_github(vec![r#"{"unexpected":"object"}"#]);
+    assert!(matches!(repos(&origin).list("t"), Err(GitHubError::Unreadable(_))));
+}
