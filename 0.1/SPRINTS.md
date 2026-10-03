@@ -5874,6 +5874,31 @@ Done when the count falls as markers are deleted, jumping wraps and crosses file
           with no markers shows nothing at all (no "0 left").
 ```
 
+**S11.12 (3 October 2026).** `[~]`: rungs 1–2 green — `pnpm verify` exit 0: `cargo test
+--workspace` 666 passed / 0 failed (unchanged: no Rust in this loop), Vitest 637/637 (21 new:
+`editor/placeholders.test.ts` for the finding, ordering and "next" logic; the flow in
+`controller.test.ts`; the `F8` chord), `pnpm check` 472 files / 0 errors / 0 warnings. `[~]` because
+rung 4 is owed — the gutter mark, the highlight and the status-bar count have not been seen in a
+real window, and the highlight's colour (`--accent` at 9%) is a guess. **The template addendum
+(S11.9–S11.12) is built; S11.8b is still the sprint's exit.** What a reader should take from the
+diff:
+
+1. **No new Rust.** The project-wide count reads each `.tex` file of the tree — the open buffer for
+   an open tab, the disk for the rest — through `readFile`. An open file is recounted 200 ms after
+   typing stops, off the keystroke path, from the *buffer*, so a marker deleted a moment ago is
+   already gone; a file that is not open is recounted when the watcher reports it.
+2. **The marker is `% FILL IN:`, anywhere on a line, case-sensitive,** and `\% FILL IN:` (a percent
+   sign in the text) is not one. The regex avoids a look-behind so it runs on any webview.
+3. **"Next" follows reading order:** the document's own files first (root, then what it includes),
+   then any other `.tex` file; strictly after the cursor, wrapping, and landing on the cursor's own
+   marker when it is the last one left. The cursor's line is reported by a small CodeMirror plugin
+   into `placeholders.cursorLine`; it is the only thing the editor tells the store.
+4. **A project made from a template opens on the first marker** — `openFolder(path, {
+   atFirstPlaceholder: true })`, which only *Create* passes, so opening a folder never moves the
+   cursor. It happens after the files are counted and before the first build.
+5. **Nothing is said when there is nothing to say:** no marker, no status-bar item (never "0 left").
+   `F8` with none left gives the notice "Nothing left to fill in."
+
 Not placed, deliberately: **a catalog fetched from the web at run time** (the one network feature
 this would add; it is opt-in or it is not built, §2 commitment 4), **user templates** ("save this
 project as a template", kept in the app data folder), and **journal templates** (publisher-owned

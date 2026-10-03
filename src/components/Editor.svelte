@@ -20,6 +20,7 @@
   import { citeThenLsp } from '../lib/editor/cite';
   import { lspCompletionSource } from '../lib/editor/completion';
   import { git } from '../lib/git.svelte';
+  import { placeholders } from '../lib/placeholders.svelte';
   import ConflictResolver from './ConflictResolver.svelte';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
@@ -70,6 +71,7 @@
       app.focusModeEnabled,
       app.typewriterModeEnabled,
       pasteCite,
+      (line) => (placeholders.cursorLine = line),
     );
     view = created;
     created.focus();

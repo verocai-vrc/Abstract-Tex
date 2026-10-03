@@ -12,6 +12,7 @@ export type Action =
   | 'compile'
   | 'open-folder'
   | 'new-project'
+  | 'next-placeholder'
   | 'quick-open'
   | 'command-palette'
   | 'view-files'
@@ -31,6 +32,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'compile', keys: 'F5', label: 'Build' },
   { action: 'open-folder', keys: 'Mod-O', label: 'Open folder…' },
   // S11.11: the front door for someone with no .tex yet (DESIGN.md §6).
+  // S11.12: F8 is "next problem" in VS Code, and a placeholder is the same kind of thing: a place the
+  // document is not finished.
+  { action: 'next-placeholder', keys: 'F8', label: 'Go to next placeholder' },
   { action: 'new-project', keys: 'Mod-Shift-N', label: 'New project from template…' },
   { action: 'quick-open', keys: 'Mod-P', label: 'Go to file…' },
   { action: 'command-palette', keys: 'Mod-K', label: 'Command palette…' },

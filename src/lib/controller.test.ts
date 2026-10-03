@@ -517,6 +517,8 @@ const {
   createProject,
   moveTemplateSelection,
   templateFilterChanged,
+  goToNextPlaceholder,
+  refreshPlaceholders,
   loadCloneList,
   showCloneWindow,
   closeDiff,
@@ -533,6 +535,7 @@ const { diffView } = await import('./diffview.svelte');
 const { compare } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
 const { newProject } = await import('./templates.svelte');
+const { placeholders } = await import('./placeholders.svelte');
 const { ipc } = await import('./ipc');
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
@@ -2871,6 +2874,104 @@ describe('starting from a template (S11.11)', () => {
     const command = allCommands().find((c) => c.id === 'new-project');
     expect(command?.title).toBe('New project from template…');
     expect(command?.shortcut).toBe('Ctrl Shift N');
+  });
+});
+
+describe('what is left to fill in (S11.12)', () => {
+  const node = (path: string) => ({ name: path.split('/').pop()!, path, isDir: false, children: [] });
+  const originalTree = project.tree;
+  const originalDocumentFiles = project.documentFiles;
+
+  async function openProjectWith(files: Record<string, string>, documentFiles: string[]) {
+    for (const [path, text] of Object.entries(files)) disk.set(path, text);
+    project.tree = Object.keys(files).map(node);
+    project.documentFiles = documentFiles;
+    await openFolder('/proj');
+  }
+
+  afterEach(() => {
+    project.tree = originalTree;
+    project.documentFiles = originalDocumentFiles;
+  });
+
+  it('counts the markers across the project’s files when it opens', async () => {
+    await openProjectWith(
+      { 'main.tex': '% FILL IN: a\ntext\n% FILL IN: b', 'sections/a.tex': '% FILL IN: c', 'notes.tex': 'nothing' },
+      ['main.tex', 'sections/a.tex'],
+    );
+    expect(placeholders.total).toBe(3);
+    expect([...placeholders.byFile.keys()].sort()).toEqual(['main.tex', 'sections/a.tex']);
+  });
+
+  it('shows nothing for a project with no markers', async () => {
+    await openProjectWith({ 'main.tex': 'just text' }, ['main.tex']);
+    expect(placeholders.total).toBe(0);
+  });
+
+  it('counts down as markers are deleted from the open buffer, shortly after typing stops', async () => {
+    await openProjectWith({ 'main.tex': '% FILL IN: a\n% FILL IN: b\n' }, ['main.tex']);
+    expect(placeholders.total).toBe(2);
+
+    const doc = app.docs.get('main.tex')!;
+    doc.ytext.delete(0, '% FILL IN: a\n'.length);
+    expect(placeholders.total).toBe(2); // not on the keystroke itself
+    await vi.advanceTimersByTimeAsync(200);
+    expect(placeholders.total).toBe(1);
+  });
+
+  it('jumps to the next marker after the cursor, across files, and wraps', async () => {
+    await openProjectWith(
+      { 'main.tex': 'x\n% FILL IN: a\n', 'sections/a.tex': 'y\ny\n% FILL IN: b\n' },
+      ['main.tex', 'sections/a.tex'],
+    );
+    app.activePath = 'main.tex';
+    placeholders.cursorLine = 1;
+
+    await goToNextPlaceholder();
+    expect([app.activePath, app.jumpRequest?.line]).toEqual(['main.tex', 2]);
+
+    placeholders.cursorLine = 2;
+    await goToNextPlaceholder();
+    expect([app.activePath, app.jumpRequest?.line]).toEqual(['sections/a.tex', 3]);
+
+    placeholders.cursorLine = 3;
+    await goToNextPlaceholder();
+    expect([app.activePath, app.jumpRequest?.line]).toEqual(['main.tex', 2]);
+  });
+
+  it('says so, in a sentence, when there is nothing left', async () => {
+    await openProjectWith({ 'main.tex': 'just text' }, ['main.tex']);
+    await goToNextPlaceholder();
+    expect(app.notice).toBe('Nothing left to fill in.');
+  });
+
+  it('a project made from a template opens with the cursor on the first marker, in whichever file', async () => {
+    await openProjectWith(
+      { 'main.tex': 'no markers here', 'sections/a.tex': 'y\n% FILL IN: first\n' },
+      ['main.tex', 'sections/a.tex'],
+    );
+    templatesAnswer = [{ id: 'thesis', name: 'Thesis', category: 'thesis', description: '', previewUrl: '', fields: [] }];
+    showNewProjectWindow();
+    await vi.advanceTimersByTimeAsync(0);
+    chooseTemplate('thesis');
+    app.activePath = 'main.tex';
+
+    await createProject();
+
+    expect([app.activePath, app.jumpRequest?.line]).toEqual(['sections/a.tex', 2]);
+  });
+
+  it('forgets the previous project’s markers when another folder opens', async () => {
+    await openProjectWith({ 'main.tex': '% FILL IN: a' }, ['main.tex']);
+    expect(placeholders.total).toBe(1);
+    await openProjectWith({ 'main.tex': 'clean' }, ['main.tex']);
+    await refreshPlaceholders();
+    expect(placeholders.total).toBe(0);
+  });
+
+  it('is in the palette on F8', () => {
+    const command = allCommands().find((c) => c.id === 'next-placeholder');
+    expect(command?.shortcut).toBe('F8');
   });
 });
 

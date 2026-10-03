@@ -6,6 +6,8 @@ import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
 import { filterTemplates, neighbour, newProject } from './templates.svelte';
+import { placeholders } from './placeholders.svelte';
+import { findPlaceholderLines, nextPlaceholder, orderedTexFiles, texPathsOf } from './editor/placeholders';
 import { diffView, isDiffable } from './diffview.svelte';
 import { defaultFile, snapshots, SNAPSHOT_PAGE } from './snapshots.svelte';
 import {
@@ -826,7 +828,7 @@ export async function createProject(): Promise<void> {
     const folder = await ipc.templateCreate(template.id, parent, answers);
     newProject.visible = false;
     newProject.step = 'choose';
-    await openFolder(folder);
+    await openFolder(folder, { atFirstPlaceholder: true });
   } catch (error) {
     newProject.error = String(error);
   } finally {
@@ -1322,13 +1324,16 @@ export async function start(): Promise<void> {
   if (initial) await openFolder(initial);
 }
 
-export async function openFolder(path?: string): Promise<void> {
+export async function openFolder(path?: string, options: { atFirstPlaceholder?: boolean } = {}): Promise<void> {
   const chosen = path ?? (await ipc.pickFolder());
   if (!chosen) return;
   try {
     const info = await ipc.openProject(chosen);
     closeAllDocuments();
     app.project = info;
+    // The previous project's placeholders are not this one's (S11.12).
+    placeholders.byFile = new Map();
+    placeholders.cursorLine = 1;
     app.pdfUrl = null;
     app.pdfDraftOf = null;
     fullPdfUrl = null;
@@ -1383,8 +1388,13 @@ export async function openFolder(path?: string): Promise<void> {
     app.shellEscapeAllowed = await ipc.shellEscapeAllowed().catch(() => false);
     if (info.rootFile) {
       await openFile(info.rootFile);
+      // A project made from a template opens with the cursor on the first thing to replace
+      // (S11.12). Counting waits for the files to be read, so the count is right before the build.
+      await refreshPlaceholders();
+      if (options.atFirstPlaceholder) await goToNextPlaceholder(true);
       await triggerCompile();
     } else {
+      void refreshPlaceholders();
       app.notice = 'No root .tex file found. Create main.tex, or pick a file and mark it as root.';
     }
   } catch (error) {
@@ -1438,7 +1448,10 @@ export async function openFile(relativePath: string): Promise<void> {
     const text = await ipc.readFile(relativePath);
     const doc = manager.open(relativePath, text);
     doc.onDirtyChange = (isDirty) => setDirty(relativePath, isDirty);
-    doc.onTextChange = () => scheduleOutlineRefresh();
+    doc.onTextChange = () => {
+      scheduleOutlineRefresh();
+      schedulePlaceholderRefresh(relativePath);
+    };
     syncTabs();
     app.activePath = relativePath;
     tellServer((absolute) => lsp.didOpen(absolute, text), relativePath);
@@ -1459,6 +1472,11 @@ export async function closeTab(path: string): Promise<void> {
   syncTabs();
   if (app.activePath === path) app.activePath = next;
   tellServer((absolute) => lsp.didClose(absolute), path);
+  // The buffer was the truth for this file's count; the disk is now (S11.12).
+  const pending = placeholderTimers.get(path);
+  if (pending) clearTimeout(pending);
+  placeholderTimers.delete(path);
+  if (path.endsWith('.tex')) void refreshPlaceholdersOnDisk(path, true);
 }
 
 /**
@@ -1655,6 +1673,13 @@ registerCommand({
   run: () => showSnapshots(),
 });
 registerCommand({
+  id: 'next-placeholder',
+  title: 'Go to next placeholder',
+  category: 'action',
+  shortcut: 'F8',
+  run: () => void goToNextPlaceholder(),
+});
+registerCommand({
   id: 'new-project',
   title: 'New project from template…',
   category: 'action',
@@ -1726,6 +1751,79 @@ export function toggleFocusMode(): void {
  * mode — either, both, or neither can be on. */
 export function toggleTypewriterMode(): void {
   app.typewriterModeEnabled = !app.typewriterModeEnabled;
+}
+
+// ---- What is left to fill in (S11.12) ---------------------------------------------------------
+
+/** One timer per file, so typing in two tabs does not cancel the other's recount. */
+const placeholderTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function setPlaceholdersFor(path: string, lines: number[]): void {
+  const next = new Map(placeholders.byFile);
+  if (lines.length > 0) next.set(path, lines);
+  else next.delete(path);
+  placeholders.byFile = next;
+}
+
+/** An open file changed: recount it shortly, off the keystroke path (DESIGN.md §2). The buffer is
+ * the truth for an open file, not the disk, so a marker deleted a moment ago is already gone. */
+function schedulePlaceholderRefresh(path: string): void {
+  const pending = placeholderTimers.get(path);
+  if (pending) clearTimeout(pending);
+  placeholderTimers.set(
+    path,
+    setTimeout(() => {
+      placeholderTimers.delete(path);
+      const doc = manager.get(path);
+      if (doc) setPlaceholdersFor(path, findPlaceholderLines(doc.text()));
+    }, 200),
+  );
+}
+
+/** A file that is not open changed on disk (git checkout, another editor): read it again. */
+async function refreshPlaceholdersOnDisk(path: string, exists: boolean): Promise<void> {
+  try {
+    setPlaceholdersFor(path, exists ? findPlaceholderLines(await ipc.readFile(path)) : []);
+  } catch {
+    // A transient read failure is not an answer; the next event will bring another.
+  }
+}
+
+/** Count the markers in every `.tex` file of the project: the buffer for an open file, the disk
+ * for the rest. A project opened in the meantime wins, so a slow read cannot paint the old
+ * project's count onto the new one. */
+export async function refreshPlaceholders(): Promise<void> {
+  const project = app.project;
+  if (!project) return;
+  const found = new Map<string, number[]>();
+  await Promise.all(
+    texPathsOf(project.tree).map(async (path) => {
+      try {
+        const text = manager.get(path)?.text() ?? (await ipc.readFile(path));
+        const lines = findPlaceholderLines(text);
+        if (lines.length > 0) found.set(path, lines);
+      } catch {
+        // An unreadable file has no placeholders we can count.
+      }
+    }),
+  );
+  if (app.project === project) placeholders.byFile = found;
+}
+
+/** *Go to next placeholder* (`F8`): the next `% FILL IN:` after the cursor, across the project's
+ * files, wrapping round. `fromStart` ignores the cursor, for a project that has just been made. */
+export async function goToNextPlaceholder(fromStart = false): Promise<void> {
+  const project = app.project;
+  if (!project) return;
+  const order = orderedTexFiles(project.documentFiles, texPathsOf(project.tree));
+  const from = !fromStart && app.activePath ? { path: app.activePath, line: placeholders.cursorLine } : null;
+  const target = nextPlaceholder(order, placeholders.byFile, from);
+  if (!target) {
+    app.notice = 'Nothing left to fill in.';
+    return;
+  }
+  await openFile(target.path);
+  if (app.activePath === target.path) jumpToLine(target.line);
 }
 
 export function jumpToLine(line: number): void {
@@ -1993,6 +2091,7 @@ async function handleFsEvent(event: FsEvent): Promise<void> {
   scheduleTreeRefresh();
 
   await reconcileOpenDocument(relative, event.exists);
+  if (relative.endsWith('.tex') && !manager.isOpen(relative)) void refreshPlaceholdersOnDisk(relative, event.exists);
 
   // A compile input changed by something else (git checkout, another editor): recompile. Not
   // while this very file is waiting on an answer, though — building one version of the file

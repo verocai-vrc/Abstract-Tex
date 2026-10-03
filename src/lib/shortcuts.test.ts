@@ -37,6 +37,11 @@ describe('shortcutFor', () => {
     expect(shortcutFor(press('n', { ctrlKey: true }))).toBeNull();
   });
 
+  it('jumps to the next placeholder with F8 alone (S11.12)', () => {
+    expect(shortcutFor(press('F8'))).toBe('next-placeholder');
+    expect(shortcutFor(press('F8', { ctrlKey: true }))).toBeNull();
+  });
+
   it('does not steal a chord that carries Shift or Alt and is not in the table', () => {
     // `Ctrl Shift S` is the platform's, and `Ctrl E` is not "Files" — Shift is matched exactly,
     // not ignored, so neither the chord with it nor the one without it reaches the other's action.

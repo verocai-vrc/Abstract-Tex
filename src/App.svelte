@@ -5,6 +5,7 @@
     openFolder,
     saveNow,
     showCloneWindow,
+    goToNextPlaceholder,
     showNewProjectWindow,
     showActivityView,
     start,
@@ -47,6 +48,9 @@
       case 'compile':
         // triggerCompile saves every open tab first (S2.3), so nothing extra needs saving here.
         void triggerCompile();
+        break;
+      case 'next-placeholder':
+        void goToNextPlaceholder();
         break;
       case 'new-project':
         showNewProjectWindow();

@@ -3,7 +3,9 @@
   import { bibliography } from '../lib/bibliography.svelte';
   import { branchLabel, git, syncArrows } from '../lib/git.svelte';
   import { github } from '../lib/github.svelte';
-  import { detectZotero, disallowShellEscape, showActivityView, toggleDrawer } from '../lib/controller.svelte';
+  import { placeholders } from '../lib/placeholders.svelte';
+  import { leftToFillIn } from '../lib/editor/placeholders';
+  import { detectZotero, disallowShellEscape, goToNextPlaceholder, showActivityView, toggleDrawer } from '../lib/controller.svelte';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -53,6 +55,9 @@
   // S8.3: a quiet count, shown only once there is something to say — an empty bibliography or a
   // clean one both mean "nothing to show here", matching the drawer's own "only interrupt for a
   // real problem" rule (DESIGN.md §6).
+  // S11.12: said only while there is something to say, and never as "0 left".
+  const leftText = $derived(leftToFillIn(placeholders.total));
+
   const bibIssueCount = $derived(bibliography.findings.length);
 </script>
 
@@ -95,6 +100,14 @@
 
   {#if app.activePath}
     <span>{app.activePath}{app.dirty ? ' •' : ''}</span>
+  {/if}
+
+  {#if leftText}
+    <!-- S11.12: a fresh template says how much of it is still the template's. One click goes to
+         the next, the same as F8. -->
+    <button class="ghost" title="Go to next placeholder (F8)" onclick={() => void goToNextPlaceholder()}>
+      {leftText}
+    </button>
   {/if}
 
   <span class="spacer"></span>
