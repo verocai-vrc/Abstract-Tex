@@ -5,6 +5,7 @@
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
+import { defaultFile, snapshots, SNAPSHOT_PAGE } from './snapshots.svelte';
 import {
   compare,
   describeEnd,
@@ -17,7 +18,7 @@ import {
 import { git, GRAPH_PAGE, NO_CHANGES, relativeTime, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
 import { registerCommand } from './commands';
-import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type Visibility } from './ipc';
+import { ipc, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
@@ -450,6 +451,8 @@ export function goToOutlineItem(item: OutlineItem): void {
 /** Which view the left pane shows. The activity bar and the command palette both call this. */
 export function showActivityView(view: ActivityView): void {
   app.activityView = view;
+  // S11.6: the Snapshots section is read fresh whenever the view comes up; nothing polls.
+  if (view === 'source-control') void refreshSnapshots();
 }
 
 /** Pending coalesced status refresh, if any. See `scheduleGitRefresh`. */
@@ -557,6 +560,88 @@ async function refreshGitGraph(): Promise<void> {
     graphBuiltFrom = null;
     git.readError = String(error);
   }
+}
+
+// ---- Snapshots (S11.6, design interview B3) -----------------------------------------------------
+
+/** Ask for the newest snapshots. A failure is a sentence in the section, never a notice: the safety
+ * net is never the loudest thing on screen. */
+export async function refreshSnapshots(): Promise<void> {
+  if (!app.project) {
+    snapshots.rows = null;
+    return;
+  }
+  try {
+    snapshots.rows = await ipc.snapshotList(SNAPSHOT_PAGE);
+    snapshots.listError = null;
+  } catch (error) {
+    snapshots.listError = String(error);
+  }
+}
+
+/** Open one snapshot in the viewer: its text files, and the project's root file first. */
+export async function openSnapshot(row: SnapshotRow): Promise<void> {
+  snapshots.selected = row;
+  snapshots.files = [];
+  snapshots.filePath = null;
+  snapshots.text = null;
+  snapshots.viewError = null;
+  snapshots.restored = null;
+  try {
+    const files = await ipc.snapshotFiles(row.id);
+    if (snapshots.selected !== row) return; // another snapshot was opened while this one loaded
+    snapshots.files = files;
+    const first = defaultFile(files, app.project?.rootFile ?? null);
+    if (first) await showSnapshotFile(first);
+  } catch (error) {
+    if (snapshots.selected === row) snapshots.viewError = String(error);
+  }
+}
+
+/** Show one file of the open snapshot, read-only. */
+export async function showSnapshotFile(path: string): Promise<void> {
+  const row = snapshots.selected;
+  if (!row) return;
+  snapshots.filePath = path;
+  snapshots.text = null;
+  snapshots.viewError = null;
+  snapshots.restored = null;
+  try {
+    const text = await ipc.snapshotRead(row.id, path);
+    if (snapshots.selected === row && snapshots.filePath === path) snapshots.text = text;
+  } catch (error) {
+    if (snapshots.selected === row && snapshots.filePath === path) snapshots.viewError = String(error);
+  }
+}
+
+export function closeSnapshot(): void {
+  snapshots.selected = null;
+}
+
+/** *Restore this file*: put it back as it was. Rust keeps the version it replaces as a snapshot
+ * first, so the sentence can say so truthfully and the author can undo it from the same list. An
+ * open tab hears about the change from the watcher, as after `git checkout`. */
+export async function restoreSnapshotFile(): Promise<void> {
+  const row = snapshots.selected;
+  const path = snapshots.filePath;
+  // Not before the text is on screen: nobody restores a version they have not been shown.
+  if (!row || !path || snapshots.text === null || snapshots.restoring) return;
+  snapshots.restoring = true;
+  snapshots.viewError = null;
+  try {
+    await ipc.snapshotRestore(row.id, path);
+    snapshots.restored = `Restored ${path}. The version it replaced is kept in this list.`;
+    await refreshSnapshots();
+  } catch (error) {
+    snapshots.viewError = String(error);
+  } finally {
+    snapshots.restoring = false;
+  }
+}
+
+/** The palette's *Recover an earlier version…*: the Snapshots section, freshly read. */
+export function showSnapshots(): void {
+  showActivityView('source-control');
 }
 
 // ---- Cloning a repository (S11.5b, design interview B2) ----------------------------------------
@@ -1152,7 +1237,12 @@ export async function openFolder(path?: string): Promise<void> {
     git.lastDiscard = null;
     // The previous project's comparison, and the rows it marked, are not this one's.
     clearComparison();
+    // And the previous project's snapshots, which are not this one's either (S11.6).
+    snapshots.rows = null;
+    snapshots.selected = null;
+    snapshots.listError = null;
     void refreshGitStatus();
+    void refreshSnapshots();
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
     // compile loop and the PDF all work without it.
@@ -1430,6 +1520,12 @@ registerCommand({
   run: () => showActivityView('source-control'),
 });
 // S11.4d (A10): the commonest comparison, with no clicking.
+registerCommand({
+  id: 'show-snapshots',
+  title: 'Recover an earlier version…',
+  category: 'action',
+  run: () => showSnapshots(),
+});
 registerCommand({
   id: 'clone-repository',
   title: 'Clone a repository…',
@@ -1719,6 +1815,9 @@ function handleCompileEvent(event: CompileEvent): void {
       }
       // A failed build opens the drawer; a clean build closes it (never shouting when nothing
       // is wrong, DESIGN.md §6). The raw log view is never the default.
+      // A successful build is followed by a snapshot, taken off the build's path (`take_snapshot`);
+      // the list, if it is on screen, learns about it a moment later (S11.6).
+      if (event.success) setTimeout(() => void (app.activityView === 'source-control' && refreshSnapshots()), 1_500);
       app.drawerOpen = !event.success;
       if (event.success) app.showRawLog = false;
       // The excerpt a card asked the raw view to highlight belonged to the log this build just

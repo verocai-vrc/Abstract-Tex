@@ -340,6 +340,17 @@ export interface Initialised {
  * property of the code rather than of this panel. */
 export type Visibility = { kind: 'private' } | { kind: 'public'; confirmed: boolean };
 
+/** One snapshot of the project (`abstract_tex_snapshot::SnapshotRow`), S11.6. */
+export interface SnapshotRow {
+  id: string;
+  /** The first seven characters of the id. */
+  shortId: string;
+  /** Seconds since the Unix epoch, UTC. */
+  time: number;
+  /** Words of prose in that version's `.tex` files. */
+  words: number;
+}
+
 /** A repository as GitHub made it (`abstract_tex_github::Repository`). */
 export interface GitHubRepository {
   /** `ada/thesis` — what the panel shows. */
@@ -560,6 +571,14 @@ export const ipc = {
    * and leaves nothing on disk. */
   gitClone: (url: string, parentDir: string, folderName: string | null) =>
     invoke<string>('git_clone', { url, parentDir, folderName }),
+  /** S11.6: the newest snapshots, newest first. Works for a folder that is not a Git repository. */
+  snapshotList: (limit: number) => invoke<SnapshotRow[]>('snapshot_list', { limit }),
+  /** S11.6: the `.tex` and `.bib` files one snapshot holds. */
+  snapshotFiles: (id: string) => invoke<string[]>('snapshot_files', { id }),
+  /** S11.6: one file as it was in one snapshot. Read-only: nothing in the project is touched. */
+  snapshotRead: (id: string, path: string) => invoke<string>('snapshot_read', { id, path }),
+  /** S11.6: put one file back as it was, keeping the version it replaces as a snapshot first. */
+  snapshotRestore: (id: string, path: string) => invoke<void>('snapshot_restore', { id, path }),
   /** The URL of this project's `origin`, or `null` when it has no remote (or no repository). */
   gitOriginUrl: () => invoke<string | null>('git_origin_url'),
 

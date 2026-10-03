@@ -10,6 +10,7 @@ import type {
   CompileEvent,
   ComparisonStarted,
   GitHubRepository,
+  SnapshotRow,
   Discarded,
   Finding,
   ProseSummary,
@@ -131,6 +132,11 @@ let savePathAnswer: string | null = '/out/diff.pdf';
 let listAnswer: GitHubRepository[] | Error = [];
 let cloneAnswer: string | Error = '/papers/thesis';
 let parentFolderAnswer: string | null = '/papers';
+/** S11.6: the fake snapshot ref's rows, each version's files and text, and every restore asked for. */
+let snapshotRows: SnapshotRow[] = [];
+let snapshotFilesOnDisk: Record<string, Record<string, string>> = {};
+let snapshotError: string | null = null;
+const restores: Array<[string, string]> = [];
 const clones = { asked: [] as Array<[string, string, string | null]>, lists: 0 };
 const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[] };
 let lspHandler: (event: LspEvent) => void = () => {};
@@ -225,6 +231,20 @@ vi.mock('./ipc', () => ({
       return compareAnswer(a, b);
     },
     pickSavePath: async () => savePathAnswer,
+    snapshotList: async () => {
+      if (snapshotError) throw new Error(snapshotError);
+      return snapshotRows;
+    },
+    snapshotFiles: async (id: string) => Object.keys(snapshotFilesOnDisk[id] ?? {}),
+    snapshotRead: async (id: string, path: string) => {
+      const text = snapshotFilesOnDisk[id]?.[path];
+      if (text === undefined) throw new Error(`That version of the project has no ${path}.`);
+      return text;
+    },
+    snapshotRestore: async (id: string, path: string) => {
+      if (snapshotError) throw new Error(snapshotError);
+      restores.push([id, path]);
+    },
     githubListRepositories: async () => {
       clones.lists++;
       if (listAnswer instanceof Error) throw listAnswer;
@@ -468,7 +488,13 @@ const {
   closeCloneWindow,
   loadCloneList,
   showCloneWindow,
+  closeSnapshot,
+  openSnapshot,
+  refreshSnapshots,
+  restoreSnapshotFile,
+  showSnapshotFile,
 } = await import('./controller.svelte');
+const { snapshots } = await import('./snapshots.svelte');
 const { compare } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
 const { ipc } = await import('./ipc');
@@ -547,6 +573,10 @@ beforeEach(async () => {
   comparisons.asked = [];
   comparisons.saved = [];
   savePathAnswer = '/out/diff.pdf';
+  snapshotRows = [];
+  snapshotFilesOnDisk = {};
+  snapshotError = null;
+  restores.length = 0;
   listAnswer = [];
   cloneAnswer = '/papers/thesis';
   parentFolderAnswer = '/papers';
@@ -2665,5 +2695,105 @@ describe('cloning a repository (S11.5b)', () => {
 
   it('is in the palette', () => {
     expect(allCommands().some((c) => c.id === 'clone-repository' && c.title === 'Clone a repository…')).toBe(true);
+  });
+});
+
+
+describe('snapshots (S11.6)', () => {
+  const newest: SnapshotRow = { id: 'b'.repeat(40), shortId: 'bbbbbbb', time: 2_000, words: 120 };
+  const older: SnapshotRow = { id: 'a'.repeat(40), shortId: 'aaaaaaa', time: 1_000, words: 80 };
+
+  beforeEach(() => {
+    closeSnapshot();
+    snapshots.rows = null;
+    snapshots.restored = null;
+    snapshots.viewError = null;
+    snapshotRows = [newest, older];
+    snapshotFilesOnDisk = {
+      [newest.id]: { 'chapters/a.tex': 'newer chapter', 'main.tex': 'newer main' },
+      [older.id]: { 'main.tex': 'older main' },
+    };
+  });
+
+  it('lists the snapshots when the Source Control view comes up', async () => {
+    showActivityView('source-control');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(snapshots.rows).toEqual([newest, older]);
+  });
+
+  it('says why the list could not be read, without a notice', async () => {
+    snapshotError = 'the snapshot could not be read back';
+    await refreshSnapshots();
+    expect(snapshots.listError).toContain('could not be read back');
+    expect(app.notice).toBeNull();
+  });
+
+  it('opening a snapshot shows the root file first, read-only', async () => {
+    await openSnapshot(newest);
+    expect(snapshots.files).toEqual(['chapters/a.tex', 'main.tex']);
+    expect(snapshots.filePath).toBe('main.tex'); // the fake project's root file
+    expect(snapshots.text).toBe('newer main');
+  });
+
+  it('shows another file of the same snapshot on request', async () => {
+    await openSnapshot(newest);
+    await showSnapshotFile('chapters/a.tex');
+    expect(snapshots.text).toBe('newer chapter');
+  });
+
+  it('does not let a slow answer for one snapshot land in another', async () => {
+    const first = openSnapshot(newest);
+    await openSnapshot(older);
+    await first;
+    expect(snapshots.selected).toBe(older);
+    expect(snapshots.text).toBe('older main');
+  });
+
+  it('restoring asks Rust for exactly the file on screen and says the replaced version is kept', async () => {
+    await openSnapshot(older);
+    await restoreSnapshotFile();
+    expect(restores).toEqual([[older.id, 'main.tex']]);
+    expect(snapshots.restored).toMatch(/Restored main\.tex\..*kept/);
+    expect(snapshots.restoring).toBe(false);
+  });
+
+  it('a refused restore is a sentence in the viewer and claims nothing was restored', async () => {
+    await openSnapshot(older);
+    snapshotError = 'The current version could not be kept first, so nothing was changed: disk full';
+    await restoreSnapshotFile();
+    expect(snapshots.viewError).toContain('nothing was changed');
+    expect(snapshots.restored).toBeNull();
+  });
+
+  it('will not restore before the text is on screen, nor while a restore is running', async () => {
+    snapshots.selected = older;
+    snapshots.filePath = 'main.tex';
+
+    snapshots.text = null;
+    await restoreSnapshotFile();
+    expect(restores).toEqual([]);
+
+    snapshots.text = 'older main';
+    snapshots.restoring = true;
+    await restoreSnapshotFile();
+    expect(restores).toEqual([]);
+
+    snapshots.restoring = false;
+    await restoreSnapshotFile();
+    expect(restores).toEqual([[older.id, 'main.tex']]);
+  });
+
+  it('is in the palette', () => {
+    expect(allCommands().some((c) => c.id === 'show-snapshots' && c.title === 'Recover an earlier version…')).toBe(true);
+  });
+
+  it('forgets one project’s snapshots when another folder opens', async () => {
+    snapshots.rows = [newest];
+    snapshots.selected = newest;
+    snapshotRows = [];
+    await openFolder('/proj');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(snapshots.selected).toBeNull();
+    expect(snapshots.rows).toEqual([]);
   });
 });

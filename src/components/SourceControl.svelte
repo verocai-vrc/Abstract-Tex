@@ -23,6 +23,7 @@
     initialiseRepository,
     loadMoreCommits,
     markGraphRow,
+    openSnapshot,
     suggestedRemoteName,
     openFile,
     openVerificationPage,
@@ -37,6 +38,7 @@
   import { formatMegabytes, git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
   import { compare, markOf } from '../lib/compare.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
+  import { snapshotLabel, snapshots } from '../lib/snapshots.svelte';
   import { app } from '../lib/state.svelte';
 
   // S10.5b: the publish block's own two fields. `$state` and not `$derived`, because once the
@@ -195,6 +197,36 @@
   {/if}
 {/snippet}
 
+{#snippet snapshotsSection()}
+  <!-- S11.6 (design interview B3): the safety net, in words. A snapshot is taken after every
+       successful build, so an author who has never once pressed commit still has a list of
+       versions to go back to. Shown with or without a Git repository: those are the authors it is
+       for. -->
+  <div class="sc-section">
+    <div class="sidebar-head">
+      <span class="label">Snapshots</span>
+    </div>
+    {#if snapshots.listError}
+      <p class="hint error">{snapshots.listError}</p>
+    {:else if snapshots.rows === null}
+      <p class="hint">Reading…</p>
+    {:else if snapshots.rows.length === 0}
+      <p class="hint">Nothing yet. A version is kept every time the document builds.</p>
+    {:else}
+      <ul class="commit-list">
+        {#each snapshots.rows as row (row.id)}
+          <li class="commit-row">
+            <button class="commit-button" onclick={() => void openSnapshot(row)} title="Look at this version">
+              <div class="commit-summary">{snapshotLabel(row, now)}</div>
+              <div class="commit-meta"><span class="short-id">{row.shortId}</span></div>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+{/snippet}
+
 {#snippet signIn()}
   <!-- S10.4b: GitHub's device flow. The code is the whole interface — big enough to read off a
        screen, with one button that copies it and one that opens the browser. Nothing here is
@@ -280,6 +312,7 @@
     {#if git.error}<p class="hint error">{git.error}</p>{/if}
     {#if git.readError}<p class="hint error">{git.readError}</p>{/if}
     {@render signIn()}
+    {@render snapshotsSection()}
   {:else}
     <div class="sidebar-head">
       <span class="label">Source Control</span>
@@ -485,6 +518,7 @@
         {/if}
       {/if}
     </div>
+    {@render snapshotsSection()}
   {/if}
 </aside>
 

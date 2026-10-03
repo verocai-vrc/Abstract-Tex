@@ -5551,6 +5551,43 @@ Done when the list is newest first with word counts; an older version reads back
 reason: the id check above, and the snapshot-before-restore. Snapshot ordering is topological and
 not by clock, because two compiles in one second share a timestamp.
 
+```
+Loop      S11.6b · The Snapshots list and viewer · M
+Reads     DESIGN.md §5.7, §6; design-interview.md B3
+Depends   S11.6a
+Files     src/lib/snapshots.svelte.ts + snapshots.test.ts (new), src/components/SnapshotViewer.svelte
+          (new), src/components/SourceControl.svelte, src/lib/controller.svelte.ts, src/lib/ipc.ts,
+          src/App.svelte
+Build     A *Snapshots* section in Source Control — in a folder with no repository too, since those
+          are the authors it is for — listing the newest twenty as `4 minutes ago · 3,210 words`.
+          A row opens a read-only viewer: the snapshot's `.tex`/`.bib` files, the project's root
+          file first, and *Restore this file*. The button is disabled until the text is on screen.
+          The list is read when the view comes up and a moment after a successful build; nothing
+          polls. Palette: *Recover an earlier version…*.
+Verify    pnpm verify; rung 4 in the Windows smoke campaign
+Done when a project compiled twice shows two rows; a row shows that version's file as it was; and
+          restoring puts it back, says the replaced version is kept, and that version is the
+          newest row.
+```
+
+**S11.6b (3 October 2026).** `[~]`: `pnpm verify` exit 0 — `cargo test --workspace` 630 passed,
+Vitest 588/588 (15 new: 5 for the two helpers, 10 for the controller's flow), `pnpm check` 461
+files / 0 errors / 0 warnings. `[~]` because rung 4 is owed: nobody has seen the list, opened a
+version or restored one, and the thing that matters most — an *open tab* following a restore
+through the watcher — is only argued for, not seen. **S11.6 is done as far as it can be without
+that.** What a reader should take from the diff:
+
+1. **The viewer is a window, not an editor tab.** The card said "opening one shows that version's
+   file read-only"; a read-only editor tab would have meant a second kind of document in the tab
+   model for one feature. A `<pre>` in a dialog is read-only by construction and costs no change to
+   `documents.ts`.
+2. **Restore is a disk write, not an editor edit.** Rust writes the file and the watcher reports
+   it, so an open tab reconciles through the path S2.1 built for `git checkout`. If that tab has
+   unsaved edits, the author gets the conflict bar — the right answer, and the reason the replaced
+   version was snapshotted first.
+3. **Stale answers are dropped:** opening another snapshot, or another file, while one is loading
+   never lets the slow answer land in the new view.
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
