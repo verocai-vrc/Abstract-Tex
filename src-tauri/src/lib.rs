@@ -15,6 +15,7 @@
 //! State that lives for the whole app is in [`AppState`], handed to Tauri with `.manage()` and
 //! borrowed by commands as `State<'_, AppState>`.
 
+pub mod assistant;
 pub mod bibliography;
 pub mod commands;
 pub mod compile;
@@ -110,6 +111,12 @@ pub fn run() {
         .setup(|app| {
             let config = app.path().app_config_dir()?;
             app.manage(consent::ShellEscapeConsent::at(config.join("shell-escape.toml")));
+            // S12.1b: the assistant's settings are per machine, in the same folder and for the same
+            // reason; its key goes to the OS keychain and nowhere else (`assistant.rs`).
+            app.manage(assistant::AssistantSettings::at(config.join("assistant.json")));
+            app.manage(assistant::AssistantKeys(std::sync::Arc::new(
+                abstract_tex_assistant::Keychain::for_this_app(),
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -127,6 +134,11 @@ pub fn run() {
             commands::allow_shell_escape,
             commands::disallow_shell_escape,
             commands::read_log,
+            assistant::assistant_status,
+            assistant::assistant_save_provider,
+            assistant::assistant_clear_key,
+            assistant::assistant_set_enabled,
+            assistant::assistant_test,
             commands::cancel_comparison,
             commands::read_comparison_log,
             commands::diff_ops,

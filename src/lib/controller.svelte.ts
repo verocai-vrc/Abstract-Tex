@@ -6,6 +6,8 @@ import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
 import { filterTemplates, neighbour, newProject } from './templates.svelte';
+import { assistant, resetForm } from './assistant.svelte';
+import { providerFromForm } from './assistant';
 import { placeholders } from './placeholders.svelte';
 import { findPlaceholderLines, nextPlaceholder, orderedTexFiles, texPathsOf } from './editor/placeholders';
 import { diffView, isDiffable } from './diffview.svelte';
@@ -455,8 +457,93 @@ export function goToOutlineItem(item: OutlineItem): void {
 /** Which view the left pane shows. The activity bar and the command palette both call this. */
 export function showActivityView(view: ActivityView): void {
   app.activityView = view;
+  if (view === 'assistant') void openAssistantSettings();
   // S11.6: the Snapshots section is read fresh whenever the view comes up; nothing polls.
   if (view === 'source-control') void refreshSnapshots();
+}
+
+// ---------------------------------------------------------------------------------------------
+// S12.1b: the assistant's settings. Nothing here sends anything except `testAssistant`, and that
+// only when called from the button; opening the view, saving and switching on make no request.
+// ---------------------------------------------------------------------------------------------
+
+function say(message: string | null, isError = false): void {
+  assistant.message = message;
+  assistant.messageIsError = isError;
+}
+
+/** Read the settings for the open project. With no project there is nothing to switch on, so the
+ * status is dropped and no entry point anywhere can appear. */
+export async function refreshAssistant(): Promise<void> {
+  if (!app.project) {
+    assistant.status = null;
+    return;
+  }
+  try {
+    assistant.status = await ipc.assistantStatus();
+  } catch (error) {
+    assistant.status = null;
+    say(String(error), true);
+  }
+}
+
+/** The view just opened, or the project changed: form back to what is saved, last message gone. */
+export async function openAssistantSettings(): Promise<void> {
+  say(null);
+  await refreshAssistant();
+  resetForm();
+}
+
+export async function saveAssistantSettings(): Promise<void> {
+  const provider = providerFromForm(assistant.form);
+  if (typeof provider === 'string') {
+    say(provider, true);
+    return;
+  }
+  assistant.busy = true;
+  try {
+    await ipc.assistantSaveProvider(provider, assistant.keyInput.trim() || null);
+    assistant.keyInput = ''; // sent; nothing here keeps it
+    say('Saved.');
+    await refreshAssistant();
+  } catch (error) {
+    say(String(error), true);
+  } finally {
+    assistant.busy = false;
+  }
+}
+
+export async function forgetAssistantKey(): Promise<void> {
+  try {
+    await ipc.assistantClearKey();
+    say('The key was removed from this computer’s keychain.');
+    await refreshAssistant();
+  } catch (error) {
+    say(String(error), true);
+  }
+}
+
+export async function setAssistantEnabled(enabled: boolean): Promise<void> {
+  try {
+    await ipc.assistantSetEnabled(enabled);
+    say(null);
+    await refreshAssistant();
+  } catch (error) {
+    say(String(error), true);
+  }
+}
+
+/** *Test the connection*: the one place the settings send a request, and only on this click. */
+export async function testAssistant(): Promise<void> {
+  assistant.busy = true;
+  say('Asking…');
+  try {
+    say(await ipc.assistantTest());
+  } catch (error) {
+    say(String(error), true);
+  } finally {
+    assistant.busy = false;
+  }
 }
 
 /** Pending coalesced status refresh, if any. See `scheduleGitRefresh`. */
@@ -1361,6 +1448,7 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
     app.rawLog = '';
     app.rawLogFocus = null;
     app.notice = null;
+    void refreshAssistant();
     // The previous project's bibliography is not this one's. The first index arrives from the
     // command below; later ones arrive as events.
     bibliography.index = null;

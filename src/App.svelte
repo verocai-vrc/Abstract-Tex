@@ -17,6 +17,7 @@
   import { shortcutFor } from './lib/shortcuts';
   import ActivityBar from './components/ActivityBar.svelte';
   import SourceControl from './components/SourceControl.svelte';
+  import AssistantView from './components/AssistantView.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import Editor from './components/Editor.svelte';
   import PdfPane from './components/PdfPane.svelte';
@@ -100,8 +101,10 @@
        holds whichever is current and nothing about the layout depends on which. -->
   {#if app.activityView === 'files'}
     <Sidebar />
-  {:else}
+  {:else if app.activityView === 'source-control'}
     <SourceControl />
+  {:else}
+    <AssistantView />
   {/if}
   <Editor />
   <PdfPane />

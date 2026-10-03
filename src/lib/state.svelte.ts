@@ -12,7 +12,7 @@ export type CompilePhase = 'idle' | 'running' | 'ok' | 'error' | 'failed';
 /** Which tenant of the left pane is on screen (S10.3a). Two of the activity bar's four icons
  * select one; Assistant (v0.7) and Settings are drawn and disabled, so there is no variant here
  * for a view that does not exist yet. */
-export type ActivityView = 'files' | 'source-control';
+export type ActivityView = 'files' | 'source-control' | 'assistant';
 
 export interface CompileState {
   phase: CompilePhase;

@@ -6214,6 +6214,35 @@ through the undo stack, and the refusal sentence. That needs S12.1b's settings f
 be asked until a provider is chosen and the project has opted in), and rung 4 in a real window.
 Nothing in the app calls this crate yet.
 
+**S12.1b (3 October 2026).** `[x]` — rung 4 walked, the first UI loop of the sprint where it could
+be: `pnpm verify` exit 0, `cargo test --workspace` 750 passed / 0 failed (10 new in
+`src-tauri/src/assistant.rs`), Vitest 678/678 (37 new: the form module, the controller flow). In
+the real window, on a fresh machine state: the Assistant icon opens a view with a provider
+choice, model, key box, the per-project switch and *Test the connection*; Save, switch on and
+Test against a throwaway model server on localhost made exactly **one** request (the test's,
+with no `Authorization` header because no key was given), and the settings file in the app's
+config folder held the provider and the project's path and nothing else. What a reader should
+take from the diff:
+
+1. **The key goes in and never comes back.** It is sent once to `assistant_save_provider`, into the
+   keychain, and the box is emptied; `AssistantStatus` carries only `hasKey`. A test asserts the key
+   is in neither the settings file nor the serialised status, and a controller test asserts it is in
+   no field of the window's state after saving.
+2. **The switch is per machine and per folder, outside the project** (`assistant.json` beside
+   `shell-escape.toml`, keyed by the folder's path as `consent.rs` keys it), so a clone starts off.
+   Choosing a provider switches no project on, and a settings file that does not parse means "nothing
+   chosen". The switch is disabled until a provider and (where one is needed) a key exist.
+3. **Nothing sends but one button.** Opening the project, opening the view and saving make no
+   request (a controller test counts); `assistant.ready` is the one thing other loops may ask, and
+   is false until a provider, a key where needed, and the project switch all agree.
+4. **A bad address is caught on Save,** not at the first question: the backend builds (never sends) a
+   request with a stand-in key, so a plain-http remote or a non-address is refused with its sentence.
+5. **An OpenAI-compatible provider with no key is allowed** (a model on this computer has none); the
+   key box says "(optional)" for that kind only.
+
+Not done: any assistant entry point in the editor (S12.3b), the payload inspector (S13.3), and the
+real Anthropic and OpenAI answers (needs an account; the wire shapes are from their documentation).
+
 S12.1 provider abstraction (Anthropic Messages, OpenAI-compatible) with key in keychain —
 **split into S12.1a and S12.1b below, expanded 3 October 2026**: the crate needs no window and no
 account; the settings panel and the per-project opt-in do · S12.2

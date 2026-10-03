@@ -3,8 +3,8 @@
   // VS Code's two shortcuts, deliberately: it is the chrome a large share of this audience
   // already has muscle memory for, and there is nothing to gain from a novel one.
   //
-  // Four icons, two of which do something. Assistant is v0.7 and Settings comes later; they are
-  // drawn and disabled rather than left out, so that the icons above them never move when they
+  // Four icons, three of which do something. Settings comes later; it is drawn and disabled rather
+  // than left out, so that the icons above them never move when they
   // start working — which is the whole reason the design asks for all four now.
   //
   // This component owns no state: it reads which view is current and calls the controller. The
@@ -51,7 +51,13 @@
     {/if}
   </button>
 
-  <button class="activity-item" disabled title="Assistant — arrives in v0.7">
+  <button
+    class="activity-item"
+    class:active={app.activityView === 'assistant'}
+    aria-current={app.activityView === 'assistant'}
+    title="Assistant"
+    onclick={() => showActivityView('assistant')}
+  >
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <rect x="2.5" y="5" width="11" height="8" rx="2" />
       <path d="M8 5V2.5" />

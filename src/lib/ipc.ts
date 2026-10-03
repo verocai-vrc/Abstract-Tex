@@ -99,6 +99,19 @@ export type ComparisonStarted =
   /** A newer comparison was asked for while this one was exporting: say nothing. */
   | { status: 'superseded' };
 
+/** S12.1b: a model provider, as `abstract-tex-assistant` serialises it. */
+export type AssistantProvider =
+  | { kind: 'anthropic'; model: string; address: string }
+  | { kind: 'openAiCompatible'; model: string; address: string };
+
+/** What the window may know about the assistant: never the key, only whether one is saved. */
+export interface AssistantStatus {
+  provider: AssistantProvider | null;
+  hasKey: boolean;
+  /** Switched on for the open project, on this machine. */
+  enabled: boolean;
+}
+
 /** Anything the language server says without being asked (`src-tauri/src/lsp.rs`).
  *
  * `method` and `params` are LSP's own, passed through untouched: Rust owns the process and the
@@ -568,6 +581,17 @@ export const ipc = {
 
   /** S10.4b: whose GitHub account this machine is signed in to, or `null`. A token GitHub no
    * longer accepts is forgotten rather than reported, so this answers `null` for it too. */
+  /** S12.1b: the assistant's settings for this machine and the open project. Never the key. */
+  assistantStatus: () => invoke<AssistantStatus>('assistant_status'),
+  /** Choose a provider and, if `key` is given, keep it in the OS keychain. Rejects with a sentence
+   * for an address the assistant cannot use. The key goes in and never comes back out. */
+  assistantSaveProvider: (provider: AssistantProvider, key: string | null) =>
+    invoke<void>('assistant_save_provider', { provider, key }),
+  assistantClearKey: () => invoke<void>('assistant_clear_key'),
+  /** Switch the assistant on or off for the open project, on this machine only. */
+  assistantSetEnabled: (enabled: boolean) => invoke<void>('assistant_set_enabled', { enabled }),
+  /** The only request the assistant's settings make: a few tokens to the chosen provider, on a click. */
+  assistantTest: () => invoke<string>('assistant_test'),
   githubAccount: () => invoke<GitHubAccount | null>('github_account'),
   /** Start the device flow. Resolves once GitHub has issued a code — everything after that
    * arrives as `github:sign-in` events, because the middle of it happens in a browser. */

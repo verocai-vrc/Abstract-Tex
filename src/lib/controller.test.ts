@@ -4,6 +4,8 @@
 
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AssistantProvider,
+  AssistantStatus,
   BibliographyIndex,
   BranchState,
   CommitRow,
@@ -109,6 +111,10 @@ let initialiseError: string | null = null;
 let initialiseNeedsIdentity = false;
 let ourFolderIgnoredOnDisk: boolean | null = true;
 let accountOnDisk: { login: string } | null = null;
+// S12.1b: what the backend would say about the assistant, and what was asked of it.
+let assistantStatusOnDisk: AssistantStatus = { provider: null, hasKey: false, enabled: false };
+let assistantError: string | null = null;
+const assistantCalls = { saved: [] as Array<[AssistantProvider, string | null]>, enabled: [] as boolean[], tests: 0, clears: 0 };
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
 /** S10.5b: what the author answers to the public-repository confirmation, what the fake project's
@@ -412,6 +418,28 @@ vi.mock('./ipc', () => ({
       largeFilesOnDisk = largeFilesOnDisk.filter((file) => !paths.includes(file.path));
       gitStatusHandler();
     },
+    assistantStatus: async () => {
+      if (assistantError) throw new Error(assistantError);
+      return assistantStatusOnDisk;
+    },
+    assistantSaveProvider: async (provider: AssistantProvider, key: string | null) => {
+      if (assistantError) throw new Error(assistantError);
+      assistantCalls.saved.push([provider, key]);
+      assistantStatusOnDisk = { ...assistantStatusOnDisk, provider, hasKey: assistantStatusOnDisk.hasKey || key !== null };
+    },
+    assistantClearKey: async () => {
+      assistantCalls.clears++;
+      assistantStatusOnDisk = { ...assistantStatusOnDisk, hasKey: false };
+    },
+    assistantSetEnabled: async (enabled: boolean) => {
+      assistantCalls.enabled.push(enabled);
+      assistantStatusOnDisk = { ...assistantStatusOnDisk, enabled };
+    },
+    assistantTest: async () => {
+      assistantCalls.tests++;
+      if (assistantError) throw new Error(assistantError);
+      return 'claude-x answered: “OK”.';
+    },
     githubAccount: async () => {
       calls.githubCalls.push('account');
       return accountOnDisk;
@@ -513,6 +541,12 @@ const {
   trackLargeFilesWithLfs,
   triggerCompile,
   clearComparison,
+  forgetAssistantKey,
+  openAssistantSettings,
+  refreshAssistant,
+  saveAssistantSettings,
+  setAssistantEnabled,
+  testAssistant,
   loadComparisonLog,
   compareWithPreviousCommit,
   markGraphRow,
@@ -541,6 +575,7 @@ const {
   showSnapshotFile,
 } = await import('./controller.svelte');
 const { snapshots } = await import('./snapshots.svelte');
+const { assistant } = await import('./assistant.svelte');
 const { diffView } = await import('./diffview.svelte');
 const { compare } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
@@ -624,6 +659,16 @@ beforeEach(async () => {
   comparisons.cancelled = 0;
   comparisons.logReads = 0;
   comparisonLog = '';
+  assistantStatusOnDisk = { provider: null, hasKey: false, enabled: false };
+  assistantError = null;
+  assistantCalls.saved = [];
+  assistantCalls.enabled = [];
+  assistantCalls.tests = 0;
+  assistantCalls.clears = 0;
+  assistant.status = null;
+  assistant.keyInput = '';
+  assistant.message = null;
+  assistant.busy = false;
   savePathAnswer = '/out/diff.pdf';
   snapshotRows = [];
   snapshotFilesOnDisk = {};
@@ -3214,5 +3259,113 @@ describe('the side-by-side view of a Changes row (S11.7)', () => {
     await openDiffedFile();
     expect(diffView.open).toBeNull();
     expect(app.activePath).toBe('chapters/a.tex');
+  });
+});
+
+describe('the assistant settings (S12.1b)', () => {
+  const anthropicProvider: AssistantProvider = { kind: 'anthropic', model: 'claude-sonnet-5-5', address: 'https://api.anthropic.com' };
+
+  it('makes no request of any kind just by opening a project or the view', async () => {
+    await openFolder('/proj');
+    await openAssistantSettings();
+    expect(assistantCalls.tests).toBe(0);
+    expect(assistantCalls.saved).toEqual([]);
+    expect(assistant.ready).toBe(false);
+  });
+
+  it('shows nothing set up, and no entry point is ready, until a provider, a key and the project switch are all there', async () => {
+    await openAssistantSettings();
+    expect(assistant.status).toEqual({ provider: null, hasKey: false, enabled: false });
+
+    assistant.form = { kind: 'anthropic', model: 'claude-sonnet-5-5', address: '' };
+    assistant.keyInput = 'sk-secret';
+    await saveAssistantSettings();
+    expect(assistant.ready).toBe(false); // chosen and keyed, but not switched on for the project
+
+    await setAssistantEnabled(true);
+    expect(assistant.ready).toBe(true);
+    await setAssistantEnabled(false);
+    expect(assistant.ready).toBe(false);
+  });
+
+  it('sends the key once, empties the box, and keeps no copy anywhere in the window’s state', async () => {
+    await openAssistantSettings();
+    assistant.form = { kind: 'anthropic', model: 'claude-sonnet-5-5', address: '' };
+    assistant.keyInput = '  sk-secret  ';
+    await saveAssistantSettings();
+
+    expect(assistantCalls.saved).toEqual([[anthropicProvider, 'sk-secret']]);
+    expect(assistant.keyInput).toBe('');
+    expect(JSON.stringify(assistant.status)).not.toContain('sk-secret');
+    expect(assistant.message).toBe('Saved.');
+    expect(assistant.messageIsError).toBe(false);
+  });
+
+  it('saving with the key box empty sends no key, so the saved one is kept', async () => {
+    await openAssistantSettings();
+    assistant.form = { kind: 'anthropic', model: 'claude-sonnet-5-5', address: '' };
+    await saveAssistantSettings();
+    expect(assistantCalls.saved[0]?.[1]).toBeNull();
+  });
+
+  it('says what is missing before asking the backend, and shows the backend’s refusal as a sentence', async () => {
+    await openAssistantSettings();
+    assistant.form = { kind: 'anthropic', model: '', address: '' };
+    await saveAssistantSettings();
+    expect(assistant.message).toMatch(/Choose a model/);
+    expect(assistant.messageIsError).toBe(true);
+    expect(assistantCalls.saved).toEqual([]);
+
+    assistantError = 'That address is plain http, and an API key must not cross a network unencrypted.';
+    assistant.form = { kind: 'openAiCompatible', model: 'm', address: 'http://models.example.com/v1' };
+    await saveAssistantSettings();
+    expect(assistant.message).toContain('plain http');
+    expect(assistant.messageIsError).toBe(true);
+    expect(assistant.busy).toBe(false);
+  });
+
+  it('removes the key on request and says so', async () => {
+    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: true };
+    await refreshAssistant();
+    await forgetAssistantKey();
+    expect(assistantCalls.clears).toBe(1);
+    expect(assistant.status?.hasKey).toBe(false);
+    expect(assistant.ready).toBe(false);
+  });
+
+  it('tests the connection only when asked, and shows the answer or the sentence it failed with', async () => {
+    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: false };
+    await refreshAssistant();
+    await testAssistant();
+    expect(assistantCalls.tests).toBe(1);
+    expect(assistant.message).toBe('claude-x answered: “OK”.');
+    expect(assistant.messageIsError).toBe(false);
+
+    assistantError = 'The provider did not accept the key. Check it in the assistant’s settings.';
+    await testAssistant();
+    expect(assistant.message).toContain('did not accept the key');
+    expect(assistant.messageIsError).toBe(true);
+    expect(assistant.busy).toBe(false);
+  });
+
+  it('forgets the status when no project is open, so nothing can be ready without one', async () => {
+    assistantStatusOnDisk = { provider: anthropicProvider, hasKey: true, enabled: true };
+    await refreshAssistant();
+    expect(assistant.ready).toBe(true);
+    app.project = null;
+    await refreshAssistant();
+    expect(assistant.status).toBeNull();
+    expect(assistant.ready).toBe(false);
+  });
+
+  it('puts the saved provider back in the form when the view opens', async () => {
+    assistantStatusOnDisk = {
+      provider: { kind: 'openAiCompatible', model: 'llama3', address: 'http://localhost:11434/v1' },
+      hasKey: false,
+      enabled: false,
+    };
+    await openAssistantSettings();
+    expect(assistant.form).toEqual({ kind: 'openAiCompatible', model: 'llama3', address: 'http://localhost:11434/v1' });
+    expect(assistant.keyInput).toBe('');
   });
 });

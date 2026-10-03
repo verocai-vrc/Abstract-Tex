@@ -46,6 +46,7 @@ tauri-plugin-dialog = "2"
 # github.com/login/device. A link with target="_blank" in a Tauri window goes nowhere.
 tauri-plugin-opener = "2"
 
+abstract-tex-assistant = { path = "../crates/abstract-tex-assistant" }
 abstract-tex-engine = { path = "../crates/abstract-tex-engine" }
 abstract-tex-git = { path = "../crates/abstract-tex-git" }
 abstract-tex-github = { path = "../crates/abstract-tex-github" }
