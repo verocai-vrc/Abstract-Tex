@@ -356,6 +356,22 @@ example = "T"
         assert!(!catalog.templates().is_empty());
     }
 
+    /// S11.10a: a starter that does not say what to replace is a document the author has to read
+    /// all of before they dare touch it. Every shipped template carries at least one marker in
+    /// one of its source files (the `.bib` of `paper` does not count, and is not where it goes).
+    #[test]
+    fn every_shipped_template_says_what_to_fill_in() {
+        let catalog = Catalog::embedded().unwrap();
+        for template in catalog.templates() {
+            let has_marker = template
+                .files
+                .iter()
+                .filter(|(path, _)| path.ends_with(".tex"))
+                .any(|(_, bytes)| String::from_utf8_lossy(bytes).contains("% FILL IN:"));
+            assert!(has_marker, "template `{}` has no `% FILL IN:` marker in a .tex file", template.id);
+        }
+    }
+
     /// The first template that ships, end to end: the real files, the real manifest, a real folder.
     #[test]
     fn the_blank_template_makes_a_project() {

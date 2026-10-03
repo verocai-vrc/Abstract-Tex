@@ -1,0 +1,17 @@
+name = "Report"
+category = "report"
+description = "A report with a title page, contents and chapters."
+licence = "CC0-1.0"
+source = "Written for Abstract-Tex"
+files = ["main.tex"]
+preview = "preview.png"
+
+[[fields]]
+id = "title"
+label = "Title"
+example = "My report"
+
+[[fields]]
+id = "author"
+label = "Author"
+example = "Your name"

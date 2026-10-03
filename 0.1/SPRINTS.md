@@ -5741,6 +5741,34 @@ Done when every template compiles on the bundled engine from its instantiated fo
           diagnostics above *info*, and a test asserts it contains at least one `% FILL IN:`.
 ```
 
+**S11.10a (3 October 2026).** `[x]` (no UI, C1b): `pnpm verify` exit 0 — `cargo test --workspace`
+658 passed / 0 failed (1 new: every shipped template carries a `% FILL IN:` marker in a `.tex`
+file), Vitest 598/598, clippy clean. `cargo test -p abstract-tex-engine --test templates --
+--ignored` builds all five templates (`blank` plus the four new ones) on the bundled Tectonic from
+their *instantiated* folders and asserts the log gives **no diagnostic of any severity** — the card
+said "above info", but texlog has only error and warning, so "none" is the same bar. What a reader
+should take from the diff:
+
+1. **The test lives in the engine crate, as the card's Verify line said, so the engine gains a
+   dev-dependency on `abstract-tex-templates`** (a leaf crate; nothing flows the other way). It uses
+   each field's `example` as the answer, which is what the catalog's own dry run already does.
+2. **The first build found a real defect in a draft:** `paper`'s `\verb|\cite|` sentence made an
+   overfull box on line 18, which would have shown a warning card on the very first PDF. The
+   sentence was re-broken; the test is what now keeps it so.
+3. **Previews come from `scripts/template-previews.mjs`**, which runs that test (it copies each
+   PDF to `target/template-pdfs/`) and then `pdftoppm` page 1 at 50 dpi, matching `blank`'s 425×550.
+   The catalog refuses a template with no preview, so a new template needs a placeholder PNG before
+   its first build; the script then overwrites it. `blank`'s preview came out byte-identical.
+4. **`letter` takes the same two fields as the rest** (*Subject* as `title`, *Author* as the
+   signature), so S11.11's form is one shape for every template; the recipient and both addresses
+   are `% FILL IN:` lines, because a one-line text box is the wrong place to type an address.
+5. **`paper`'s bibliography is BibTeX `plain`, no packages**, and resolves on the first build
+   (checked in the PDF text: `[1, 2]` in the body, two entries listed). Its two `.bib` entries are
+   published books, cited as facts.
+
+Not done, because it is S11.10b's: CV, thesis and slides. `templates/SOURCES.md` exists now, with a
+row per template; S11.10b adds the adapted ones.
+
 ```
 Loop      S11.10b · Starter set, adapted: CV, thesis, slides · M
 Reads     S11.9's licence rule; fixtures/thesis, fixtures/corpus/beamer

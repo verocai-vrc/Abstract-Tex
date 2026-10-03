@@ -26,3 +26,6 @@ texlog = { path = "../texlog" }
 serde_json = { workspace = true }
 # tests/corpus.rs (S9.7) asks the include graph which chapter an edit is in, the way the app does.
 abstract-tex-includes = { path = "../abstract-tex-includes" }
+# tests/templates.rs (S11.10a) instantiates every starter template and builds it, so a template
+# that does not compile is caught before an author's first PDF is the one that fails.
+abstract-tex-templates = { path = "../abstract-tex-templates" }

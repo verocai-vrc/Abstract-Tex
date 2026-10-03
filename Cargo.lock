@@ -44,6 +44,7 @@ version = "0.1.0"
 dependencies = [
  "abstract-tex-includes",
  "abstract-tex-sidecar",
+ "abstract-tex-templates",
  "async-trait",
  "serde",
  "serde_json",

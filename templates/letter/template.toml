@@ -1,0 +1,17 @@
+name = "Letter"
+category = "letter"
+description = "A formal letter with your name, a subject line and a signature."
+licence = "CC0-1.0"
+source = "Written for Abstract-Tex"
+files = ["main.tex"]
+preview = "preview.png"
+
+[[fields]]
+id = "title"
+label = "Subject"
+example = "A request"
+
+[[fields]]
+id = "author"
+label = "Author"
+example = "Your name"
