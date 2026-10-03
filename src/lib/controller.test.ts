@@ -691,6 +691,38 @@ describe('an external change to the open file', () => {
     expect(calls.compiles).toBe(1);
   });
 
+  describe('which changed files rebuild the document (S4.1’s gate, at the controller)', () => {
+    const originalComplete = project.documentFilesComplete;
+    afterEach(() => {
+      project.documentFilesComplete = originalComplete;
+    });
+
+    it('does not rebuild for a .tex file the include graph says nothing includes', async () => {
+      disk.set('scratch.tex', 'notes to self');
+      await fileChanged('scratch.tex');
+      expect(calls.compiles).toBe(0);
+    });
+
+    it('rebuilds for a .tex file the document does include, and for a .bib', async () => {
+      project.documentFiles = ['main.tex', 'sections/results.tex'];
+      disk.set('sections/results.tex', 'changed elsewhere');
+      await fileChanged('sections/results.tex');
+      expect(calls.compiles).toBe(1);
+
+      disk.set('refs.bib', '@book{a,}');
+      await fileChanged('refs.bib');
+      expect(calls.compiles).toBe(2);
+      project.documentFiles = ['main.tex'];
+    });
+
+    it('rebuilds for any .tex file when the graph could not be fully resolved', async () => {
+      project.documentFilesComplete = false;
+      disk.set('scratch.tex', 'maybe included through a macro');
+      await fileChanged('scratch.tex');
+      expect(calls.compiles).toBe(1);
+    });
+  });
+
   it('is ignored when the disk already matches the buffer', async () => {
     await fileChanged('main.tex');
     expect(app.conflict).toBeNull();

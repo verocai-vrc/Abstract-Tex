@@ -1,7 +1,7 @@
 import { Text } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
-import { describe, expect, it } from 'vitest';
-import { mathAtOffset, mathPreviewSource, renderMath } from './math-preview';
+import { describe, expect, it, vi } from 'vitest';
+import { blankComments, mathAtOffset, mathPreviewSource, renderMath } from './math-preview';
 
 describe('mathAtOffset', () => {
   it('finds inline $n$ and strips the delimiters from tex', () => {
@@ -80,7 +80,42 @@ describe('mathAtOffset', () => {
   });
 });
 
+describe('comments in the maths scan', () => {
+  it('blanks a comment to the end of its line and keeps every offset', () => {
+    const text = 'a % price is $5\nb';
+    const blanked = blankComments(text);
+    expect(blanked).toHaveLength(text.length);
+    expect(blanked).toBe('a ' + ' '.repeat(13) + '\nb');
+  });
+
+  it('keeps an escaped percent sign, and starts a comment after a line break', () => {
+    expect(blankComments('50\\% off')).toBe('50\\% off'); // \% is a percent sign
+    expect(blankComments('a \\\\% $x$')).toBe('a \\\\' + ' '.repeat(5)); // \\ then a comment
+  });
+
+  it('a $ inside a comment does not shift the pairing of the real ones', () => {
+    const doc = '% price is $5\nThe value $x$ is';
+    const at = doc.indexOf('x');
+    expect(mathAtOffset(Text.of(doc.split('\n')), at)).toEqual({ from: at - 1, to: at + 2, tex: 'x', display: false });
+    // And the prose before the formula is prose, not a formula that starts in the comment.
+    expect(mathAtOffset(Text.of(doc.split('\n')), doc.indexOf('The'))).toBeNull();
+  });
+
+  it('still finds a formula that has a comment inside it, and hands KaTeX the comment too', () => {
+    const doc = '$a % why\n+ b$';
+    expect(mathAtOffset(Text.of(doc.split('\n')), 1)?.tex).toBe('a % why\n+ b');
+  });
+});
+
 describe('renderMath', () => {
+  it('does not warn about a non-ASCII glyph (strict: ignore)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = renderMath('é + \\alpha', false);
+    expect('html' in result).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('renders \\frac{a}{b} to KaTeX HTML', () => {
     const result = renderMath('\\frac{a}{b}', false);
     expect('html' in result && result.html).toContain('katex');

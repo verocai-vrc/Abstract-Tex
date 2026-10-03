@@ -78,6 +78,35 @@ function delimiterAt(text: string, index: number): Delimiter | null {
 }
 
 /**
+ * `text` with every comment replaced by spaces of the same length, so offsets are unchanged.
+ *
+ * A comment starts at a `%` that is not escaped and runs to the end of the line. Stepping over
+ * the character after each `\` is what keeps `\%` (a percent sign) from starting one, and lets
+ * `\\%` (a line break, then a comment) start one. Without this, `% price is $5` leaves a stray
+ * `$` that pairs with the next real opener and shifts every span after it in the paragraph.
+ */
+export function blankComments(text: string): string {
+  let result = '';
+  let index = 0;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '\\') {
+      result += text.slice(index, index + 2);
+      index += 2;
+    } else if (character === '%') {
+      const lineEnd = text.indexOf('\n', index);
+      const end = lineEnd === -1 ? text.length : lineEnd;
+      result += ' '.repeat(end - index);
+      index = end;
+    } else {
+      result += character;
+      index += 1;
+    }
+  }
+  return result;
+}
+
+/**
  * The maths span containing `offset` in `doc`, or `null` when the offset is in prose, the
  * span is never closed within its paragraph, or the expression is too long to preview.
  *
@@ -87,24 +116,27 @@ function delimiterAt(text: string, index: number): Delimiter | null {
  * so a hover on a long chapter costs one paragraph, not the whole file, and a `$` left open two
  * pages up cannot swallow the rest of the document.
  *
- * Not attempted: `%` comments and `verbatim`. A `$` inside a comment is an accepted false
- * positive at this size.
+ * `%` comments are blanked before the scan (see [`blankComments`]), so a `$` in one cannot pair
+ * with a real opener. Not attempted: `verbatim`.
  */
 export function mathAtOffset(doc: Text, offset: number): MathSpan | null {
   const paragraph = currentParagraphRange(doc, offset);
   // Only the paragraph is copied out of the document, never the whole of it (S9.6).
   const text = doc.sliceString(paragraph.from, paragraph.to);
+  // The scan looks at `scannable`, the same text with comments blanked; the span's TeX is still
+  // cut from `text`, because a comment inside a formula is the author's and KaTeX copes with it.
+  const scannable = blankComments(text);
   const localOffset = offset - paragraph.from;
 
   let scanFrom = 0;
-  while (scanFrom < text.length) {
-    const character = text[scanFrom];
+  while (scanFrom < scannable.length) {
+    const character = scannable[scanFrom];
     if (character !== '$' && character !== '\\') {
       scanFrom += 1;
       continue;
     }
 
-    const delimiter = delimiterAt(text, scanFrom);
+    const delimiter = delimiterAt(scannable, scanFrom);
     if (delimiter === null) {
       // `\` followed by something that is not a maths opener (`\alpha`, `\\`, `\$`): step over
       // the backslash *and* the character it escapes, so `\$` never reads as a `$`.
@@ -114,7 +146,7 @@ export function mathAtOffset(doc: Text, offset: number): MathSpan | null {
 
     const spanStart = scanFrom;
     const bodyStart = spanStart + delimiter.open.length;
-    const closeAt = indexOfUnescaped(text, delimiter.close, bodyStart);
+    const closeAt = indexOfUnescaped(scannable, delimiter.close, bodyStart);
     if (closeAt === -1) {
       // Unclosed within the paragraph: everything from here on is one broken span, and the
       // offset is either in it (null) or before it (already checked, so also prose).
@@ -177,6 +209,8 @@ export function renderMath(tex: string, display: boolean): RenderResult {
       displayMode: display,
       throwOnError: true,
       output: 'html',
+      // Do not `console.warn` about every non-ASCII glyph in an expression: authors type accents.
+      strict: 'ignore',
     });
     return { html };
   } catch (thrown) {

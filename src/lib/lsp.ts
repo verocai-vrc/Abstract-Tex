@@ -36,6 +36,15 @@ export function pathToUri(absolutePath: string): string {
   return encoded.startsWith('/') ? `file://${encoded}` : `file:///${encoded}`;
 }
 
+/** One spelling of a `file://` URI for use as a map key. Servers and the folder picker disagree
+ * about a Windows drive letter's case (`file:///C:/p` against `file:///c:/p`), and some write the
+ * colon as `%3A`; both are folded to the lowercase, plain-colon form. The only place a URI is
+ * compared for equality — anything keyed by URI goes through here. Paths on other systems pass
+ * through untouched. */
+export function normalizeUri(uri: string): string {
+  return uri.replace(/^(file:\/\/\/)([A-Za-z])(?::|%3[Aa])/, (_, scheme: string, drive: string) => `${scheme}${drive.toLowerCase()}:`);
+}
+
 /** `file://` URI → absolute path, for turning a server's answer back into something the tree
  * understands. Undoes `pathToUri`, including the percent-encoding servers sometimes add. */
 export function uriToPath(uri: string): string {

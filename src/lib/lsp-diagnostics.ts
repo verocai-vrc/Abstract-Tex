@@ -15,7 +15,7 @@
 //   * Spell a URI itself. `pathToUri` from `lsp.ts` is the one URI producer in the app; a second
 //     spelling would differ on Windows drive-letter case and every lookup here would miss.
 
-import { pathToUri } from './lsp';
+import { normalizeUri, pathToUri } from './lsp';
 import type { LspDiagnostic, Position, PublishDiagnosticsParams } from './lsp-protocol';
 
 /**
@@ -110,8 +110,8 @@ export function toEditorDiagnostic(diagnostic: LspDiagnostic): EditorDiagnostic 
  * (MEMORY: `effect_update_depth_exceeded`).
  */
 export class LspDiagnosticStore {
-  /** Keyed by URI, because that is what the server addresses files by and what `pathToUri`
-   * produces. Never keyed by path: two spellings of the same file is the bug this avoids. */
+  /** Keyed by [`normalizeUri`] of the URI, because that is what the server addresses files by and
+   * what `pathToUri` produces, folded to one spelling. Never keyed by path. */
   private readonly byUri = new Map<string, EditorDiagnostic[]>();
 
   /** Bumped on every `publish` and every non-empty `clear`. Only ever read for equality. */
@@ -135,8 +135,9 @@ export class LspDiagnosticStore {
       const row = toEditorDiagnostic(diagnostic);
       if (row) rows.push(row);
     }
-    if (rows.length === 0) this.byUri.delete(params.uri);
-    else this.byUri.set(params.uri, rows);
+    const key = normalizeUri(params.uri);
+    if (rows.length === 0) this.byUri.delete(key);
+    else this.byUri.set(key, rows);
     this.version += 1;
   }
 
@@ -144,7 +145,7 @@ export class LspDiagnosticStore {
    * and empty after a publish that cleared it — the caller cannot tell the two apart and has no
    * reason to. */
   forPath(absolutePath: string): EditorDiagnostic[] {
-    return this.byUri.get(pathToUri(absolutePath)) ?? [];
+    return this.byUri.get(normalizeUri(pathToUri(absolutePath))) ?? [];
   }
 
   /** URIs with at least one diagnostic. For tests and for S4.x's problem list. */

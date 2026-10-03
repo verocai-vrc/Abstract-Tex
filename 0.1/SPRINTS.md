@@ -6005,6 +6005,15 @@ start):
 
 ### Sprint 12–13 — v0.7 assistant
 
+**S12.0 (3 October 2026) — the ledger sweep (design interview E8).** `[x]`: `pnpm verify` exit 0,
+Vitest 651/651 (11 new), no Rust. Started at the maintainer's instruction, before S11.8b's exit demo
+is recorded, overruling the order in "Order to the end of v0.6". Three ledger entries closed, each
+with its test: the maths preview no longer pairs a `$` inside a `%` comment (and KaTeX is
+`strict: 'ignore'`); LSP URIs are keyed through one `normalizeUri`; and `handleFsEvent`'s
+`shouldCompileFor` gate has controller-level tests. The Rust `cargo fmt` commit that the plan puts
+between S11.8 and sprint 12 has **not** been done — it touches every Rust file and is the
+maintainer's call to order.
+
 **First, before S12.1** (design interview E8, 2 October 2026; numbered when the sprint is
 expanded): one S-sized ledger sweep, each fix with its test — the maths preview reading a `$`
 inside a `%` comment (plus KaTeX `strict: 'ignore'`), drive-letter case of LSP URIs normalised in

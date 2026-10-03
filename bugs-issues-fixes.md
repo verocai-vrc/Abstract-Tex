@@ -370,8 +370,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   in `paths.test.ts` for the pure function, but no coverage at the controller/`handleFsEvent`
   integration level. Needs a `controller.test.ts` case with a second, non-included `.tex` tab or
   fixture file and an assertion that changing it does not call `compile`.
-  **Scheduled (2 Oct 2026, design interview E8):** the ledger sweep, first thing in sprint 12,
-  each fix with its test.
+  **Fixed (3 Oct 2026, S12.0):** `controller.test.ts` now has three cases at `handleFsEvent`: a `.tex` nothing includes does not rebuild; an included `.tex` and a `.bib` do; an unresolved graph rebuilds for any `.tex`.
 
 - **LSP diagnostic lookups can miss on a drive-letter casing mismatch.**
   `src/lib/lsp-diagnostics.ts` keys its map by the server's URI spelling on write
@@ -386,8 +385,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `forPath`. Found by the reviewer, S3.3b, 13 Sep 2026. This is the third Windows-path-
   spelling bug in this subsystem, after the two logged in the S3.1/S3.2 outcomes above — an
   argument for the normalization living in one place rather than at each call site.
-  **Scheduled (2 Oct 2026, design interview E8):** the ledger sweep, first thing in sprint 12,
-  each fix with its test.
+  **Fixed (3 Oct 2026, S12.0):** `normalizeUri` in `lsp.ts` (lower-case drive letter, `%3A` → `:`) is the key for `LspDiagnosticStore`, on `publish` and `forPath` alike.
 
 - **No `rustfmt.toml`.** House style runs to ~110 columns; rustfmt defaults to 100. Nothing
   fails today because `pnpm verify` does not run `cargo fmt --check`, but the next
@@ -416,8 +414,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `strict: 'ignore'`; (2) in `$a$$b$` an offset exactly equal to the first span's end previews
   `a`, not `b`, because the inclusive `<= spanEnd` test wins before the next opener is tried —
   cosmetic.
-  **Scheduled (2 Oct 2026, design interview E8):** the ledger sweep, first thing in sprint 12,
-  each fix with its test.
+  **Fixed (3 Oct 2026, S12.0):** `blankComments` blanks each unescaped `%` to end of line before the scan (offsets kept; the span's TeX is still cut from the original text), and `renderMath` passes `strict: 'ignore'`. The `$a$$b$` boundary advisory is cosmetic and left.
 
 ## Fixed
 

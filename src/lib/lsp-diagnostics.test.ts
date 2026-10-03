@@ -6,7 +6,7 @@ import {
   toEditorDiagnostic,
   type EditorDiagnostic,
 } from './lsp-diagnostics';
-import { pathToUri } from './lsp';
+import { normalizeUri, pathToUri } from './lsp';
 import type { LspDiagnostic, LspSeverity, PublishDiagnosticsParams } from './lsp-protocol';
 
 /** One wire diagnostic. `line` is 0-based, the way the server sends it. */
@@ -94,6 +94,19 @@ describe('toEditorDiagnostic', () => {
   });
 });
 
+describe('normalizeUri', () => {
+  it('folds the drive letter to lower case and the colon to a plain one', () => {
+    expect(normalizeUri('file:///C:/Proj/main.tex')).toBe('file:///c:/Proj/main.tex');
+    expect(normalizeUri('file:///c%3A/Proj/main.tex')).toBe('file:///c:/Proj/main.tex');
+    expect(normalizeUri('file:///C%3a/Proj/main.tex')).toBe('file:///c:/Proj/main.tex');
+  });
+
+  it('leaves the rest of the path, and any other system’s paths, alone', () => {
+    expect(normalizeUri('file:///home/Ada/Main.tex')).toBe('file:///home/Ada/Main.tex');
+    expect(normalizeUri('file:///C:/Proj/C:/x')).toBe('file:///c:/Proj/C:/x');
+  });
+});
+
 describe('LspDiagnosticStore', () => {
   const main = '/proj/main.tex';
   const included = '/proj/sections/results.tex';
@@ -106,6 +119,18 @@ describe('LspDiagnosticStore', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.startLine).toBe(5);
     expect(rows[0]?.severity).toBe('error');
+  });
+
+  /** The ledger's third Windows-path bug: the picker says `c:\Proj`, the server publishes for
+   * `C:/Proj`, and the lookup used to miss without a word. */
+  it('finds a publish whatever case the drive letter was spelt in', () => {
+    const store = new LspDiagnosticStore();
+    store.publish(params('file:///C:/Proj/main.tex', [wire(4, 1)]));
+    expect(store.forPath('c:\\Proj\\main.tex')).toHaveLength(1);
+    expect(store.forPath('C:\\Proj\\main.tex')).toHaveLength(1);
+
+    store.publish(params('file:///c%3A/Proj/main.tex', []));
+    expect(store.forPath('C:\\Proj\\main.tex')).toEqual([]);
   });
 
   /** The case that rots silently: a second publish saying the file is clean must remove the
