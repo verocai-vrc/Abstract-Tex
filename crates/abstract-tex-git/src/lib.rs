@@ -1187,11 +1187,40 @@ fn origin(repository: &Repository) -> Result<git2::Remote<'_>, GitError> {
 /// every test in this module, never does — so every one of them runs with `token: None` and
 /// still proves the credential path is never touched by accident.
 fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
-    let token = token.map(str::to_string);
+    let mut offer = TokenOffer::new(token);
     let mut callbacks = git2::RemoteCallbacks::new();
-    callbacks.credentials(move |url, _username_from_url, allowed| {
+    callbacks.credentials(move |url, _username_from_url, allowed| offer.answer(url, allowed));
+    callbacks
+}
+
+/// What the credential callback answers, kept apart from libgit2 so a test can ask it twice.
+///
+/// libgit2 asks again after a server refuses what it was given, and keeps asking until the
+/// callback answers with an error. A callback that returns the same token every time turns a
+/// revoked or mistyped token into a fetch that never finishes instead of "authentication failed".
+/// So a token is offered **once** per operation: the second request means the first was refused.
+struct TokenOffer {
+    token: Option<String>,
+    offered: bool,
+}
+
+impl TokenOffer {
+    fn new(token: Option<&str>) -> Self {
+        Self {
+            token: token.map(str::to_string),
+            offered: false,
+        }
+    }
+
+    fn answer(&mut self, url: &str, allowed: git2::CredentialType) -> Result<git2::Cred, git2::Error> {
         if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) && is_github_https(url) {
-            if let Some(token) = &token {
+            if let Some(token) = &self.token {
+                if self.offered {
+                    return Err(git2::Error::from_str(
+                        "GitHub did not accept the saved sign-in. Sign in to GitHub again.",
+                    ));
+                }
+                self.offered = true;
                 // GitHub's own convention for an OAuth token offered over HTTPS: the token is the
                 // username or the password, not both at once as a real login would be. Nothing
                 // here is GitHub-specific otherwise, but this is the one place a comment has to
@@ -1202,8 +1231,7 @@ fn credentials(token: Option<&str>) -> git2::RemoteCallbacks<'_> {
         Err(git2::Error::from_str(
             "this remote asked for a credential and none was given",
         ))
-    });
-    callbacks
+    }
 }
 
 /// Whether `url` is an HTTPS address on github.com — the only place the GitHub token belongs.
@@ -3093,6 +3121,38 @@ mod tests {
         );
         assert!(!is_github_https("git@github.com:ada/thesis.git"));
         assert!(!is_github_https("/home/ada/thesis.git"));
+    }
+
+    /// libgit2 asks again after a refusal, until the callback errors. The token is offered once, so
+    /// a revoked one ends in a sentence instead of a sync that never finishes.
+    #[test]
+    fn a_token_the_server_refused_is_not_offered_a_second_time() {
+        let url = "https://github.com/ada/thesis.git";
+        let ask = git2::CredentialType::USER_PASS_PLAINTEXT;
+        let mut offer = TokenOffer::new(Some("gho_revoked"));
+
+        assert!(offer.answer(url, ask).is_ok(), "the first request gets the token");
+        let second = offer
+            .answer(url, ask)
+            .err()
+            .expect("the second request must fail");
+        assert!(
+            second.message().contains("did not accept"),
+            "{}",
+            second.message()
+        );
+        assert!(offer.answer(url, ask).is_err(), "and so must every one after");
+
+        // A fresh operation gets a fresh offer.
+        assert!(TokenOffer::new(Some("gho_new")).answer(url, ask).is_ok());
+        // No token, another host, or a request for something else: nothing is ever offered.
+        assert!(TokenOffer::new(None).answer(url, ask).is_err());
+        assert!(TokenOffer::new(Some("t"))
+            .answer("https://gitlab.com/a/b.git", ask)
+            .is_err());
+        assert!(TokenOffer::new(Some("t"))
+            .answer(url, git2::CredentialType::SSH_KEY)
+            .is_err());
     }
 
     // -----------------------------------------------------------------------------------------

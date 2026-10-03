@@ -34,9 +34,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   above). **Second cause worked around (3 Oct 2026):** `scripts/dev.sh` unsets the snap's GTK
   variables and restores `XDG_DATA_DIRS` / `XDG_CONFIG_DIRS` from their `_VSCODE_SNAP_ORIG`
   copies, then runs `pnpm tauri dev`; with that environment `cargo run -p abstract-tex` ran for
-  60 s with no libc error. A shell outside the snap needs nothing. **Still Open:** the
-  `tauri` / `@tauri-apps/api` minor mismatch (2.12.0 vs 2.11.1; bring the npm side up with `pnpm add --store-dir …`, see the
-  pnpm store note).
+  60 s with no libc error. A shell outside the snap needs nothing. **Fixed (3 Oct 2026):** `@tauri-apps/api` raised to 2.12.0 to match the `tauri` crate;
+  `tauri info` no longer reports a mismatch. Closed.
 
 - **`credentials()` may offer a rejected token for ever.** (3 Oct 2026, suspected while building
   S11.5a) libgit2 calls a credential callback again after the server refuses what it returned, until
@@ -47,7 +46,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   put a server that demands a password in front of the callback, but that server is not
   github.com, so the callback correctly gives it nothing and the loop cannot start; it narrows
   the suspicion and does not settle it. What settles it: a real GitHub with a revoked token (the
-  OAuth app, B1). The fix, if it loops, is a flag so the token is offered once. **Open.**
+  OAuth app, B1). The fix, if it loops, is a flag so the token is offered once.
+  **Fixed defensively (3 Oct 2026):** `TokenOffer` offers the token once per operation; the second
+  request answers "GitHub did not accept the saved sign-in. Sign in to GitHub again." (unit test
+  `a_token_the_server_refused_is_not_offered_a_second_time`). Whether libgit2 really looped is still
+  unobserved; a real revoked token (the OAuth app, S11.8b) would confirm the sentence appears.
 
 - **A comparison's "Raw output" is the engine's stderr, not its `main.log`.** (3 Oct 2026, S11.4d)
   The drawer's comparison section (A7: "raw log one click away") can only show what the
