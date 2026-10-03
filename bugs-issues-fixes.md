@@ -15,6 +15,21 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **`pnpm tauri dev` fails: `cargo run` cannot pick a binary.** (3 Oct 2026, found launching the
+  app for a hand walk-through) `src-tauri` declares three `fake-git-lfs-*` `[[bin]]` targets
+  beside the app, and without a `default-run` key `cargo run` refuses to guess among four. The
+  plain `pnpm tauri dev` therefore exits with code 101 before any window opens. Workaround:
+  `pnpm tauri dev -- --bin abstract-tex`. The fix is `default-run = "abstract-tex"` under
+  `[package]` in `src-tauri/Cargo.toml`. Separately, the CLI prints a "version mismatched Tauri
+  packages" notice (`tauri` crate 2.12.0 vs `@tauri-apps/api` 2.11.1); it did not stop the
+  launch, but the two should be brought to the same minor. **Second cause, same launch:** from a
+  shell started inside the VS Code snap, the binary then dies at startup with `symbol lookup
+  error: /snap/core20/.../libpthread.so.0: undefined symbol: __libc_pthread_init`, because the
+  snap's `GTK_PATH`, `GIO_MODULE_DIR`, `GDK_PIXBUF_*`, `GSETTINGS_SCHEMA_DIR`, `LOCPATH` and
+  rewritten `XDG_DATA_DIRS` make GTK load the snap's old libc-era modules. Workaround: unset those
+  and restore `XDG_DATA_DIRS` from `XDG_DATA_DIRS_VSCODE_SNAP_ORIG` before `pnpm tauri dev`. A
+  shell opened outside the snap would not need it. **Open.**
+
 - **`credentials()` may offer a rejected token for ever.** (3 Oct 2026, suspected while building
   S11.5a) libgit2 calls a credential callback again after the server refuses what it returned, until
   the callback answers with an error. `abstract_tex_git::credentials` returns the same token every

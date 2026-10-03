@@ -5655,6 +5655,132 @@ the callback gives the token only to `github.com`, and no test server is that.
 release environment; choose the two machines; walk the exit demo (B9's script); record it here the
 way S6.4's torture demo was. S11.8 stays unticked until then.
 
+### Sprint 11 addendum — templates, the front door (added 3 October 2026)
+
+**Why now.** Nearly every author will not know how to start a LaTeX project: which class, which
+packages, how the files fit together. They want to open a finished-looking document and type into
+its sections. Today the app opens with *Open folder…* and *Clone…*, which assumes a project already
+exists, and that breaks `DESIGN.md` §2's *zero setup to first PDF* for the person who has no
+`.tex` yet. **Why here:** S11.8b is the maintainer's (OAuth app, two machines), so this is work an
+agent can do while it waits. These loops are numbered inside Sprint 11 for the commit prefix only;
+the v0.6 exit is still S11.8b, and nothing below gates it.
+
+**Settled in this plan (3 October 2026; the position is `DESIGN.md` §10, "Templates"):**
+
+- **Bundled, never fetched at run time.** The catalog is compiled into the binary, so the picker
+  works with no network (§2 commitment 4, §8's no-silent-data-paths test). "Steal from the web" is
+  a *build-time* act: a person finds a template, checks its licence, and commits it here.
+- **Licence first.** A template may enter the catalog only under a licence that lets the *author
+  who starts from it* keep their document unencumbered: MIT, BSD, CC0, Unlicense, or LPPL (which is
+  about changing the class files, not about documents written with them). No GPL, no CC-BY-SA (a
+  thesis would inherit it), no "free for personal use", and nothing from a publisher's or an
+  institution's template page unless its terms say redistribution is allowed. Anything that needs
+  attribution carries it in its own `SOURCES.md` line and, where the licence requires it, in a
+  comment at the top of the generated file.
+- **Prefer a `main.tex` over a vendored class.** Tectonic's bundle already holds `article`,
+  `report`, `beamer`, `moderncv`, `IEEEtran` and the rest of the standard set. A template that
+  only *uses* one is a few kilobytes and redistributes nothing. A class the bundle lacks is
+  vendored beside the template, with its licence, and that is the exception.
+- **The result is plain files.** What lands on disk is `.tex`, `.bib` and `abstract-tex.toml` and
+  nothing else (§5 of this file); the template's manifest, preview and notes stay in the binary,
+  not in the author's folder.
+- **Placeholders are comments.** A line the author is expected to replace carries a
+  `% FILL IN: …` comment, which is ordinary LaTeX and survives being opened in any other editor.
+  No new macro, so the file never depends on this app.
+
+```
+Loop      S11.9 · The template store · M
+Reads     DESIGN.md §2, §5.8, §10 "Templates"; this file §5
+Files     crates/abstract-tex-templates/ (new: Cargo.toml, src/lib.rs, tests/), Cargo.toml,
+          templates/ (new, at the repo root; empty but for one fixture template)
+Build     A crate, no Tauri. `Catalog::embedded()` lists templates read from `templates/<id>/`
+          (`template.toml`: name, category, description, licence, source URL, fields; the files
+          beside it; a preview image). `instantiate(id, destination, fields)` writes the files
+          into an empty folder, substitutes the declared `{{field}}`s (title, author, date) and
+          nothing else, and fails with a typed error if the folder is not empty, a field is
+          missing, or a `{{…}}` is left over. Writes atomically (S1's temp-and-rename rule). The
+          manifest is never copied out. `thiserror` enum, as in the other library crates.
+Verify    cargo test -p abstract-tex-templates
+Done when the fixture template instantiates into a temp folder with its fields filled in; a
+          non-empty destination, a missing field and a leftover placeholder each fail with their
+          own error and leave the folder exactly as it was; a test walks the whole catalog and
+          fails on a missing licence, a licence outside the allowed list, an absent preview, or a
+          file the manifest does not list.
+```
+
+```
+Loop      S11.10a · Starter set, written here: essay, report, letter, paper · M
+Reads     DESIGN.md §2 commitment 3; S11.9's licence rule
+Depends   S11.9
+Files     templates/{essay,report,letter,paper}/ (each: template.toml, main.tex, preview.png;
+          paper also references.bib), templates/SOURCES.md
+Build     Four templates, written for this app rather than adapted, so there is nothing to
+          license: standard classes only, as few packages as will do, sample text that *teaches* the
+          structure ("This is a section. Start a new one with …"), `% FILL IN:` markers on what the
+          author must replace, and every command a beginner would trip on left out. `paper` has a
+          real `.bib` with two entries and a `\cite`, so the bibliography path is visible from the
+          first PDF. Previews are rendered from the compiled PDF's first page by a script in
+          `scripts/`, not drawn by hand.
+Verify    cargo test -p abstract-tex-templates; cargo test -p abstract-tex-engine -- --ignored
+          (compiles each template for real)
+Done when every template compiles on the bundled engine from its instantiated folder with no
+          diagnostics above *info*, and a test asserts it contains at least one `% FILL IN:`.
+```
+
+```
+Loop      S11.10b · Starter set, adapted: CV, thesis, slides · M
+Reads     S11.9's licence rule; fixtures/thesis, fixtures/corpus/beamer
+Depends   S11.10a
+Files     templates/{cv,thesis,slides}/, templates/SOURCES.md
+Build     A CV on `moderncv` (already in Tectonic's bundle, so only a `main.tex`), the multi-file
+          thesis structure the `thesis` fixture already proves (`main.tex`, `preamble.tex`,
+          `sections/`), and a Beamer deck. Each adapted template's `SOURCES.md` line names where it
+          came from, its licence, and what was changed. A CV template needs a photo-less layout
+          first: no placeholder image, which would not compile.
+Verify    same as S11.10a
+Done when the three compile for real, the thesis opens with its outline and include graph intact
+          (S4.1's walk finds every file), and every row of `SOURCES.md` passes S11.9's catalog test.
+```
+
+```
+Loop      S11.11 · New project from a template · M
+Reads     DESIGN.md §6 (the "Start a document" flow); CloneWindow.svelte as the pattern
+Depends   S11.9, S11.10a
+Files     src-tauri/src/commands.rs, src-tauri/src/lib.rs, src/lib/ipc.ts,
+          src/lib/templates.svelte.ts + templates.test.ts, src/components/NewProjectWindow.svelte
+          (all new), App.svelte, commands.ts
+Build     A window with the catalog as cards (preview, name, one line), a category filter, a
+          search box, then two fields (title, author) and a folder picker. *Create* instantiates
+          into a new folder named after the title, opens it, and compiles at once. Reachable from
+          the toolbar beside *Open folder…*, from the empty state, from the command palette
+          ("New project from template…"), and from `Ctrl+Shift+N`. The empty state stops saying
+          "No project open" and shows the three doors: new, open, clone. Fully keyboard-driven.
+Verify    pnpm verify; rung 4 in the next smoke campaign
+Done when a person who has never seen the app can go from launch to a PDF of a filled-in CV
+          without typing a path or opening a file; a taken folder name is a sentence, not an
+          error; and Esc backs out of every step with nothing written.
+```
+
+```
+Loop      S11.12 · Finding what to replace · S
+Reads     DESIGN.md §5.3; S11.10a's marker convention
+Depends   S11.11
+Files     src/lib/editor/placeholders.ts + placeholders.test.ts (new), commands.ts, Editor.svelte
+Build     Lines with `% FILL IN:` get a gutter mark and a quiet line highlight. *Go to next
+          placeholder* (`F8`-style, and in the palette) jumps to the next one across the project's
+          files; the status bar says "3 left to fill in". A fresh template opens with the cursor on
+          the first. The marker is a comment, so nothing is rewritten when the author deletes it.
+Verify    pnpm verify
+Done when the count falls as markers are deleted, jumping wraps and crosses files, and a project
+          with no markers shows nothing at all (no "0 left").
+```
+
+Not placed, deliberately: **a catalog fetched from the web at run time** (the one network feature
+this would add; it is opt-in or it is not built, §2 commitment 4), **user templates** ("save this
+project as a template", kept in the app data folder), and **journal templates** (publisher-owned
+classes and terms; `DESIGN.md` §7 v1.0's backlog item stands for those, and these starters are
+what it was never going to be: generic, small, ours to ship).
+
 S10.2
 `abstract-tex-git` crate on `git2`: status, stage, unstage, discard, commit, log, branch — no Tauri,
 tested against a temp repo — **split into S10.2a and S10.2b below, expanded 29 September 2026**,
@@ -5778,7 +5904,8 @@ S16.1 signed installers and updater, whose manifest is read from GitHub Releases
 GitHub Action, in its own repository, passing the same flags as `abstract-tex-latexdiff` so the
 PR's PDF and the app's agree · S16.3 opt-in crash reporting: a local report and a prefilled GitHub
 issue the author submits, never an upload (all three settled 2 October 2026, `DESIGN.md` §7 v0.9) ·
-S16.4 accessibility pass · S16.5 docs, contributor guide, templates · S16.6 stranger test.
+S16.4 accessibility pass · S16.5 docs, contributor guide, issue templates (the document templates
+are S11.9–S11.12) · S16.6 stranger test.
 
 ### Unplaced cards
 

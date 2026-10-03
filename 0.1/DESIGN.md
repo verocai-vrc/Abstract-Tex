@@ -109,7 +109,8 @@ document. The raw log stays one click away, forever, for the people who want it 
 the default and never the only thing offered.
 
 **Zero setup to first PDF.** Install, open a `.tex`, see a PDF. No TeX distribution to install
-first, no PATH to configure, no engine to choose. The five gigabytes and forty minutes that a TeX
+first, no PATH to configure, no engine to choose — and, for someone with no `.tex` yet, no
+document to write before there is a document (the starters of §6). The five gigabytes and forty minutes that a TeX
 Live install costs a newcomer is the single largest reason people stay on Overleaf, and we delete
 it.
 
@@ -631,6 +632,7 @@ init so *Changes* never fills with `.aux` files.
 
 | Flow | Trigger | What should happen |
 |---|---|---|
+| **Start a document** | Launch with nothing open, or `Ctrl Shift N` | A gallery of starters — essay, report, paper, letter, CV, thesis, slides — each a finished-looking document, not a skeleton. Pick one, type a title and a name, and a PDF is on screen within seconds, with the cursor on the first thing to replace. The author never chooses a class or writes a preamble; they overwrite sample text. The catalog is inside the binary, so this works offline (§10, "Templates"). |
 | **First run** | Open a folder | Root `.tex` detected automatically, engine present already, PDF within seconds. If Tectonic needs to fetch packages, that is stated plainly with progress — never a silent hang. |
 | **Write loop** | Typing | Compile on 700 ms idle. The PDF pane holds its scroll position and does not flash. A failed compile leaves the last good PDF on screen — never a blank pane. |
 | **Fix an error** | Compile fails | Drawer opens with a sentence, not a log. Click jumps to the line. Where the fix is unambiguous, one action applies it. |
@@ -789,7 +791,8 @@ anything.
 - Internationalisation scaffold
 
 **Exit:** Announced. Backlog: table grid editor (§5.3), semantic PDF library (§1.3), journal
-template gallery.
+template gallery (publisher classes and terms; the generic starters are not this, and arrive at
+S11.9–S11.12, `0.1/SPRINTS.md`).
 
 ---
 
@@ -846,6 +849,7 @@ settled or re-dated several.
 | **Git remote scope** | Sprint 10 — **settled 2 October 2026**, built as written | Any Git remote works from day one, since the layer underneath is only ever libgit2. GitHub alone gets the convenience wrapper — device-flow sign-in, repository creation, cloning from the account's list — because that is where the accounts already are. No in-app pull-request review: the companion Action (§5.7) is the pull-request story. Revisit GitLab-specific support only if asked for; the generic path already works. |
 | **Large figures** | Sprint 10 — **settled 2 October 2026** (hard limit S11.3a, LFS banner S11.3c) | The "measured against the golden corpus" plan could not be carried out: the corpus (§8) has no binary asset over a few kilobytes, so there was nothing in it to measure. The hard catch uses GitHub's own documented 100 MiB per-file limit instead, caught in `abstract-tex-git::push` before the network call. The LFS prompt is a dismissible banner above *Changes* for any file over 5 MB (S11.3c). Open sub-question, unchanged: whether to offer keeping `figures/` out of Git entirely for authors generating hundred-megabyte plots. Probably not — it breaks the "clone and it works" guarantee. |
 | **GitHub OAuth app** | Start of S11.8 (deferred 2 October 2026) | Device-flow sign-in needs a client id from an OAuth app registered with *Device flow* enabled; the id is public, ships in the binary, and is read from `ABSTRACT_TEX_GITHUB_CLIENT_ID` at build time. Until it exists, nothing can push to an authenticated remote from the app — the device-flow token is the only credential `abstract-tex-git` offers. Owner and name are decided when it is registered, at the start of the v0.6 exit-demo card. |
+| **Templates** | Sprint 11 addendum — **position settled 3 October 2026** (S11.9–S11.12) | Most authors will not know how to begin a LaTeX project, so the app starts them from a finished starter and lets them overwrite sample text. **Bundled in the binary, never fetched at run time**: a catalog behind the network breaks §2 commitment 4 and §8's zero-requests test. Sourcing from the web is a build-time act with a licence check: only MIT, BSD, CC0, Unlicense or LPPL, so that an author's thesis does not inherit a licence from the template it began as; no GPL, no CC-BY-SA, no "personal use only", no publisher or university templates without written redistribution terms. Each entry's origin, licence and changes are recorded in `templates/SOURCES.md`. A template that only *uses* a class already in Tectonic's bundle (`moderncv`, `beamer`, …) ships as a `main.tex` and redistributes nothing; vendoring a class is the exception. Placeholders are `% FILL IN:` comments, so a template file stays ordinary LaTeX and §2's "plain files" holds. **Open:** the first compile of a template that needs packages not yet cached needs the network, as any document does (§6 First run says so plainly); whether to pre-warm the package cache for the starters at install time is undecided and wants measuring first. |
 | **Code signing** | Sprint 14 (re-confirmed 2 October 2026) | Required for v0.9's exit criterion to be honest. Apple Developer ~$99/yr; Azure Trusted Signing is the cheap Windows route. Budget it or accept SmartScreen warnings on every download. |
 | **Relay hosting** | Sprint 14 — position **settled 2 October 2026** | Ship the binary and a Docker image, document a $5 VPS deployment, host nothing ourselves. Hosting anything makes us a service, which §1.3 forbids. A coauthor joins through an invite link carrying the relay URL and a random room secret; updates are end-to-end encrypted with a key derived from that secret, so whoever runs the relay sees only ciphertext. |
 | **Comments after a live session** | Sprint 14 | Open — see §5.6. A spike on a Git-ref comment store comes first. |
