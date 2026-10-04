@@ -1,0 +1,31 @@
+[package]
+name = "abstract-tex-relay"
+description = "The v0.8 live-session relay: a self-hostable WebSocket binary that broadcasts opaque messages between the peers in one room and stores nothing, ever."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "abstract-tex-relay"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["net"] }
+# The WebSocket handshake and framing. `default-features = false` drops the TLS backends and the
+# client-side `connect` module — this binary only ever accepts connections, it never makes one.
+# `handshake` turns on `accept_hdr_async`, the one function this crate calls: the plain `accept_async`
+# has no way to read the room name out of the request path before accepting.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+# `WebSocketStream::split` (so a connection's read half and write half can live in two different
+# tasks) and the `Sink`/`Stream` extension traits that read and write it.
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+# The test suite plays both ends of a connection: the server-side `handshake` feature above, and
+# `connect` for the plain-TCP client a test uses to join a room.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake", "connect"] }

@@ -19,6 +19,7 @@ members = [
     "crates/abstract-tex-latexdiff",
     "crates/abstract-tex-lsp",
     "crates/abstract-tex-reconcile",
+    "crates/abstract-tex-relay",
     "crates/abstract-tex-snapshot",
     "crates/abstract-tex-synctex",
     "crates/abstract-tex-templates",

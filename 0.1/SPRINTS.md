@@ -6483,9 +6483,63 @@ phrasing may orphan a comment a human would resolve at a glance by reading one m
 context than 40 characters gives; worth watching once S14.3 anchors comments in a real document.
 Resolving a comment is flagged, not designed.
 
-S14.1 y-websocket relay binary · S14.2 awareness, cursors · S14.3 comments on relative
-positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end commits · S15.3
-two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10); relay hosting is
+**S14.1 (4 October 2026).** `[x]`
+
+```
+Loop      S14.1 · y-websocket relay binary · M
+Reads     DESIGN.md §5.6 (network provider), §10 (relay hosting, settled 2 Oct 2026),
+          design-interview.md F6
+Depends   (none — first loop of Sprint 14; the comments spike above is informative, not a
+          dependency)
+Files     crates/abstract-tex-relay/{Cargo.toml,src/lib.rs,src/main.rs},
+          src-tauri/tests/no_silent_network.rs (allowlist entry)
+Build     A standalone WebSocket relay, never started by this app. A client connects to
+          ws://host:port/<room>; any text or binary message one peer sends is broadcast,
+          verbatim and unread, to every other peer currently in that room. Nothing is parsed —
+          under F6's end-to-end encryption the relay could not read a real message if it
+          tried — and nothing is stored: a message to an empty room is simply gone.
+Verify    cargo test -p abstract-tex-relay; cargo clippy -p abstract-tex-relay -- -D warnings
+Done when Two in-process clients in the same room see each other's messages; a third client in
+          a different room sees neither; a message to a room with no other peer raises no
+          error; a client that disconnects and reconnects receives nothing sent while it was
+          away. (All four hold; a fifth check ran the actual binary and two independent Node
+          processes as clients, not just the in-process test harness — see below.)
+```
+
+`cargo test -p abstract-tex-relay` 4 passed / 0 failed; `cargo clippy --workspace --all-targets
+-- -D warnings` clean; `pnpm verify` exit 0; `cargo test --workspace` 805 passed / 0 failed (4
+new). Beyond the unit tests, the built binary (`cargo build -p abstract-tex-relay`) was run as its
+own process on a real port, and two independent Node processes joined `smoke-room` as plain
+WebSocket clients (Node 22's built-in `WebSocket`, no library): the second received the first's
+message verbatim, the first received nothing back, and both sockets closed cleanly on `ws.close()`
+with the relay's own debug log showing the close handshake on each side. What a reader should
+take from the diff:
+
+1. **The relay never has the information it would need to behave like a CRDT peer, and that is
+   the design, not a gap.** It reads only enough of the WebSocket handshake to find the room name
+   in the request path (`accept_hdr_async`'s callback, the only place that path is visible — once
+   the upgrade completes there is no HTTP request left to read it from); after that, a message is
+   `Message::Binary`/`Text` or it is nothing to this process.
+2. **A slow peer cannot block the room.** Each connection's write half runs in its own task,
+   fed by an unbounded channel; `broadcast` only ever has to enqueue, never wait on a socket.
+3. **Nothing survives a round trip through an empty room.** There is no buffer, no replay, no
+   file: a room is a `Vec<Peer>` behind a lock, removed the moment it empties.
+4. **This binary and this app are two different processes, and `no_silent_network.rs` now says
+   so in words.** `abstract-tex-relay` depends on `tokio-tungstenite`, which the network guard's
+   own client list already named — the allowlist entry explains why the guard's usual promise
+   ("every crate here acts on a person's request inside the app") still holds for a crate the app
+   never calls: the person's request is running the binary themselves, on their own server.
+
+Not done: `src/main.rs` has no graceful shutdown, no connection limit, and no metrics — a $5 VPS
+binary that a sprint 16 docs pass should say how to run behind `systemd`, not harden further yet.
+No TLS (`wss://`) — DESIGN.md's end-to-end encryption at the message layer means a plain `ws://`
+relay never sees plaintext either way, but a relay operator can see *that* two peers are talking
+and when, which is unaddressed. No Docker image yet (§10 asks for one). Nothing in this app
+connects to a relay — that is S14.2.
+
+S14.2 awareness, cursors · S14.3 comments on relative positions · S15.1 reconnection and
+merge-on-rejoin · S15.2 session end commits · S15.3 two-author exit demo · decisions: code
+signing, by sprint 14 (`DESIGN.md` §10, still open — a maintainer budget call); relay hosting is
 settled (2 October 2026) — an invite link carrying the relay URL and a random room secret, updates
 end-to-end encrypted with a key derived from it, so a relay operator sees only ciphertext.
 

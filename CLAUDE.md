@@ -18,6 +18,8 @@ crates/abstract-tex-lsp/        TexLab process + JSON-RPC bridge
 crates/abstract-tex-git/        the project's Git repo on libgit2: status, commit, push, sync, merge
 crates/abstract-tex-github/     GitHub device-flow sign-in, repo creation, keychain token
 crates/abstract-tex-snapshot/   snapshot on every successful compile, as real Git objects
+crates/abstract-tex-comments/   comments anchored to quoted text, on their own pushed/fetched Git ref
+crates/abstract-tex-relay/      v0.8 live-session relay: a standalone WebSocket binary, not part of the app
 crates/abstract-tex-latexdiff/  latexdiff-marked-up document between two Git revisions
 crates/abstract-tex-templates/  starter templates compiled into the app; new project from one
 crates/abstract-tex-sidecar/    finds bundled helper binaries

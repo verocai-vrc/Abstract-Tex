@@ -48,6 +48,12 @@ const MAY_REACH_THE_NETWORK: &[(&str, &str)] = &[
         "crates/texbib",
         "the optional `acquire` feature: DOI, arXiv and ISBN lookups and the local Zotero link, asked for",
     ),
+    (
+        "crates/abstract-tex-relay",
+        "the v0.8 relay binary (`abstract-tex-relay`) — not this app. It is a separate process a \
+         person runs on their own server; this app has no code path that launches it or connects \
+         to it yet, and when S14.2 adds that connection this row's reason and action change",
+    ),
 ];
 
 /// Dependencies that give a crate a way out.
