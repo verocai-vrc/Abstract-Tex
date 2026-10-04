@@ -3,6 +3,7 @@
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
   import {
+    liveAwarenessFor,
     lspCompletion,
     lspDiagnosticsFor,
     lspGoToDefinition,
@@ -14,6 +15,7 @@
     showNewProjectWindow,
     syncTexForward,
   } from '../lib/controller.svelte';
+  import { live } from '../lib/live.svelte';
   import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
   import { diagnosticsForFile } from '../lib/drawer';
@@ -62,6 +64,11 @@
     const hoverRequest = (line: number, character: number) => lspHover(path, line, character);
     const definitionRequest = (line: number, character: number) => lspGoToDefinition(path, line, character);
     const forwardSearchRequest = (line: number) => void syncTexForward(path, line);
+    // S14.2c: reading `live.status` here, even though only its *presence* is used, is what makes
+    // this effect re-run — and so rebuild the editor with or without awareness — the moment a
+    // live session starts or ends on this document; `live.status` is itself written only by the
+    // controller, same as every other piece of `app` this effect depends on.
+    const awareness = live.status.has(path) ? liveAwarenessFor(path) : null;
     const created = createEditor(
       host,
       doc,
@@ -74,6 +81,7 @@
       pasteCite,
       (line) => (placeholders.cursorLine = line),
       (from, to) => (assistant.selection = from === to ? null : { from, to }),
+      awareness,
     );
     view = created;
     created.focus();

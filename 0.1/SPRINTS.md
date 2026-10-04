@@ -6650,6 +6650,92 @@ Done when Two editors open the same file against the same relay; typing in one a
           time, not yet the ten-minutes-offline half (S15.1).
 ```
 
+**S14.2c (4 October 2026).** `[x]` — `pnpm exec vitest run` 736 passed / 0 failed workspace-wide
+(10 new); `pnpm check` 0 errors; `cargo test --workspace` 805 passed / 0 failed; `pnpm verify` exit
+0. Rung 4, in full: `abstract-tex-relay` built and run as its own process on loopback; two copies
+of `fixtures/minimal` opened in two `abstract-tex` processes on two Xvfb displays; *Share* on one
+(relay address + a typed name), *Copy invite*, the invite read back from the GTK clipboard and
+typed into *Join* on the other (byte-exact — a first attempt transcribed the invite off a
+screenshot by eye and cost real time chasing a mismatch that was never a code bug); both sides
+showed **Live · 1**; typing in either reached the other within the same screenshot's round trip;
+a visible remote-cursor caret rendered in the other side's chosen colour; the sharer's process was
+`kill -9`'d outright and the joiner kept compiling and accepting edits with no crash. What a reader
+should take from the diff — most of it earned by three real bugs rung 4 found and a fourth design
+gap, in the order they block each other:
+
+1. **Joining a live session on a file already open duplicated the whole document instead of
+   converging, and the fix belongs to `joinSession`, not to Yjs.** Both sides load the same file
+   from disk independently before ever connecting, so their two `Y.Doc`s share no common CRDT
+   history even though the text matches byte for byte — Yjs has no way to know "this insert" and
+   "that insert" are the same edit, so syncing two non-empty buffers concatenates them.
+   `joinSession` now clears the joiner's buffer before connecting: the buffer's entire content then
+   arrives as an ordinary remote update once the session answers back, the same path any later
+   edit takes, so there is exactly one way content gets into a joined document, not two.
+
+2. **That fix exposed a second, worse bug: a joiner's own cleared content made every one of their
+   *later* edits vanish into the sharer's side, silently, forever, with no error anywhere.**
+   Clearing leaves a tombstoned item in the joiner's own history. `RelayProvider.receive` answered
+   a peer's sync-step-1 with this doc's own sync-step-2 (as `y-protocols/sync` already arranges)
+   but never sent *this* doc's own sync-step-1 back — harmless for the sharer, whose own
+   construction-time broadcast reached an empty room and was never going to prompt anything
+   anyway, but fatal for the joiner's tombstone: the sharer was never told to ask what the joiner
+   had, so its identity never crossed. `y-codemirror.next` anchors "insert at the end of the
+   visible text" to whatever item is structurally last, which a tie-break between two concurrent
+   origin-null items can leave as the joiner's own invisible tombstone rather than the visible
+   content before it — so a post-join edit anchored to it was a dependency the sharer could never
+   resolve. `Y.applyUpdate` has no error to raise for this: it looks exactly like an ordinary
+   out-of-order update still waiting on a dependency that, this time, was never coming. Found by
+   typing in the joiner's window and watching the sharer's window never move, then confirmed in a
+   five-line isolated reproduction outside the app entirely (`Y.decodeUpdate` on the exact relayed
+   bytes showed the update was correct and complete — the dependency was just never sent). Fixed by
+   sending the reply *and* a fresh sync-step-1 together — the "server replies with SyncStep2
+   immediately followed by SyncStep1" handshake `y-protocols/sync.js`'s own module doc already
+   named, which this had only half-implemented since S14.2b. Pinned by a test written against the
+   *room*-shaped `FakeWebSocket` in `live-session.test.ts`, not a pre-paired socket pair — a
+   pre-paired pair delivers the sharer's initial broadcast anyway, so the same test in
+   `provider.test.ts`'s harness never reproduced it. That gap between two "equivalent-looking" test
+   fixtures is itself worth remembering.
+
+3. **A third, independent bug lived one level down: the very first message any session ever sent
+   could be dropped before the socket was even open.** `RelayProvider` and `RelayAwareness` both
+   send immediately on construction; a real `WebSocket.send` throws before `OPEN`, and every send
+   on this channel is fire-and-forget. `LiveSession.connect` now awaits the socket's own `open`
+   (or `error`) before constructing either, and `live-session.test.ts`'s `FakeWebSocket` was
+   tightened to throw on a premature send — the real behaviour it exists to stand in for — so this
+   class of bug cannot pass silently again.
+
+4. **A fourth, in the opposite direction: `LiveSession.destroy` could close the socket out from
+   under its own goodbye broadcast.** `RelayAwareness.destroy`'s "I'm leaving" send is asynchronous
+   (encryption always is); `destroy` closed the socket on the very next line, before that send
+   could resolve. `RelayAwareness.destroy` is now `async` and `LiveSession.destroy` awaits it
+   before closing the socket; separately, `RelayProvider.sendEnvelope` now swallows a send that
+   fails because the channel already closed, for every caller — a live channel can close at any
+   moment a message is mid-flight, and that is not a bug to surface as an unhandled rejection, it
+   is a message with nowhere left to go. This alone turned an intermittent, unrelated-looking
+   failure in the *existing* two-session test into a reliably passing one.
+
+5. **The CSP gained its first deliberate, narrow exception.** Nothing before this loop let the
+   frontend open a network connection of its own choosing — `connect-src` now also allows the bare
+   `ws:`/`wss:` scheme, naming no host, because a live session's relay address is the one thing in
+   this app that is never known ahead of time (DESIGN.md §10 is "host nothing"). `no_silent_network.rs`'s
+   tests were rewritten, not loosened: a WebSocket naming an actual host, or appearing in any
+   directive but `connect-src`, still fails; `src/lib/relay/live-session.ts` is the one file
+   allowed `new WebSocket` at all, checked the same way the PDF viewer's lone `fetch` already was.
+
+6. **The invite format puts the key where a client structurally cannot send it.** `createInvite`/
+   `inviteToText`/`parseInvite` (`src/lib/relay/invite.ts`) build `ws(s)://host/roomId#key` — the
+   room id is a path segment (what the relay needs to see), the key lives after the `#`, the one
+   part of a URL no HTTP or WebSocket client ever transmits. *Share* shows the result with a
+   *Copy invite* button; *Join* takes one back and parses it. Both ask for a display name and pick
+   a colour from `y-codemirror.next`'s own suggested eight, carried as `RelayAwareness`'s
+   `LocalPresence`.
+
+Not done: comments anchored to relative positions (S14.3), reconnection and merge-on-rejoin after
+a real disconnect (S15.1), a commit left behind when a session ends (S15.2). `live.svelte.ts`
+supports at most a sensible one session per open document and does not persist the relay address
+or display name across a restart — both are session-only for now, matching "nothing here is meant
+to survive a restart" everywhere else a live session touches.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

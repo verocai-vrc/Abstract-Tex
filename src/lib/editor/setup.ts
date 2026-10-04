@@ -28,6 +28,7 @@ import { tags } from '@lezer/highlight';
 // file is Vite's way of adding a stylesheet to the bundle; nothing is bound to a name.
 import 'katex/dist/katex.min.css';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
+import type { Awareness } from 'y-protocols/awareness';
 import type { OpenDocument } from '../document';
 import { definitionClickHandler, definitionKeymap, type DefinitionRequester } from './definition';
 import { diagnosticGutter } from './diagnostics';
@@ -141,6 +142,9 @@ export function createEditor(
   pasteCiteRequest?: PasteCiteRequester,
   onCursorLine?: (line: number) => void,
   onSelection?: (from: number, to: number) => void,
+  // S14.2c: set only while a live session is open on this document. `null` is `yCollab`'s own
+  // "nobody else is here" state — the same one every call made before this loop, implicitly.
+  awareness: Awareness | null = null,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -192,8 +196,9 @@ export function createEditor(
         ? [EditorView.domEventHandlers({ mousedown: definitionClickHandler(definitionRequest) })]
         : []),
       ...(pasteCiteRequest ? [EditorView.domEventHandlers({ paste: pasteCiteHandler(pasteCiteRequest) })] : []),
-      // No awareness yet (that is v0.8); the undo manager is the document's own.
-      yCollab(doc.ytext, null, { undoManager: doc.undo }),
+      // `yCollab` renders a remote cursor itself (its own `yRemoteSelectionsTheme`) once given a
+      // real `Awareness`; the undo manager stays the document's own either way.
+      yCollab(doc.ytext, awareness, { undoManager: doc.undo }),
       theme,
       // S4.5's two writing modes: pure view behaviour behind a `Compartment` each, so
       // `setFocusMode`/`setTypewriterMode` can flip them per keystroke of the command palette

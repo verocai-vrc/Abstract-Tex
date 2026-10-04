@@ -13,10 +13,12 @@
 //! 1. Only the crates in [`MAY_REACH_THE_NETWORK`] depend on an HTTP or WebSocket client, or ask
 //!    libgit2 for `https`/`ssh`, and no Tauri plugin that talks on its own (updater, http,
 //!    websocket, upload) is installed.
-//! 2. The window's content-security policy lets the page connect nowhere but this computer, and the
-//!    window's permissions name no network plugin.
-//! 3. The frontend's only `fetch` is the PDF viewer reading a local `asset:` URL, and nothing in it
-//!    opens a socket, beacon or remote script.
+//! 2. The window's content-security policy lets the page connect nowhere but this computer or —
+//!    S14.2c's one deliberate exception — a `ws:`/`wss:` address nobody but the person using the
+//!    app chose, and the window's permissions name no network plugin.
+//! 3. The frontend's only `fetch` is the PDF viewer reading a local `asset:` URL, its only
+//!    `new WebSocket` is the live relay a person explicitly shared or joined, and nothing in it
+//!    opens a beacon or remote script.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,8 +53,11 @@ const MAY_REACH_THE_NETWORK: &[(&str, &str)] = &[
     (
         "crates/abstract-tex-relay",
         "the v0.8 relay binary (`abstract-tex-relay`) — not this app. It is a separate process a \
-         person runs on their own server; this app has no code path that launches it or connects \
-         to it yet, and when S14.2 adds that connection this row's reason and action change",
+         person runs on their own server; this row is still only about this crate's own Cargo \
+         dependencies, which have not changed. S14.2c did add a connection to a relay, but it is a \
+         plain browser `WebSocket` in the frontend (`src/lib/relay/live-session.ts`), never this \
+         crate or any Rust network client — tracked by `the_frontend_opens_no_connection_of_its_own` \
+         and the CSP test below, not this list",
     ),
 ];
 
@@ -152,13 +157,14 @@ fn the_app_crate_itself_has_no_client_of_its_own() {
 }
 
 #[test]
-fn the_pages_content_security_policy_connects_nowhere_but_this_computer() {
+fn the_pages_content_security_policy_connects_nowhere_but_this_computer_or_a_chosen_relay() {
     let config = read(&workspace().join("src-tauri/tauri.conf.json"));
     let config: serde_json::Value = serde_json::from_str(&config).unwrap();
     let policy = config["app"]["security"]["csp"].as_str().expect("a CSP is set");
 
     for directive in policy.split(';').map(str::trim).filter(|d| !d.is_empty()) {
-        for source in directive.split_whitespace().skip(1) {
+        let (name, sources) = directive.split_once(' ').unwrap_or((directive, ""));
+        for source in sources.split_whitespace() {
             assert!(source != "*", "`{directive}` allows every host");
             assert!(
                 !source.starts_with("https:"),
@@ -170,9 +176,20 @@ fn the_pages_content_security_policy_connects_nowhere_but_this_computer() {
                     "`{directive}` allows a remote http host: {source}"
                 );
             }
+            // S14.2c: `connect-src` alone may open a `ws:`/`wss:` socket — a live session's relay
+            // address is the one thing in this app that is never known ahead of time (DESIGN.md
+            // §10 is "host nothing"; a person points this at a server of their own). Allowed only
+            // as the bare scheme, naming no host, so this still cannot be read as endorsing one
+            // remote address over another; every other directive must still resolve to this
+            // computer, and a WebSocket is still refused everywhere else.
+            let websocket = source.starts_with("ws:") || source.starts_with("wss:");
             assert!(
-                !source.starts_with("ws:") && !source.starts_with("wss:"),
-                "`{directive}` allows a WebSocket: {source}"
+                !websocket || name == "connect-src",
+                "`{directive}` allows a WebSocket outside connect-src: {source}"
+            );
+            assert!(
+                !websocket || source == "ws:" || source == "wss:",
+                "`{directive}` names a specific WebSocket host rather than the bare scheme: {source}"
             );
         }
     }
@@ -226,6 +243,7 @@ fn frontend_sources() -> Vec<(String, String)> {
 #[test]
 fn the_frontend_opens_no_connection_of_its_own() {
     let mut fetches: Vec<String> = Vec::new();
+    let mut websockets: Vec<String> = Vec::new();
     for (file, text) in frontend_sources() {
         // Comments may talk about all of these; code may not do them.
         let code: String = text
@@ -237,7 +255,6 @@ fn the_frontend_opens_no_connection_of_its_own() {
             .collect::<Vec<_>>()
             .join("\n");
         for forbidden in [
-            "new WebSocket",
             "XMLHttpRequest",
             "sendBeacon",
             "new EventSource",
@@ -254,11 +271,22 @@ fn the_frontend_opens_no_connection_of_its_own() {
         if code.contains("fetch(") {
             fetches.push(file.replace(&format!("{}/", workspace().display()), ""));
         }
+        if code.contains("new WebSocket") {
+            websockets.push(file.replace(&format!("{}/", workspace().display()), ""));
+        }
     }
     assert_eq!(
         fetches,
         vec!["src/lib/pdf/viewer.ts".to_string()],
         "a new `fetch(` appeared in the frontend. The CSP would stop a remote one, but a fetch needs a \
          reason written down: if it reads a local asset, add its file here."
+    );
+    assert_eq!(
+        websockets,
+        vec!["src/lib/relay/live-session.ts".to_string()],
+        "a new `new WebSocket` appeared in the frontend. S14.2c's live relay is the one place this app \
+         opens a socket of its own — to the address a person typed into *Share* or pasted into *Join*, \
+         never one this app chose — and the CSP's `connect-src` was loosened for exactly that one case. \
+         A second file doing this needs the same explicit review this one got, not a silent addition here."
     );
 }

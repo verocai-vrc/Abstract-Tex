@@ -28,6 +28,8 @@
   import CommandPalette from './components/CommandPalette.svelte';
   import CloneWindow from './components/CloneWindow.svelte';
   import NewProjectWindow from './components/NewProjectWindow.svelte';
+  import ShareWindow from './components/ShareWindow.svelte';
+  import JoinWindow from './components/JoinWindow.svelte';
   import DiffView from './components/DiffView.svelte';
   import SnapshotViewer from './components/SnapshotViewer.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
@@ -118,6 +120,8 @@
 <CommandPalette />
 <CloneWindow />
 <NewProjectWindow />
+<ShareWindow />
+<JoinWindow />
 <DiffView />
 <SnapshotViewer />
 <AssistantReview />

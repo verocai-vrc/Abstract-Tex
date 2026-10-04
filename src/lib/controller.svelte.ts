@@ -24,6 +24,10 @@ import {
 } from './compare.svelte';
 import { git, GRAPH_PAGE, NO_CHANGES, relativeTime, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
+import { live } from './live.svelte';
+import type { LocalPresence } from './relay/awareness';
+import { createInvite, inviteToText, parseInvite } from './relay/invite';
+import { LiveSession, randomPresenceColor, type LiveStatus } from './relay/live-session';
 import { registerCommand, type Command } from './commands';
 import { ipc, type AssistantAction, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -1039,6 +1043,161 @@ export async function cloneRepository(): Promise<void> {
   }
 }
 
+// ---- Live co-editing (S14.2c, DESIGN.md §5.6/§10, design-interview.md F6) ----------------------
+//
+// At most one `LiveSession` per open path, held outside `app`/`live` because a session is a
+// plain, non-reactive object with its own socket and listeners — the same reason `app.docs` holds
+// `OpenDocument`s rather than copying their fields in. `attachLiveSession` mirrors a session's own
+// callbacks into `live`'s reactive maps, keyed by path like `app.dirtyPaths`.
+
+const liveSessions = new Map<string, LiveSession>();
+/** Share's own invite text, kept only so reopening the window after closing it shows the same
+ * invite rather than generating — and so breaking — a second one for a session already running. */
+const liveInviteText = new Map<string, string>();
+
+/** The awareness `Editor.svelte` passes into `createEditor` for whichever document is open —
+ * `null` when it has no live session, which is `yCollab`'s own "nobody else is here" state. */
+export function liveAwarenessFor(path: string) {
+  return liveSessions.get(path)?.awareness.awareness ?? null;
+}
+
+function currentPresence(): LocalPresence {
+  const typed = live.displayName.trim();
+  const name = typed === '' ? `Anonymous ${Math.floor(Math.random() * 100)}` : typed;
+  const { color, light } = randomPresenceColor();
+  return { name, color, colorLight: light };
+}
+
+function attachLiveSession(path: string, session: LiveSession): void {
+  liveSessions.set(path, session);
+  setLiveStatus(path, session.status, null);
+  session.onStatusChange = (status, error) => setLiveStatus(path, status, error);
+  session.onPeersChange = (peers) => setLivePeers(path, peers);
+}
+
+function setLiveStatus(path: string, status: LiveStatus, error: string | null): void {
+  const nextStatus = new Map(live.status);
+  nextStatus.set(path, status);
+  live.status = nextStatus;
+  const nextError = new Map(live.error);
+  nextError.set(path, error);
+  live.error = nextError;
+}
+
+function setLivePeers(path: string, peers: LocalPresence[]): void {
+  const next = new Map(live.peers);
+  next.set(path, peers);
+  live.peers = next;
+}
+
+/** Ends whatever session `path` has, if any. Safe to call for a path with none — `closeTab` and
+ * `closeAllDocuments` both call this unconditionally rather than checking first. */
+export function leaveLiveSession(path: string): void {
+  const session = liveSessions.get(path);
+  if (!session) return;
+  void session.destroy(); // finishes the goodbye broadcast in the background; nothing here waits on it
+  liveSessions.delete(path);
+  liveInviteText.delete(path);
+  const nextStatus = new Map(live.status);
+  nextStatus.delete(path);
+  live.status = nextStatus;
+  const nextError = new Map(live.error);
+  nextError.delete(path);
+  live.error = nextError;
+  const nextPeers = new Map(live.peers);
+  nextPeers.delete(path);
+  live.peers = nextPeers;
+}
+
+/** Open the Share window for the active document. */
+export function showShareWindow(): void {
+  if (!app.activePath) {
+    app.notice = 'Open a file first — a live session shares the file in the active tab.';
+    return;
+  }
+  live.shareVisible = true;
+  live.shareError = null;
+  live.shareInvite = liveInviteText.get(app.activePath) ?? null;
+}
+
+export function closeShareWindow(): void {
+  live.shareVisible = false;
+}
+
+/** *Create invite*: a fresh room and key for the active document, connected to immediately —
+ * sharing one is pointless until there is a live session the invited peer can actually join. */
+export async function startShare(): Promise<void> {
+  const path = app.activePath;
+  const doc = app.activeDoc;
+  if (!path || !doc || live.sharing) return;
+  if (live.relayAddress.trim() === '') {
+    live.shareError = 'A relay address is needed — host your own (DESIGN.md §10).';
+    return;
+  }
+  live.sharing = true;
+  live.shareError = null;
+  try {
+    const invite = createInvite(live.relayAddress);
+    const session = await LiveSession.connect(doc.ydoc, invite, currentPresence());
+    attachLiveSession(path, session);
+    const text = inviteToText(invite);
+    liveInviteText.set(path, text);
+    live.shareInvite = text;
+  } catch (error) {
+    live.shareError = String(error);
+  } finally {
+    live.sharing = false;
+  }
+}
+
+/** Open the Join window for the active document. */
+export function showJoinWindow(): void {
+  if (!app.activePath) {
+    app.notice = 'Open a file first — a live session shares the file in the active tab.';
+    return;
+  }
+  live.joinVisible = true;
+  live.joinError = null;
+  live.joinInviteText = '';
+}
+
+export function closeJoinWindow(): void {
+  live.joinVisible = false;
+}
+
+/** *Join*: parse the pasted invite and connect, replacing any session already open on this
+ * document — pasting a new invite is a deliberate choice to join a different room. */
+export async function joinSession(): Promise<void> {
+  const path = app.activePath;
+  const doc = app.activeDoc;
+  if (!path || !doc || live.joining) return;
+  const invite = parseInvite(live.joinInviteText);
+  if (!invite) {
+    live.joinError = 'That does not look like an invite — check it was copied in full.';
+    return;
+  }
+  live.joining = true;
+  live.joinError = null;
+  try {
+    leaveLiveSession(path);
+    // Both sides loaded this file from disk independently, so their two `Y.Doc`s share no common
+    // history even when the text happens to match byte for byte — Yjs has no way to know "this
+    // insert" and "that insert" are the same edit, so a sync with both buffers non-empty
+    // concatenates them instead of converging. Clearing first means this buffer's entire content
+    // arrives as ordinary remote updates once the session answers back, the same path any later
+    // edit takes, so there is exactly one way content gets into a joined document, not two.
+    doc.ytext.delete(0, doc.ytext.length);
+    const session = await LiveSession.connect(doc.ydoc, invite, currentPresence());
+    attachLiveSession(path, session);
+    live.joinVisible = false;
+    live.joinInviteText = '';
+  } catch (error) {
+    live.joinError = String(error);
+  } finally {
+    live.joining = false;
+  }
+}
+
 // ---- Starting from a template (S11.11, DESIGN.md §6 "Start a document") -----------------------
 
 /** Open the New project window on its first step. Nothing is written until *Create*. */
@@ -1781,6 +1940,7 @@ export async function closeTab(path: string): Promise<void> {
     return;
   }
   await manager.get(path)?.save();
+  leaveLiveSession(path); // S14.2c: a tab's session cannot outlive the Y.Doc it was syncing
   const next = manager.close(path);
   syncTabs();
   if (app.activePath === path) app.activePath = next;
@@ -1820,6 +1980,7 @@ export async function resolveMergeConflict(path: string, finalText: string): Pro
 }
 
 function closeAllDocuments() {
+  for (const path of manager.tabs()) leaveLiveSession(path);
   manager.closeAll();
   syncTabs();
   app.activePath = null;
@@ -2004,6 +2165,18 @@ registerCommand({
   title: 'Clone a repository…',
   category: 'action',
   run: () => showCloneWindow(),
+});
+registerCommand({
+  id: 'share-live',
+  title: 'Share this document, live…',
+  category: 'action',
+  run: () => showShareWindow(),
+});
+registerCommand({
+  id: 'join-live',
+  title: 'Join a live session…',
+  category: 'action',
+  run: () => showJoinWindow(),
 });
 registerCommand({
   id: 'compare-previous-commit',

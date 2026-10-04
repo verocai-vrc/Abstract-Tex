@@ -6,7 +6,8 @@
   import { github } from '../lib/github.svelte';
   import { placeholders } from '../lib/placeholders.svelte';
   import { leftToFillIn } from '../lib/editor/placeholders';
-  import { detectZotero, disallowShellEscape, goToNextPlaceholder, showActivityView, toggleDrawer } from '../lib/controller.svelte';
+  import { detectZotero, disallowShellEscape, goToNextPlaceholder, leaveLiveSession, showActivityView, showJoinWindow, showShareWindow, toggleDrawer } from '../lib/controller.svelte';
+  import { live } from '../lib/live.svelte';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -60,6 +61,11 @@
   const leftText = $derived(leftToFillIn(placeholders.total));
 
   const bibIssueCount = $derived(bibliography.findings.length);
+
+  // S14.2c: the live session on whichever tab is active, if any — `null` the rest of the time,
+  // which is every project before this sprint and most sessions even now.
+  const liveStatus = $derived(app.activePath ? live.status.get(app.activePath) ?? null : null);
+  const livePeers = $derived(app.activePath ? live.peers.get(app.activePath) ?? [] : []);
 </script>
 
 <footer class="statusbar">
@@ -101,6 +107,33 @@
 
   {#if app.activePath}
     <span>{app.activePath}{app.dirty ? ' •' : ''}</span>
+    {#if liveStatus === 'connected'}
+      <!-- S14.2c: one verb to end it, same as Zotero's and shell-escape's buttons elsewhere on
+           this bar — the status itself is the button, there is no separate indicator to click
+           past to find the control. -->
+      <button
+        class="ghost ok"
+        title={livePeers.length > 0 ? `Live with ${livePeers.map((peer) => peer.name).join(', ')}. Click to leave.` : 'Live, nobody else here yet. Click to leave.'}
+        onclick={() => leaveLiveSession(app.activePath!)}
+      >
+        <span class="dot"></span>Live{livePeers.length > 0 ? ` · ${livePeers.length}` : ''}
+      </button>
+    {:else if liveStatus === 'connecting'}
+      <span class="muted"><span class="dot pulse"></span>Connecting…</span>
+    {:else if liveStatus === 'error'}
+      <button class="ghost warn" title={live.error.get(app.activePath) ?? ''} onclick={() => leaveLiveSession(app.activePath!)}>
+        Live session failed
+      </button>
+    {:else if liveStatus === 'closed'}
+      <button class="ghost warn" title={live.error.get(app.activePath) ?? 'The other side left, or the connection dropped.'} onclick={() => leaveLiveSession(app.activePath!)}>
+        Live session ended
+      </button>
+    {:else}
+      <button class="ghost muted" title="Share this document live, or join a session" onclick={() => showShareWindow()}>
+        Share…
+      </button>
+      <button class="ghost muted" onclick={() => showJoinWindow()}>Join…</button>
+    {/if}
   {/if}
 
   {#if leftText}

@@ -483,6 +483,84 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Fixed
 
+- **A joined session's own content, after the joiner cleared it, silently stopped a peer's edits
+  from ever being learned about — permanently, with no error anywhere.** (4 Oct 2026, found
+  running S14.2c's own two-window demo under Xvfb) `RelayProvider.receive` answered a peer's
+  sync-step-1 with this doc's own sync-step-2, as `y-protocols/sync` already arranges — but never
+  sent *this* doc's own sync-step-1 back. For the sharer (first in the room), that is harmless:
+  their own sync-step-1, broadcast the moment they shared, reached nobody (the room was empty) and
+  nothing ever asks again. For the joiner's buffer-clear (`joinSession`, the entry below) that is
+  fatal: clearing leaves a tombstoned item in the joiner's own history, and the sharer — never
+  told to ask the joiner what *they* had — never learns that item's identity. Any edit the joiner
+  later made that anchored to it as a CRDT position, even only structurally and never visibly
+  (found because `y-codemirror.next` anchors "insert at the end of the visible text" to whatever
+  item is structurally last, which a tie-break between two concurrent origin-null items can leave
+  as the joiner's own invisible tombstone rather than the visible content before it), was a
+  dependency the sharer could never resolve. `Y.applyUpdate` does not throw or call its error
+  handler for this — it is indistinguishable from a normal out-of-order update still waiting on a
+  dependency that, this time, will never arrive. Caught only by typing in the *joiner's* window and
+  watching the *sharer's* window never update, confirmed byte-for-byte in isolation (the relayed
+  update decoded correctly with `Y.decodeUpdate`; the dependency really was simply never sent).
+  **Fixed:** `receive` now also sends its own sync-step-1 immediately after replying to one — the
+  "the server should reply with SyncStep2 immediately followed by SyncStep1" handshake
+  `y-protocols/sync.js`'s own module doc already asks for, which this had only half-implemented.
+  Pinned by `live-session.test.ts`'s `a joiner who cleared independently-loaded content before
+  connecting can still edit, and the sharer sees it` — written against the *room*-based
+  `FakeWebSocket` (an empty room when the sharer's own sync-step-1 goes out), not a pre-paired
+  socket pair, because a pre-paired pair delivers that broadcast anyway and the bug never
+  reproduces there. `src/lib/relay/provider.ts`.
+
+- **The first message a `LiveSession` ever sent — its own sync-step-1, and its first awareness
+  announcement — was silently dropped if the `WebSocket` had not yet reached `OPEN`.** (4 Oct 2026,
+  same session) `RelayProvider` and `RelayAwareness` each send immediately on construction; a real
+  `WebSocket.send` throws `InvalidStateError` before `OPEN`, and both sends were `void`,
+  fire-and-forget. The exact message every peer most needs — "here is my state" / "here is who I
+  am" — was the one most likely to race the handshake and vanish as an unhandled rejection no test
+  with a synchronous or already-open fake socket could see. **Fixed:** `LiveSession.connect` now
+  awaits the socket's own `open` event (or its `error`) before constructing `RelayProvider`/
+  `RelayAwareness`, so neither ever sends before the channel can carry it.
+  `src/lib/relay/live-session.ts`; the test fixture's own `FakeWebSocket` was tightened to throw on
+  a premature `send`, the real behaviour it exists to stand in for, so this class of bug cannot
+  pass silently again.
+
+- **`LiveSession.destroy` could close the socket while `RelayAwareness`'s own "I'm leaving"
+  broadcast was still mid-flight, throwing it away.** (4 Oct 2026, same session) Encrypting a
+  message is asynchronous; `destroy` fired the broadcast (via `removeAwarenessStates`, synchronous
+  to call but not to send) and then closed the socket on the very next line, before that send's
+  `crypto.subtle.encrypt` could resolve. The goodbye a peer most needs on a clean leave was the one
+  message most likely to never arrive. **Fixed:** `RelayAwareness.destroy` is now `async` and
+  awaits that specific broadcast; `LiveSession.destroy` awaits `awareness.destroy()` before closing
+  the socket. Separately, `RelayProvider.sendEnvelope` now swallows a send that fails because the
+  channel already closed, for every caller, not only this one — a live session's channel can close
+  at any moment a message happens to be mid-flight, and most callers fire sends without awaiting
+  them; the alternative was an unhandled rejection grade intermittent across the whole test suite,
+  not a sign of a real failure to act on. `src/lib/relay/awareness.ts`, `live-session.ts`,
+  `provider.ts`.
+
+- **Joining a live session on a file already open duplicated its content instead of converging.**
+  (4 Oct 2026, same session) Both sides load the same file from disk independently before ever
+  connecting, so their two `Y.Doc`s share no common CRDT history even when the text matches byte
+  for byte — Yjs has no way to know "this insert" and "that insert" are the same edit, so syncing
+  two non-empty buffers concatenates them. Seen immediately in the two-window demo: the joiner's
+  buffer showed the whole document twice. **Fixed:** `joinSession` clears the joiner's buffer
+  before connecting, so the buffer's entire content arrives as an ordinary remote update once the
+  session answers back — the same path any later edit takes, so there is exactly one way content
+  gets into a joined document, not two. `src/lib/controller.svelte.ts`. (This clear is what exposed
+  the sync-step-1 bug above — logged separately because the two are independent defects, not one.)
+
+- **A `RelayAwareness`'s own presence never reached the first peer who had already connected
+  when it joined.** (4 Oct 2026, writing S14.2c's test) The constructor called
+  `setLocalStateField('user', presence)` — which fires y-protocols' `'update'` event
+  synchronously — *before* `this.awareness.on('update', this.broadcastLocalChange)` registered
+  the listener that broadcasts it, so that first, defining call to say who this client is never
+  went out. A later field change (`yCollab`'s own cursor update, in the real editor) broadcasts
+  the *whole* current state and would eventually carry the name along with it, which is exactly
+  why `provider.test.ts`-style unit tests of sync alone never exercised this path and the first
+  draft of `awareness.test.ts` passed one assertion by accident before a second one caught it
+  with no masking update to hide behind. **Fixed:** the listener is attached before the first
+  `setLocalStateField`, with a comment at the call site saying why the order matters.
+  `src/lib/relay/awareness.ts`.
+
 - **Sending an explanation checked the assistant's opt-in against the root file's name, not the
   project folder.** (3 Oct 2026, found walking S13.2 under Xvfb) `assistant_send_explain` took
   `project_root`'s two paths from a tuple in the wrong order, so `ready_to_send` asked "is the
