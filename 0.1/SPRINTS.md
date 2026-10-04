@@ -6602,6 +6602,37 @@ Done when Two `RelayProvider`s on two `Y.Doc`s, the second joining after the fir
           the other.
 ```
 
+**S14.2b (4 October 2026).** `[x]` — `pnpm exec vitest run src/lib/relay/provider.test.ts` 1
+passed / 0 failed; `pnpm check` 0 errors; `pnpm verify` exit 0; Vitest 726/0 workspace-wide (1
+new). `src/lib/relay/provider.ts`, two new npm dependencies (`y-protocols`, `lib0`). What a reader
+should take from the diff:
+
+1. **The sync handshake is `y-protocols/sync`'s own, called, not rewritten.** `RelayProvider`
+   writes and reads exactly the three messages (`writeSyncStep1`, `readSyncMessage`,
+   `writeUpdate`) that `y-websocket` and `y-webrtc` already use on the wire — the same module this
+   loop's own `Reads` line named. There is no bespoke message shape to get subtly wrong.
+2. **`this` doubles as the transaction origin, and that one value is what tells a caused update
+   apart from a real one.** `receive` passes the provider instance itself into
+   `readSyncMessage(..., this.doc, this)`; Yjs threads it through to `Y.applyUpdate` and back out
+   on the `update` event. `broadcastLocalUpdate` checks `origin === this` and returns without
+   sending — no separate boolean flag to set and forget, because the one value already means
+   "a message I just applied," nothing else ever passes it.
+3. **`lib0` had to become a direct dependency `provider.ts` never mentions using on its own.**
+   `yjs` and `y-codemirror.next` both already depend on it, but pnpm's strict `node_modules` only
+   symlinks a package at the top level for something that names it directly in `package.json`;
+   `import * as encoding from 'lib0/encoding'` needed that symlink to exist for this module, not
+   for either of its existing, unrelated dependents.
+4. **The test waits for the text to actually match, not for a fixed number of messages.** Which
+   side's sync-step-1 reaches a listening peer first is not fixed — `channel.ts`'s `send` is async
+   on every hop — so `waitForText` polls `Y.Text.toString()` off the doc's own `update` event
+   rather than asserting after a specific number of sends, the same reason S11's reconciler tests
+   wait on content rather than operation counts.
+
+Not done: still no real relay in the test — the same fake socket pair shape `channel.test.ts`
+used, with the real fan-out proven separately in `abstract-tex-relay`'s own tests, per this loop's
+own spec. No room or invite concept, no awareness, no cursors, no Share/Join UI — S14.2c. No
+reconnection or merge-on-rejoin after a real disconnect — S15.1.
+
 ```
 Loop      S14.2c · awareness, cursors, Share and Join · L
 Reads     DESIGN.md §6 (interface); F6
