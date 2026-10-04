@@ -147,7 +147,7 @@ sections that follow.
 | F2 | Assistant opt-in and keys: where stored | Per machine, never in the project | Per machine + folder |
 | F3 | Model fallback for compile errors: consent per call? | Per call, shown payload | Per call, payload shown |
 | F4 | Which citation commands the guard scans | Every cite-family command texbib knows | One shared list |
-| F5 ★ | Comments after a live session: where do they persist? | Open — needs real discussion | **Spike a Git-ref store** |
+| F5 ★ | Comments after a live session: where do they persist? | **Settled 4 Oct 2026 — spike passed** | Git-ref store, content-addressed |
 | F6 | Relay hosting and session joining | Self-host binary; invite link with a secret | Invite link + E2E |
 | F7 | Code signing budget | Decide by sprint 14 | Decide by sprint 14 |
 | F8 | Updater and crash reports vs "host nothing ourselves" | GitHub Releases; crash report = prefilled issue | GitHub Releases + prefilled issue |
@@ -834,6 +834,16 @@ the list above. It came up during the interview from the snapshot precedent: com
 quoted text + context, re-anchored on load, orphans listed. The source tree stays untouched (rule
 1), it works with any host (§9), and the relay still stores nothing. If the spike fails, the
 fallback is (a), session-only, said plainly. `DESIGN.md` §5.6 and §10.
+
+**Spike result (4 Oct 2026): passed.** `crates/abstract-tex-comments`, 12 tests. Anchoring by
+quote + context reanchors correctly after an edit elsewhere and orphans (never guesses at) a
+rewritten or ambiguously-repeated passage. The part that was a genuine risk, not a detail — two
+authors who comment offline build two histories on the ref with no common ancestor — resolves
+cleanly: every comment is its own blob named by its own content hash, so two additions are two
+different tree entries and Git's ordinary 3-way merge sees no conflict; proven over a real
+`file://` remote with explicit push/fetch refspecs, not simulated. **Decision: build S14.3 and
+S15.2 on this store, not the session-only fallback.** Left open, for S14.3: editing or resolving
+an existing comment, which needs its own append-only event rather than a rewrite of one.
 
 ### F6 · Relay hosting and joining a session (decide by sprint 14)
 

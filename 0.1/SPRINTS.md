@@ -6438,9 +6438,50 @@ S13.4 no-network test: zero outbound requests with no key (done, above).
 
 ### Sprint 14–15 — v0.8 live
 
-**First, before S14.1**: a spike on where comments persist after a session — a Git ref of
-their own, `refs/abstract-tex/comments`, anchored by quoted text and re-anchored on load
-(`DESIGN.md` §5.6, open; design interview F5). Its outcome decides what S14.3 and S15.2 carry.
+**First, before S14.1: a spike on where comments persist after a session — done (4 October
+2026), below.** The outcome: the Git-ref store is viable; S14.3 and S15.2 build on it.
+
+**Spike (4 October 2026).** `[x]` — `cargo test -p abstract-tex-comments` 12 passed / 0 failed;
+`pnpm verify` exit 0, `cargo test --workspace` 801 passed / 0 failed (12 new). A new crate,
+`crates/abstract-tex-comments`, answers DESIGN.md §5.6's open question and design-interview.md
+F5: can a comment anchored to quoted text survive a round trip through a Git ref of its own,
+`refs/abstract-tex/comments`, pushed and fetched by an explicit refspec, and merged when two
+authors commented offline at the same time? What a reader should take from the diff:
+
+1. **Anchoring by quote and context, never a line or byte offset, reanchors correctly after an
+   edit made elsewhere.** `anchor::reanchor` finds the quoted text again in the file's current
+   contents; a rewritten sentence comes back `Orphaned(TextNotFound)` rather than guessed at, and
+   a phrase that now occurs twice is told apart by up to 40 characters of its surrounding text —
+   captured and compared in `char`s, not bytes, so a multi-byte character never splits. When even
+   the context repeats, the comment is `Orphaned(Ambiguous { .. })`: DESIGN.md §5.6's "listed as
+   orphaned rather than silently dropped" extends to "rather than silently anchored to the wrong
+   occurrence."
+2. **The merge risk the design interview called a genuine conflict resolves with no hand-written
+   conflict resolution.** Two authors who each comment offline build two histories on the ref with
+   no common ancestor between them. Every comment is written as its own blob, named by the blob's
+   own content hash — Git's own trick for its object store, turned on the ref itself — so two
+   authors' additions land at two different tree entries and Git's ordinary 3-way merge
+   (`Repository::merge_trees`, an empty tree standing in for the missing common ancestor) sees only
+   adds, never a collision. `store::two_authors_commenting_offline_at_once_merge_cleanly_over_a_real_remote`
+   proves this over a real `file://` remote with explicit push/fetch refspecs
+   (`store::push`/`fetch`/`merge_from`), not a simulation of one.
+3. **What this does not solve: editing or resolving an existing comment.** A resolution needs its
+   own append-only event pointing at the comment it resolves, so two authors resolving the same
+   thread offline still merge as two additions rather than a conflict — `store.rs`'s module doc
+   leaves this as a named, open question for S14.3, not an answer this spike gives.
+4. **The mechanism needed no network feature `src-tauri/tests/no_silent_network.rs` does not
+   already allow.** A first draft of this crate turned `git2`'s `https` feature on "to match
+   abstract-tex-git"; S13.4's guard failed immediately because nothing calls this crate yet, which
+   was the guard doing exactly its job. `file://` push and fetch need no such feature, so the
+   feature came back off and the allowlist is untouched — turning it on is for the loop that
+   actually wires *Sync* to a real remote, together with the allowlist line that loop must add.
+
+Not done: no CRDT relative position (that is the live session itself, S14.2/S14.3's job), no Tauri
+command, no UI, no real GitHub remote (only `file://` — the mechanism, not the host, was in
+question). The ambiguous case is deliberately conservative: a document with heavy repeated
+phrasing may orphan a comment a human would resolve at a glance by reading one more sentence of
+context than 40 characters gives; worth watching once S14.3 anchors comments in a real document.
+Resolving a comment is flagged, not designed.
 
 S14.1 y-websocket relay binary · S14.2 awareness, cursors · S14.3 comments on relative
 positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end commits · S15.3

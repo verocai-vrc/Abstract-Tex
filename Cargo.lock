@@ -56,6 +56,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "abstract-tex-comments"
+version = "0.1.0"
+dependencies = [
+ "git2",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "abstract-tex-engine"
 version = "0.1.0"
 dependencies = [

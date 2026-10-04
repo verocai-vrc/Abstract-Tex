@@ -468,15 +468,19 @@ presence and cursors through the awareness protocol, and comments anchored to re
 so they survive edits made while the commenter was away. The relay stores nothing durable — every
 participant keeps the real files locally.
 
-**Open — where comments go when the session ends** (decide by sprint 14). The relay stores
-nothing, the source tree holds nothing but plain files (§5.8), and `.abstract-tex/` does not travel,
-so a comment has nowhere obvious to persist. The leading candidate, to be tested by a spike before
-sprint 14: comments live in a Git ref of their own, `refs/abstract-tex/comments` — the same
-precedent as the snapshot ref (§5.7) — pushed and fetched by *Sync* with an explicit refspec,
-anchored by the quoted text and its surroundings, re-anchored on load, with any comment whose text
-has gone listed as orphaned rather than silently dropped. The source tree stays untouched, it
-works with any Git host, and the relay still stores nothing. The fallback if the spike fails:
-comments are session-only, said plainly at session end.
+**Settled — where comments go when the session ends** (spike run 4 October 2026, `SPRINTS.md`
+Sprint 14-15; design-interview.md F5). Comments live in a Git ref of their own,
+`refs/abstract-tex/comments` — the same precedent as the snapshot ref (§5.7) — pushed and fetched
+by *Sync* with an explicit refspec, anchored by the quoted text and its surroundings, re-anchored
+on load, with any comment whose text has gone (or whose context no longer picks it out uniquely)
+listed as orphaned rather than silently dropped or silently misattached. The source tree stays
+untouched, it works with any Git host, and the relay still stores nothing. The spike
+(`crates/abstract-tex-comments`) proved the part of this that was a genuine risk rather than a
+detail: two authors who comment offline build two histories on the ref with no common ancestor,
+and because every comment is its own blob named by its own content hash, Git's ordinary tree merge
+resolves that with no hand-written conflict logic. Not yet designed: editing or resolving an
+existing comment, which needs its own append-only event rather than a rewrite of one — left to
+S14.3.
 
 ### 5.7 Storage, history and change review
 
@@ -852,7 +856,7 @@ settled or re-dated several.
 | **Templates** | Sprint 11 addendum — **position settled 3 October 2026** (S11.9–S11.12) | Most authors will not know how to begin a LaTeX project, so the app starts them from a finished starter and lets them overwrite sample text. **Bundled in the binary, never fetched at run time**: a catalog behind the network breaks §2 commitment 4 and §8's zero-requests test. Sourcing from the web is a build-time act with a licence check: only MIT, BSD, CC0, Unlicense or LPPL, so that an author's thesis does not inherit a licence from the template it began as; no GPL, no CC-BY-SA, no "personal use only", no publisher or university templates without written redistribution terms. Each entry's origin, licence and changes are recorded in `templates/SOURCES.md`. A template that only *uses* a class already in Tectonic's bundle (`moderncv`, `beamer`, …) ships as a `main.tex` and redistributes nothing; vendoring a class is the exception. Placeholders are `% FILL IN:` comments, so a template file stays ordinary LaTeX and §2's "plain files" holds. **Open:** the first compile of a template that needs packages not yet cached needs the network, as any document does (§6 First run says so plainly); whether to pre-warm the package cache for the starters at install time is undecided and wants measuring first. |
 | **Code signing** | Sprint 14 (re-confirmed 2 October 2026) | Required for v0.9's exit criterion to be honest. Apple Developer ~$99/yr; Azure Trusted Signing is the cheap Windows route. Budget it or accept SmartScreen warnings on every download. |
 | **Relay hosting** | Sprint 14 — position **settled 2 October 2026** | Ship the binary and a Docker image, document a $5 VPS deployment, host nothing ourselves. Hosting anything makes us a service, which §1.3 forbids. A coauthor joins through an invite link carrying the relay URL and a random room secret; updates are end-to-end encrypted with a key derived from that secret, so whoever runs the relay sees only ciphertext. |
-| **Comments after a live session** | Sprint 14 | Open — see §5.6. A spike on a Git-ref comment store comes first. |
+| **Comments after a live session** | Sprint 14 — **settled 4 October 2026**, spike passed | See §5.6. `refs/abstract-tex/comments`, pushed/fetched by an explicit refspec, content-addressed per comment so concurrent additions merge with no hand-written conflict logic (`crates/abstract-tex-comments`). Editing/resolving a comment is still open, left to S14.3. |
 | **Updater and crash reports** | Sprint 16 — **settled 2 October 2026** | The updater's manifest is read from GitHub Releases; crash reporting is a local report plus a prefilled GitHub issue the author submits themselves. Neither needs a server of our own (§1.3). |
 
 ---

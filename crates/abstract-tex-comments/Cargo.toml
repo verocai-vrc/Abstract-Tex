@@ -1,0 +1,23 @@
+[package]
+name = "abstract-tex-comments"
+description = "Spike: can a comment anchored to quoted text survive a round trip through a Git ref, pushed and fetched like any other ref, and merged when two authors commented offline at once? DESIGN.md §5.6, design-interview.md F5."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# libgit2, `https`/`ssh` off, same reasons as abstract-tex-snapshot: the push/fetch this spike
+# proves works over `file://` remotes in its own tests (local transport needs neither feature).
+# This crate is not wired into the app — nothing calls it yet, so src-tauri/tests/no_silent_network.rs
+# has nothing to allow. Turning `https` on belongs to the loop that actually wires Sync to a real
+# GitHub remote, at the same time that loop adds a line to that test's allowlist.
+git2 = { version = "0.20", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
