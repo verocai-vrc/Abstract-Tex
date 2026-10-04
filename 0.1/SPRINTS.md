@@ -6537,11 +6537,93 @@ relay never sees plaintext either way, but a relay operator can see *that* two p
 and when, which is unaddressed. No Docker image yet (§10 asks for one). Nothing in this app
 connects to a relay — that is S14.2.
 
-S14.2 awareness, cursors · S14.3 comments on relative positions · S15.1 reconnection and
-merge-on-rejoin · S15.2 session end commits · S15.3 two-author exit demo · decisions: code
-signing, by sprint 14 (`DESIGN.md` §10, still open — a maintainer budget call); relay hosting is
-settled (2 October 2026) — an invite link carrying the relay URL and a random room secret, updates
-end-to-end encrypted with a key derived from it, so a relay operator sees only ciphertext.
+**S14.2, expanded into three loops** (one M/L subsystem is too much to verify, review and commit
+as a single piece, the same reason S12.1 and S11.4 were split):
+
+```
+Loop      S14.2a · encrypted relay channel · S
+Reads     DESIGN.md §5.6, §10; design-interview.md F6 (room secret, end-to-end encryption)
+Depends   S14.1
+Files     src/lib/relay/channel.ts, src/lib/relay/channel.test.ts
+Build     Wrap a WebSocket-shaped object so every outgoing message is AES-GCM encrypted (a
+          fresh random 12-byte IV per message, prepended to the ciphertext on the wire) under a
+          key derived from the invite's room secret, and every incoming message is decrypted
+          before anything else in the frontend sees it. No Yjs knowledge at all: this is the one
+          place that holds a decryption key, and it holds nothing else.
+Verify    pnpm exec vitest run src/lib/relay/channel.test.ts
+Done when Two channels sharing a key exchange a message that round-trips; a channel given the
+          wrong key never surfaces a decrypt failure as a message (AES-GCM's own authentication
+          tag means there is no "garbled" output to receive, only a raised failure); the raw
+          bytes a fake socket actually records never contain the plaintext that was sent.
+```
+
+**S14.2a (4 October 2026).** `[x]` — `pnpm exec vitest run src/lib/relay/channel.test.ts` 4
+passed / 0 failed; `pnpm check` 0 errors; `pnpm verify` exit 0; Vitest 725/0 workspace-wide (4
+new). `src/lib/relay/channel.ts`, no new npm dependency: the Web Crypto API (`crypto.subtle`) is
+already a global in every target this app runs in — the Tauri webview and, for tests, Node 22.
+What a reader should take from the diff:
+
+1. **The wire format is `iv || ciphertext`, and the IV is the only thing sent that is not
+   secret.** A fresh random 12-byte IV per message is non-negotiable for AES-GCM — reusing one
+   under the same key is the one mistake that breaks its guarantees — so `send` draws one every
+   time rather than taking one as a parameter a caller could get wrong.
+2. **A decrypt failure is a named event, not a silently wrong message.** AES-GCM authenticates:
+   the wrong key or foreign bytes make `crypto.subtle.decrypt` throw, never return a
+   plausible-looking wrong plaintext, so `receive` has nothing to do but tell `onDecryptFailure`
+   and stop — there is no "best effort" reading of a message that failed its own tag check.
+3. **TypeScript's own typing of this API needed one small, named workaround.** The DOM types
+   (TS 5.9) ask Web Crypto for a `Uint8Array` concretely backed by an `ArrayBuffer`; a caller's
+   own `Uint8Array` (`TextEncoder.encode`'s return type among them) is typed more loosely and
+   does not satisfy that on its own. `toArrayBufferBacked` copies once, at the one boundary that
+   needs it, rather than pushing the stricter type onto every caller of `send`/`importKey`.
+4. **The test for "the relay saw ciphertext, not the message" reads the actual bytes.** It is the
+   same shape S13.3's payload-inspector test used: assert a secret marker string does not occur
+   anywhere in what was actually handed to the socket, not just that encryption was "called".
+
+Not done: no key derivation from an invite's room secret yet (`importKey` takes 32 raw bytes and
+trusts the caller), no room concept, no Yjs — those are S14.2b (sync) and S14.2c (invite format,
+awareness, UI).
+
+```
+Loop      S14.2b · Yjs sync over the encrypted channel · M
+Reads     DESIGN.md §5.6; the `y-protocols` sync module (reused, not reimplemented — the same
+          handshake y-websocket and y-webrtc already use)
+Depends   S14.2a
+Files     src/lib/relay/provider.ts, src/lib/relay/provider.test.ts, package.json (`y-protocols`)
+Build     A `RelayProvider` binds one `Y.Doc` to one `EncryptedChannel`. On connect it sends a
+          sync-step-1 (its state vector); on receiving a peer's sync-step-1 it replies with
+          sync-step-2 (whatever that peer is missing); every local update not caused by an
+          incoming message is broadcast. No relay in this test — a fake socket pair with the
+          real fan-out shape (one sender, every other "peer" in the pair receives) stands in for
+          the real one proven in `abstract-tex-relay`'s own tests.
+Verify    pnpm exec vitest run src/lib/relay/provider.test.ts
+Done when Two `RelayProvider`s on two `Y.Doc`s, the second joining after the first already has
+          text, converge: the joiner catches up, and an edit on either side after that reaches
+          the other.
+```
+
+```
+Loop      S14.2c · awareness, cursors, Share and Join · L
+Reads     DESIGN.md §6 (interface); F6
+Depends   S14.2b
+Files     src/lib/relay/awareness.ts, src/lib/editor/setup.ts (yCollab wiring), a Share action
+          and a Join dialog (component TBD when this loop starts), `y-protocols/awareness`
+Build     One `awareness.Awareness` per open document's `RelayProvider`, broadcasting cursor
+          position and a per-session colour/name over the same encrypted channel; y-codemirror.next's
+          `yCollab` renders the remote cursor. *Share* generates an invite (relay address + room
+          id + key, the key never sent to the relay); *Join* parses one and connects.
+Verify    pnpm exec vitest run; rung 4 once both are ticked (two windows under Xvfb)
+Done when Two editors open the same file against the same relay; typing in one appears in the
+          other; each shows the other's cursor in a distinct colour; closing one window leaves
+          the other working normally — DESIGN.md §7's v0.8 exit criterion, one paragraph at a
+          time, not yet the ten-minutes-offline half (S15.1).
+```
+
+S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
+commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
+still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite
+link carrying the relay URL and a random room secret, updates end-to-end encrypted with a key
+derived from it, so a relay operator sees only ciphertext.
 
 ### Sprint 16 — v0.9 ship
 
