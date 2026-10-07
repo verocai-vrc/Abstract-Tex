@@ -6736,11 +6736,153 @@ supports at most a sensible one session per open document and does not persist t
 or display name across a restart — both are session-only for now, matching "nothing here is meant
 to survive a restart" everywhere else a live session touches.
 
-S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
-commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
-still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite
-link carrying the relay URL and a random room secret, updates end-to-end encrypted with a key
-derived from it, so a relay operator sees only ciphertext.
+**S14.3, expanded one loop at a time** (the same reason S14.2 and S12.1 were split — this card
+builds on the comments spike's own named open question, not on a guess at the other two's shape):
+
+```
+Loop      S14.3a · resolution events for abstract-tex-comments · S
+Reads     DESIGN.md §5.6; design-interview.md F5 ("Left open, for S14.3: editing or resolving an
+          existing comment"); crates/abstract-tex-comments/src/store.rs's own module doc
+Depends   the comments spike (4 October 2026, above)
+Files     crates/abstract-tex-comments/src/{lib.rs,store.rs}
+Build     A resolve-or-reopen is its own content-addressed event (`ResolutionRecord`), named by
+          the comment id it is about rather than a rewrite of the comment's own blob — the same
+          move `add` already made for the comment itself, for the same reason. `load` folds every
+          comment's resolutions by `created`, latest wins, into a new `LoadedComment::resolved`.
+Verify    cargo test -p abstract-tex-comments; cargo clippy -p abstract-tex-comments --all-targets
+          -- -D warnings; cargo fmt --all --check
+Done when Two authors resolving the same comment offline, each unaware of the other, merge as two
+          additions over a real `file://` remote, not a conflict; resolving then reopening (or the
+          reverse, written in either order) always reads back as whichever event has the later
+          `created`, never whichever the tree happened to list last.
+```
+
+**S14.3a (7 October 2026).** `[x]` — `cargo test -p abstract-tex-comments` 17 passed / 0 failed (5
+new), `cargo clippy -p abstract-tex-comments --all-targets -- -D warnings` clean, `cargo fmt --all
+--check` clean workspace-wide. No rung 3/4: a library-crate loop with no caller yet, same as the
+spike itself and S7.1/S7.4's precedent. `cargo test --workspace` could not be run at first — this
+session's missing `pkg-config` (and `libdbus-1-dev`, and a git identity) poisoned the whole
+workspace build before this loop's own diff was even reached — but fixed mid-session without root
+(`bugs-issues-fixes.md` under **Fixed** has the exact recipe), after which `cargo test --workspace
+--exclude abstract-tex` ran for real: 575 passed, 0 failed, across every library crate including
+this one. (`abstract-tex` itself, the Tauri app crate, still cannot build here — a much bigger,
+separate GTK3/WebKitGTK `-dev` gap, also in that ledger entry, left for the maintainer.) What a
+reader should take from the diff:
+
+1. **A resolution names the comment; it never rewrites it.** The merge risk the module doc already
+   flagged for comments themselves — two offline authors, no common ancestor, must merge as
+   additions, not a conflict — reapplies identically to "two authors resolve the same thread while
+   each is offline," and the fix is the same move: `ResolutionRecord` is its own blob, filed under
+   `<hash>.resolve.json` rather than touching `<comment-hash>.json`. The new
+   `two_authors_resolving_the_same_comment_offline_merge_as_two_additions_not_a_conflict` test is
+   the direct sibling of the spike's own comment-merge test, over the same kind of real `file://`
+   remote.
+2. **The two kinds of entry share one tree and one commit chain, and only their filename tells them
+   apart.** `add` and the new `add_resolution` both go through a shared `write_blob_on_ref`, so a
+   resolution lands in the exact same place in history a comment would; `load_all` and the new
+   `load_resolutions` walk that one tree and each skip what is not theirs — checking the longer,
+   more specific `.resolve.json` suffix before the plainer `.json` a comment uses, since the former
+   also ends in the latter.
+3. **"Resolved" is a fold over events, not a field, and the fold needed its own tie-break.**
+   `resolved_state` takes every resolution naming a comment and keeps the one with the latest
+   `created`; two tests pin that this holds regardless of which order the events were *written* in,
+   not just the order `created` puts them in — `an_older_resolution_never_overrides_a_newer_one_
+   regardless_of_write_order` writes the later timestamp second on purpose. A tie (two events
+   claiming the same `created`, plausible across a real clock skew between two offline authors)
+   breaks on the event's own blob id — arbitrary, but deterministic, which is the only property a
+   tie-break here owes anyone.
+4. **A resolution for a comment id nobody here has ever heard of is valid, not an error.** Exactly
+   the shape two authors working offline produce — one resolves a comment the other has not fetched
+   yet — so `resolve`/`add_resolution` do not check the id against `load_all` first;
+   `resolved_state` already treats an unmatched resolution as nothing to fold in, and
+   `a_resolution_for_an_unknown_comment_id_is_harmless` pins that it neither errors nor manufactures
+   a phantom comment.
+5. **Two new intra-doc links to private items, caught by the same `RUSTDOCFLAGS="-D warnings"
+   cargo doc` check S7.5's outcome recorded — and one pre-existing instance of the same thing in
+   `anchor.rs`, found in passing and left for later, logged in `bugs-issues-fixes.md`.** This crate
+   is not on the mandatory ladder for that check (it is not slated for separate publishing the way
+   `texlog`/`texbib` are), but running it anyway caught a real mistake before it could surprise
+   whoever eventually does add this crate to that list.
+
+Not done, left for S14.3b and later: a `&Path`-based way to call any of this from a project
+folder rather than an already-open `git2::Repository` (S14.3b, immediately below); anchoring a
+*new* comment to a Yjs relative position while a live session is open, so it survives concurrent
+edits made during the session itself (distinct from this crate's quote-anchoring, which is for
+after the session ends — DESIGN.md §5.6 names both); the Tauri commands and frontend store that
+would let the app call any of this; `.json`/`.resolve.json` entries clean up nowhere yet (a
+resolved-then-abandoned comment's blob stays in the tree forever, harmless at the sizes a
+manuscript's review thread reaches, but worth naming if this ever needs pruning).
+
+```
+Loop      S14.3b · project-path wrapper for abstract-tex-comments · S
+Reads     src-tauri/src/commands.rs's own doc ("thin by design: validate, delegate, emit");
+          crates/abstract-tex-snapshot/src/lib.rs's open_or_create/open_existing split
+Depends   S14.3a
+Files     crates/abstract-tex-comments/src/{lib.rs,project.rs}
+Build     A new `project` module gives every `store` function a `&Path`-based sibling
+          (`project::add`/`resolve`/`load`/`sync`), opening (or, for a write, creating) the one
+          repository a project's comments belong in — the author's own, discovered by walking up
+          from the project folder, or a bare repository of our own under `.abstract-tex/comments.git`
+          for a project that is not a Git repository at all. Not re-exported at the crate root:
+          `project::add` would collide with `store::add`'s own name there.
+Verify    cargo test -p abstract-tex-comments; cargo clippy -p abstract-tex-comments --all-targets
+          -- -D warnings; cargo fmt --all --check
+Done when A project folder with no Git repository gets comments without the caller ever
+          constructing a `Repository`; a project that already has one gets no second, unused
+          repository growing alongside it; a comment made from a subfolder of a larger repository
+          lands on that repository's root, not a new one inside the subfolder; two projects that
+          each commented offline, synced through a real `file://` remote, both end up with both
+          comments.
+```
+
+**S14.3b (7 October 2026).** `[x]` — `cargo test -p abstract-tex-comments` 23 passed / 0 failed (6
+new), clippy and `cargo fmt --all --check` clean. Verified far beyond the card's own ladder, for a
+reason worth recording on its own: **this session's standing `pkg-config` gap is fixed** (see
+`bugs-issues-fixes.md` under **Fixed** for the exact, root-free recipe — four `apt-get download`s,
+two `dpkg-deb -x`s, a `sed`, a symlink, three environment variables, plus a `git config --global`
+identity the isolated test repositories also needed), so for the first time this session
+`cargo test --workspace --exclude abstract-tex` and `cargo clippy --workspace --exclude abstract-tex
+--all-targets -- -D warnings` could actually run: 575 tests, 0 failed, clippy clean, across every
+library crate in the workspace. `abstract-tex` itself (the Tauri app crate) still cannot build here
+— that gap is an order of magnitude bigger (the full GTK3/WebKitGTK `-dev` stack, ~50 packages) and
+left for the maintainer's own `apt`, per that same ledger entry. What a reader should take from the
+diff:
+
+1. **A third module, not a bigger `store.rs`.** `project.rs` holds nothing `store.rs` does not
+   already do — every function is a one- or two-line call-through after opening a `Repository` —
+   so the split is purely "does this function take a `Repository` or a `Path`", matching the
+   question a caller actually has when reaching for one of them.
+2. **Duplicating `abstract-tex-snapshot`'s `open_or_create`/`open_existing` split, not sharing it,
+   on purpose.** The sibling crate's own module doc already makes this crate's case for it: a few
+   lines, and no dependency between two crates that are otherwise independent of each other. The
+   two hidden-ref crates even disagree slightly on what "ours" means when there is no Git repository
+   at all — `.abstract-tex/snapshots.git` and `.abstract-tex/comments.git` are two different bare
+   repositories, not one shared between them — which matters only in that it means neither crate
+   has to know the other's ref names to avoid colliding with them.
+3. **A read must never create what it is asking about.** `load` on a project with nothing committed
+   and no Git repository at all returns an empty list and leaves no `.abstract-tex/comments.git`
+   behind — `a_project_with_no_comments_yet_loads_as_an_empty_list_and_creates_nothing` checks the
+   filesystem, not just the return value, for exactly the reason `abstract-tex-snapshot`'s own
+   `open_existing` doc comment gives: a repository appearing because someone merely *asked* whether
+   there was anything to recover would be a small lie about what this app has actually kept.
+4. **`sync` is fetch, merge, push — the same order, for the same reason, as `abstract-tex-git::sync`
+   already uses for the author's own branch** (checked by reading that function rather than
+   guessing): arriving comments must be folded in before anything moves outward, or a push could
+   send a stale state that a merge would have changed.
+5. **The environment fix this loop needed is not durable, and the ledger entry says so.** The
+   extracted `pkg-config`/`libdbus-1-dev` prefix lives under this session's scratchpad, not the
+   repository — a fresh sandbox loses it. Recorded as the first thing a future session on this
+   machine should check before assuming `cargo test --workspace` is still broken, or still fixed.
+
+Not done: still no Tauri command, no frontend, no live relative-position anchoring — all of S14.3's
+own remaining business, now one layer closer since the Rust side owes `commands.rs` nothing more
+than the "validate, delegate, emit" its own doc promises once a webview can be built here.
+
+S15.1 reconnection and merge-on-rejoin · S15.2 session end commits · S15.3 two-author exit demo ·
+decisions: code signing, by sprint 14 (`DESIGN.md` §10, still open — a maintainer budget call);
+relay hosting is settled (2 October 2026) — an invite link carrying the relay URL and a random
+room secret, updates end-to-end encrypted with a key derived from it, so a relay operator sees
+only ciphertext.
 
 ### Sprint 16 — v0.9 ship
 

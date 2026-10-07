@@ -842,8 +842,9 @@ authors who comment offline build two histories on the ref with no common ancest
 cleanly: every comment is its own blob named by its own content hash, so two additions are two
 different tree entries and Git's ordinary 3-way merge sees no conflict; proven over a real
 `file://` remote with explicit push/fetch refspecs, not simulated. **Decision: build S14.3 and
-S15.2 on this store, not the session-only fallback.** Left open, for S14.3: editing or resolving
-an existing comment, which needs its own append-only event rather than a rewrite of one.
+S15.2 on this store, not the session-only fallback.** Resolving an existing comment was left
+open here and closed by **S14.3a (7 Oct 2026)**: its own append-only event, not a rewrite,
+merges the same way for the same reason — see `SPRINTS.md` Sprint 14-15 and `DESIGN.md` §5.6.
 
 ### F6 · Relay hosting and joining a session (decide by sprint 14)
 

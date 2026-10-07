@@ -12,14 +12,14 @@
 //! different filenames, so the tree merge sees two pure additions and never a conflict — Git's
 //! ordinary 3-way merge already knows how to do that; nothing here special-cases it.
 //!
-//! **What this does not solve, on purpose — a spike finds the edges, not just the happy path:**
-//! two authors editing the *same* comment (resolving it, say) would be two different blobs at the
-//! same path only if the path were derived from something other than content, which it isn't
-//! here — so an edit is a *new* comment that supersedes an old one, never an in-place rewrite.
-//! [`CommentRecord`] has no `resolved` field yet for exactly this reason: that needs an
-//! append-only "event" of its own (a resolution record pointing at the comment it resolves) so
-//! two authors resolving the same thread while offline still merge as two additions rather than a
-//! conflict, and that is a follow-on design question for S14.3, not an answer this spike gives.
+//! **Resolving a comment is an event, not a rewrite (S14.3a).** Two authors resolving the same
+//! thread while offline must merge as two additions, never a conflict — the same requirement
+//! [`add`] already meets for the comment itself — so a resolution is its own content-addressed
+//! blob, [`ResolutionRecord`], naming the comment it is about rather than replacing any field on
+//! it. [`load`] folds every comment's resolutions back together by [`ResolutionRecord::created`],
+//! last write wins, so "resolved, then reopened, then resolved again" reads back as resolved
+//! without anyone's event being discarded — see `resolved_state` for the tie-break when two
+//! events claim the same timestamp.
 
 use std::collections::BTreeMap;
 
@@ -35,6 +35,12 @@ use crate::anchor::{self, Anchor, OrphanReason, Reanchored};
 /// happens to be on.
 pub const COMMENTS_REF: &str = "refs/abstract-tex/comments";
 
+/// The filename suffix a [`ResolutionRecord`] blob is inserted under, so [`load_all`] (comments
+/// only) and [`load_resolutions`] (resolutions only) can tell the two kinds of entry apart on the
+/// same tree without either having to parse the other's JSON to find out what it is. Checked
+/// before the plainer `.json` a comment uses, since `"<hash>.resolve.json"` also ends in `.json`.
+const RESOLUTION_SUFFIX: &str = ".resolve.json";
+
 /// One comment, as it is written into a blob. `file` is project-relative with forward slashes, so
 /// a comment made on Windows reanchors correctly when read on Linux or inside a Git ref that
 /// knows nothing about either.
@@ -46,6 +52,21 @@ pub struct CommentRecord {
     pub body: String,
     /// Seconds since the Unix epoch. Not a merge key — content addressing already gives every
     /// comment a stable identity — only something to sort by when showing a thread in order.
+    pub created: i64,
+}
+
+/// A resolve-or-reopen event about one comment, named by that comment's own id (the hex of its
+/// blob, the same string [`add`] returns) rather than by rewriting the comment itself — see the
+/// module doc for why an in-place rewrite would reintroduce the exact merge conflict [`add`]'s own
+/// content addressing was built to avoid.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolutionRecord {
+    pub comment_id: String,
+    pub author: String,
+    /// `true` resolves the comment, `false` reopens it. Not an enum: the two are symmetric, and
+    /// `resolved_state` only ever needs the latest value by [`ResolutionRecord::created`].
+    pub resolved: bool,
+    /// Seconds since the Unix epoch — the field `resolved_state` orders events by.
     pub created: i64,
 }
 
@@ -67,8 +88,40 @@ pub enum CommentsError {
 /// addressing is the point, not an implementation detail.
 pub fn add(repository: &Repository, record: &CommentRecord) -> Result<String, CommentsError> {
     let json = serde_json::to_vec_pretty(record).map_err(CommentsError::Malformed)?;
-    let blob = repository.blob(&json).map_err(CommentsError::Write)?;
-    let filename = format!("{blob}.json");
+    let blob_id = write_blob_on_ref(repository, &json, |blob| format!("{blob}.json"), "Add a comment")?;
+    Ok(blob_id.to_string())
+}
+
+/// Add one resolve-or-reopen event, the same way [`add`] adds a comment: a new blob, inserted
+/// into the same tree [`add`] builds on, under `RESOLUTION_SUFFIX` rather than a bare `.json` so
+/// [`load_all`] and [`load_resolutions`] can tell the two apart.
+pub fn add_resolution(repository: &Repository, record: &ResolutionRecord) -> Result<String, CommentsError> {
+    let json = serde_json::to_vec_pretty(record).map_err(CommentsError::Malformed)?;
+    let message = if record.resolved {
+        "Resolve a comment"
+    } else {
+        "Reopen a comment"
+    };
+    let blob_id = write_blob_on_ref(
+        repository,
+        &json,
+        |blob| format!("{blob}{RESOLUTION_SUFFIX}"),
+        message,
+    )?;
+    Ok(blob_id.to_string())
+}
+
+/// Shared write path for [`add`] and [`add_resolution`]: write `bytes` as a blob, insert it into
+/// the tree on top of [`COMMENTS_REF`]'s current tip under whatever name `filename` derives from
+/// the blob's own id, and commit that tree as the new tip.
+fn write_blob_on_ref(
+    repository: &Repository,
+    bytes: &[u8],
+    filename: impl FnOnce(Oid) -> String,
+    message: &str,
+) -> Result<Oid, CommentsError> {
+    let blob = repository.blob(bytes).map_err(CommentsError::Write)?;
+    let filename = filename(blob);
 
     let parent = current_commit(repository)?;
     let base_tree = parent
@@ -88,17 +141,42 @@ pub fn add(repository: &Repository, record: &CommentRecord) -> Result<String, Co
     let who = author(repository);
     let parents: Vec<&Commit<'_>> = parent.iter().collect();
     let commit_id = repository
-        .commit(None, &who, &who, "Add a comment", &tree, &parents)
+        .commit(None, &who, &who, message, &tree, &parents)
         .map_err(CommentsError::Write)?;
     repository
-        .reference(COMMENTS_REF, commit_id, true, "add comment")
+        .reference(COMMENTS_REF, commit_id, true, message)
         .map_err(CommentsError::Write)?;
-    Ok(blob.to_string())
+    Ok(blob)
 }
 
 /// Every comment currently on [`COMMENTS_REF`], with no attempt to reanchor them — see [`load`]
-/// for the version a caller with files on disk actually wants.
+/// for the version a caller with files on disk actually wants. Resolution events ([`add_resolution`])
+/// live on the same tree but are skipped here; [`load_resolutions`] reads those.
 pub fn load_all(repository: &Repository) -> Result<Vec<(String, CommentRecord)>, CommentsError> {
+    read_tree_entries(repository, |name| {
+        // A resolution's own filename also ends in `.json` — check the longer, more specific
+        // suffix first so a resolution is never misread as a comment.
+        if name.ends_with(RESOLUTION_SUFFIX) {
+            None
+        } else {
+            name.strip_suffix(".json")
+        }
+    })
+}
+
+/// Every resolve-or-reopen event currently on [`COMMENTS_REF`] — see `resolved_state` for
+/// folding them, per comment, into a single current answer.
+pub fn load_resolutions(repository: &Repository) -> Result<Vec<(String, ResolutionRecord)>, CommentsError> {
+    read_tree_entries(repository, |name| name.strip_suffix(RESOLUTION_SUFFIX))
+}
+
+/// Shared tree walk for [`load_all`] and [`load_resolutions`]: `id_from_filename` decides which
+/// entries belong to this caller (by returning the id part of a matching name) and skips the
+/// rest, so the two never need to know how the other's filenames are shaped beyond that.
+fn read_tree_entries<T: serde::de::DeserializeOwned>(
+    repository: &Repository,
+    id_from_filename: impl Fn(&str) -> Option<&str>,
+) -> Result<Vec<(String, T)>, CommentsError> {
     let Some(commit) = current_commit(repository)? else {
         return Ok(Vec::new());
     };
@@ -106,13 +184,12 @@ pub fn load_all(repository: &Repository) -> Result<Vec<(String, CommentRecord)>,
     let mut out = Vec::new();
     for entry in tree.iter() {
         let Some(name) = entry.name() else { continue };
-        let Some(id) = name.strip_suffix(".json") else {
+        let Some(id) = id_from_filename(name) else {
             continue;
         };
         let object = entry.to_object(repository).map_err(CommentsError::Read)?;
         let Some(blob) = object.as_blob() else { continue };
-        let record: CommentRecord =
-            serde_json::from_slice(blob.content()).map_err(CommentsError::Malformed)?;
+        let record: T = serde_json::from_slice(blob.content()).map_err(CommentsError::Malformed)?;
         out.push((id.to_string(), record));
     }
     Ok(out)
@@ -132,15 +209,18 @@ pub enum AnchorStatus {
     FileMissing,
 }
 
-/// A comment together with where (or whether) its anchor still holds.
+/// A comment together with where (or whether) its anchor still holds, and whether the latest
+/// resolution event about it (if any) marked it resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedComment {
     pub id: String,
     pub record: CommentRecord,
     pub status: AnchorStatus,
+    pub resolved: bool,
 }
 
-/// Every comment on [`COMMENTS_REF`], reanchored against the files' current text.
+/// Every comment on [`COMMENTS_REF`], reanchored against the files' current text, folded together
+/// with whatever resolution events exist for it.
 ///
 /// `read_file` takes the comment's project-relative path and returns that file's current
 /// contents, or `None` if it has no such file — a plain closure rather than a project directory,
@@ -149,6 +229,7 @@ pub fn load(
     repository: &Repository,
     read_file: impl Fn(&str) -> Option<String>,
 ) -> Result<Vec<LoadedComment>, CommentsError> {
+    let resolutions = load_resolutions(repository)?;
     load_all(repository)?
         .into_iter()
         .map(|(id, record)| {
@@ -159,9 +240,52 @@ pub fn load(
                     Reanchored::Orphaned(reason) => AnchorStatus::Orphaned(reason),
                 },
             };
-            Ok(LoadedComment { id, record, status })
+            let resolved = resolved_state(&id, &resolutions);
+            Ok(LoadedComment {
+                id,
+                record,
+                status,
+                resolved,
+            })
         })
         .collect()
+}
+
+/// Fold every resolution event about `comment_id` down to one answer: the `resolved` value of
+/// whichever has the latest [`ResolutionRecord::created`]. A comment with no resolution events at
+/// all is unresolved. Ties (two events claiming the same timestamp, which a clock skew between two
+/// offline authors can produce) break on the event's own blob id — arbitrary, but, unlike "whichever
+/// `load_resolutions` happened to list last," the same answer every time this is called on the same
+/// ref, which is the only property a tie-break here needs.
+fn resolved_state(comment_id: &str, resolutions: &[(String, ResolutionRecord)]) -> bool {
+    resolutions
+        .iter()
+        .filter(|(_, record)| record.comment_id == comment_id)
+        .max_by_key(|(blob_id, record)| (record.created, blob_id.clone()))
+        .is_some_and(|(_, record)| record.resolved)
+}
+
+/// Record a resolve-or-reopen event for the comment `comment_id` names (its id, as returned by
+/// [`add`]) and write it the same way [`add`] writes a comment. Does not check that `comment_id`
+/// actually names a comment on this ref — a resolution for an id nobody has fetched yet is exactly
+/// what two authors working offline produce, and `resolved_state` already treats an unmatched
+/// resolution as simply nothing to fold in.
+pub fn resolve(
+    repository: &Repository,
+    comment_id: &str,
+    author: &str,
+    resolved: bool,
+    created: i64,
+) -> Result<String, CommentsError> {
+    add_resolution(
+        repository,
+        &ResolutionRecord {
+            comment_id: comment_id.to_string(),
+            author: author.to_string(),
+            resolved,
+            created,
+        },
+    )
 }
 
 /// Push [`COMMENTS_REF`] to `remote_name`, by exactly that name on both ends — the explicit
@@ -487,5 +611,100 @@ mod tests {
         // same quiet shape `abstract-tex-git::fetch` already relies on for a brand new remote.
         fetch(&ada, "origin").unwrap();
         assert_eq!(merge_from(&ada, "origin").unwrap(), MergeOutcome::NothingToMerge);
+    }
+
+    #[test]
+    fn a_comment_with_no_resolution_event_loads_as_unresolved() {
+        let (_tmp, repository) = repo();
+        add(&repository, &record("main.tex", "the result stands", "ada", "?")).unwrap();
+        let loaded = load(&repository, |_| None).unwrap();
+        assert!(!loaded[0].resolved);
+    }
+
+    #[test]
+    fn resolving_then_reopening_a_comment_tracks_the_latest_event() {
+        let (_tmp, repository) = repo();
+        let id = add(&repository, &record("main.tex", "the result stands", "ada", "?")).unwrap();
+
+        resolve(&repository, &id, "bo", true, 10).unwrap();
+        let loaded = load(&repository, |_| None).unwrap();
+        assert!(loaded[0].resolved, "the resolve event at t=10 should have landed");
+
+        resolve(&repository, &id, "ada", false, 20).unwrap();
+        let loaded = load(&repository, |_| None).unwrap();
+        assert!(
+            !loaded[0].resolved,
+            "the later reopen at t=20 should win over t=10"
+        );
+    }
+
+    #[test]
+    fn an_older_resolution_never_overrides_a_newer_one_regardless_of_write_order() {
+        let (_tmp, repository) = repo();
+        let id = add(&repository, &record("main.tex", "the result stands", "ada", "?")).unwrap();
+
+        // Written in the opposite order from the previous test: the reopen (t=5) lands first,
+        // the resolve (t=15) second. `resolved_state` must still order by `created`, not by
+        // which event the tree happened to list, or which was written to the ref first.
+        resolve(&repository, &id, "ada", false, 5).unwrap();
+        resolve(&repository, &id, "bo", true, 15).unwrap();
+        let loaded = load(&repository, |_| None).unwrap();
+        assert!(loaded[0].resolved, "t=15's resolve is later than t=5's reopen");
+    }
+
+    #[test]
+    fn two_authors_resolving_the_same_comment_offline_merge_as_two_additions_not_a_conflict() {
+        let origin_dir = tempfile::tempdir().unwrap();
+        Repository::init_bare(origin_dir.path()).unwrap();
+        let origin_url = format!("file://{}", origin_dir.path().display());
+
+        let (_tmp_a, ada) = repo();
+        ada.remote("origin", &origin_url).unwrap();
+        let id = add(&ada, &record("main.tex", "the result stands", "ada", "?")).unwrap();
+        push(&ada, "origin").unwrap();
+
+        let (_tmp_b, bo) = repo();
+        bo.remote("origin", &origin_url).unwrap();
+        fetch(&bo, "origin").unwrap();
+        assert_eq!(merge_from(&bo, "origin").unwrap(), MergeOutcome::FastForwarded);
+
+        // Both authors resolve the same comment offline, each unaware of the other's event —
+        // the resolution-side equivalent of the existing comment merge test above. Each event is
+        // its own blob (different author, so different content), so the tree merge sees two
+        // additions, exactly as it does for two different comments.
+        resolve(&ada, &id, "ada", true, 100).unwrap();
+        resolve(&bo, &id, "bo", true, 100).unwrap();
+
+        push(&ada, "origin").unwrap();
+        fetch(&bo, "origin").unwrap();
+        let outcome = merge_from(&bo, "origin").unwrap();
+        assert_eq!(outcome, MergeOutcome::Merged, "two additions, not a conflict");
+
+        let resolutions = load_resolutions(&bo).unwrap();
+        assert_eq!(resolutions.len(), 2, "both resolution events survived the merge");
+        let loaded = load(&bo, |_| None).unwrap();
+        assert!(loaded[0].resolved);
+    }
+
+    #[test]
+    fn a_resolution_for_an_unknown_comment_id_is_harmless() {
+        let (_tmp, repository) = repo();
+        add(&repository, &record("main.tex", "the result stands", "ada", "?")).unwrap();
+        resolve(
+            &repository,
+            "0000000000000000000000000000000000000000",
+            "ada",
+            true,
+            1,
+        )
+        .unwrap();
+
+        let loaded = load(&repository, |_| None).unwrap();
+        assert_eq!(
+            loaded.len(),
+            1,
+            "the unrelated resolution did not create a phantom comment"
+        );
+        assert!(!loaded[0].resolved, "it was never about this comment");
     }
 }
