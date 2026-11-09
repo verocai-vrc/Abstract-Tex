@@ -21,6 +21,6 @@ pub mod store;
 
 pub use anchor::{Anchor, OrphanReason, Reanchored};
 pub use store::{
-    add, fetch, load, load_all, merge_from, push, AnchorStatus, CommentRecord, CommentsError, LoadedComment,
-    MergeOutcome, COMMENTS_REF,
+    add, fetch, load, load_all, merge_from, push, record_resolution, resolved_ids, AnchorStatus,
+    CommentRecord, CommentsError, LoadedComment, MergeOutcome, ResolutionEvent, COMMENTS_REF,
 };

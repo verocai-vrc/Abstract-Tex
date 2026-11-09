@@ -12,14 +12,11 @@
 //! different filenames, so the tree merge sees two pure additions and never a conflict — Git's
 //! ordinary 3-way merge already knows how to do that; nothing here special-cases it.
 //!
-//! **What this does not solve, on purpose — a spike finds the edges, not just the happy path:**
-//! two authors editing the *same* comment (resolving it, say) would be two different blobs at the
-//! same path only if the path were derived from something other than content, which it isn't
-//! here — so an edit is a *new* comment that supersedes an old one, never an in-place rewrite.
-//! [`CommentRecord`] has no `resolved` field yet for exactly this reason: that needs an
-//! append-only "event" of its own (a resolution record pointing at the comment it resolves) so
-//! two authors resolving the same thread while offline still merge as two additions rather than a
-//! conflict, and that is a follow-on design question for S14.3, not an answer this spike gives.
+//! **Editing and resolving (S14.3a).** A comment's blob is never rewritten: an edit would be a new
+//! comment that supersedes an old one, and a resolution is a [`ResolutionEvent`] — its own
+//! content-addressed blob pointing at the comment it concerns. Two authors resolving the same
+//! thread while offline therefore still merge as two additions; the newest event decides the
+//! state ([`resolved_ids`]). Replies and edits are not designed yet.
 
 use std::collections::BTreeMap;
 
@@ -67,8 +64,21 @@ pub enum CommentsError {
 /// addressing is the point, not an implementation detail.
 pub fn add(repository: &Repository, record: &CommentRecord) -> Result<String, CommentsError> {
     let json = serde_json::to_vec_pretty(record).map_err(CommentsError::Malformed)?;
-    let blob = repository.blob(&json).map_err(CommentsError::Write)?;
-    let filename = format!("{blob}.json");
+    let (blob, _filename) = write_entry(repository, "", &json, "Add a comment")?;
+    Ok(blob.to_string())
+}
+
+/// Write `json` as a blob and insert it into the ref's tree as `<filename_prefix><blob>.json`,
+/// committing on top of the previous tip. Shared by comments (no prefix) and resolution events
+/// ([`RESOLUTION_PREFIX`]) so both get the same content-addressed, add-only treatment.
+fn write_entry(
+    repository: &Repository,
+    filename_prefix: &str,
+    json: &[u8],
+    message: &str,
+) -> Result<(Oid, String), CommentsError> {
+    let blob = repository.blob(json).map_err(CommentsError::Write)?;
+    let filename = format!("{filename_prefix}{blob}.json");
 
     let parent = current_commit(repository)?;
     let base_tree = parent
@@ -88,12 +98,80 @@ pub fn add(repository: &Repository, record: &CommentRecord) -> Result<String, Co
     let who = author(repository);
     let parents: Vec<&Commit<'_>> = parent.iter().collect();
     let commit_id = repository
-        .commit(None, &who, &who, "Add a comment", &tree, &parents)
+        .commit(None, &who, &who, message, &tree, &parents)
         .map_err(CommentsError::Write)?;
     repository
-        .reference(COMMENTS_REF, commit_id, true, "add comment")
+        .reference(COMMENTS_REF, commit_id, true, message)
         .map_err(CommentsError::Write)?;
-    Ok(blob.to_string())
+    Ok((blob, filename))
+}
+
+/// Filename prefix that tells a resolution event apart from a comment in the same flat tree.
+const RESOLUTION_PREFIX: &str = "resolution-";
+
+/// "This comment is resolved" or "this comment is open again", as a fact that happened at a time,
+/// never as a flag flipped on the comment. Because the comment's own blob is never rewritten, two
+/// authors who resolve (or one resolves and one reopens) while offline each add a *new* blob, and
+/// the tree merge sees two additions. The comment's state is then read off the newest event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolutionEvent {
+    /// The id [`add`] returned for the comment this event is about.
+    pub comment: String,
+    /// `true` resolves the comment, `false` reopens it.
+    pub resolved: bool,
+    pub author: String,
+    /// Seconds since the Unix epoch; the newest event wins. Ties are broken by the event's own
+    /// blob id, so every machine reading the same events picks the same winner.
+    pub created: i64,
+}
+
+/// Record that `event.comment` was resolved or reopened. Appends; never rewrites anything.
+pub fn record_resolution(repository: &Repository, event: &ResolutionEvent) -> Result<(), CommentsError> {
+    let json = serde_json::to_vec_pretty(event).map_err(CommentsError::Malformed)?;
+    write_entry(
+        repository,
+        RESOLUTION_PREFIX,
+        &json,
+        "Resolve or reopen a comment",
+    )?;
+    Ok(())
+}
+
+/// Which comment ids are currently resolved: for each comment, its newest [`ResolutionEvent`]
+/// decides. A comment with no events is open and is simply absent from the returned set.
+pub fn resolved_ids(repository: &Repository) -> Result<std::collections::BTreeSet<String>, CommentsError> {
+    let Some(commit) = current_commit(repository)? else {
+        return Ok(Default::default());
+    };
+    let tree = commit.tree().map_err(CommentsError::Read)?;
+    // Newest event per comment, keyed by (created, blob id) so ordering is total and identical
+    // on every machine.
+    let mut newest: BTreeMap<String, (i64, String, bool)> = BTreeMap::new();
+    for entry in tree.iter() {
+        let Some(name) = entry.name() else { continue };
+        let Some(blob_id) = name
+            .strip_prefix(RESOLUTION_PREFIX)
+            .and_then(|rest| rest.strip_suffix(".json"))
+        else {
+            continue;
+        };
+        let object = entry.to_object(repository).map_err(CommentsError::Read)?;
+        let Some(blob) = object.as_blob() else { continue };
+        let event: ResolutionEvent =
+            serde_json::from_slice(blob.content()).map_err(CommentsError::Malformed)?;
+        let candidate = (event.created, blob_id.to_string(), event.resolved);
+        match newest.get(&event.comment) {
+            Some(existing) if (existing.0, &existing.1) >= (candidate.0, &candidate.1) => {}
+            _ => {
+                newest.insert(event.comment, candidate);
+            }
+        }
+    }
+    Ok(newest
+        .into_iter()
+        .filter(|(_, (_, _, resolved))| *resolved)
+        .map(|(comment, _)| comment)
+        .collect())
 }
 
 /// Every comment currently on [`COMMENTS_REF`], with no attempt to reanchor them — see [`load`]
@@ -109,6 +187,9 @@ pub fn load_all(repository: &Repository) -> Result<Vec<(String, CommentRecord)>,
         let Some(id) = name.strip_suffix(".json") else {
             continue;
         };
+        if name.starts_with(RESOLUTION_PREFIX) {
+            continue; // a resolution event, read by `resolved_ids`, not a comment
+        }
         let object = entry.to_object(repository).map_err(CommentsError::Read)?;
         let Some(blob) = object.as_blob() else { continue };
         let record: CommentRecord =
@@ -138,6 +219,8 @@ pub struct LoadedComment {
     pub id: String,
     pub record: CommentRecord,
     pub status: AnchorStatus,
+    /// Whether the newest resolution event for this comment says it is resolved.
+    pub resolved: bool,
 }
 
 /// Every comment on [`COMMENTS_REF`], reanchored against the files' current text.
@@ -149,6 +232,7 @@ pub fn load(
     repository: &Repository,
     read_file: impl Fn(&str) -> Option<String>,
 ) -> Result<Vec<LoadedComment>, CommentsError> {
+    let resolved = resolved_ids(repository)?;
     load_all(repository)?
         .into_iter()
         .map(|(id, record)| {
@@ -159,7 +243,13 @@ pub fn load(
                     Reanchored::Orphaned(reason) => AnchorStatus::Orphaned(reason),
                 },
             };
-            Ok(LoadedComment { id, record, status })
+            let resolved = resolved.contains(&id);
+            Ok(LoadedComment {
+                id,
+                record,
+                status,
+                resolved,
+            })
         })
         .collect()
 }
@@ -207,10 +297,9 @@ pub enum MergeOutcome {
     /// Both sides had comments the other did not; a merge commit joins them. In every case this
     /// spike's tests cover, this is reached with zero conflicts — see the module doc.
     Merged,
-    /// The merge could not resolve on its own. Listed by path so a caller can say which comments
-    /// are in question; this spike never produces one (again, see the module doc), but a future
-    /// "resolved" event could, and the caller must have somewhere to put the answer rather than
-    /// a panic.
+    /// The merge could not resolve on its own. Listed by path so a caller can say which entries
+    /// are in question; no operation here produces one (see the module doc), but the caller must
+    /// have somewhere to put the answer rather than a panic.
     Conflicted(Vec<String>),
 }
 
@@ -472,6 +561,69 @@ mod tests {
         all.sort_by(|a, b| a.1.body.cmp(&b.1.body));
         let bodies: Vec<&str> = all.iter().map(|(_, r)| r.body.as_str()).collect();
         assert_eq!(bodies, vec!["ada's note", "bo's note"]);
+    }
+
+    fn event(comment: &str, resolved: bool, who: &str, created: i64) -> ResolutionEvent {
+        ResolutionEvent {
+            comment: comment.to_string(),
+            resolved,
+            author: who.to_string(),
+            created,
+        }
+    }
+
+    #[test]
+    fn resolving_then_reopening_a_comment_follows_the_newest_event() {
+        let (_tmp, repository) = repo();
+        let id = add(
+            &repository,
+            &record("main.tex", "the result was clear", "ada", "?"),
+        )
+        .unwrap();
+        assert!(resolved_ids(&repository).unwrap().is_empty());
+
+        record_resolution(&repository, &event(&id, true, "bo", 10)).unwrap();
+        assert!(resolved_ids(&repository).unwrap().contains(&id));
+
+        record_resolution(&repository, &event(&id, false, "ada", 20)).unwrap();
+        assert!(
+            resolved_ids(&repository).unwrap().is_empty(),
+            "reopened later, so open"
+        );
+
+        let loaded = load(&repository, |_| None).unwrap();
+        assert_eq!(loaded.len(), 1, "an event is not mistaken for a comment");
+        assert!(!loaded[0].resolved);
+    }
+
+    #[test]
+    fn two_authors_resolving_the_same_comment_offline_merge_without_a_conflict() {
+        let origin_dir = tempfile::tempdir().unwrap();
+        Repository::init_bare(origin_dir.path()).unwrap();
+        let origin_url = format!("file://{}", origin_dir.path().display());
+
+        let (_tmp_a, ada) = repo();
+        ada.remote("origin", &origin_url).unwrap();
+        let id = add(&ada, &record("main.tex", "the result was clear", "ada", "?")).unwrap();
+        push(&ada, "origin").unwrap();
+
+        let (_tmp_b, bo) = repo();
+        bo.remote("origin", &origin_url).unwrap();
+        fetch(&bo, "origin").unwrap();
+        merge_from(&bo, "origin").unwrap();
+
+        // Both now go offline: ada resolves, bo resolves and then reopens, later than ada.
+        record_resolution(&ada, &event(&id, true, "ada", 10)).unwrap();
+        record_resolution(&bo, &event(&id, true, "bo", 11)).unwrap();
+        record_resolution(&bo, &event(&id, false, "bo", 30)).unwrap();
+
+        push(&ada, "origin").unwrap();
+        fetch(&bo, "origin").unwrap();
+        assert_eq!(merge_from(&bo, "origin").unwrap(), MergeOutcome::Merged);
+        assert!(
+            resolved_ids(&bo).unwrap().is_empty(),
+            "bo's reopen at t=30 is newer than ada's resolve at t=10"
+        );
     }
 
     #[test]

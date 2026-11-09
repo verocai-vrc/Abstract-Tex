@@ -6736,6 +6736,15 @@ supports at most a sensible one session per open document and does not persist t
 or display name across a restart — both are session-only for now, matching "nothing here is meant
 to survive a restart" everywhere else a live session touches.
 
+**S14.3a (9 November 2026).** `[x]` (a crate-only loop, C1b) — `abstract-tex-comments` now records
+resolving and reopening a comment as an append-only `ResolutionEvent` (`resolution-<blob>.json`
+beside the comment blobs), so two authors resolving the same thread offline merge as two additions.
+`resolved_ids` reads the newest event per comment (ties broken by blob id, identical on every
+machine); `LoadedComment` gains `resolved`. Tests: a resolve/reopen sequence, and a two-author
+offline resolve-vs-reopen over a real `file://` remote that merges with no conflict.
+`cargo test -p abstract-tex-comments` 14 passed / 0 failed. Not done in S14.3: the Tauri commands,
+the UI, and anchoring a comment to a CRDT relative position while a session is live.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite
