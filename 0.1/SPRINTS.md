@@ -6799,6 +6799,27 @@ that was shared, not for every file a session touched (a session is one document
 all documents does not offer; `xvfb-app.sh` also kills a relay started beside it, since its
 `pkill` pattern matches `abstract-tex-relay` — start the relay after the app.
 
+**S15.3 (9 November 2026) — the v0.8 exit demo, performed.** `[x]` — `src/lib/relay/exit-demo.test.ts`
+runs it against the real `abstract-tex-relay` binary over real TCP, WebSockets and AES-GCM with the
+real `LiveSession`; the one stand-in is Bea's network cable, a TCP proxy the test cuts and restores
+(a cut socket closes with code 1006, and while it is cut every new connection is refused, so the
+retries are exercised for real). Outcome: Ada and Bea type into one paragraph at once and converge;
+the cable is pulled and Bea goes `reconnecting`; both keep writing into the same paragraph —
+Ada adds a clause, Bea adds a sentence and a word mid-text — and neither sees the other's edits
+during 1.5 s of refused retries; the cable returns, Bea reconnects on her own, the two texts are
+identical and hold every piece (the original, both authors' offline edits, the edits made before
+the cut); and a further edit crosses both ways. **Not the literal ten minutes:** the offline stretch
+is seconds, because nothing in the mechanism has a timer, queue or buffer a longer wait could
+exhaust — the edits live in the Y.Doc and the handshake's state vectors name the gap — but that is
+an argument, not a measurement. The test skips itself when the relay binary is not built (so
+`pnpm verify` does not depend on it); run it with `cargo build -p abstract-tex-relay && pnpm exec
+vitest run src/lib/relay/exit-demo.test.ts`. **Sprint 14–15 status:** S14.1, S14.2a–c, S14.3a–c,
+S15.1–S15.3 done. What the v0.8 list in `DESIGN.md` §7 still lacks: comments anchored to CRDT
+*relative positions* while a session is live (comments today re-anchor by quoted text, which the
+spike showed is sound, and which every author sees on load) and comments travelling over *Sync*
+(push/fetch need git2's `https` feature and an allowlist line in `no_silent_network.rs`). Neither
+blocks the exit demo; both are carded here for the maintainer to place.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite
