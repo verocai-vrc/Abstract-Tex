@@ -6782,6 +6782,23 @@ Not done: a walk against the real relay binary with two windows (S15.3 will do i
 connection still fails outright rather than retrying, and a peer's cursor is not re-sent to a
 client that comes back until that peer next moves it.
 
+**S15.2 (9 November 2026).** `[x]` — rung 4 walked against the real `abstract-tex-relay` binary:
+`pnpm verify` exit 0, Vitest 749 passed (3 new), `cargo test -p abstract-tex-git` +1. Design
+question put to the maintainer first (the commit lands on the author's own branch): **offer, one
+click**, chosen over an automatic commit or a hidden ref. *Leave* (and closing a tab) saves the
+file, ends the session and — only if Git sees changes to it — shows a card, "Commit this session's
+changes to main.tex?", with the message pre-filled (`Live session with Bea, 9 Nov`) and editable;
+*Commit* runs the new `abstract_tex_git::commit_file`, *Not now* leaves an ordinary uncommitted
+change. `commit_file` stages that one file and commits it alone, and **refuses** (`OtherFilesStaged`,
+naming them) when the author has staged something else, because `commit` takes the whole index.
+Walked: share against the local relay, edit, Leave, card, Commit; `git log` showed one commit
+touching only `main.tex`. The walk found a stale "Live session ended" in the status bar after
+*Leave* (the session's late `closed` report re-added the status the leave had just removed;
+`bugs-issues-fixes.md`), fixed and re-walked. Not done: the card offers a commit only for the file
+that was shared, not for every file a session touched (a session is one document today); closing
+all documents does not offer; `xvfb-app.sh` also kills a relay started beside it, since its
+`pkill` pattern matches `abstract-tex-relay` — start the relay after the app.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

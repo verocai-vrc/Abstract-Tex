@@ -30,6 +30,7 @@ import { createInvite, inviteToText, parseInvite } from './relay/invite';
 import { LiveSession, randomPresenceColor, type LiveStatus } from './relay/live-session';
 import { registerCommand, type Command } from './commands';
 import { comments } from './comments.svelte';
+import { sessionCommitMessage } from './session-commit';
 import { lineAt, locateInBuffer } from './comments';
 import { ipc, type AssistantAction, type CommentRow, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
@@ -1098,6 +1099,10 @@ function setLivePeers(path: string, peers: LocalPresence[]): void {
 export function leaveLiveSession(path: string): void {
   const session = liveSessions.get(path);
   if (!session) return;
+  // Detach first: `destroy` reports `closed` a moment later, and that report would put a status
+  // back for a path whose session this function is about to remove.
+  session.onStatusChange = undefined;
+  session.onPeersChange = undefined;
   void session.destroy(); // finishes the goodbye broadcast in the background; nothing here waits on it
   liveSessions.delete(path);
   liveInviteText.delete(path);
@@ -1110,6 +1115,44 @@ export function leaveLiveSession(path: string): void {
   const nextPeers = new Map(live.peers);
   nextPeers.delete(path);
   live.peers = nextPeers;
+}
+
+/**
+ * *Leave* from the status bar, and closing a tab: end the session, then — if the shared file has
+ * changes Git has not recorded — offer to commit it (S15.2, design question answered "offer, one
+ * click"). Nothing is committed until the card's button is pressed; ignoring the card leaves an
+ * ordinary uncommitted change, exactly as if the session had never happened.
+ *
+ * The file is saved first: a session's last words are often still in the editor's debounce.
+ */
+export async function leaveAndOfferCommit(path: string): Promise<void> {
+  const peerNames = (live.peers.get(path) ?? []).map((peer) => peer.name);
+  const hadSession = liveSessions.has(path);
+  await manager.get(path)?.save();
+  leaveLiveSession(path);
+  if (!hadSession || !app.project) return;
+  await refreshGitStatus();
+  if (!git.isRepository) return;
+  const changed = [...git.status.staged, ...git.status.unstaged].some((change) => change.path === path);
+  if (!changed) return;
+  live.commitOffer = { path, message: sessionCommitMessage(peerNames, new Date()), error: null, committing: false };
+}
+
+export async function acceptCommitOffer(): Promise<void> {
+  const offer = live.commitOffer;
+  if (!offer || offer.committing || offer.message.trim() === '') return;
+  live.commitOffer = { ...offer, committing: true, error: null };
+  try {
+    await ipc.gitCommitFile(offer.path, offer.message);
+    live.commitOffer = null;
+    await refreshGitStatus();
+  } catch (error) {
+    live.commitOffer = { ...offer, committing: false, error: String(error) };
+  }
+}
+
+export function dismissCommitOffer(): void {
+  live.commitOffer = null;
 }
 
 /** Open the Share window for the active document. */
@@ -1943,7 +1986,8 @@ export async function closeTab(path: string): Promise<void> {
     return;
   }
   await manager.get(path)?.save();
-  leaveLiveSession(path); // S14.2c: a tab's session cannot outlive the Y.Doc it was syncing
+  // S14.2c: a tab's session cannot outlive the Y.Doc it was syncing. S15.2: it ends with an offer.
+  await leaveAndOfferCommit(path);
   const next = manager.close(path);
   syncTabs();
   if (app.activePath === path) app.activePath = next;

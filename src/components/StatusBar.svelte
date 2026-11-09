@@ -6,7 +6,7 @@
   import { github } from '../lib/github.svelte';
   import { placeholders } from '../lib/placeholders.svelte';
   import { leftToFillIn } from '../lib/editor/placeholders';
-  import { detectZotero, disallowShellEscape, goToNextPlaceholder, leaveLiveSession, showActivityView, showJoinWindow, showShareWindow, toggleDrawer } from '../lib/controller.svelte';
+  import { detectZotero, disallowShellEscape, goToNextPlaceholder, leaveAndOfferCommit, showActivityView, showJoinWindow, showShareWindow, toggleDrawer } from '../lib/controller.svelte';
   import { live } from '../lib/live.svelte';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
@@ -114,7 +114,7 @@
       <button
         class="ghost ok"
         title={livePeers.length > 0 ? `Live with ${livePeers.map((peer) => peer.name).join(', ')}. Click to leave.` : 'Live, nobody else here yet. Click to leave.'}
-        onclick={() => leaveLiveSession(app.activePath!)}
+        onclick={() => void leaveAndOfferCommit(app.activePath!)}
       >
         <span class="dot"></span>Live{livePeers.length > 0 ? ` · ${livePeers.length}` : ''}
       </button>
@@ -124,16 +124,16 @@
       <button
         class="ghost warn"
         title="The connection dropped. Keep writing: what you type is kept, and is shared when the link returns. Click to leave."
-        onclick={() => leaveLiveSession(app.activePath!)}
+        onclick={() => void leaveAndOfferCommit(app.activePath!)}
       >
         <span class="dot pulse"></span>Reconnecting…
       </button>
     {:else if liveStatus === 'error'}
-      <button class="ghost warn" title={live.error.get(app.activePath) ?? ''} onclick={() => leaveLiveSession(app.activePath!)}>
+      <button class="ghost warn" title={live.error.get(app.activePath) ?? ''} onclick={() => void leaveAndOfferCommit(app.activePath!)}>
         Live session failed
       </button>
     {:else if liveStatus === 'closed'}
-      <button class="ghost warn" title={live.error.get(app.activePath) ?? 'The other side left, or the connection dropped.'} onclick={() => leaveLiveSession(app.activePath!)}>
+      <button class="ghost warn" title={live.error.get(app.activePath) ?? 'The other side left, or the connection dropped.'} onclick={() => void leaveAndOfferCommit(app.activePath!)}>
         Live session ended
       </button>
     {:else}

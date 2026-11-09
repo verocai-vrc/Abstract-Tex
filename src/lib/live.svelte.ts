@@ -23,6 +23,11 @@ class LiveState {
   joinError = $state<string | null>(null);
   joining = $state(false);
 
+  /** S15.2: the offer made when a session ends — commit the shared file. `null` when none is
+   * showing. `error` is Git's own sentence when the commit was refused (other files staged, no
+   * identity), shown on the card so the author can fix it where they are looking. */
+  commitOffer = $state<{ path: string; message: string; error: string | null; committing: boolean } | null>(null);
+
   /** Path → status, for whichever open documents currently have a session. A plain reactive
    * `Map`, replaced wholesale on every change, like `app.dirtyPaths`. */
   status = $state<Map<string, LiveStatus>>(new Map());

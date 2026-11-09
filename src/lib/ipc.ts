@@ -649,6 +649,8 @@ export const ipc = {
   /** Commit whatever is staged; resolves to the new commit's id. Rejects with the sentence for
    * whichever of the three refusals applies — no message, nothing staged, no Git identity. */
   gitCommit: (message: string) => invoke<string>('git_commit', { message }),
+  /** S15.2: stage one file and commit it alone; refuses if other files are staged. */
+  gitCommitFile: (path: string, message: string) => invoke<string>('git_commit_file', { path, message }),
   /** S11.1c: replace `HEAD` with a new commit carrying `message` and whatever is staged — the
    * Commit dropdown's *Amend*. Rejects with the same sentence a plain commit would for an empty
    * message; unlike a plain commit, nothing staged is not itself a refusal. */

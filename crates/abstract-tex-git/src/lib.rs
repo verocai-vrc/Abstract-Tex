@@ -62,6 +62,14 @@ pub enum GitError {
     #[error("Nothing is staged, so there is nothing to commit.")]
     NothingStaged,
 
+    /// S15.2: `commit_file` was asked to commit one file while others were already staged, which
+    /// a plain `commit` would sweep in. Refused rather than quietly including or unstaging them:
+    /// the author staged those on purpose, and a one-click offer is no place to decide their fate.
+    #[error(
+        "Other files are already staged ({0}). Commit from Source Control so you can choose what goes in."
+    )]
+    OtherFilesStaged(String),
+
     /// S11.1c: `amend` on a repository with no commits yet — an unborn branch has no `HEAD`
     /// commit to replace, which is a different sentence from an empty message.
     #[error("There is no commit yet to amend.")]
@@ -744,6 +752,25 @@ pub fn commit(repository: &Repository, message: &str) -> Result<String, GitError
         repository.cleanup_state()?;
     }
     Ok(id.to_string())
+}
+
+/// Stage one file and commit it alone — the one-click offer when a live session ends (S15.2).
+///
+/// Refuses, with [`GitError::OtherFilesStaged`], if anything *else* is already staged, because
+/// [`commit`] takes the whole index and this verb promises to commit exactly one file. A file
+/// with no change since `HEAD` is [`GitError::NothingStaged`], as for `commit`.
+pub fn commit_file(repository: &Repository, path: &str, message: &str) -> Result<String, GitError> {
+    let others: Vec<String> = status(repository)?
+        .staged
+        .into_iter()
+        .map(|change| change.path)
+        .filter(|staged| staged != path)
+        .collect();
+    if !others.is_empty() {
+        return Err(GitError::OtherFilesStaged(others.join(", ")));
+    }
+    stage(repository, path)?;
+    commit(repository, message)
 }
 
 /// Replace `HEAD` with a new commit carrying `message` and whatever is staged, keeping the same
@@ -2093,6 +2120,31 @@ mod tests {
         assert_eq!(rows[0].id, id);
         assert_eq!(rows[0].summary, "Add a chapter", "the message is trimmed");
         assert!(changes(&repository).staged.is_empty());
+    }
+
+    /// S15.2: the offer after a live session commits the shared file and nothing else — and
+    /// refuses, touching nothing, when the author has staged something of their own.
+    #[test]
+    fn committing_one_file_leaves_other_changes_alone_and_refuses_when_others_are_staged() {
+        let (tmp, repository) = repo();
+        fs::write(tmp.path().join("main.tex"), "shared text\n").unwrap();
+        fs::write(tmp.path().join("notes.tex"), "private\n").unwrap();
+
+        let id = commit_file(&repository, "main.tex", "Live session with Bea").unwrap();
+        let rows = log(&repository, 0, 1).unwrap();
+        assert_eq!(rows[0].id, id);
+        let after = changes(&repository);
+        assert!(after.staged.is_empty());
+        assert!(
+            after.unstaged.iter().any(|change| change.path == "notes.tex"),
+            "the other file is still an uncommitted change: {after:?}"
+        );
+
+        fs::write(tmp.path().join("main.tex"), "shared text, edited\n").unwrap();
+        stage(&repository, "notes.tex").unwrap();
+        let refusal = commit_file(&repository, "main.tex", "again").unwrap_err();
+        assert!(matches!(refusal, GitError::OtherFilesStaged(ref names) if names == "notes.tex"));
+        assert_eq!(log(&repository, 0, 5).unwrap().len(), 2, "no commit was made");
     }
 
     /// Both refusals, because a panel makes both mistakes easy and pressing the button again

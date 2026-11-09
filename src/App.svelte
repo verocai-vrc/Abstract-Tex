@@ -31,6 +31,7 @@
   import ShareWindow from './components/ShareWindow.svelte';
   import JoinWindow from './components/JoinWindow.svelte';
   import DiffView from './components/DiffView.svelte';
+  import SessionCommitOffer from './components/SessionCommitOffer.svelte';
   import CommentsView from './components/CommentsView.svelte';
   import SnapshotViewer from './components/SnapshotViewer.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
@@ -119,6 +120,7 @@
   <StatusBar />
 </div>
 
+<SessionCommitOffer />
 <QuickOpen />
 <CommandPalette />
 <CloneWindow />

@@ -1359,3 +1359,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `WAYLAND_DISPLAY` set in the calling shell, GTK ignores `DISPLAY=:99`, the window appears on the
   person's own screen and the virtual display stays black. Worked around by running it as
   `(unset WAYLAND_DISPLAY; GDK_BACKEND=x11 scripts/xvfb-app.sh …)`. **Fixed** the same day: the script now unsets `WAYLAND_DISPLAY` and sets `GDK_BACKEND=x11`.
+
+- **After *Leave*, the status bar kept showing "Live session ended" for the file just left.**
+  (S15.2, 9 Nov 2026, found on the Xvfb walk against the real relay.) `leaveLiveSession` removed
+  the file's status, then the session's own asynchronous `destroy` reported `closed` through the
+  callback still attached and wrote it back. Fixed the same loop: the callbacks are detached before
+  `destroy` is called. **Fixed.**

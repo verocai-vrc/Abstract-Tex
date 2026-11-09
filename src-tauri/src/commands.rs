@@ -902,6 +902,22 @@ pub fn git_commit(app: AppHandle, state: State<'_, AppState>, message: String) -
     Ok(id)
 }
 
+/// Stage one file and commit it alone: the offer after a live session (S15.2). Refuses, in a
+/// sentence, if other files are staged.
+#[tauri::command]
+pub fn git_commit_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    message: String,
+) -> CommandResult<String> {
+    let id = git::in_repository(&state, |repository| {
+        abstract_tex_git::commit_file(repository, &path, &message)
+    })?;
+    git::emit_status_changed(&app);
+    Ok(id)
+}
+
 /// Replace `HEAD` with a new commit carrying `message` and whatever is staged — the Commit
 /// dropdown's *Amend* (S11.1c). Disk-only, like `git_commit`, so this needs no `spawn_blocking`.
 ///
