@@ -9,7 +9,14 @@ import { RelayProvider } from './provider';
 import { RelayAwareness, type LocalPresence } from './awareness';
 import type { Invite } from './invite';
 
-export type LiveStatus = 'connecting' | 'connected' | 'closed' | 'error';
+/** `reconnecting` (S15.1): the connection dropped and the session is trying to come back. The
+ * document is still editable and nothing typed is lost; it reaches peers when the link returns. */
+export type LiveStatus = 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'error';
+
+/** How long to wait before each reconnection attempt; the last value repeats. Short at first,
+ * because most drops are a network blip, then patient, because a relay that is down should not be
+ * hammered by every open window. */
+export const RETRY_DELAYS_MS: readonly number[] = [500, 1_000, 2_000, 5_000, 10_000];
 
 /** The eight colours y-codemirror.next's own README suggests for cursors — there is no reason to
  * invent a second palette for the one thing it already ships a fitting default for. */
@@ -67,8 +74,16 @@ export class LiveSession {
    * reconstruct it from this anyway. */
   onPeersChange?: (peers: LocalPresence[]) => void;
 
-  private readonly socket: WebSocket;
+  private socket: WebSocket;
   private readonly provider: RelayProvider;
+  private readonly invite: Invite;
+  private readonly key: CryptoKey;
+  private readonly retryDelaysMs: readonly number[];
+  /** Set by `destroy` before anything closes, so the socket's own `close` event is told apart from
+   * a connection that dropped under us. */
+  private leaving = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private attempts = 0;
 
   // `status` starts `'connected'`: by the time this constructor runs, `connect` has already
   // awaited the socket's own `open` event — see the comment there for why that order is not
@@ -76,28 +91,88 @@ export class LiveSession {
   // immediately (sync-step-1; this client's own presence), and a real `WebSocket.send` throws if
   // the socket has not yet reached `OPEN`, silently dropping that first message as an unhandled
   // rejection — which is exactly the message the other side needs to ever hear from this one.
-  private constructor(ydoc: Y.Doc, roomId: string, presence: LocalPresence, channel: EncryptedChannel, socket: WebSocket) {
-    this.roomId = roomId;
+  private constructor(
+    ydoc: Y.Doc,
+    invite: Invite,
+    key: CryptoKey,
+    presence: LocalPresence,
+    channel: EncryptedChannel,
+    socket: WebSocket,
+    retryDelaysMs: readonly number[],
+  ) {
+    this.roomId = invite.roomId;
+    this.invite = invite;
+    this.key = key;
+    this.retryDelaysMs = retryDelaysMs;
     this.socket = socket;
     this.provider = new RelayProvider(ydoc, channel);
     this.awareness = new RelayAwareness(ydoc, this.provider, presence);
     this.awareness.awareness.on('change', this.refreshPeers);
-    socket.addEventListener('close', (event) => {
-      // A clean leave (ours or the browser's own on `.close()`) is code 1000 with no reason; the
-      // relay or the network closing it out from under a session that thought it was connected is
-      // worth more than silence, so that case alone carries a message.
-      const closeEvent = event as CloseEvent;
-      const abnormal = closeEvent.code !== 1000;
-      this.setStatus('closed', abnormal ? `Connection closed (${closeEvent.code}${closeEvent.reason ? `: ${closeEvent.reason}` : ''}).` : null);
-    });
-    socket.addEventListener('error', () => this.setStatus('error', 'Could not reach the relay.'));
+    this.watch(socket);
   }
 
-  static async connect(ydoc: Y.Doc, invite: Invite, presence: LocalPresence): Promise<LiveSession> {
+  /** Listen for `socket` closing. Each handler checks the socket is still the current one, so a
+   * late event from a connection already replaced cannot disturb the one that replaced it. */
+  private watch(socket: WebSocket): void {
+    socket.addEventListener('close', (event) => {
+      if (socket !== this.socket) return;
+      if (this.leaving) {
+        this.setStatus('closed', null);
+        return;
+      }
+      // Anything else — the relay restarting, a laptop changing network, the far end closing — is
+      // a drop, not an ending: the document is still here and the room is still there to rejoin.
+      const closeEvent = event as CloseEvent;
+      const why = `Connection closed (${closeEvent.code}${closeEvent.reason ? `: ${closeEvent.reason}` : ''}).`;
+      this.setStatus('reconnecting', why);
+      this.scheduleReconnect();
+    });
+  }
+
+  private scheduleReconnect(): void {
+    if (this.leaving || this.retryTimer !== null) return;
+    const index = Math.min(this.attempts, this.retryDelaysMs.length - 1);
+    const delay = this.retryDelaysMs[index] ?? 1_000;
+    this.attempts += 1;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.reconnect();
+    }, delay);
+  }
+
+  private async reconnect(): Promise<void> {
+    if (this.leaving) return;
+    const socket = new WebSocket(this.invite.relayUrl);
+    this.socket = socket;
+    try {
+      await waitForOpen(socket);
+    } catch {
+      // Could not get through: try again later. The failed socket's own `close` is ignored by
+      // `watch` below only if it is no longer current, so retire it first.
+      if (this.socket === socket) this.scheduleReconnect();
+      return;
+    }
+    if (this.leaving) {
+      socket.close();
+      return;
+    }
+    this.watch(socket);
+    this.attempts = 0;
+    this.provider.attach(new EncryptedChannel(socketChannel(socket), this.key));
+    this.awareness.announce();
+    this.setStatus('connected', null);
+  }
+
+  static async connect(
+    ydoc: Y.Doc,
+    invite: Invite,
+    presence: LocalPresence,
+    retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+  ): Promise<LiveSession> {
     const socket = new WebSocket(invite.relayUrl);
     const [key] = await Promise.all([EncryptedChannel.importKey(invite.key), waitForOpen(socket)]);
     const channel = new EncryptedChannel(socketChannel(socket), key);
-    const session = new LiveSession(ydoc, invite.roomId, presence, channel, socket);
+    const session = new LiveSession(ydoc, invite, key, presence, channel, socket, retryDelaysMs);
     session.status = 'connected';
     return session;
   }
@@ -127,9 +202,14 @@ export class LiveSession {
    * the one message every remaining peer most needs to receive.
    */
   async destroy(): Promise<void> {
+    this.leaving = true;
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
     this.awareness.awareness.off('change', this.refreshPeers);
     await this.awareness.destroy();
     this.provider.destroy();
     this.socket.close();
+    // A session left while it was reconnecting has no live socket to report its closing.
+    if (this.status !== 'closed') this.setStatus('closed', null);
   }
 }

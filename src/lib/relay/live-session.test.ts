@@ -16,14 +16,16 @@ class FakeWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSED = 3;
+  static created = 0;
 
   static rooms = new Map<string, FakeWebSocket[]>();
   binaryType = '';
   readyState = FakeWebSocket.CONNECTING;
   private readonly room: string;
-  private readonly listeners = new Map<string, Array<(event: { data?: Uint8Array }) => void>>();
+  private readonly listeners = new Map<string, Array<(event: { data?: Uint8Array; code?: number }) => void>>();
 
   constructor(url: string) {
+    FakeWebSocket.created += 1;
     this.room = new URL(url).pathname.slice(1);
     const peers = FakeWebSocket.rooms.get(this.room) ?? [];
     peers.push(this);
@@ -38,7 +40,7 @@ class FakeWebSocket {
     }, 0);
   }
 
-  addEventListener(type: string, listener: (event: { data?: Uint8Array }) => void): void {
+  addEventListener(type: string, listener: (event: { data?: Uint8Array; code?: number }) => void): void {
     const forType = this.listeners.get(type) ?? [];
     forType.push(listener);
     this.listeners.set(type, forType);
@@ -56,6 +58,15 @@ class FakeWebSocket {
     }
   }
 
+  /** The network or the relay ending the connection, as opposed to `close()`, the page doing it:
+   * code 1006, "abnormal closure", which is what a browser reports when the link just dies. */
+  dropFromServer(): void {
+    this.readyState = FakeWebSocket.CLOSED;
+    const peers = FakeWebSocket.rooms.get(this.room) ?? [];
+    FakeWebSocket.rooms.set(this.room, peers.filter((peer) => peer !== this));
+    this.dispatch('close', { code: 1006 });
+  }
+
   close(): void {
     this.readyState = FakeWebSocket.CLOSED;
     const peers = FakeWebSocket.rooms.get(this.room) ?? [];
@@ -63,7 +74,7 @@ class FakeWebSocket {
     this.dispatch('close', {});
   }
 
-  private dispatch(type: string, event: { data?: Uint8Array }): void {
+  private dispatch(type: string, event: { data?: Uint8Array; code?: number }): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event);
   }
 }
@@ -82,6 +93,7 @@ function waitUntil(check: () => boolean): Promise<void> {
 describe('LiveSession', () => {
   afterEach(() => {
     FakeWebSocket.rooms.clear();
+    FakeWebSocket.created = 0;
     vi.unstubAllGlobals();
   });
 
@@ -156,5 +168,64 @@ describe('LiveSession', () => {
     await waitUntil(() => session.status === 'connected');
 
     await session.destroy();
+  });
+
+  const ada = { name: 'Ada', color: '#30bced', colorLight: '#30bced33' };
+  const bea = { name: 'Bea', color: '#ee6352', colorLight: '#ee635233' };
+
+  /** The socket a session is currently using, found through the room it joined. */
+  function socketsInRoom(): FakeWebSocket[] {
+    return [...FakeWebSocket.rooms.values()].flat();
+  }
+
+  it('after a drop, edits made on both sides while apart are all there once the link returns (S15.1)', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const invite = createInvite('fake-relay.example:1234');
+
+    const docA = new Y.Doc();
+    const textA = docA.getText('content');
+    textA.insert(0, 'The paragraph. ');
+    const sessionA = await LiveSession.connect(docA, invite, ada, [5]);
+    const docB = new Y.Doc();
+    const textB = docB.getText('content');
+    const sessionB = await LiveSession.connect(docB, invite, bea, [5]);
+    await waitUntil(() => textB.toString() === 'The paragraph. ');
+
+    const statusesOfB: string[] = [];
+    sessionB.onStatusChange = (status) => statusesOfB.push(status);
+
+    // Bea's connection dies. Ada does not hear of it.
+    const beasSocket = socketsInRoom().find((socket) => socket !== socketsInRoom()[0])!;
+    beasSocket.dropFromServer();
+    await waitUntil(() => sessionB.status === 'reconnecting');
+
+    // Both go on writing, to the same paragraph, not able to hear each other.
+    textA.insert(0, 'Ada writes first. ');
+    textB.insert(textB.length, 'Bea writes last.');
+    expect(textA.toString()).not.toContain('Bea writes last.');
+
+    await waitUntil(() => sessionB.status === 'connected');
+    await waitUntil(() => textA.toString() === textB.toString());
+    expect(textA.toString()).toContain('Ada writes first.');
+    expect(textA.toString()).toContain('Bea writes last.');
+    expect(textA.toString()).toContain('The paragraph.');
+    expect(statusesOfB).toEqual(['reconnecting', 'connected']);
+
+    await sessionA.destroy();
+    await sessionB.destroy();
+  });
+
+  it('keeps trying while the relay is unreachable, and stops for good once the session is left', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const invite = createInvite('fake-relay.example:1234');
+    const session = await LiveSession.connect(new Y.Doc(), invite, ada, [5]);
+
+    socketsInRoom()[0]!.dropFromServer();
+    await waitUntil(() => FakeWebSocket.created >= 2);
+    await session.destroy();
+    const createdWhenLeft = FakeWebSocket.created;
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(FakeWebSocket.created).toBe(createdWhenLeft);
+    expect(session.status).toBe('closed');
   });
 });

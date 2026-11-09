@@ -28,12 +28,30 @@ export class RelayProvider {
    * belongs to whichever other object has claimed this callback. */
   onAwarenessMessage?: (update: Uint8Array) => void;
 
+  /** Not `readonly`: S15.1 replaces it with a fresh channel after the connection drops. */
+  private channel: EncryptedChannel;
+
   constructor(
     private readonly doc: Y.Doc,
-    private readonly channel: EncryptedChannel,
+    channel: EncryptedChannel,
   ) {
-    channel.onMessage = (data) => this.receive(data);
+    this.channel = channel;
     doc.on('update', this.broadcastLocalUpdate);
+    this.attach(channel);
+  }
+
+  /**
+   * Start talking over `channel`: listen to it, and send sync-step-1 (this doc's state vector).
+   * Called by the constructor, and again by `LiveSession` (S15.1) with a new channel after the
+   * connection drops and comes back. That second call *is* merge-on-rejoin: whatever was typed
+   * here while disconnected is in the doc but never reached a peer, and whatever the peers typed
+   * never reached this doc; the handshake's state vectors name exactly those two gaps, and each
+   * side sends the other precisely what it lacks. Nothing is queued while offline and nothing is
+   * replayed, so there is no list of unsent edits that could be lost or sent twice.
+   */
+  attach(channel: EncryptedChannel): void {
+    this.channel = channel;
+    channel.onMessage = (data) => this.receive(data);
     const syncEncoder = encoding.createEncoder();
     syncProtocol.writeSyncStep1(syncEncoder, this.doc);
     void this.sendEnvelope(MESSAGE_SYNC, encoding.toUint8Array(syncEncoder));

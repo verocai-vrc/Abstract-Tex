@@ -6768,6 +6768,20 @@ it. The walk found one bug (the box took no focus; `bugs-issues-fixes.md`) and o
 to a comment and the orphaned look. Not done: highlighting comments in the editor, replies, and
 relative-position anchoring while a session is live; nothing pushes or fetches comments yet.
 
+**S15.1 (9 November 2026).** `[x]` for the mechanism, rung 4 not walked — `pnpm verify` exit 0,
+Vitest 746 passed (2 new in `live-session.test.ts`). A session whose connection drops (code 1006, the
+relay restarting, a network change — anything but our own *Leave*) now goes `reconnecting`, retries
+after 0.5, 1, 2, 5, then every 10 seconds, and on success hands the new channel to
+`RelayProvider.attach`, which sends a fresh sync-step-1, and has `RelayAwareness.announce` say the
+client is back. **There is no queue of unsent edits**: whatever each side typed while apart is in
+its own Y.Doc, and the handshake's state vectors name exactly the two gaps, so nothing can be lost
+or sent twice — the test has both authors write into one paragraph while disconnected and checks
+both edits and the original text survive on both sides. Leaving while reconnecting stops the
+retries and reports `closed`. The status bar shows *Reconnecting…*; the editor stays writable.
+Not done: a walk against the real relay binary with two windows (S15.3 will do it), the first
+connection still fails outright rather than retrying, and a peer's cursor is not re-sent to a
+client that comes back until that peer next moves it.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

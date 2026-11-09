@@ -53,6 +53,15 @@ export class RelayAwareness {
     this.pendingBroadcast = this.provider.sendAwarenessUpdate(encodeAwarenessUpdate(this.awareness, changedClients));
   };
 
+  /** Say again that this client is here. After a reconnect (S15.1) the relay has forgotten us and
+   * peers may have timed our cursor out; nothing else would make them look again until the next
+   * keystroke moved it. */
+  announce(): void {
+    this.pendingBroadcast = this.provider.sendAwarenessUpdate(
+      encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]),
+    );
+  }
+
   /**
    * Tells peers this client is gone, rather than leaving a stale cursor on screen until
    * y-protocols' own 30-second timeout clears it. Called when the session this belongs to ends —

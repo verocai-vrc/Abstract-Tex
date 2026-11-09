@@ -120,6 +120,14 @@
       </button>
     {:else if liveStatus === 'connecting'}
       <span class="muted"><span class="dot pulse"></span>Connecting…</span>
+    {:else if liveStatus === 'reconnecting'}
+      <button
+        class="ghost warn"
+        title="The connection dropped. Keep writing: what you type is kept, and is shared when the link returns. Click to leave."
+        onclick={() => leaveLiveSession(app.activePath!)}
+      >
+        <span class="dot pulse"></span>Reconnecting…
+      </button>
     {:else if liveStatus === 'error'}
       <button class="ghost warn" title={live.error.get(app.activePath) ?? ''} onclick={() => leaveLiveSession(app.activePath!)}>
         Live session failed
