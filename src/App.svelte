@@ -31,6 +31,7 @@
   import ShareWindow from './components/ShareWindow.svelte';
   import JoinWindow from './components/JoinWindow.svelte';
   import DiffView from './components/DiffView.svelte';
+  import CommentsView from './components/CommentsView.svelte';
   import SnapshotViewer from './components/SnapshotViewer.svelte';
   import ZoteroLink from './components/ZoteroLink.svelte';
   import BibliographyHealth from './components/BibliographyHealth.svelte';
@@ -107,6 +108,8 @@
     <Sidebar />
   {:else if app.activityView === 'source-control'}
     <SourceControl />
+  {:else if app.activityView === 'comments'}
+    <CommentsView />
   {:else}
     <AssistantView />
   {/if}

@@ -67,6 +67,19 @@
     <span class="sr-only">Assistant</span>
   </button>
 
+  <button
+    class="activity-item"
+    class:active={app.activityView === 'comments'}
+    aria-current={app.activityView === 'comments'}
+    title="Comments"
+    onclick={() => showActivityView('comments')}
+  >
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 3v-3H3.5a1 1 0 0 1-1-1z" />
+    </svg>
+    <span class="sr-only">Comments</span>
+  </button>
+
   <button class="activity-item" disabled title="Settings — arrives in a later version">
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <circle cx="8" cy="8" r="2.25" />

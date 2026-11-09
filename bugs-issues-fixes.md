@@ -1349,3 +1349,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   this version, so `texlab_settings` (`src-tauri/src/lsp.rs`) only passes the three build
   subdirectories. Documented in the S3.6 outcome and the function's own doc comment so a
   future reader who finds the same README passage does not repeat the same detour.
+
+- **The comment box did not take focus when *Comment on selection…* opened the Comments view.**
+  (S14.3c, 9 Nov 2026, found on the first Xvfb walk.) The draft appeared with the quoted words,
+  but the keyboard stayed in the editor, so typing the comment edited the document (or was lost)
+  instead. Fixed in the same loop: the textarea takes focus when it is created
+  (`CommentsView.svelte`). **Fixed.**
+- **`scripts/xvfb-app.sh` can open the app on the real Wayland desktop.** (9 Nov 2026) With
+  `WAYLAND_DISPLAY` set in the calling shell, GTK ignores `DISPLAY=:99`, the window appears on the
+  person's own screen and the virtual display stays black. Worked around by running it as
+  `(unset WAYLAND_DISPLAY; GDK_BACKEND=x11 scripts/xvfb-app.sh …)`. **Fixed** the same day: the script now unsets `WAYLAND_DISPLAY` and sets `GDK_BACKEND=x11`.

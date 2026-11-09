@@ -20,6 +20,8 @@ pkill -f "target/debug/abstract-te[x]"; pkill -f "tauri de[v]"; pkill -f "node.*
 
 # `scripts/dev.sh` cleans the VS Code snap's GTK variables, which break the app's startup.
 if [ -n "${1:-}" ]; then ABSTRACT_TEX_OPEN="$(cd "$1" && pwd)"; export ABSTRACT_TEX_OPEN; fi
+# The window must open on the virtual display, never on a real Wayland desktop.
+unset WAYLAND_DISPLAY; export GDK_BACKEND=x11
 nohup scripts/dev.sh >"$log" 2>&1 &
 
 # The window title is "Abstract-Tex"; the page needs a few more seconds after it maps.

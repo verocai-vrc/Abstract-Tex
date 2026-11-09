@@ -6755,6 +6755,19 @@ not keep its comments there. Nothing pushes or fetches comments yet; that wants 
 and an allowlist line in `no_silent_network.rs`. Remaining in S14.3: the panel and the selection
 gesture (S14.3c), then relative-position anchoring while a session is live.
 
+**S14.3c (9 November 2026).** `[x]` — rung 4 walked on the virtual display against a Git copy of
+`fixtures/paper`: `pnpm verify` exit 0, Vitest 744 passed (8 new, `comments.test.ts`). A fourth
+tenant of the left pane, **Comments** (activity-bar icon, `view-comments`), and the palette action
+*Comment on selection…*: select words, choose it, write, `Ctrl Enter`; the comment lands on
+`refs/abstract-tex/comments` and the working tree stays byte-identical (`git diff` empty). Open
+comments list first with the active file's ahead, resolved ones fold away, an orphaned comment
+shows its struck-through quote and a sentence, and clicking one jumps to its line — found in the
+buffer by `locateInBuffer`, never by the on-disk offsets alone, so unsaved edits do not misplace
+it. The walk found one bug (the box took no focus; `bugs-issues-fixes.md`) and one harness fault
+(the app opened on the real Wayland desktop; `xvfb-app.sh` now forces X11). Not walked: jumping
+to a comment and the orphaned look. Not done: highlighting comments in the editor, replies, and
+relative-position anchoring while a session is live; nothing pushes or fetches comments yet.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

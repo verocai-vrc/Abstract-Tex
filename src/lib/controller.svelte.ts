@@ -29,7 +29,9 @@ import type { LocalPresence } from './relay/awareness';
 import { createInvite, inviteToText, parseInvite } from './relay/invite';
 import { LiveSession, randomPresenceColor, type LiveStatus } from './relay/live-session';
 import { registerCommand, type Command } from './commands';
-import { ipc, type AssistantAction, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
+import { comments } from './comments.svelte';
+import { lineAt, locateInBuffer } from './comments';
+import { ipc, type AssistantAction, type CommentRow, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
@@ -465,6 +467,7 @@ export function showActivityView(view: ActivityView): void {
   if (view === 'assistant') void openAssistantSettings();
   // S11.6: the Snapshots section is read fresh whenever the view comes up; nothing polls.
   if (view === 'source-control') void refreshSnapshots();
+  if (view === 'comments') void refreshComments();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2139,6 +2142,109 @@ registerCommand({
   shortcut: 'Ctrl Shift G',
   run: () => showActivityView('source-control'),
 });
+// ---------------------------------------------------------------------------------------------
+// S14.3c: comments. Kept in the project's Git history by Rust; nothing here sends them anywhere.
+// ---------------------------------------------------------------------------------------------
+
+/** Read every comment. A folder that is not a Git repository answers with a sentence, kept as
+ * `comments.error` and shown in place of the list rather than as a failure. */
+export async function refreshComments(): Promise<void> {
+  if (!app.project) {
+    comments.rows = null;
+    comments.error = null;
+    return;
+  }
+  try {
+    comments.rows = await ipc.commentsList();
+    comments.error = null;
+  } catch (error) {
+    comments.rows = null;
+    comments.error = String(error);
+  }
+}
+
+/** Begin a comment on the current selection: open the view with a box to write in. */
+export function startComment(): void {
+  const doc = app.activeDoc;
+  const path = app.activePath;
+  const selection = assistant.selection;
+  if (!doc || !path || !selection) {
+    app.notice = 'Select some text first, then add a comment.';
+    return;
+  }
+  const text = doc.text();
+  const quote = text.slice(selection.from, selection.to);
+  if (!quote.trim()) {
+    app.notice = 'Select some text first, then add a comment.';
+    return;
+  }
+  app.notice = null;
+  comments.draft = { file: path, from: selection.from, to: selection.to, text, quote };
+  comments.body = '';
+  showActivityView('comments');
+}
+
+export function cancelComment(): void {
+  comments.draft = null;
+  comments.body = '';
+}
+
+/** Save the comment being written. The buffer's text goes along, so the comment is anchored to
+ * what the author was looking at, saved or not. */
+export async function saveComment(): Promise<void> {
+  const draft = comments.draft;
+  const body = comments.body.trim();
+  if (!draft || !body || comments.saving) return;
+  comments.saving = true;
+  try {
+    await ipc.commentAdd(draft.file, draft.text, draft.from, draft.to, body);
+    cancelComment();
+    await refreshComments();
+  } catch (error) {
+    app.notice = String(error);
+  } finally {
+    comments.saving = false;
+  }
+}
+
+export async function setCommentResolved(row: CommentRow, resolved: boolean): Promise<void> {
+  try {
+    await ipc.commentSetResolved(row.id, resolved);
+    await refreshComments();
+  } catch (error) {
+    app.notice = String(error);
+  }
+}
+
+/** Open the comment's file and move to its words. A comment whose words are gone opens its file
+ * and says so, rather than landing on a line that merely used to matter. */
+export async function jumpToComment(row: CommentRow): Promise<void> {
+  if (row.state === 'fileMissing') return;
+  await openFile(row.file);
+  const doc = app.activePath === row.file ? app.activeDoc : null;
+  if (!doc) return;
+  const text = doc.text();
+  const found = locateInBuffer(text, row);
+  if (!found) {
+    app.notice = 'The text this comment was about is not in the file any more.';
+    return;
+  }
+  jumpToLine(lineAt(text, found.from));
+}
+
+registerCommand({
+  id: 'comment-on-selection',
+  title: 'Comment on selection…',
+  category: 'action',
+  run: () => startComment(),
+});
+registerCommand({
+  id: 'view-comments',
+  title: 'Comments',
+  category: 'action',
+  run: () => showActivityView('comments'),
+});
+
 // S11.4d (A10): the commonest comparison, with no clicking.
 registerCommand({
   id: 'show-snapshots',
