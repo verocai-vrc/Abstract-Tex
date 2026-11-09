@@ -20,6 +20,7 @@ pub mod assistant_explain;
 pub mod assistant_review;
 pub mod bibliography;
 pub mod commands;
+pub mod comments;
 pub mod compile;
 pub mod consent;
 pub mod git;
@@ -189,6 +190,9 @@ pub fn run() {
             commands::template_list,
             commands::template_create,
             commands::git_diff_sides,
+            commands::comments_list,
+            commands::comment_add,
+            commands::comment_set_resolved,
             commands::snapshot_list,
             commands::snapshot_files,
             commands::snapshot_read,

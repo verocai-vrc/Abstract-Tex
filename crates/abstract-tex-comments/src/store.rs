@@ -54,8 +54,27 @@ pub enum CommentsError {
     Write(#[source] git2::Error),
     #[error("a comment could not be read back: {0}")]
     Read(#[source] git2::Error),
+    #[error("this folder is not a Git repository")]
+    NotARepository,
     #[error("a stored comment was not valid JSON: {0}")]
     Malformed(#[source] serde_json::Error),
+}
+
+/// Open the repository whose root is exactly `root`. Deliberately not `Repository::discover`: a
+/// project folder that merely sits inside some other repository must not quietly keep its comments
+/// in that one's history.
+pub fn open(root: &std::path::Path) -> Result<Repository, CommentsError> {
+    Repository::open(root).map_err(|_| CommentsError::NotARepository)
+}
+
+/// The name comments are signed with: the author's Git identity, or a neutral stand-in. Same rule
+/// as the commit signature in this module — writing a comment never asks them to configure Git.
+pub fn author_name(repository: &Repository) -> String {
+    repository
+        .signature()
+        .ok()
+        .and_then(|signature| signature.name().map(str::to_string))
+        .unwrap_or_else(|| "Author".to_string())
 }
 
 /// Add one comment, as a new commit on [`COMMENTS_REF`] with the previous tip as its parent (or

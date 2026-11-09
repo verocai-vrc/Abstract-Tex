@@ -6745,6 +6745,16 @@ offline resolve-vs-reopen over a real `file://` remote that merges with no confl
 `cargo test -p abstract-tex-comments` 14 passed / 0 failed. Not done in S14.3: the Tauri commands,
 the UI, and anchoring a comment to a CRDT relative position while a session is live.
 
+**S14.3b (9 November 2026).** `[x]` (no UI yet, so rung 4 does not apply) — `pnpm verify` exit 0.
+Three commands, `comments_list`, `comment_add` and `comment_set_resolved`, with `ipc.ts` wrappers,
+over a new `src-tauri/src/comments.rs`. Worth reading: positions cross the boundary in UTF-16 units
+(the crate speaks bytes), a selection that lands inside a surrogate pair is refused, and a folder
+that is not itself a Git repository gets a sentence instead of a `.git` — the comments crate's
+`open` uses `Repository::open`, not `discover`, so a project nested inside another repository does
+not keep its comments there. Nothing pushes or fetches comments yet; that wants the `https` feature
+and an allowlist line in `no_silent_network.rs`. Remaining in S14.3: the panel and the selection
+gesture (S14.3c), then relative-position anchoring while a session is live.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

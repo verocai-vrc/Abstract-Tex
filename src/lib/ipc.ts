@@ -429,6 +429,23 @@ export interface DiffSides {
   after: string;
 }
 
+/** One comment (`crate::comments::CommentRow`), S14.3b. Positions are UTF-16 units, as CodeMirror counts. */
+export interface CommentRow {
+  id: string;
+  file: string;
+  author: string;
+  body: string;
+  /** The words the comment was attached to, kept so an orphaned comment can still say what it was about. */
+  quote: string;
+  /** Seconds since the Unix epoch. */
+  created: number;
+  resolved: boolean;
+  state: 'anchored' | 'orphaned' | 'fileMissing';
+  /** Offsets into the file on disk; null unless `state` is `anchored`. */
+  from: number | null;
+  to: number | null;
+}
+
 /** One snapshot of the project (`abstract_tex_snapshot::SnapshotRow`), S11.6. */
 export interface SnapshotRow {
   id: string;
@@ -715,6 +732,13 @@ export const ipc = {
   /** S11.7: the two sides of a row's diff. `staged` false: the index against the working tree (what
    * *Stage* would add); true: `HEAD` against the index (what the next commit would hold). */
   gitDiffSides: (path: string, staged: boolean) => invoke<DiffSides>('git_diff_sides', { path, staged }),
+  /** S14.3b: every comment in the project, reanchored against the files on disk. Rejects with a sentence when the folder is not a Git repository. */
+  commentsList: () => invoke<CommentRow[]>('comments_list'),
+  /** S14.3b: comment on `from..to` (UTF-16 units) of `text`, the editor's buffer. Resolves to the comment's id. */
+  commentAdd: (file: string, text: string, from: number, to: number, body: string) =>
+    invoke<string>('comment_add', { file, text, from, to, body }),
+  /** S14.3b: resolve a comment, or reopen it. */
+  commentSetResolved: (id: string, resolved: boolean) => invoke<void>('comment_set_resolved', { id, resolved }),
   /** S11.6: the newest snapshots, newest first. Works for a folder that is not a Git repository. */
   snapshotList: (limit: number) => invoke<SnapshotRow[]>('snapshot_list', { limit }),
   /** S11.6: the `.tex` and `.bib` files one snapshot holds. */

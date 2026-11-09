@@ -20,7 +20,8 @@ pub mod anchor;
 pub mod store;
 
 pub use anchor::{Anchor, OrphanReason, Reanchored};
+pub use git2::Repository;
 pub use store::{
-    add, fetch, load, load_all, merge_from, push, record_resolution, resolved_ids, AnchorStatus,
-    CommentRecord, CommentsError, LoadedComment, MergeOutcome, ResolutionEvent, COMMENTS_REF,
+    add, author_name, fetch, load, load_all, merge_from, open, push, record_resolution, resolved_ids,
+    AnchorStatus, CommentRecord, CommentsError, LoadedComment, MergeOutcome, ResolutionEvent, COMMENTS_REF,
 };

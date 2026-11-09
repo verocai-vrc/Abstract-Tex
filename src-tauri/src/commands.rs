@@ -354,6 +354,63 @@ pub async fn snapshot_restore(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------------------------
+// S14.3b: comments. Kept on `refs/abstract-tex/comments` (`crate::comments`); nothing here pushes
+// or fetches them, and nothing touches the working tree.
+// ---------------------------------------------------------------------------------------------
+
+fn seconds_since_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Every comment in the project, oldest first, each reanchored against the files on disk.
+#[tauri::command]
+pub async fn comments_list(state: State<'_, AppState>) -> CommandResult<Vec<crate::comments::CommentRow>> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    tauri::async_runtime::spawn_blocking(move || crate::comments::list(&root))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)
+}
+
+/// Comment on `from..to` (UTF-16 units) of `text`, the editor's buffer. Returns the comment's id.
+#[tauri::command]
+pub async fn comment_add(
+    state: State<'_, AppState>,
+    file: String,
+    text: String,
+    from: usize,
+    to: usize,
+    body: String,
+) -> CommandResult<String> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::comments::add_comment(&root, &file, &text, from, to, &body, seconds_since_epoch())
+    })
+    .await
+    .map_err(to_message)?
+    .map_err(to_message)
+}
+
+/// Resolve a comment, or reopen it.
+#[tauri::command]
+pub async fn comment_set_resolved(
+    state: State<'_, AppState>,
+    id: String,
+    resolved: bool,
+) -> CommandResult<()> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::comments::set_resolved(&root, &id, resolved, seconds_since_epoch())
+    })
+    .await
+    .map_err(to_message)?
+    .map_err(to_message)
+}
+
 /// Whether the open project's builds may run programs (S9.8). An error with no project open.
 #[tauri::command]
 pub fn shell_escape_allowed(
