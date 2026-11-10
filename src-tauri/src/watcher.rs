@@ -14,7 +14,9 @@
 //! 3. Files whose content matches what *we* just wrote are dropped. Otherwise every debounced
 //!    save would come back as an "external change" and the reconciler would run a no-op diff.
 //!    We compare a content hash rather than a timestamp window because a slow disk can deliver
-//!    the event after any window we pick, and a hash cannot be late.
+//!    the event after any window we pick, and a hash cannot be late. A hash is forgotten as soon
+//!    as the file is seen holding anything else, so an outside change *back* to those same bytes
+//!    is still reported.
 //!
 //! Must never decide what an external change *means*. That is the frontend's job: it reads the
 //! file, diffs it into the CRDT, or asks the author if the buffer is dirty.
@@ -181,13 +183,26 @@ fn changes_git_status(path: &Path) -> bool {
     }
 }
 
+/// Whether the file at `path` still holds exactly what the app last wrote there.
+///
+/// A remembered hash is only good for as long as the file keeps matching it. The moment the file
+/// is seen holding anything else, somebody else has written it, the app's own save is no longer
+/// what is on disk, and the hash is forgotten. Without that, a later outside change back to the
+/// very same bytes (an undo in another editor, a `git checkout`) matches the old hash and is
+/// swallowed as "our own echo", leaving the buffer different from the disk with nothing to say so
+/// (`bugs-issues-fixes.md`). Still no clock: a late event for our own write still matches, because
+/// the file still holds those bytes.
 fn is_our_own_write(written: &WrittenHashes, path: &Path) -> bool {
-    let Some(expected) = written.lock().unwrap().get(path).copied() else {
+    let mut remembered = written.lock().unwrap();
+    let Some(expected) = remembered.get(path).copied() else {
         return false;
     };
     match std::fs::read(path) {
-        Ok(bytes) => content_hash(&bytes) == expected,
-        Err(_) => false,
+        Ok(bytes) if content_hash(&bytes) == expected => true,
+        _ => {
+            remembered.remove(path);
+            false
+        }
     }
 }
 
@@ -244,6 +259,46 @@ mod tests {
         assert!(
             wait_for_change(&rx, Duration::from_millis(1500)).is_none(),
             "a write whose hash we recorded must not be reported"
+        );
+    }
+
+    /// Found on the owed smoke walk (`bugs-issues-fixes.md`): the app saves A; another program
+    /// changes the file to B and then back to exactly A. The hash of A was still remembered from
+    /// the app's own save, so the return to A was taken for an echo and swallowed — the buffer kept
+    /// B while the disk held A. A remembered hash must stop counting once the file has been seen
+    /// holding anything else.
+    #[test]
+    fn restoring_an_earlier_version_from_outside_is_reported_not_taken_for_our_own_echo() {
+        let dir = tempfile::tempdir().unwrap();
+        let written = WrittenHashes::default();
+        let (tx, rx) = mpsc::channel();
+        let _watcher = watch(dir.path(), written.clone(), move |e| {
+            let _ = tx.send(e);
+        })
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        let target = dir.path().join("main.tex");
+
+        // The app saves A.
+        remember_write(&written, &target, b"A");
+        std::fs::write(&target, "A").unwrap();
+        assert!(
+            wait_for_change(&rx, Duration::from_millis(1200)).is_none(),
+            "our own write"
+        );
+
+        // Another program changes it to B: reported.
+        std::fs::write(&target, "B").unwrap();
+        assert!(
+            manuscript(wait_for_change(&rx, Duration::from_secs(5))).is_some(),
+            "B is news"
+        );
+
+        // ... and back to exactly A: still news.
+        std::fs::write(&target, "A").unwrap();
+        assert!(
+            manuscript(wait_for_change(&rx, Duration::from_secs(5))).is_some(),
+            "a return to A from outside is an external change, not an echo of the app's old save"
         );
     }
 

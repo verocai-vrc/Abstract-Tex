@@ -1365,3 +1365,23 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   the file's status, then the session's own asynchronous `destroy` reported `closed` through the
   callback still attached and wrote it back. Fixed the same loop: the callbacks are detached before
   `destroy` is called. **Fixed.**
+
+- **An external edit that restores an earlier version of a file is swallowed as "an echo of our own
+  write", leaving the buffer different from the disk.** (Found 9 Nov 2026 on the owed smoke walk,
+  `fixtures/paper/SMOKE.md` §3 step 4. **Fixed** the same session: `is_our_own_write` now forgets a
+  remembered hash the first time the file is seen holding anything else; regression test
+  `restoring_an_earlier_version_from_outside_is_reported_not_taken_for_our_own_echo`, and the
+  sequence re-walked in the app.) Sequence: the app
+  saves `main.tex` (content A). Another program changes it to B (the buffer follows, a build
+  runs). The other program then changes it back to exactly A. The watcher logs "ignoring echo of
+  our own write" and does nothing: no reload, no rebuild. The editor still shows B, the disk holds
+  A, and nothing says so. Cause (to confirm in `watcher.rs`): self-write suppression is by content
+  hash and the hash of A is still remembered from the app's own save, long after that save's echo
+  came and went. Why it matters: rule 1 — the file on disk is the truth — and the next save from
+  that buffer would overwrite the author's restore with B.
+- **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
+  nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Open**,
+  low priority.) The card is honest — it explains that TeX reports the end of the file and the
+  tooltip says "TeX did not say which line" — but the group heading names no file although the
+  project has exactly one, and the author is given nowhere to go. A better answer for this rule is
+  the file the build was started from, at its last line.
