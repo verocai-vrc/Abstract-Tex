@@ -6998,7 +6998,6 @@ typewriter mode centres the active line; hovering `$t_1, \dots, t_n$` shows the 
 dark popover, readable. **Found and fixed:** toggling either mode threw the cursor back to line 1,
 because the effect that builds the editor read both flags as dependencies and so rebuilt the whole
 editor on every toggle (`untrack`; no unit test, the repository has no component harness; walked).
-The palette also listed no way to see this from a test, which is why a walk found it.
 
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
