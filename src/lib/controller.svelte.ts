@@ -30,6 +30,7 @@ import { createInvite, inviteToText, parseInvite } from './relay/invite';
 import { LiveSession, randomPresenceColor, type LiveStatus } from './relay/live-session';
 import { registerCommand, type Command } from './commands';
 import { comments } from './comments.svelte';
+import { crash } from './crash.svelte';
 import { sessionCommitMessage } from './session-commit';
 import { lineAt, locateInBuffer } from './comments';
 import { ipc, type AssistantAction, type CommentRow, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
@@ -1802,6 +1803,51 @@ export async function signOutOfGitHub(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// S16.3: crash reports. A panic leaves a local file; the next start asks whether to report it.
+// Nothing is sent by any of this — *Report on GitHub* opens a page in the browser that the author
+// reads and submits (or closes) themselves.
+// ---------------------------------------------------------------------------------------------
+
+async function checkForCrashReport(): Promise<void> {
+  try {
+    crash.report = await ipc.crashPending();
+  } catch {
+    crash.report = null;
+  }
+}
+
+/** Open the prefilled issue, then stop asking: the author has seen it and chosen. */
+export async function reportCrash(): Promise<void> {
+  const report = crash.report;
+  if (!report) return;
+  try {
+    await ipc.openInBrowser(report.issueUrl);
+  } catch (error) {
+    crash.error = `Could not open your browser: ${String(error)}`;
+    return;
+  }
+  await dismissCrash();
+}
+
+export async function copyCrashReport(): Promise<void> {
+  if (!crash.report) return;
+  try {
+    await navigator.clipboard.writeText(crash.report.text);
+    crash.copied = true;
+  } catch {
+    crash.error = 'Could not copy. Select the text and copy it by hand.';
+  }
+}
+
+export async function dismissCrash(): Promise<void> {
+  const report = crash.report;
+  crash.report = null;
+  crash.copied = false;
+  crash.error = null;
+  if (report) await ipc.crashDismiss(report.id).catch(() => {});
+}
+
 /** Called once from App.svelte. Subscribes to backend events and probes the engine. */
 export async function start(): Promise<void> {
   await ipc.onCompile(handleCompileEvent);
@@ -1836,6 +1882,8 @@ export async function start(): Promise<void> {
     app.engine = null;
     app.notice = `Could not probe the TeX engine: ${String(error)}`;
   }
+  // S16.3: did the last run crash? Asked once; a failure to ask is not worth a notice.
+  void checkForCrashReport();
   // `abstract-tex <folder>` on the command line, or ABSTRACT_TEX_OPEN in the environment.
   const initial = await ipc.initialProject();
   if (initial) await openFolder(initial);

@@ -355,6 +355,30 @@ pub async fn snapshot_restore(
 }
 
 // ---------------------------------------------------------------------------------------------
+// S16.3: crash reports. Local files only (`crate::crash`); these two commands read and tidy them.
+// ---------------------------------------------------------------------------------------------
+
+fn crash_reports_dir(app: &AppHandle) -> CommandResult<PathBuf> {
+    Ok(app
+        .path()
+        .app_config_dir()
+        .map_err(to_message)?
+        .join("crash-reports"))
+}
+
+/// The newest crash report the author has not been asked about, with the prefilled issue address.
+#[tauri::command]
+pub fn crash_pending(app: AppHandle) -> CommandResult<Option<crate::crash::PendingReport>> {
+    Ok(crate::crash::newest_pending(&crash_reports_dir(&app)?))
+}
+
+/// Stop offering a report: it is kept, moved to `handled/`.
+#[tauri::command]
+pub fn crash_dismiss(app: AppHandle, id: String) -> CommandResult<()> {
+    crate::crash::dismiss(&crash_reports_dir(&app)?, &id).map_err(to_message)
+}
+
+// ---------------------------------------------------------------------------------------------
 // S14.3b: comments. Kept on `refs/abstract-tex/comments` (`crate::comments`); nothing here pushes
 // or fetches them, and nothing touches the working tree.
 // ---------------------------------------------------------------------------------------------

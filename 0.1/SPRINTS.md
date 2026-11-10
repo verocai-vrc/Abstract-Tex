@@ -6820,6 +6820,26 @@ spike showed is sound, and which every author sees on load) and comments travell
 (push/fetch need git2's `https` feature and an allowlist line in `no_silent_network.rs`). Neither
 blocks the exit demo; both are carded here for the maintainer to place.
 
+**S16.3 (9 November 2026).** `[x]`, one click not walked — `pnpm verify` exit 0, `cargo test -p
+abstract-tex --lib crash` 7 passed. Opt-in crash reporting as settled in design interview F8: a
+**local report plus a prefilled GitHub issue the author submits**, with no upload and no
+telemetry. `src-tauri/src/crash.rs` installs a panic hook (chained to the previous one, so a
+developer still sees the usual stderr message) that writes `crash-<seconds>-<n>.txt` into the
+app's config folder — version, platform, thread, location, message, backtrace, with the home
+folder replaced by `~`; every failure inside the hook is swallowed so it can never turn a crash
+into an abort. The next start asks (`crash_pending`): a window shows **the whole report** and says
+what it holds and that nothing has been sent, with *Report on GitHub…* (opens the new-issue page,
+title and body filled, report cut line by line to keep the address under 6,000 bytes), *Copy
+report*, and *Not now*. Either choice moves the file to `handled/`; it is kept, not offered again.
+`dismiss` refuses any id that is not a plain `crash-…txt` name, since the id comes from the
+webview. The privacy guarantee is the author reading the text before submitting, not the scrubbing:
+a panic message can quote a path or a string. Walked on the virtual display with a planted report
+(window, text, *Not now* moved the file). **Not walked:** *Report on GitHub…* itself, because it
+would ask this machine to open a browser — the URL building is unit-tested, the opener is the
+same call `openInBrowser` already makes for the GitHub sign-in page. Panics before `setup` runs
+(argument parsing, plugin start-up) are not covered. Aborts and native crashes (a signal in
+WebKit or libgit2) never reach a Rust panic hook and leave no report.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

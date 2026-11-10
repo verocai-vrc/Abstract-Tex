@@ -429,6 +429,15 @@ export interface DiffSides {
   after: string;
 }
 
+/** A crash report from an earlier run (`crate::crash::PendingReport`), S16.3. */
+export interface CrashReport {
+  id: string;
+  /** The whole report, exactly what would go into the issue. */
+  text: string;
+  /** A new-issue address with the report filled in; opening it submits nothing. */
+  issueUrl: string;
+}
+
 /** One comment (`crate::comments::CommentRow`), S14.3b. Positions are UTF-16 units, as CodeMirror counts. */
 export interface CommentRow {
   id: string;
@@ -734,6 +743,10 @@ export const ipc = {
   /** S11.7: the two sides of a row's diff. `staged` false: the index against the working tree (what
    * *Stage* would add); true: `HEAD` against the index (what the next commit would hold). */
   gitDiffSides: (path: string, staged: boolean) => invoke<DiffSides>('git_diff_sides', { path, staged }),
+  /** S16.3: the newest crash report not yet dealt with, or null. Local files only. */
+  crashPending: () => invoke<CrashReport | null>('crash_pending'),
+  /** S16.3: stop offering a report (it is kept on disk). */
+  crashDismiss: (id: string) => invoke<void>('crash_dismiss', { id }),
   /** S14.3b: every comment in the project, reanchored against the files on disk. Rejects with a sentence when the folder is not a Git repository. */
   commentsList: () => invoke<CommentRow[]>('comments_list'),
   /** S14.3b: comment on `from..to` (UTF-16 units) of `text`, the editor's buffer. Resolves to the comment's id. */

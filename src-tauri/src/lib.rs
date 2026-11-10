@@ -23,6 +23,7 @@ pub mod commands;
 pub mod comments;
 pub mod compile;
 pub mod consent;
+pub mod crash;
 pub mod git;
 pub mod github;
 pub mod latexdiff;
@@ -113,6 +114,8 @@ pub fn run() {
         // does — hence `setup`, not `AppState::new`. Never in a project (`consent.rs`).
         .setup(|app| {
             let config = app.path().app_config_dir()?;
+            // S16.3: from here on, a panic leaves a local report (`crash.rs`); nothing is sent.
+            crash::install(config.join("crash-reports"));
             app.manage(consent::ShellEscapeConsent::at(config.join("shell-escape.toml")));
             // S12.1b: the assistant's settings are per machine, in the same folder and for the same
             // reason; its key goes to the OS keychain and nowhere else (`assistant.rs`).
@@ -191,6 +194,8 @@ pub fn run() {
             commands::template_list,
             commands::template_create,
             commands::git_diff_sides,
+            commands::crash_pending,
+            commands::crash_dismiss,
             commands::comments_list,
             commands::comment_add,
             commands::comment_set_resolved,
