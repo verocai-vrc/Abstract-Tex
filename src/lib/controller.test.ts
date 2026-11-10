@@ -4210,7 +4210,7 @@ describe('switching and starting branches (B4)', () => {
       destroy: async () => {},
       onStatusChange: undefined,
       onPeersChange: undefined,
-    } as unknown as LiveSession;
+    } as unknown as Awaited<ReturnType<typeof LiveSession.connect>>;
     const connect = vi.spyOn(LiveSession, 'connect').mockResolvedValue(fake);
     live.relayAddress = 'localhost:4444';
     await startShare();
