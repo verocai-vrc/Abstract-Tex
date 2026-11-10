@@ -7031,9 +7031,16 @@ are S11.9–S11.12) · S16.6 stranger test.
 Decided in the 2 October 2026 design interview, not yet given a sprint. Each is expanded when it
 is placed; the letter-number is its question in `0.1/design-interview.md`.
 
-- **Try again with simpler markup** (A7) — the first follow-up to S11.4: a one-click rerun with
-  `--math-markup=whole --graphics-markup=none` when a comparison fails to compile. Placed once a
-  real `latexdiff` has run on the corpus and shown which flags matter.
+- [x] **Try again with simpler markup** (A7) — the first follow-up to S11.4: a one-click rerun with
+  `--math-markup=whole --graphics-markup=none` when a comparison fails to compile. **Done 10 November
+  2026**, though the card said "placed once a real `latexdiff` has run on the corpus": none has, so
+  the two switches are the interview's own and unvalidated against real documents. `Markup` in
+  `abstract-tex-latexdiff`; the folder name carries it (`<pair>-simpler`) so a retry never reuses a
+  failed or standard attempt; the view carries `simpler` and `retryable` (only after TeX ran and
+  failed, only once); the banner says "with simpler markup" so a coarser diff is not read as a smaller
+  change. Walked in the app with a stand-in `latexdiff` script on `PATH` that fails by default and
+  passes with the simpler switches: failure, the button in the banner and the drawer, the retry, the
+  banner after it. **Not walked:** a real `latexdiff`; this machine has none.
 - **Compare the working tree, or a tag** (A11) — the working tree against a commit (one side
   needs no export), and named versions ("Sent to supervisor, 3 Oct"), which need tag creation too.
 - **⇄ swap in the comparison toolbar** (A4) — only if anyone asks for a reversed diff.

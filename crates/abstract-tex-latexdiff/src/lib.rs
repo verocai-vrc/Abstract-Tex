@@ -40,7 +40,42 @@ pub enum LatexdiffError {
     Failed(String),
 }
 
-/// Export `old` and `new` to `old_dir` and `new_dir`, then run `latexdiff --flatten` between
+/// How much markup `latexdiff` is asked for (design interview A7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Markup {
+    /// `latexdiff`'s own defaults. The first attempt always uses these.
+    #[default]
+    Standard,
+    /// The retry after a comparison failed to compile. `latexdiff`'s markup is known to break some
+    /// documents — inside maths, tables, around citations and some custom macros — and these two
+    /// switches are what the design interview named for that case: maths is marked up as a whole
+    /// rather than token by token, and figures are not marked at all. Less detail, more documents
+    /// that still compile.
+    Simpler,
+}
+
+impl Markup {
+    /// The switches this setting adds to `--flatten`, which is always passed.
+    fn switches(self) -> &'static [&'static str] {
+        match self {
+            Markup::Standard => &[],
+            Markup::Simpler => &["--math-markup=whole", "--graphics-markup=none"],
+        }
+    }
+}
+
+/// The two folders the revisions are exported into. A struct and not two bare `&Path`s: they sit
+/// side by side in every call, and swapping them would mark up the wrong direction without a
+/// compile error.
+#[derive(Debug, Clone, Copy)]
+pub struct ExportDirs<'a> {
+    /// Where the older revision is exported.
+    pub old: &'a Path,
+    /// Where the newer revision is exported, and where the marked-up document is written.
+    pub new: &'a Path,
+}
+
+/// Export `old` and `new` to `dirs.old` and `dirs.new`, then run `latexdiff --flatten` between
 /// their copies of `root_file`, writing the result back over `new_dir`'s copy and returning its
 /// path — ready for `abstract-tex-engine` to compile exactly as it would compile any other root
 /// file, because every other file `root_file` depends on (figures, a bibliography, a document
@@ -51,8 +86,8 @@ pub fn render(
     old: Oid,
     new: Oid,
     root_file: &str,
-    old_dir: &Path,
-    new_dir: &Path,
+    dirs: ExportDirs<'_>,
+    markup: Markup,
 ) -> Result<PathBuf, LatexdiffError> {
     render_with(
         Path::new("latexdiff"),
@@ -60,8 +95,8 @@ pub fn render(
         old,
         new,
         root_file,
-        old_dir,
-        new_dir,
+        dirs,
+        markup,
     )
 }
 
@@ -76,20 +111,21 @@ pub fn render_with(
     old: Oid,
     new: Oid,
     root_file: &str,
-    old_dir: &Path,
-    new_dir: &Path,
+    dirs: ExportDirs<'_>,
+    markup: Markup,
 ) -> Result<PathBuf, LatexdiffError> {
     if !is_installed(latexdiff) {
         return Err(LatexdiffError::NotInstalled);
     }
 
-    abstract_tex_git::export_tree(repository, old, old_dir)?;
-    abstract_tex_git::export_tree(repository, new, new_dir)?;
+    abstract_tex_git::export_tree(repository, old, dirs.old)?;
+    abstract_tex_git::export_tree(repository, new, dirs.new)?;
 
-    let old_root = old_dir.join(root_file);
-    let new_root = new_dir.join(root_file);
+    let old_root = dirs.old.join(root_file);
+    let new_root = dirs.new.join(root_file);
     let output = Command::new(latexdiff)
         .arg("--flatten")
+        .args(markup.switches())
         .arg(&old_root)
         .arg(&new_root)
         .output()?;

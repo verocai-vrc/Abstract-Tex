@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use abstract_tex_git::Repository;
-use abstract_tex_latexdiff::render_with;
+use abstract_tex_latexdiff::{render_with, ExportDirs, Markup};
 
 fn installed() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_fake-latexdiff-installed"))
@@ -14,6 +14,10 @@ fn installed() -> &'static Path {
 
 fn missing() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_fake-latexdiff-missing"))
+}
+
+fn echoes_flags() -> &'static Path {
+    Path::new(env!("CARGO_BIN_EXE_fake-latexdiff-echoes-flags"))
 }
 
 fn fails() -> &'static Path {
@@ -67,8 +71,11 @@ fn rendering_is_refused_by_name_when_latexdiff_is_not_installed() {
         old,
         new,
         "main.tex",
-        old_dir.path(),
-        new_dir.path(),
+        ExportDirs {
+            old: old_dir.path(),
+            new: new_dir.path(),
+        },
+        Markup::Standard,
     )
     .unwrap_err();
 
@@ -94,8 +101,11 @@ fn rendering_exports_both_revisions_and_writes_the_diff_over_the_new_one() {
         old,
         new,
         "main.tex",
-        old_dir.path(),
-        new_dir.path(),
+        ExportDirs {
+            old: old_dir.path(),
+            new: new_dir.path(),
+        },
+        Markup::Standard,
     )
     .unwrap();
 
@@ -126,10 +136,50 @@ fn latexdiffs_own_refusal_reaches_the_error_message() {
         old,
         new,
         "main.tex",
-        old_dir.path(),
-        new_dir.path(),
+        ExportDirs {
+            old: old_dir.path(),
+            new: new_dir.path(),
+        },
+        Markup::Standard,
     )
     .unwrap_err();
 
     assert!(error.to_string().contains("unbalanced braces"), "{error}");
+}
+
+/// The switches `latexdiff` was run with, as the echoing fake wrote them into the marked-up file.
+fn switches_used(markup: Markup) -> String {
+    let (_tmp, repository, old, new) = repo_with_two_revisions();
+    let old_dir = tempfile::tempdir().unwrap();
+    let new_dir = tempfile::tempdir().unwrap();
+    let path = render_with(
+        echoes_flags(),
+        &repository,
+        old,
+        new,
+        "main.tex",
+        ExportDirs {
+            old: old_dir.path(),
+            new: new_dir.path(),
+        },
+        markup,
+    )
+    .unwrap();
+    std::fs::read_to_string(path).unwrap()
+}
+
+/// A7: the first attempt is `latexdiff`'s own defaults, with `--flatten` as the only switch.
+#[test]
+fn standard_markup_passes_nothing_beyond_flatten() {
+    assert_eq!(switches_used(Markup::Standard), "% switches: --flatten\n");
+}
+
+/// A7: the retry after a comparison failed to compile. Maths marked up as a whole and no marking
+/// of figures are the two switches the design interview named.
+#[test]
+fn simpler_markup_adds_the_two_switches_the_interview_named() {
+    assert_eq!(
+        switches_used(Markup::Simpler),
+        "% switches: --flatten --math-markup=whole --graphics-markup=none\n"
+    );
 }

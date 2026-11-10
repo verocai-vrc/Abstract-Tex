@@ -19,6 +19,7 @@
     explainWithAssistant,
     jumpToDiagnostic,
     loadComparisonLog,
+    retryComparisonWithSimplerMarkup,
     setDrawerFilter,
     showRawLogFor,
     toggleRawLog,
@@ -129,6 +130,9 @@
     <header>
       <strong>The comparison could not be built.</strong>
       <span class="spacer"></span>
+      {#if comparisonProblems.retryable}
+        <button class="ghost" onclick={() => void retryComparisonWithSimplerMarkup()}>Try again with simpler markup</button>
+      {/if}
       <button class="ghost" onclick={toggleComparisonOutput}>
         {showComparisonOutput ? 'Back to explanations' : 'Raw output'}
       </button>

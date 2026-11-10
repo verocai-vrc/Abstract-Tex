@@ -802,7 +802,9 @@ export const ipc = {
   /** S11.4c: compare two commits as a marked-up PDF, in a build lane of its own that never
    * cancels, or is cancelled by, a live build. Rejects with a sentence — `latexdiff` missing, or
    * a commit without the root file — before anything is written. */
-  compareRevisions: (a: string, b: string) => invoke<ComparisonStarted>('compare_revisions', { a, b }),
+  /** `simpler` asks for `latexdiff`'s simpler markup: the retry after a comparison failed (A7). */
+  compareRevisions: (a: string, b: string, simpler?: boolean) =>
+    invoke<ComparisonStarted>('compare_revisions', { a, b, simpler }),
   /** Stop the comparison in progress — one still exporting as well as one compiling — because
    * the author left it. Never touches the live build; safe with nothing running. */
   cancelComparison: () => invoke<void>('cancel_comparison'),
@@ -810,8 +812,8 @@ export const ipc = {
    * Takes no path: the folder holds only the latest comparison. */
   readComparisonLog: () => invoke<string>('read_comparison_log'),
   /** S11.4c: copy that pair's PDF to a path the author picked in the save dialog. */
-  saveComparisonPdf: (older: string, newer: string, destination: string) =>
-    invoke<void>('save_comparison_pdf', { older, newer, destination }),
+  saveComparisonPdf: (older: string, newer: string, destination: string, simpler?: boolean) =>
+    invoke<void>('save_comparison_pdf', { older, newer, destination, simpler }),
 
   /** Open a URL in the person's own browser (`tauri-plugin-opener`). A webview link cannot do
    * this by itself, which is why sign-in needs it — and why every caller also shows the URL as

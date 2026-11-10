@@ -167,7 +167,16 @@ const restores: Array<[string, string]> = [];
 let diffAnswer: DiffSides | Error = { before: 'a', after: 'b' };
 const diffsAsked: Array<[string, boolean]> = [];
 const clones = { asked: [] as Array<[string, string, string | null]>, lists: 0 };
-const comparisons = { asked: [] as Array<[string, string]>, saved: [] as string[], cancelled: 0, logReads: 0 };
+const comparisons = {
+  asked: [] as Array<[string, string]>,
+  /** Whether each request in `asked` was for the simpler markup (A7). */
+  simpler: [] as boolean[],
+  saved: [] as string[],
+  /** Whether each save in `saved` was for the simpler comparison's folder. */
+  savedSimpler: [] as boolean[],
+  cancelled: 0,
+  logReads: 0,
+};
 let comparisonLog: string | Error = '';
 let lspHandler: (event: LspEvent) => void = () => {};
 
@@ -256,8 +265,9 @@ vi.mock('./ipc', () => ({
       diffHandler = handler;
       return () => {};
     },
-    compareRevisions: async (a: string, b: string) => {
+    compareRevisions: async (a: string, b: string, simpler?: boolean) => {
       comparisons.asked.push([a, b]);
+      comparisons.simpler.push(simpler === true);
       return compareAnswer(a, b);
     },
     pickSavePath: async () => savePathAnswer,
@@ -308,8 +318,9 @@ vi.mock('./ipc', () => ({
       if (comparisonLog instanceof Error) throw comparisonLog;
       return comparisonLog;
     },
-    saveComparisonPdf: async (_older: string, _newer: string, destination: string) => {
+    saveComparisonPdf: async (_older: string, _newer: string, destination: string, simpler?: boolean) => {
       comparisons.saved.push(destination);
+      comparisons.savedSimpler.push(simpler === true);
     },
     onFsChanged: async (handler: (event: FsEvent) => void) => {
       fsHandler = handler;
@@ -636,6 +647,8 @@ const {
   trackLargeFilesWithLfs,
   triggerCompile,
   clearComparison,
+  comparisonTitle,
+  retryComparisonWithSimplerMarkup,
   forgetAssistantKey,
   openAssistantSettings,
   refreshAssistant,
@@ -762,7 +775,9 @@ beforeEach(async () => {
   calls.gitVerbs = [];
   calls.discardQuestions = [];
   comparisons.asked = [];
+  comparisons.simpler = [];
   comparisons.saved = [];
+  comparisons.savedSimpler = [];
   comparisons.cancelled = 0;
   comparisons.logReads = 0;
   comparisonLog = '';
@@ -2873,6 +2888,82 @@ describe('comparing two commits (S11.4d)', () => {
 
     expect(compare.view.generation).toBe(2);
     expect(compare.view.newer).toBe('c3c3c3c3');
+  });
+
+  // A7: "Try again with simpler markup" after latexdiff's markup broke the document.
+  describe('trying again with simpler markup', () => {
+    const failedFinish = (generation: number): CompileEvent =>
+      ({ ...finishedDiff(generation), success: false, pdfPath: null, diagnostics: [], stderr: 'x' }) as CompileEvent;
+
+    async function aFailedComparison(): Promise<void> {
+      markGraphRow('a1a1a1a1');
+      markGraphRow('c3c3c3c3');
+      await vi.advanceTimersByTimeAsync(0);
+      diffHandler(failedFinish(1));
+      expect(compare.view.phase).toBe('failed');
+    }
+
+    it('asks for the same pair again with the simpler markup', async () => {
+      await aFailedComparison();
+      compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 2 });
+
+      await retryComparisonWithSimplerMarkup();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(comparisons.asked).toEqual([
+        ['a1a1a1a1', 'c3c3c3c3'],
+        ['a1a1a1a1', 'c3c3c3c3'],
+      ]);
+      expect(comparisons.simpler).toEqual([false, true]);
+      expect(compare.view.phase).toBe('building');
+      expect(compare.view.simpler).toBe(true);
+    });
+
+    it('offers no second retry when the simpler markup fails too', async () => {
+      await aFailedComparison();
+      compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 2 });
+      await retryComparisonWithSimplerMarkup();
+      await vi.advanceTimersByTimeAsync(0);
+
+      diffHandler(failedFinish(2));
+
+      expect(compare.view.phase).toBe('failed');
+      expect(compare.view.retryable).toBe(false);
+      const before = comparisons.asked.length;
+      await retryComparisonWithSimplerMarkup(); // the button is gone, but the function must also refuse
+      expect(comparisons.asked).toHaveLength(before);
+    });
+
+    // A diff made with less markup is coarser. A banner that did not say so would let an author
+    // read the absence of an underline as the absence of a change.
+    it('says in the banner that the simpler markup was used, and not before', async () => {
+      await aFailedComparison();
+      expect(comparisonTitle(Date.now())).not.toContain('simpler markup');
+
+      compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 2 });
+      await retryComparisonWithSimplerMarkup();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(comparisonTitle(Date.now())).toContain('with simpler markup');
+    });
+
+    it('does nothing when no comparison has failed', async () => {
+      await retryComparisonWithSimplerMarkup();
+      expect(comparisons.asked).toEqual([]);
+    });
+
+    it('saves from the folder the simpler comparison was built in', async () => {
+      await aFailedComparison();
+      compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 2 });
+      await retryComparisonWithSimplerMarkup();
+      await vi.advanceTimersByTimeAsync(0);
+      diffHandler(finishedDiff(2));
+      savePathAnswer = '/home/ada/changes.pdf';
+
+      await saveComparisonAs();
+
+      expect(comparisons.savedSimpler).toEqual([true]);
+    });
   });
 
   it('shows a refusal under the Graph, goes back to the live PDF and clears the marks', async () => {

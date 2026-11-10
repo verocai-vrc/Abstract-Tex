@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use abstract_tex_engine::{BuildJob, Engine};
 use abstract_tex_git::{Oid, Repository};
-use abstract_tex_latexdiff::LatexdiffError;
+use abstract_tex_latexdiff::{LatexdiffError, Markup};
 use serde::Serialize;
 
 use crate::compile::{CompileEvent, Orchestrator};
@@ -109,6 +109,8 @@ pub struct ComparisonRequest {
     /// The two commits, in the order the author clicked them.
     pub a: String,
     pub b: String,
+    /// `Standard` the first time; `Simpler` for the retry after a comparison failed to compile (A7).
+    pub markup: Markup,
 }
 
 /// Run one comparison, start to finish: wait its turn, stop whatever the lane was still
@@ -141,6 +143,7 @@ where
             latexdiff_dir,
             a,
             b,
+            markup,
             ..
         } = blocking_request;
         prepare(
@@ -150,6 +153,7 @@ where
             &latexdiff_dir,
             &a,
             &b,
+            markup,
         )
     })
     .await
@@ -198,6 +202,16 @@ pub fn read_comparison_log(latexdiff_dir: &Path, root_file: &Path) -> String {
     String::new()
 }
 
+/// The frontend's optional `simpler` flag as a [`Markup`]: absent means the first attempt, which
+/// is `latexdiff`'s own defaults.
+pub fn markup_from(simpler: Option<bool>) -> Markup {
+    if simpler == Some(true) {
+        Markup::Simpler
+    } else {
+        Markup::Standard
+    }
+}
+
 /// A full commit id from the frontend, or a sentence saying it is not one.
 pub fn parse_commit(id: &str) -> Result<Oid, String> {
     Oid::from_str(id).map_err(|_| format!("\"{id}\" is not a commit id."))
@@ -236,8 +250,15 @@ pub struct ComparisonDirs {
 }
 
 impl ComparisonDirs {
-    pub fn new(latexdiff_dir: &Path, older: Oid, newer: Oid) -> Self {
-        let root = latexdiff_dir.join(format!("{}-{}", short(older), short(newer)));
+    /// `markup` is part of the name: the same pair under a different setting is a different
+    /// document, so a retry never finds the failed attempt's folder or a standard PDF and takes
+    /// it for its own.
+    pub fn new(latexdiff_dir: &Path, older: Oid, newer: Oid, markup: Markup) -> Self {
+        let suffix = match markup {
+            Markup::Standard => "",
+            Markup::Simpler => "-simpler",
+        };
+        let root = latexdiff_dir.join(format!("{}-{}{suffix}", short(older), short(newer)));
         Self {
             old: root.join("old"),
             new: root.join("new"),
@@ -268,6 +289,8 @@ pub struct Plan {
     pub project_in_export: PathBuf,
     /// Where the engine will write the marked-up PDF.
     pub pdf: PathBuf,
+    /// How much markup `latexdiff` is asked for (A7).
+    pub markup: Markup,
 }
 
 impl Plan {
@@ -295,6 +318,7 @@ pub fn plan(
     latexdiff_dir: &Path,
     a: &str,
     b: &str,
+    markup: Markup,
 ) -> Result<Plan, String> {
     let (older, newer) = abstract_tex_git::older_first(repository, parse_commit(a)?, parse_commit(b)?)
         .map_err(|e| e.to_string())?;
@@ -312,7 +336,7 @@ pub fn plan(
         }
     }
 
-    let dirs = ComparisonDirs::new(latexdiff_dir, older, newer);
+    let dirs = ComparisonDirs::new(latexdiff_dir, older, newer, markup);
     Ok(Plan {
         older,
         newer,
@@ -320,6 +344,7 @@ pub fn plan(
         project_in_export: dirs.new.join(&prefix),
         pdf: dirs.pdf(root_file),
         dirs,
+        markup,
     })
 }
 
@@ -362,12 +387,13 @@ pub fn prepare(
     latexdiff_dir: &Path,
     a: &str,
     b: &str,
+    markup: Markup,
 ) -> Result<(Plan, bool), String> {
     if !abstract_tex_latexdiff::is_installed(latexdiff) {
         return Err(sentence(LatexdiffError::NotInstalled));
     }
     let repository = abstract_tex_git::open(project_dir).map_err(|e| e.to_string())?;
-    let plan = plan(&repository, project_dir, root_file, latexdiff_dir, a, b)?;
+    let plan = plan(&repository, project_dir, root_file, latexdiff_dir, a, b, markup)?;
     let reused = make_room(latexdiff_dir, &plan).map_err(|e| e.to_string())?;
     if !reused {
         render(latexdiff, &repository, &plan)?;
@@ -375,8 +401,9 @@ pub fn prepare(
     Ok((plan, reused))
 }
 
-/// Export both revisions and mark up the newer one's root file (S11.4b), with `latexdiff`'s own
-/// defaults: `--flatten` is the only flag (design interview A7, A8).
+/// Export both revisions and mark up the newer one's root file (S11.4b). The first attempt is
+/// `latexdiff`'s own defaults, `--flatten` the only flag (design interview A7, A8); the plan's
+/// `markup` asks for the simpler setting on a retry.
 pub fn render(latexdiff: &Path, repository: &Repository, plan: &Plan) -> Result<(), String> {
     abstract_tex_latexdiff::render_with(
         latexdiff,
@@ -384,8 +411,11 @@ pub fn render(latexdiff: &Path, repository: &Repository, plan: &Plan) -> Result<
         plan.older,
         plan.newer,
         &plan.tree_root_file,
-        &plan.dirs.old,
-        &plan.dirs.new,
+        abstract_tex_latexdiff::ExportDirs {
+            old: &plan.dirs.old,
+            new: &plan.dirs.new,
+        },
+        plan.markup,
     )
     .map(|_| ())
     .map_err(sentence)
@@ -473,6 +503,7 @@ mod tests {
             &latexdiff_dir,
             &first.to_string(),
             &second.to_string(),
+            Markup::Standard,
         )
         .unwrap();
         let backwards = plan(
@@ -482,6 +513,7 @@ mod tests {
             &latexdiff_dir,
             &second.to_string(),
             &first.to_string(),
+            Markup::Standard,
         )
         .unwrap();
 
@@ -510,6 +542,7 @@ mod tests {
             &latexdiff_dir,
             &first.to_string(),
             &second.to_string(),
+            Markup::Standard,
         )
         .unwrap_err();
 
@@ -537,6 +570,7 @@ mod tests {
             &latexdiff_dir,
             &first.to_string(),
             &second.to_string(),
+            Markup::Standard,
         )
         .unwrap();
         let someone_else = latexdiff_dir.join("aaaaaaa-bbbbbbb");
@@ -553,6 +587,113 @@ mod tests {
         fs::create_dir_all(&someone_else).unwrap();
         assert!(make_room(&latexdiff_dir, &the_plan).unwrap());
         assert!(the_plan.pdf.is_file() && !someone_else.exists());
+    }
+
+    // ---- A7: try again with simpler markup ----
+
+    #[test]
+    fn only_an_explicit_true_asks_for_simpler_markup() {
+        assert_eq!(markup_from(None), Markup::Standard);
+        assert_eq!(markup_from(Some(false)), Markup::Standard);
+        assert_eq!(markup_from(Some(true)), Markup::Simpler);
+    }
+
+    /// The retry compares the same pair under a different setting, and must not find the failed
+    /// attempt's folder (or a standard comparison's PDF) and mistake it for its own.
+    #[test]
+    fn a_simpler_comparison_of_the_same_pair_has_a_folder_of_its_own() {
+        let (tmp, repository, first, second) = two_commits();
+        let project = tmp.path().join("paper");
+        let latexdiff_dir = project.join(".abstract-tex/latexdiff");
+        let ask = |markup| {
+            plan(
+                &repository,
+                &project,
+                Path::new("main.tex"),
+                &latexdiff_dir,
+                &first.to_string(),
+                &second.to_string(),
+                markup,
+            )
+            .unwrap()
+        };
+
+        let standard = ask(Markup::Standard);
+        let simpler = ask(Markup::Simpler);
+
+        assert_ne!(standard.dirs.root, simpler.dirs.root);
+        assert!(simpler.dirs.root.to_string_lossy().ends_with("-simpler"));
+        assert_eq!(simpler.markup, Markup::Simpler);
+        assert_eq!(standard.markup, Markup::Standard);
+    }
+
+    #[test]
+    fn a_finished_standard_comparison_is_not_reused_for_the_simpler_one() {
+        let (tmp, repository, first, second) = two_commits();
+        let project = tmp.path().join("paper");
+        let latexdiff_dir = project.join(".abstract-tex/latexdiff");
+        let ask = |markup| {
+            plan(
+                &repository,
+                &project,
+                Path::new("main.tex"),
+                &latexdiff_dir,
+                &first.to_string(),
+                &second.to_string(),
+                markup,
+            )
+            .unwrap()
+        };
+        let standard = ask(Markup::Standard);
+        fs::create_dir_all(&standard.dirs.build).unwrap();
+        fs::write(&standard.pdf, "%PDF").unwrap();
+
+        let simpler = ask(Markup::Simpler);
+        let reusable = make_room(&latexdiff_dir, &simpler).unwrap();
+
+        assert!(
+            !reusable,
+            "the standard PDF is the wrong document for a simpler comparison"
+        );
+        assert!(
+            !standard.dirs.root.exists(),
+            "only the latest comparison stays on disk"
+        );
+    }
+
+    /// The setting has to survive the trip through `prepare` to the program. A stand-in
+    /// `latexdiff` written as a shell script, so Unix only: it answers `--version` and otherwise
+    /// prints every argument it was given.
+    #[cfg(unix)]
+    #[test]
+    fn the_simpler_setting_reaches_latexdiff_through_prepare() {
+        use std::os::unix::fs::PermissionsExt;
+        let (tmp, _repository, first, second) = two_commits();
+        let project = tmp.path().join("paper");
+        let latexdiff_dir = project.join(".abstract-tex/latexdiff");
+        let script = tmp.path().join("latexdiff");
+        fs::write(
+            &script,
+            "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\necho \"% args: $*\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (the_plan, reused) = prepare(
+            &script,
+            &project,
+            Path::new("main.tex"),
+            &latexdiff_dir,
+            &first.to_string(),
+            &second.to_string(),
+            Markup::Simpler,
+        )
+        .unwrap();
+
+        assert!(!reused);
+        let marked_up = fs::read_to_string(the_plan.project_in_export.join("main.tex")).unwrap();
+        assert!(marked_up.contains("--math-markup=whole"), "{marked_up}");
+        assert!(marked_up.contains("--graphics-markup=none"), "{marked_up}");
     }
 
     /// No `latexdiff` on this machine: refused with the install sentence, and the last
@@ -573,6 +714,7 @@ mod tests {
             &latexdiff_dir,
             &first.to_string(),
             &second.to_string(),
+            Markup::Standard,
         )
         .unwrap_err();
 
@@ -602,6 +744,7 @@ mod tests {
             shell_escape: false,
             a: "0".repeat(40),
             b: "1".repeat(40),
+            markup: Markup::Standard,
         };
 
         let someone_else = lane.one_at_a_time.lock().await;

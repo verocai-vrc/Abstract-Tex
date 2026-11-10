@@ -137,6 +137,31 @@ describe('foldDiffEvent', () => {
     expect(view.message).toBe('No engine.');
   });
 
+  // A7: a retry only helps when TeX ran and failed on latexdiff's marked-up copy. An engine that
+  // could not start is not a markup problem, and asking again with less markup would change nothing.
+  it('offers a retry after TeX failed on a standard comparison', () => {
+    const view = foldDiffEvent(building, finished({ success: false, pdfPath: null }), toUrl);
+    expect(view.retryable).toBe(true);
+  });
+
+  it('offers no further retry after the simpler markup failed too', () => {
+    const simpler: ComparisonView = { ...building, simpler: true };
+    const view = foldDiffEvent(simpler, finished({ success: false, pdfPath: null }), toUrl);
+    expect(view.phase).toBe('failed');
+    expect(view.retryable).toBe(false);
+  });
+
+  it('offers no retry for a build that could not run, or one that succeeded', () => {
+    expect(foldDiffEvent(building, { status: 'failed', generation: 7, message: 'No engine.' }, toUrl).retryable).toBe(false);
+    expect(foldDiffEvent(building, finished(), toUrl).retryable).toBe(false);
+  });
+
+  it('remembers which markup a comparison was asked with', () => {
+    expect(startedComparison().simpler).toBe(false);
+    expect(startedComparison(true).simpler).toBe(true);
+    expect(NO_COMPARISON.simpler).toBe(false);
+  });
+
   it('never lets a draft change a comparison', () => {
     const draft: CompileEvent = { status: 'draft', generation: 7, chapter: 'a', pdfPath: '/x.pdf', durationMs: 1 };
     expect(foldDiffEvent(building, draft, toUrl)).toBe(building);

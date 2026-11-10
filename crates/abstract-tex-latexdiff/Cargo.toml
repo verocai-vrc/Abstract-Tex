@@ -29,6 +29,12 @@ path = "src/bin/fake_latexdiff_fails.rs"
 test = false
 doc = false
 
+[[bin]]
+name = "fake-latexdiff-echoes-flags"
+path = "src/bin/fake_latexdiff_echoes_flags.rs"
+test = false
+doc = false
+
 [dev-dependencies]
 tempfile = { workspace = true }
 # Only to build a fixture repository in tests/render.rs (Signature, raw commits) — the crate

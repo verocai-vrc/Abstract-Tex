@@ -1200,6 +1200,7 @@ pub async fn compare_revisions(
     consent: State<'_, ShellEscapeConsent>,
     a: String,
     b: String,
+    simpler: Option<bool>,
 ) -> CommandResult<ComparisonStarted> {
     let request = with_project(&state, |project| {
         let root_file = project
@@ -1212,6 +1213,7 @@ pub async fn compare_revisions(
             shell_escape: consent.allows(&project.root_dir),
             a,
             b,
+            markup: latexdiff::markup_from(simpler),
         })
     })?;
     latexdiff::compare(&state.diff_lane, request, move |event| {
@@ -1253,6 +1255,7 @@ pub fn save_comparison_pdf(
     older: String,
     newer: String,
     destination: String,
+    simpler: Option<bool>,
 ) -> CommandResult<()> {
     let (latexdiff_dir, root_file) = with_project(&state, |project| {
         let root_file = project
@@ -1264,6 +1267,7 @@ pub fn save_comparison_pdf(
         &latexdiff_dir,
         latexdiff::parse_commit(&older)?,
         latexdiff::parse_commit(&newer)?,
+        latexdiff::markup_from(simpler),
     );
     let pdf = dirs.pdf(&root_file);
     if !pdf.is_file() {

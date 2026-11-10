@@ -1387,15 +1387,15 @@ function handleDiffEvent(event: CompileEvent): void {
  * request overtook this one. Rust's refusals — no `latexdiff`, no root file in a commit — are
  * sentences, and appear under the Graph toolbar in `compare.refusal` (the card said `git.error`; that
  * slot is drawn at the top of the view, which is scrolled away from the Graph more often than not). */
-async function startComparison(from: string, to: string): Promise<void> {
+async function startComparison(from: string, to: string, simpler = false): Promise<void> {
   const mine = ++comparisonRequest;
   earlyDiffEvents = [];
   compare.refusal = null;
   compare.saveError = null;
   compare.rawLog = null;
-  compare.view = startedComparison();
+  compare.view = startedComparison(simpler);
   try {
-    const answer = await ipc.compareRevisions(from, to);
+    const answer = await ipc.compareRevisions(from, to, simpler);
     if (mine !== comparisonRequest) return;
     switch (answer.status) {
       case 'superseded':
@@ -1405,13 +1405,14 @@ async function startComparison(from: string, to: string): Promise<void> {
         compare.view = {
           ...NO_COMPARISON,
           phase: 'ready',
+          simpler,
           older: answer.older,
           newer: answer.newer,
           pdfUrl: `${ipc.assetUrl(answer.pdfPath)}?v=${answer.older.slice(0, 7)}-${answer.newer.slice(0, 7)}`,
         };
         return;
       case 'building': {
-        compare.view = { ...startedComparison(), older: answer.older, newer: answer.newer, generation: answer.generation };
+        compare.view = { ...startedComparison(simpler), older: answer.older, newer: answer.newer, generation: answer.generation };
         const replay = earlyDiffEvents;
         earlyDiffEvents = [];
         for (const event of replay) handleDiffEvent(event);
@@ -1426,6 +1427,18 @@ async function startComparison(from: string, to: string): Promise<void> {
     compare.marks = NO_MARKS;
     compare.refusal = String(error);
   }
+}
+
+/**
+ * *Try again with simpler markup* (A7): the same pair, asked for again with `latexdiff`'s simpler
+ * switches. `latexdiff` marks up maths, tables and citations in ways that break some documents,
+ * and this is the one-click answer to a comparison that failed to compile. Only once: a simpler
+ * comparison that fails too has nothing simpler left, and the button is not drawn for it.
+ */
+export async function retryComparisonWithSimplerMarkup(): Promise<void> {
+  const view = compare.view;
+  if (view.phase !== 'failed' || !view.retryable || !view.older || !view.newer) return;
+  await startComparison(view.older, view.newer, true);
 }
 
 /** A click or `Enter` on a Graph row (design interview A10). */
@@ -1495,7 +1508,7 @@ export async function saveComparisonAs(): Promise<void> {
   try {
     const destination = await ipc.pickSavePath(`comparison-${older.slice(0, 7)}-${newer.slice(0, 7)}.pdf`);
     if (!destination) return;
-    await ipc.saveComparisonPdf(older, newer, destination);
+    await ipc.saveComparisonPdf(older, newer, destination, compare.view.simpler);
   } catch (error) {
     compare.saveError = String(error);
   }
@@ -1508,7 +1521,9 @@ export function comparisonTitle(now: number): string {
     const row = git.commits.find((candidate) => candidate.id === id);
     return describeEnd(row?.shortId ?? id.slice(0, 7), row ? relativeTime(row.time, now) : null);
   };
-  return `Comparing ${label(compare.view.older)} → ${label(compare.view.newer)}`;
+  const pair = `Comparing ${label(compare.view.older)} → ${label(compare.view.newer)}`;
+  // A diff made with less markup is coarser; the banner says so, so no underline is read as no change.
+  return compare.view.simpler ? `${pair}, with simpler markup` : pair;
 }
 
 /** Append the next page of history (DESIGN.md §6's "lazy loading"). */

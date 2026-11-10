@@ -82,6 +82,13 @@ export interface ComparisonView {
   stderr: string;
   /** The engine's latest progress line, shown in the banner while building. */
   progress: string | null;
+  /** Whether this comparison was asked for with `latexdiff`'s simpler markup (A7). Decides which
+   * folder *Save as…* reads, and that a retry has already been used. */
+  simpler: boolean;
+  /** Whether "Try again with simpler markup" is on offer: only after TeX ran and failed on a
+   * standard comparison. An engine that could not start is not a markup problem, and a simpler
+   * comparison that failed has nothing simpler to fall back to. */
+  retryable: boolean;
 }
 
 export const NO_COMPARISON: ComparisonView = {
@@ -94,11 +101,13 @@ export const NO_COMPARISON: ComparisonView = {
   diagnostics: [],
   stderr: '',
   progress: null,
+  simpler: false,
+  retryable: false,
 };
 
 /** The state right after asking: nothing known yet but that something is being built. */
-export function startedComparison(): ComparisonView {
-  return { ...NO_COMPARISON, phase: 'building' };
+export function startedComparison(simpler = false): ComparisonView {
+  return { ...NO_COMPARISON, phase: 'building', simpler };
 }
 
 /** Whether the comparison is the thing on screen, rather than the live build. */
@@ -141,9 +150,11 @@ export function foldDiffEvent(
         diagnostics: event.diagnostics,
         stderr: event.stderr,
         progress: null,
+        // TeX ran and failed on latexdiff's copy: the one case a gentler markup might cure, once.
+        retryable: !view.simpler,
       };
     case 'failed':
-      return { ...view, phase: 'failed', message: event.message, progress: null };
+      return { ...view, phase: 'failed', message: event.message, progress: null, retryable: false };
     default:
       return view;
   }

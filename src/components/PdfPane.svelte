@@ -1,7 +1,7 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
   import { compare } from '../lib/compare.svelte';
-  import { clearComparison, comparisonTitle, saveComparisonAs, syncTexInverse } from '../lib/controller.svelte';
+  import { clearComparison, comparisonTitle, retryComparisonWithSimplerMarkup, saveComparisonAs, syncTexInverse } from '../lib/controller.svelte';
   import { PdfViewer } from '../lib/pdf/viewer';
 
   let container: HTMLElement | undefined = $state();
@@ -77,6 +77,10 @@
       {#if compare.view.phase === 'failed' && compare.view.message}<span class="diff-note">{compare.view.message}</span>{/if}
       <span class="spacer"></span>
       {#if compare.saveError}<span class="diff-error">{compare.saveError}</span>{/if}
+      {#if compare.view.retryable}
+        <!-- A7: latexdiff's markup breaks some documents; this asks again with less of it. -->
+        <button class="ghost" onclick={() => void retryComparisonWithSimplerMarkup()}>Try again with simpler markup</button>
+      {/if}
       {#if compare.view.phase === 'ready'}
         <button class="ghost" onclick={() => void saveComparisonAs()}>Save as…</button>
       {/if}
