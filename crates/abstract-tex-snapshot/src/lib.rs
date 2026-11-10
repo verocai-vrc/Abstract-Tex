@@ -175,7 +175,15 @@ fn tree_for_folder(repository: &Repository, folder: &Path) -> Result<Oid, Snapsh
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue; // a name this platform cannot spell in UTF-8 is not something Git can store
         };
-        if path.is_dir() {
+        // `symlink_metadata` looks at the entry itself. `Path::is_dir` and `is_file` follow a link,
+        // which is the opposite of what the last comment in this loop says it does: a link inside
+        // the project copied whatever it pointed at into the history, and a link back up the tree
+        // was walked some forty levels deep (review finding R3.6, reproduced).
+        let kind = match std::fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata.file_type(),
+            Err(_) => continue, // gone since the listing, or unreadable: not part of this snapshot
+        };
+        if kind.is_dir() {
             if NEVER_WALKED.contains(&name) || is_ignored(repository, &path) {
                 continue;
             }
@@ -185,7 +193,7 @@ fn tree_for_folder(repository: &Repository, folder: &Path) -> Result<Oid, Snapsh
             if !is_empty_tree(repository, sub) {
                 insert(&mut builder, name, sub, git2::FileMode::Tree)?;
             }
-        } else if path.is_file() && !is_ignored(repository, &path) {
+        } else if kind.is_file() && !is_ignored(repository, &path) {
             let blob = repository.blob_path(&path).map_err(SnapshotError::Write)?;
             let mode = if is_executable(&path) {
                 git2::FileMode::BlobExecutable
@@ -788,5 +796,51 @@ mod tests {
         ));
         // …and listing shows only snapshots.
         assert_eq!(list(tmp.path(), 10).unwrap().len(), 1);
+    }
+
+    // Review finding R3.6. The walk's own comment promised that a symlink is skipped, and then asked
+    // `path.is_dir()` and `path.is_file()`, which follow links. A link inside the project copied
+    // whatever it pointed at into the history (reproduced: a file and a folder outside the project
+    // both came back from `read`), and a link back up (`sub/up -> ..`) was walked some forty
+    // levels deep before the operating system stopped it.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_is_never_followed_out_of_the_project() {
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), "not part of the manuscript").unwrap();
+        let tmp = project("\\documentclass{article}");
+        std::os::unix::fs::symlink(outside.path(), tmp.path().join("linked-folder")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            tmp.path().join("linked-file.txt"),
+        )
+        .unwrap();
+
+        snapshot(tmp.path()).unwrap();
+        let id = list(tmp.path(), 1).unwrap()[0].id.clone();
+        let files = files(tmp.path(), &id).unwrap();
+
+        assert_eq!(files, vec!["main.tex".to_string()], "only the real file is kept");
+        assert!(read(tmp.path(), &id, "linked-folder/secret.txt")
+            .unwrap()
+            .is_none());
+        assert!(read(tmp.path(), &id, "linked-file.txt").unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_back_up_the_tree_does_not_multiply_the_history() {
+        let tmp = project("x");
+        fs::create_dir(tmp.path().join("sub")).unwrap();
+        fs::write(tmp.path().join("sub/notes.tex"), "notes").unwrap();
+        std::os::unix::fs::symlink("..", tmp.path().join("sub/up")).unwrap();
+
+        snapshot(tmp.path()).unwrap();
+        let id = list(tmp.path(), 1).unwrap()[0].id.clone();
+
+        assert_eq!(
+            files(tmp.path(), &id).unwrap(),
+            vec!["main.tex".to_string(), "sub/notes.tex".to_string()]
+        );
     }
 }

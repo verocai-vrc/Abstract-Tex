@@ -1741,6 +1741,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      whatever it points at into the snapshot (a link to `outside/secret.txt` and one to a folder
      both came back from `read`), and a link such as `sub/up -> ..` is walked about forty levels
      deep before the OS stops it. Use `symlink_metadata`.
+     **Fixed 10 Nov 2026.** The walk takes the entry's own type from `symlink_metadata`; a link is
+     neither a folder to enter nor a file to store. Two tests (a link to a file and one to a folder
+     outside the project; a link back up the tree), both red before; the second one printed the
+     forty nested copies. A symlink is now simply absent from a snapshot, as the old comment said.
   7. **S. `comments::list` reads each anchored file twice** (once inside `load`, once to convert
      offsets), then slices `text[..byte]`. If the file changes between the reads (autosave every
      700 ms, a branch switch), a byte offset can be out of range or inside a character and the
