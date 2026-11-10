@@ -143,6 +143,7 @@ fn write_blob_on_ref(
     let blob = repository.blob(bytes).map_err(CommentsError::Write)?;
     let filename = filename(blob);
     let who = author(repository);
+    let _only_writer = lock_writers();
 
     // Build on the tip, then move the ref only if it still *is* that tip. Two writes at once (a
     // double click, a resolve during a sync, two commands on two threads) used to read the same tip
@@ -186,6 +187,21 @@ fn write_blob_on_ref(
 
 /// How many times a write rebuilds on a newer tip before giving up.
 const WRITE_ATTEMPTS: usize = 40;
+
+/// One writer at a time within this process. The compare-and-swap on the ref is meant to be enough
+/// on its own, but the stress tests lost a comment now and then with only that (one of 48 in about
+/// four runs in ten), so the writers of one process are also kept apart by this lock, the way
+/// `abstract-tex-snapshot`'s `AT_A_TIME` keeps its writers apart. The compare-and-swap stays: it is
+/// what protects against a second process (another window, a `git` command) and costs nothing.
+static ONE_WRITER_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Take [`ONE_WRITER_AT_A_TIME`]. A writer that panicked while holding it left nothing half done
+/// (every step is a git object write or the final ref move), so a poisoned lock is simply reused.
+fn lock_writers() -> std::sync::MutexGuard<'static, ()> {
+    ONE_WRITER_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Point [`COMMENTS_REF`] at `new` only if it still holds `expected` (or does not exist yet when
 /// `expected` is `None`): a compare-and-swap, which libgit2 spells `reference_matching`.
@@ -432,6 +448,7 @@ pub enum MergeOutcome {
 
 /// Combine `remote_name`'s most recently [`fetch`]ed comments with [`COMMENTS_REF`] here.
 pub fn merge_from(repository: &Repository, remote_name: &str) -> Result<MergeOutcome, CommentsError> {
+    let _only_writer = lock_writers();
     // The merge is built on the tip it read and moves the ref only if that is still the tip; if a
     // comment was added meanwhile it starts again from the new one (review finding R3.10), so what
     // was added during a merge is merged in and not overwritten.

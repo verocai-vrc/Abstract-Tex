@@ -1788,6 +1788,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       threads times six comments (all 48 present; before the fix libgit2's lock errors failed the
       writes), and a merge racing 25 adds (it lost exactly one comment, three runs of three, before
       the fix).
+      **Correction, same day, found by the full `pnpm verify` and not by the focused runs:** the
+      compare-and-swap alone was not enough. `writes_made_at_the_same_time_all_survive` lost one
+      comment of 48 in roughly four runs in ten once the whole workspace was loading the machine
+      (every `add` returned `Ok`, so a swap succeeded against a tip that was no longer current;
+      libgit2's check of the expected value is evidently not airtight here, cause not pinned down).
+      Writers of one process are now also serialised by a lock (`ONE_WRITER_AT_A_TIME`, taken by
+      `write_blob_on_ref` and `merge_from`, as the snapshot crate's `AT_A_TIME` does): 0 failures in
+      40 runs of the crate's tests. The swap and the retry stay for a second process. **Open:** a
+      second writer in another process (another window, a `git` command) is still only protected
+      by the swap, which has just been shown to be leaky.
   11. **S. The ISBN lookup builds follow-up URLs from the response.** `"https://openlibrary.org{key}.json"`
       with `key` taken from the JSON (`isbn.rs`): a key of `@evil.example/x` or `.evil.example`
       changes the host. Needs a hostile or intercepted response, but the fix is one `starts_with`
