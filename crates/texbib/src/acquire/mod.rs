@@ -23,3 +23,46 @@ pub mod isbn;
 pub mod zotero;
 
 pub use identify::{identify, Identified};
+
+/// The most a reply from a bibliography source may be before it is refused. A DOI record, an arXiv
+/// entry or an Open Library page is a few kilobytes; `doi.org` redirects to a publisher's own server,
+/// whose reply this crate does not control and used to read whole (review finding R3.16).
+pub(crate) const REPLY_LIMIT_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Read `reader` as text, giving up with a sentence if it holds more than `limit` bytes. `take`
+/// stops the read one byte past the limit, which is how "too long" is told from "exactly the limit".
+pub(crate) fn read_text_within(reader: impl std::io::Read, limit: u64) -> Result<String, String> {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > limit {
+        return Err(
+            "the reply was larger than any bibliography record should be, so it was not read".to_string(),
+        );
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(test)]
+mod reply_limit_tests {
+    use super::*;
+
+    #[test]
+    fn a_reply_up_to_the_limit_is_read_whole_and_one_byte_over_is_refused() {
+        assert_eq!(read_text_within(&b"12345"[..], 5).unwrap(), "12345");
+        let error = read_text_within(&b"123456"[..], 5).unwrap_err();
+        assert!(error.contains("larger than"), "{error}");
+        assert_eq!(read_text_within(&b""[..], 5).unwrap(), "");
+    }
+
+    #[test]
+    fn a_reply_that_is_not_utf8_is_still_text() {
+        assert_eq!(
+            read_text_within(&[0x66, 0xff, 0x6f][..], 10).unwrap(),
+            "f\u{fffd}o"
+        );
+    }
+}

@@ -82,7 +82,7 @@ pub fn open(build_dir: &Path, root_file: &Path) -> Result<SyncTex, String> {
     let path = synctex_path(build_dir, root_file);
     SyncTex::open(&path).map_err(|error| match error {
         SyncTexError::Io { .. } => "No SyncTeX data yet. Build the project first.".to_string(),
-        SyncTexError::Gzip { .. } | SyncTexError::NotSyncTex { .. } => {
+        SyncTexError::Gzip { .. } | SyncTexError::NotSyncTex { .. } | SyncTexError::TooLarge { .. } => {
             "The SyncTeX data from the last build could not be read. Try building again.".to_string()
         }
     })

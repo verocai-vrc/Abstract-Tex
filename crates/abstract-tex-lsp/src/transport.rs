@@ -15,6 +15,10 @@ pub fn encode(body: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The largest message accepted from the server. A whole-document diagnostics or a workspace symbol
+/// list is a few megabytes at the outside.
+const MAX_FRAME_BYTES: usize = 256 * 1024 * 1024;
+
 /// Reads whole frames off an async byte stream. The stream hands us chunks of whatever size
 /// the pipe happens to deliver — half a header, three messages at once — so `pending` holds
 /// what has arrived and `next` returns a message only when all of it is there.
@@ -76,6 +80,14 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
             return Err(LspError::Protocol(format!("no Content-Length in {headers:?}")));
         };
 
+        // A length that cannot be a real message is a broken (or hostile) server, not a message to
+        // wait for: `body_start + length` overflowed for one near `usize::MAX`, and any length at
+        // all made the buffer grow until the "rest" arrived (review finding R3.16).
+        if length > MAX_FRAME_BYTES {
+            return Err(LspError::Protocol(format!(
+                "Content-Length {length} is larger than any message this client accepts"
+            )));
+        }
         let body_start = header_end + 4;
         let body_end = body_start + length;
         if self.pending.len() < body_end {
@@ -166,5 +178,28 @@ mod tests {
     async fn a_header_without_a_length_is_an_error() {
         let mut r = reader(b"X-Nothing: 1\r\n\r\n{}".to_vec(), 8192);
         assert!(matches!(r.next().await, Err(LspError::Protocol(_))));
+    }
+
+    // Review finding R3.16 (LSP): `body_start + length` overflowed for a length near `usize::MAX`
+    // (a panic in a debug build, a wrap that reads the wrong bytes in a release one), and any length
+    // was believed, so a server could make the buffer grow for ever waiting for the "rest".
+    #[test]
+    fn an_absurd_content_length_is_a_protocol_error_not_an_overflow() {
+        for length in [
+            usize::MAX.to_string(),
+            (usize::MAX - 3).to_string(),
+            "99999999999".to_string(),
+        ] {
+            let mut reader = FrameReader::new(tokio::io::empty());
+            reader.pending = format!("Content-Length: {length}\r\n\r\n{{}}").into_bytes();
+            assert!(
+                matches!(reader.take_frame(), Err(LspError::Protocol(_))),
+                "{length}"
+            );
+        }
+        // A frame of ordinary size still parses.
+        let mut reader = FrameReader::new(tokio::io::empty());
+        reader.pending = b"Content-Length: 2\r\n\r\n{}".to_vec();
+        assert_eq!(reader.take_frame().unwrap(), Some(b"{}".to_vec()));
     }
 }

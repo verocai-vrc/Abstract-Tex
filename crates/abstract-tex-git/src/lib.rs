@@ -80,6 +80,11 @@ pub enum GitError {
     #[error("There is no commit yet to amend.")]
     NothingToAmend,
 
+    /// The newest commit is already on the remote. Changing it would make the author's history and
+    /// the remote's disagree about the same work.
+    #[error("That version has already been sent, and changing it would make your copy and the shared one disagree. Make a new commit instead.")]
+    AlreadyPushed,
+
     /// S11.2a: `commit` while the index still has a conflicted path in it. Checked before
     /// `repository.state()` even, because a stray conflict outside a merge is still not
     /// something to build a tree out of and call finished.
@@ -857,14 +862,31 @@ pub fn commit_file(repository: &Repository, path: &str, message: &str) -> Result
     commit(repository, message)
 }
 
+/// Whether `commit` is already on the remote branch this one tracks (or equals its tip): the last
+/// push, or fetch, included it. False when there is no remote-tracking ref to compare with.
+fn is_on_remote(repository: &Repository, commit: git2::Oid) -> bool {
+    let Ok(branch) = current_branch(repository) else {
+        return false;
+    };
+    let tracking = format!("refs/remotes/{ORIGIN}/{branch}");
+    let Some(remote_tip) = repository.find_reference(&tracking).ok().and_then(|r| r.target()) else {
+        return false;
+    };
+    remote_tip == commit
+        || repository
+            .graph_descendant_of(remote_tip, commit)
+            .unwrap_or(false)
+}
+
 /// Replace `HEAD` with a new commit carrying `message` and whatever is staged, keeping the same
 /// parents — the Commit dropdown's *Amend* (S11.1c).
 ///
 /// Only one refusal, unlike `commit`: an empty message. Amending with nothing staged is not
 /// nothing — it is a reword, and a reword is the whole reason this exists — so there is no
-/// `NothingStaged` check here. Whether `HEAD` has already been pushed is not this function's
-/// business either: the panel decides that by reading `branch_state`'s `ahead_behind` before it
-/// ever offers the item, the same guardrail the Source Control design notes ask for.
+/// `NothingStaged` check here. A `HEAD` that is already on the remote is refused
+/// ([`GitError::AlreadyPushed`]): the panel also hides the item for it (`branch_state`'s
+/// `ahead_behind`), but a second caller or a stale panel must not be able to rewrite published
+/// history (review finding R4.10).
 pub fn amend(repository: &Repository, message: &str) -> Result<String, GitError> {
     let message = message.trim();
     if message.is_empty() {
@@ -874,6 +896,9 @@ pub fn amend(repository: &Repository, message: &str) -> Result<String, GitError>
         .head()
         .map_err(|_| GitError::NothingToAmend)?
         .peel_to_commit()?;
+    if is_on_remote(repository, head_commit.id()) {
+        return Err(GitError::AlreadyPushed);
+    }
     let who = repository.signature().map_err(|_| GitError::NoIdentity)?;
 
     let mut index = repository.index()?;
@@ -3224,6 +3249,38 @@ mod tests {
     }
 
     /// Amending the newest of several commits must not touch what it is built on.
+    // Review finding R4.10. The crate's `amend` relied on the panel never offering Amend for a commit
+    // that is already on the remote; a second caller (or a stale panel) would rewrite published
+    // history, and the next sync would then see two diverged histories of the same work.
+    #[test]
+    fn a_commit_that_has_been_pushed_is_not_amended() {
+        let (tmp, repository, _bare, _branch) = repo_with_empty_remote();
+        fs::write(tmp.path().join("main.tex"), "second\n").unwrap();
+        commit_all(&repository, "second");
+        push(&repository, None).unwrap();
+        let head = repository.head().unwrap().target().unwrap();
+
+        let error = amend(&repository, "a rewritten message").unwrap_err();
+
+        assert!(matches!(error, GitError::AlreadyPushed), "{error:?}");
+        assert!(error.to_string().contains("new commit"), "{error}");
+        assert_eq!(
+            repository.head().unwrap().target().unwrap(),
+            head,
+            "history was not rewritten"
+        );
+    }
+
+    #[test]
+    fn a_commit_made_after_the_last_push_can_still_be_amended() {
+        let (tmp, repository, _bare, _branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        fs::write(tmp.path().join("main.tex"), "after the push\n").unwrap();
+        commit_all(&repository, "after the push");
+
+        assert!(amend(&repository, "a better message").is_ok());
+    }
+
     #[test]
     fn amending_keeps_the_same_parent() {
         let (tmp, repository) = repo();

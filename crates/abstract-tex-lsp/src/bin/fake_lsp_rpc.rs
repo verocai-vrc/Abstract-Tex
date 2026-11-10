@@ -51,6 +51,8 @@ fn main() {
                     }
                 }
                 "exit" => return,
+                // Reads the request and never answers it: a server that is alive but stuck.
+                "silent" => {}
                 _ => {
                     let Some(id) = id else { continue }; // a notification: nothing to answer
                     if method == "slow" {

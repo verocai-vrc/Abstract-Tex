@@ -1865,6 +1865,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       no size cap; the SyncTeX gunzip and the LSP `Content-Length` are likewise unbounded, and
       `body_start + length` can overflow on a hostile length. All three sources are local or
       trusted; bound them anyway.
+      **Fixed 10 Nov 2026.** LSP: `Content-Length` over 256 MiB is a protocol error (the test
+      showed the `attempt to add with overflow` panic first). SyncTeX: the gunzip stops at 256 MiB
+      and answers `TooLarge` (test with a 4 MiB expansion against a 1 MiB limit; the app maps it to
+      the existing "could not be read" sentence). Bibliography replies (DOI, arXiv, Open Library):
+      refused beyond 2 MiB, DOI requests now carry the same named user agent the others do.
 
   **Checked and fine:** the GitHub token is offered only to `https://github.com` (user-info and
   look-alike hosts included) and only once per operation; the assistant client follows no
@@ -2009,14 +2014,24 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      wording is the thing to correct, left for the next pass over `merge`).
   10. **S. `amend` in the git crate has no "already pushed" check**; the design leaves it to the panel
       (`ahead_behind`). A second caller would amend published history.
+      **Fixed 10 Nov 2026.** `GitError::AlreadyPushed`: `amend` refuses when the newest commit is
+      on `refs/remotes/origin/<branch>` (equal to its tip or an ancestor of it). Two tests (refused
+      after a push with history untouched; allowed for a commit made after it).
   11. **S. `resolve_bib_argument` treats any dot in a name as an extension**, so `\bibliography{refs.v2}`
       is looked up as `refs.v2` and reported missing, where BibTeX looks for `refs.v2.bib`.
       **Fixed 10 Nov 2026.** `.bib` is appended unless the name already ends in it (case
       insensitively). One test over seven spellings.
   12. **S. LSP: `request` has no timeout**, and a caller that is dropped while waiting leaves its entry
       in `pending` until the server answers, which a cancelled request never does.
+      **Fixed 10 Nov 2026.** `Bridge::request_within` (default `REQUEST_TIMEOUT`, 120 s) ends in
+      `CallError::TimedOut` and removes the entry; an `EntryGuard` removes it when the caller's
+      future is dropped. Two tests against a new `silent` method of the fake server, both red first
+      (the table kept the entry).
   13. **S. `sidecar::find_on_path` accepts any file** (not only executables) and an empty `PATH` entry
       resolves a bare name against the current directory.
+      **Fixed 10 Nov 2026.** `sidecar::find_in`: executable files only (the execute bit on Unix) and
+      empty entries skipped. One test; it changes the working directory of the test process, which is
+      why the sidecar crate's tests must not start relying on relative paths.
   14. **S. No dialog sets `aria-modal`**, so a screen reader's virtual cursor can leave one although
       `modalFocus` keeps keyboard focus inside.
       **Fixed 10 Nov 2026** with item 8: `aria-modal="true"` on all thirteen dialogs, enforced by

@@ -284,7 +284,7 @@ impl Transport for HttpTransport {
             .map_err(|err| err.to_string())?;
         let response = client.get(url).send().map_err(|err| err.to_string())?;
         let status = response.status().as_u16();
-        let body = response.text().map_err(|err| err.to_string())?;
+        let body = super::read_text_within(response, super::REPLY_LIMIT_BYTES)?;
         Ok((status, body))
     }
 }

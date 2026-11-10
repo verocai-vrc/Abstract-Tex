@@ -53,7 +53,14 @@ pub enum SyncTexError {
     Gzip { path: PathBuf, source: std::io::Error },
     #[error("{path} has no SyncTeX version line; is it really a .synctex file?")]
     NotSyncTex { path: PathBuf },
+    #[error(
+        "{path} expands to more than {limit} bytes, far beyond any real SyncTeX file, so it was not read"
+    )]
+    TooLarge { path: PathBuf, limit: u64 },
 }
+
+/// The most a `.synctex.gz` may expand to. A real one is a few megabytes for a long thesis.
+const MAX_EXPANDED_BYTES: u64 = 256 * 1024 * 1024;
 
 /// A `file:line` pair, the unit both search directions answer in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,17 +112,32 @@ pub struct SyncTex {
 impl SyncTex {
     /// Read and parse a `.synctex.gz` from disk.
     pub fn open(path: &Path) -> Result<Self, SyncTexError> {
+        Self::open_within(path, MAX_EXPANDED_BYTES)
+    }
+
+    /// [`SyncTex::open`] with the limit on the expanded size passed in, so a test need not write a
+    /// quarter of a gigabyte.
+    pub fn open_within(path: &Path, limit: u64) -> Result<Self, SyncTexError> {
         let compressed = std::fs::read(path).map_err(|source| SyncTexError::Io {
             path: path.to_path_buf(),
             source,
         })?;
+        // `take` stops the decompressor one byte past the limit, which is how "too large" is told
+        // from "exactly the limit"; without it a few kilobytes could expand into gigabytes.
         let mut text = String::new();
-        GzDecoder::new(&compressed[..])
+        let read = GzDecoder::new(&compressed[..])
+            .take(limit + 1)
             .read_to_string(&mut text)
             .map_err(|source| SyncTexError::Gzip {
                 path: path.to_path_buf(),
                 source,
             })?;
+        if read as u64 > limit {
+            return Err(SyncTexError::TooLarge {
+                path: path.to_path_buf(),
+                limit,
+            });
+        }
         parse(&text).ok_or_else(|| SyncTexError::NotSyncTex {
             path: path.to_path_buf(),
         })
@@ -621,5 +643,28 @@ Count:5\n";
             .map(|found| found.path)
             .or_else(|| abstract_tex_sidecar::in_repo_binaries("tectonic", repo))
             .expect("run `pnpm fetch-engine` first")
+    }
+
+    // Review finding R3.16 (SyncTeX). `read_to_string` on the decompressor had no limit, so a file
+    // that is a few kilobytes compressed and gigabytes expanded (a build folder can arrive with a
+    // cloned repository) was inflated into memory whole.
+    #[test]
+    fn a_synctex_file_that_expands_past_the_limit_is_refused() {
+        use std::io::Write;
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("bomb.synctex.gz");
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+        encoder.write_all(b"SyncTeX Version:1\n").unwrap();
+        encoder.write_all(&vec![b'x'; 4 * 1024 * 1024]).unwrap();
+        std::fs::write(&path, encoder.finish().unwrap()).unwrap();
+
+        let refused = SyncTex::open_within(&path, 1024 * 1024);
+
+        assert!(
+            matches!(refused, Err(SyncTexError::TooLarge { .. })),
+            "{refused:?}"
+        );
+        // Within the default limit the same file opens: the limit, and not the content, is what refused it.
+        assert!(SyncTex::open(&path).is_ok());
     }
 }

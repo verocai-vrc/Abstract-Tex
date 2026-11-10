@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -64,6 +65,9 @@ pub enum CallError {
     /// The server died with this request still outstanding, or the bridge was shut down.
     #[error("the language server went away before answering")]
     Dropped,
+    /// The server is running but did not answer in time (see [`REQUEST_TIMEOUT`]).
+    #[error("the language server did not answer in time")]
+    TimedOut,
     #[error(transparent)]
     Lsp(#[from] LspError),
 }
@@ -91,6 +95,30 @@ pub struct Bridge {
     /// Request ids must be unique for the life of the connection. `AtomicI64` so `request` needs
     /// no lock for the common case of "take the next number".
     next_id: Arc<AtomicI64>,
+}
+
+/// How long a request waits for the server. Generous: TexLab's first answers can wait on indexing a
+/// large project. The point is a server that is stuck, which used to leave every caller waiting.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Takes one request's entry out of the table of outstanding requests when it is dropped.
+///
+/// `Drop` cannot be `async`, and the table's lock is tokio's, so the removal is handed to a task.
+/// Outside a runtime (the program is shutting down) there is nothing left to tidy.
+struct EntryGuard {
+    pending: Pending,
+    id: i64,
+}
+
+impl Drop for EntryGuard {
+    fn drop(&mut self) {
+        let (pending, id) = (Arc::clone(&self.pending), self.id);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                pending.lock().await.remove(&id);
+            });
+        }
+    }
 }
 
 impl Bridge {
@@ -136,9 +164,29 @@ impl Bridge {
     /// The id is allocated and the caller's half of a `oneshot` is parked in `pending` *before*
     /// the message goes out, because a fast server can reply before `send` has even returned.
     pub async fn request(&self, method: &str, params: Value) -> Result<Value, CallError> {
+        self.request_within(REQUEST_TIMEOUT, method, params).await
+    }
+
+    /// [`Bridge::request`] with the time to wait passed in, so a test need not wait two minutes.
+    ///
+    /// A request that is not answered in time, and a caller that is dropped while it waits, both
+    /// take their entry out of the table of outstanding requests (review finding R4.12): the entry
+    /// used to stay until an answer arrived, which for a cancelled or ignored request is never.
+    pub async fn request_within(
+        &self,
+        timeout: Duration,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, CallError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
+        // Removes the entry however this call ends: an answer (already removed, harmless), a
+        // timeout, or the caller's future being dropped.
+        let _entry = EntryGuard {
+            pending: Arc::clone(&self.pending),
+            id,
+        };
 
         let body = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
         if self
@@ -153,11 +201,23 @@ impl Bridge {
 
         // `Err` on the oneshot means the sender was dropped without a value — the supervisor
         // cleared the table because the server died. That is `Dropped`, not a hang.
-        match rx.await {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(rpc)) => Err(CallError::Rpc(rpc)),
-            Err(_) => Err(CallError::Dropped),
+        match tokio::time::timeout(timeout, rx).await {
+            Ok(Ok(Ok(value))) => Ok(value),
+            Ok(Ok(Err(rpc))) => Err(CallError::Rpc(rpc)),
+            Ok(Err(_)) => Err(CallError::Dropped),
+            Err(_) => {
+                // Removed here, and not left to the guard, so that the table is already tidy when
+                // this call returns (the guard's removal runs on a task a moment later).
+                self.pending.lock().await.remove(&id);
+                Err(CallError::TimedOut)
+            }
         }
+    }
+
+    /// How many requests are waiting for an answer. For tests of the bookkeeping.
+    #[doc(hidden)]
+    pub async fn outstanding(&self) -> usize {
+        self.pending.lock().await.len()
     }
 
     /// Tell the server something. No id, no reply, no waiting — `textDocument/didChange` is the

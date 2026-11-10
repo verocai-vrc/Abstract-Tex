@@ -96,6 +96,9 @@ impl Transport for HttpTransport {
     fn get_bibtex(&self, url: &str) -> Result<(u16, String), String> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(10))
+            // Named, like the arXiv and Open Library requests: Crossref and doi.org ask clients to
+            // say who is calling.
+            .user_agent("abstract-tex (https://github.com/verocai-vrc/Abstract-Tex)")
             .build()
             .map_err(|err| err.to_string())?;
         let response = client
@@ -104,7 +107,7 @@ impl Transport for HttpTransport {
             .send()
             .map_err(|err| err.to_string())?;
         let status = response.status().as_u16();
-        let body = response.text().map_err(|err| err.to_string())?;
+        let body = super::read_text_within(response, super::REPLY_LIMIT_BYTES)?;
         Ok((status, body))
     }
 }

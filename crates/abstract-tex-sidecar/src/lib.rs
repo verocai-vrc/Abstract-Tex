@@ -80,13 +80,37 @@ pub fn sidecar_path(name: &str) -> Option<PathBuf> {
 /// Searches `PATH` for an executable. Small enough to write ourselves rather than pull a crate.
 pub fn find_on_path(name: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
+    find_in(&path_var, name)
+}
+
+/// [`find_on_path`] over a given search path, so a test need not change the process's own `PATH`.
+///
+/// A candidate must be an **executable file**, and an **empty entry is skipped**: a data file that
+/// happens to share the name was accepted before, and an empty entry (which a shell reads as "the
+/// current folder") resolved a bare name against wherever the program was started (review finding
+/// R4.13). On Windows there is no executable bit, so a file is enough there.
+pub fn find_in(path_var: &std::ffi::OsStr, name: &str) -> Option<PathBuf> {
+    for dir in std::env::split_paths(path_var) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
         let candidate = dir.join(name);
-        if candidate.is_file() {
+        if is_executable_file(&candidate) {
             return Some(candidate);
         }
     }
     None
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
 }
 
 /// `"tectonic"` on Unix, `"tectonic.exe"` on Windows.
@@ -158,5 +182,42 @@ mod tests {
         let found = in_repo_binaries("texlab", repo.path()).unwrap();
         assert!(found.ends_with("texlab-x86_64-unknown-linux-gnu"));
         assert_eq!(in_repo_binaries("biber", repo.path()), None);
+    }
+
+    // Review finding R4.13. `find_on_path` accepted any file (an empty or unreadable one, a data file
+    // that happens to share the name) and an empty `PATH` entry, which Unix reads as "the current
+    // folder", resolved a bare name against wherever the program happened to be started.
+    #[cfg(unix)]
+    #[test]
+    fn only_an_executable_file_on_a_real_path_entry_is_found() {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let program = bin.path().join("fake-tool");
+        std::fs::write(&program, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(data.path().join("fake-tool"), "just data").unwrap(); // not executable
+
+        let path = std::env::join_paths([data.path(), bin.path()]).unwrap();
+        assert_eq!(
+            find_in(&path, "fake-tool"),
+            Some(program.clone()),
+            "skips the data file, finds the program"
+        );
+
+        let only_data = std::env::join_paths([data.path()]).unwrap();
+        assert_eq!(find_in(&only_data, "fake-tool"), None);
+
+        // An empty entry means "here" to the shell; it must not make a bare name resolve against
+        // the current folder.
+        let here = tempfile::tempdir().unwrap();
+        let local = here.path().join("local-tool");
+        std::fs::write(&local, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&local, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(here.path()).unwrap();
+        let found = find_in(std::ffi::OsStr::new(":/nonexistent"), "local-tool");
+        std::env::set_current_dir(previous).unwrap();
+        assert_eq!(found, None);
     }
 }

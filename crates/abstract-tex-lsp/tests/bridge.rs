@@ -237,3 +237,41 @@ async fn the_real_texlab_completes_an_environment_name() {
 
     bridge.shutdown().await.unwrap();
 }
+
+/// Review finding R4.12. `request` had no timeout: a server that is alive but stuck (a loop on some
+/// pathological document) left every caller waiting for ever, and a caller that was dropped while
+/// waiting left its entry in the table until an answer that a cancelled request never gets.
+#[tokio::test]
+async fn a_request_the_server_never_answers_times_out_and_leaves_nothing_behind() {
+    let (bridge, _incoming) = start().await;
+
+    let outcome = bridge
+        .request_within(Duration::from_millis(200), "silent", json!({}))
+        .await;
+
+    assert!(matches!(outcome, Err(CallError::TimedOut)), "{outcome:?}");
+    assert_eq!(bridge.outstanding().await, 0, "the entry was removed");
+    // And the bridge still works afterwards.
+    assert_eq!(bridge.request("hello", json!({})).await.unwrap()["echo"], "hello");
+}
+
+#[tokio::test]
+async fn a_caller_that_gives_up_leaves_nothing_in_the_table() {
+    let (bridge, _incoming) = start().await;
+    let waiting = {
+        let bridge = bridge.clone();
+        tokio::spawn(async move { bridge.request("silent", json!({})).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(bridge.outstanding().await, 1);
+
+    waiting.abort(); // the caller's future is dropped mid-wait
+    let _ = waiting.await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    assert_eq!(
+        bridge.outstanding().await,
+        0,
+        "a dropped caller must not leak its entry"
+    );
+}
