@@ -1764,3 +1764,97 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   `abstract-tex-templates`, `abstract-tex-sidecar`, the engine crate's process handling,
   `abstract-tex-git`'s sync and merge internals, `bibliography.rs`, `paste.rs`, `assistant.rs`,
   and the frontend's editor, PDF viewer and accessibility pass (S16.4).
+
+- **Agentic review, fourth pass (10 Nov 2026): the areas the third pass listed as unreviewed.
+  Findings for the same later fix batch; nothing below is fixed yet.** **R** = reproduced with a
+  throwaway probe outside the repository, **S** = by reading. Covered: the rest of
+  `abstract-tex-git` (stage, discard, commit, push, sync, merge, clone), `abstract-tex-engine`
+  (`process.rs`, `latexmk.rs`), `abstract-tex-reconcile`, `abstract-tex-templates`,
+  `abstract-tex-sidecar`, `abstract-tex-lsp` (bridge, server), `paste_cite` and the Zotero commands,
+  `bibliography.rs` path handling, `document.ts` (save and external change), and the dialogs.
+
+  **High**
+  1. **R. A project's `.latexmkrc` runs as code on every build with a system engine, with no
+     consent.** The app calls `latexmk` with no `-norc` and, when shell escape is off (the default),
+     with the project folder as the working directory (`latexmk.rs`, `invocation`). latexmk reads
+     `.latexmkrc` there and executes it as Perl; with the same flags the app uses, a rc file of
+     `system("touch ../PWNED_BY_RC");` created the file. The engine is chosen by `abstract-tex.toml`
+     in the project (`engine = "pdflatex"`), and that file arrives with a cloned repository, which is
+     a feature (S11.5b). So cloning a repository that carries both files and opening it runs the
+     author's code on a machine with latexmk installed. `consent.rs` states the opposite premise
+     ("nothing a project carries may turn this on"). The comparison lane builds an exported copy of
+     the repository the same way. Fix: pass `-norc` (and test that a rc file in the project is
+     ignored), and say in the design that a project may name a system engine but never its
+     configuration.
+  2. **R. `diff_ops` is slow on a large change, and runs on the UI thread.** The Myers character
+     diff in `abstract-tex-reconcile` has no deadline. In release builds, a text of 81 KB with a
+     third of its lines rewritten took 4.7 s, with every line rewritten 35 s, and a 244 KB case
+     had not finished after about four and a half minutes. `commands::diff_ops` is a plain (not
+     `async`) `#[tauri::command]`, which Tauri runs on the main thread, so the whole window freezes.
+     It is called for every external change to an open file (a branch switch from B4, a pull, a
+     snapshot restore). Fix: give `similar` a deadline and fall back to the single replace the
+     module already uses for small changes, and make the command `async` with `spawn_blocking`.
+
+  **Medium**
+  3. **R. Git verbs act on unvalidated paths.** `discard` (and `stage`, `unstage`, `diff_sides`) join
+     the path the window sent onto the working directory with no `Project::resolve`. Run against a
+     repository, `discard` of an absolute path and of `../outside/precious.txt` both returned
+     `Deleted` and the file was gone. Also, an error from `status_file` is read as "untracked", so
+     a tracked file whose status cannot be read is deleted instead of restored. The webview is our
+     own code, so this needs a compromised or buggy frontend, but `Project::resolve`'s own comment
+     says every write command is checked and these are not.
+  4. **S. `paste_cite` hides its write from the watcher.** It rewrites the `.bib` with
+     `remember_write`, so the echo filter drops the change and an open tab holding that `.bib` is
+     never reloaded (snapshot restore deliberately does the opposite, `snapshots.rs`). The next
+     autosave from that tab then writes its stale buffer over the file and the pasted entry is
+     gone, while the `\cite{key}` that was inserted stays. It also reads the file and writes it in
+     two separate steps, so an edit saved in between is lost.
+  5. **S. A failed autosave is silent.** `scheduleSave` runs `void this.save()`; when `writeFile`
+     rejects (disk full, read-only file, folder gone) the rejection is unhandled, no notice is
+     shown, and nothing retries until the next keystroke. `save` clears its timer before the write.
+  6. **S. `applyExternal` gives up quietly.** After three attempts in which the author kept typing
+     while Rust diffed, it falls through to `lastSavedText = diskText`, leaving the typed text in the
+     buffer, so the next save overwrites the external change with no question asked (the conflict
+     bar is for the dirty-at-arrival case only). Finding 2 makes the window long enough to matter.
+  7. **S. Cancelling a build kills only the direct child.** `process.rs` calls `child.kill()` and
+     sets `kill_on_drop`; latexmk's own children (pdflatex, bibtex) are not in a process group and
+     keep running and writing into the build folder, and their open pipes keep the two stderr/stdout
+     pump tasks alive. There is also no wall-clock limit on a build, and both pumps collect all
+     output in memory (and a line with no newline grows `pending` for ever), so a runaway
+     `\loop` that prints grows memory until someone cancels.
+  8. **S. Two modal dialogs miss the focus rules.** `BibliographyHealth.svelte` and
+     `ZoteroLink.svelte` are `role="dialog"` over a backdrop but neither uses `use:modalFocus`
+     (`lib/dialog.ts`) and neither handles Escape, which is the bug `dialog.ts` says it was written
+     to fix: focus stays on the editor behind, so typed text lands in the manuscript. Rule 5
+     (keyboard first).
+
+  **Low and design notes**
+  9. **R. Sync with something staged shows libgit2's own sentence**, not ours: `Git reported: 1
+     uncommitted change would be overwritten by merge; class=Merge (22); code=Conflict (-13)`.
+     Nothing is lost (the merge refuses, and an unstaged edit is kept and not pushed; both checked),
+     but a staged file blocks a diverged sync with no explanation in plain words. The merge commit
+     is titled `Merge commit '<sha>'`, not the "Merge branch 'origin/main'" the code comment promises.
+  10. **S. `amend` in the git crate has no "already pushed" check**; the design leaves it to the panel
+      (`ahead_behind`). A second caller would amend published history.
+  11. **S. `resolve_bib_argument` treats any dot in a name as an extension**, so `\bibliography{refs.v2}`
+      is looked up as `refs.v2` and reported missing, where BibTeX looks for `refs.v2.bib`.
+  12. **S. LSP: `request` has no timeout**, and a caller that is dropped while waiting leaves its entry
+      in `pending` until the server answers, which a cancelled request never does.
+  13. **S. `sidecar::find_on_path` accepts any file** (not only executables) and an empty `PATH` entry
+      resolves a bare name against the current directory.
+  14. **S. No dialog sets `aria-modal`**, so a screen reader's virtual cursor can leave one although
+      `modalFocus` keeps keyboard focus inside.
+
+  **Checked and fine:** template fields are LaTeX-escaped and written through a staging folder renamed
+  into place; folder names from titles and `clone_destination` refuse separators, `..` and the
+  characters Windows refuses; a failed clone cleans up only what it created; sync keeps an unstaged
+  edit and does not publish it (reproduced); the token is still offered only to github.com; the
+  shell-escape consent file is outside any project and fails closed; `modalFocus` traps Tab and gives
+  focus back; the reconcile ops are correct in UTF-16 (the module has a property test) and differ
+  from the slow case only in speed; the LSP supervisor clears waiting requests and restarts the
+  server a bounded number of times.
+
+  **Still not reviewed:** the PDF viewer and the editor extensions beyond `document.ts`, the SyncTeX
+  frontend, `assistant.rs` and `assistant_explain.rs`, `tectonic.rs`, `incremental.rs` and `draft.rs`
+  inside the engine crate, the correctness of the `texlog` rule catalog's wording, and the
+  `texbib` parser beyond what the fuzzer reached.
