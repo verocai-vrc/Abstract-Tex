@@ -1639,13 +1639,23 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
     characters, which percent-encodes to three times its length) gives a URL GitHub or the browser
     refuses, on exactly the report the author most wants to send. Fix: cut the message line itself
     to fit, as the backtrace is. Needs a test with a 3 000-character message first.
+    **Fixed 10 Nov 2026.** `issue_url` keeps the cut loop but, once three lines are left, cuts the
+    message a hundred characters at a time (never inside a multi-byte one) until the link fits.
+    Test with a 3 000-character message of two-byte characters; it failed first.
   - **Risk: the crash hook reports caught panics too.** `install` replaces the process-wide hook, so
     a panic in a spawned task that tokio or a `JoinHandle` catches, with the app still running,
     writes a report and the next launch asks about "a crash" that did not stop anything.
+    **Fixed 10 Nov 2026.** The hook cannot know, so the exit does: on an ordinary exit
+    (`RunEvent::Exit`, `lib.rs`) the reports written during the session move to
+    `crash-reports/caught/` (kept, not deleted); a real crash never reaches that code and its report
+    is still offered. Test on a folder with an old report and two from the session.
   - **Risk: `scrub_home` is a case- and separator-sensitive string replace.** On Windows a path
     spelled `c:/Users/…` against `USERPROFILE=C:\Users\…` keeps the account name. The module's own
     note says the author's read-through is the guarantee, so this is a leak the review step catches,
     not one the scrub prevents.
+    **Fixed 10 Nov 2026.** `scrub_home` compares with `\` read as `/` and the case folded, and only
+    replaces a home that ends a name (`/home/ada` no longer eats the start of `/home/adam`, which
+    the old replace would have turned into `~m`). One test.
   - **Risk: the relay has no resource limits** (`crates/abstract-tex-relay`). Per-peer outbox is an
     unbounded channel, there is no message-size setting beyond tungstenite's default, no cap on
     connections, rooms or peers per room, and no handshake timeout, so sockets that never finish
