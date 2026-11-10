@@ -70,7 +70,9 @@ last section, which is the intended outcome, not a new error.
 ## §3 The end state, and the drawer's own controls along the way
 
 1. After row 20 the build succeeds: the PDF shows the title, twenty short sections and the
-   appendix, and the drawer closes itself (a clean build has nothing to say).
+   appendix, and the drawer closes itself (a successful build has nothing that stopped it). Chapters 04 and
+   05's two warnings are still real: the status bar says *2 warnings*, and **Diagnostics** reopens
+   the drawer on them.
 2. At any point during §2 with several cards showing (rows 06–19 keep chapters 04 and 05's
    warnings until those are fixed): the **errors / warnings** filter hides without reordering
    the file headings; **this file** shows only the active tab's cards; every count in the header

@@ -1941,6 +1941,25 @@ mod tests {
         /// Same shape as `verb_unterminated_anchors_on_the_intact_tail_of_a_truncated_context`:
         /// the `...` TeX prints for a long line is not part of the source and must not be in
         /// `find`. When `\[` itself is behind the dots the opener is no longer certain, so no fix.
+        // The real log from the torture walk: the line that opens chapter 14 is exactly 79
+        // characters wide, so the error under it used to be read as its continuation and lost,
+        // leaving "The build failed" with no card at all.
+        #[test]
+        fn an_error_straight_after_a_full_width_file_line_is_still_found_in_that_file() {
+            let opener = ") (sections/13-caption-outside-float) (sections/14-display-math-wrong-delimiter";
+            assert_eq!(opener.chars().count(), 79);
+            let log = format!(
+                "{opener}\n! Display math should end with $$.\n<to be read again> \n                    \nl.4 \\[ t_{{95}} < 2 $\n                    \nOutput written on main.xdv (1 page, 2376 bytes).\n"
+            );
+            let found = diagnostics(&log);
+            assert_eq!(found.len(), 1, "{found:?}");
+            assert_eq!(found[0].line, Some(4));
+            assert_eq!(
+                found[0].file.as_deref(),
+                Some("sections/14-display-math-wrong-delimiter")
+            );
+        }
+
         #[test]
         fn display_math_wrong_delimiter_anchors_on_the_intact_tail_of_a_truncated_context() {
             let with_opener = "! Display math should end with $$.\n\

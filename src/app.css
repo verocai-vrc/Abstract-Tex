@@ -447,12 +447,20 @@ kbd {
   background: var(--bg-selected);
 }
 .tree .row .chev {
+  flex: none; /* a long file name must not squash this column, or rows stop lining up */
   width: 12px;
   color: var(--fg-muted);
   font-size: 10px;
   text-align: center;
 }
+.tree .row .name {
+  /* `text-overflow` on the row does nothing to its flex children; the name itself must clip. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tree .row .root-badge {
+  flex: none;
   margin-left: auto;
   font-size: 10px;
   padding: 0 5px;

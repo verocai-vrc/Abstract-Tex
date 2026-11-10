@@ -93,7 +93,7 @@ fn apply(text: &str, stack: &mut Vec<StackEntry>) -> Vec<String> {
             '(' => {
                 let rest = &text[at + 1..];
                 let end = rest.find(['(', ')']).unwrap_or(rest.len());
-                let candidate = rest[..end].trim();
+                let candidate = without_page_marker(rest[..end].trim());
                 if looks_like_a_file(candidate) {
                     stack.push(StackEntry::File(candidate.to_string()));
                     opened.push(candidate.to_string());
@@ -111,6 +111,24 @@ fn apply(text: &str, stack: &mut Vec<StackEntry>) -> Vec<String> {
         }
     }
     opened
+}
+
+/// Cut a trailing page marker off a would-be file name. TeX prints the page it ships out on the
+/// same line as the file it is still reading, as `(sections/chapter [1` or, with a font map,
+/// `(./chapter.tex [2{/tmp/pdftex.map}]`. The file's own `)` comes much later, so without this the
+/// candidate would run to the end of the line and the marker would become part of the name.
+///
+/// The returned `&str` is a slice of the input, so it borrows from it and needs no allocation;
+/// Rust works out that the two share a lifetime without it being written out, because there is
+/// only one input reference to borrow from.
+fn without_page_marker(candidate: &str) -> &str {
+    for (at, _) in candidate.match_indices(" [") {
+        let after_bracket = &candidate[at + 2..];
+        if after_bracket.starts_with(|c: char| c.is_ascii_digit()) {
+            return candidate[..at].trim_end();
+        }
+    }
+    candidate
 }
 
 /// A `/` anywhere, or a `.` followed only by 1-4 ASCII letters running to the very end of the
@@ -282,6 +300,31 @@ mod tests {
             let mut stack = Vec::new();
             let opened = apply(&line.text, &mut stack);
             assert_eq!(opened, vec!["sub dir with spaces/chapter one".to_string()]);
+        }
+
+        // Found on the torture walk (10 Nov 2026): the first error after a page has been shipped
+        // read `(sections/08-undefined-environment [1` off the real log, with the page marker on
+        // the same line and no `)` yet, so the "candidate" ran to the end of the line.
+        #[test]
+        fn a_page_marker_after_an_unclosed_file_name_is_not_part_of_the_name() {
+            let lines = tokenize("(sections/08-undefined-environment [1\n\n]\n");
+            let mut stack = Vec::new();
+            let opened = apply(&lines[0].text, &mut stack);
+            assert_eq!(opened, vec!["sections/08-undefined-environment".to_string()]);
+            assert_eq!(
+                open_files(&lines)[0],
+                vec!["sections/08-undefined-environment".to_string()]
+            );
+        }
+
+        #[test]
+        fn a_page_marker_carrying_a_font_map_is_not_part_of_the_name_either() {
+            let lines = tokenize("(./chapter.tex [2{/tmp/pdftex.map}]\n");
+            let mut stack = Vec::new();
+            assert_eq!(
+                apply(&lines[0].text, &mut stack),
+                vec!["./chapter.tex".to_string()]
+            );
         }
 
         #[test]

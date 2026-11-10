@@ -1399,6 +1399,34 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   and the tooltip re-photographed in the app. No dedicated test: a CSS rule inside a CodeMirror
   theme is not worth a brittle assertion.
 
+- **An error that comes after the first page has been shipped is filed under a file name with the
+  page marker glued on: `sections/08-undefined-environment [1`.** (Found 10 Nov 2026 on the walk of
+  `fixtures/torture/SMOKE.md` §2, row 08. **Fixed** the same session: `without_page_marker` in `crates/texlog/src/resolver.rs`, two
+  regression tests that failed first, and the heading re-photographed in the app.) Rows 01 to 07 fail
+  before any page is output and are headed correctly. The heading is the log's file stack, so the
+  `texlog` file tracking is taking `(sections/08-undefined-environment [1` as one name. The card's
+  line and explanation are right; only the heading is wrong, and clicking it would open no file.
+
+- **Row 14 of the torture document ("Display math should end with $$") fails the build and the
+  drawer shows no error card: "The build failed. 0 errors, 2 warnings".** (Found 10 Nov 2026 on the
+  walk of `fixtures/torture/SMOKE.md` §2.) The real log has the `!` line and `captures/14.log` parses.
+  Worst case for rule 3 and rule 6: a failed build with nothing to read except the raw log. Cause:
+  the line that opens chapter 14, `) (sections/13-caption-outside-float) (sections/14-display-math-wrong-delimiter`,
+  is exactly 79 characters, `unwrap_lines` took that for a wrapped line and glued the `!` line onto
+  it, so the error never existed as a line of its own. **Fixed** the same session: a physical line
+  that starts `! ` is never a continuation (TeX has already broken the line itself after 79
+  characters). Two regression tests that failed first (`tokenizer.rs`, and the real log's shape
+  through `diagnostics` in `rules.rs`), and the card re-photographed in the app. The remaining
+  failure mode, a full-width line followed by a wrapped remainder that really does start with `! `,
+  is not realistic.
+
+- **Long file names in the tree squash the chevron column, so rows sit at different horizontal
+  offsets and the name is cut off with no ellipsis.** (Found 10 Nov 2026 on the torture walk, whose
+  chapter names are long; cosmetic.) `.tree .row` is a flex row; its `text-overflow: ellipsis` does
+  not reach the flex children, so when a name was too wide the 12 px chevron shrank instead.
+  **Fixed** the same session in `app.css`: the chevron and badge do not shrink, and the name clips with
+  an ellipsis. Checked in the app; no test (pure CSS layout).
+
 - **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
   nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Open**,
   low priority.) The card is honest — it explains that TeX reports the end of the file and the

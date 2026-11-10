@@ -101,6 +101,11 @@ const WRAP_COLUMN: usize = 79;
 /// `char`s, not bytes, so a log with non-ASCII author names (a `\title` in the transcript, say)
 /// still lines up with what a person looking at a terminal actually sees.
 ///
+/// One exception, found the hard way: a line that starts `! ` is never a continuation. TeX
+/// breaks the line itself the moment it has printed 79 characters, so an error that begins right
+/// after a full-width line (a `(sections/…` file-open line that happens to be 79 wide, say) is
+/// already on its own physical line, and gluing it on hid the error from the drawer entirely.
+///
 /// This is a real heuristic with a real failure mode, stated rather than hidden: a line whose
 /// *unwrapped* content genuinely happens to be exactly 79 characters looks identical to a
 /// wrapped one and gets merged with whatever follows. Observed in practice to be rare enough not
@@ -112,7 +117,7 @@ pub fn unwrap_lines(log: &str) -> Vec<String> {
     let mut logical: Vec<String> = Vec::new();
     let mut previous_raw_len = 0usize;
     for raw in log.lines() {
-        if previous_raw_len == WRAP_COLUMN {
+        if previous_raw_len == WRAP_COLUMN && !starts_a_new_error(raw) {
             if let Some(current) = logical.last_mut() {
                 current.push_str(raw);
             }
@@ -122,6 +127,12 @@ pub fn unwrap_lines(log: &str) -> Vec<String> {
         previous_raw_len = raw.chars().count();
     }
     logical
+}
+
+/// Whether a physical line opens a TeX error (`! Undefined control sequence.`). Used only to
+/// stop [`unwrap_lines`] from treating it as the rest of a full-width line before it.
+fn starts_a_new_error(physical_line: &str) -> bool {
+    physical_line.starts_with("! ")
 }
 
 /// `l.87 The sample size n_` → `Some((87, " The sample size n_"))`. Mirrors `lib.rs`'s
@@ -229,6 +240,24 @@ mod tests {
                 vec![
                     format!("{first}rest of the message"),
                     "unrelated next line".to_string()
+                ]
+            );
+        }
+
+        // Found on the torture walk (10 Nov 2026): `) (sections/13-caption-outside-float)
+        // (sections/14-display-math-wrong-delimiter` is exactly 79 characters, and the error that
+        // came next was glued onto it and never seen. TeX starts a new line by itself after a
+        // full-width one, so a `! ` that follows can only be a new error, not a wrapped remainder.
+        #[test]
+        fn an_error_after_a_full_width_line_is_not_taken_for_its_continuation() {
+            let full = "b".repeat(79);
+            let log = format!("{full}\n! Undefined control sequence.\nl.3 \\oops\n");
+            assert_eq!(
+                unwrap_lines(&log),
+                vec![
+                    full,
+                    "! Undefined control sequence.".to_string(),
+                    "l.3 \\oops".to_string()
                 ]
             );
         }

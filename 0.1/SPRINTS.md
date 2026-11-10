@@ -1427,7 +1427,7 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 | [x] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
 | [~] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
 | [~] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
-| [~] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
+| [x] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
 | [~] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
 
 **S6.1 (17 September 2026).** `[~]`: 16 new rules landed (the catalog: 6 → 22, roughly half of
@@ -6920,6 +6920,25 @@ corrected** (palette order, the label-versus-heading landing line, "double-click
 `scripts/xvfb-ui.py` gained `ctrlclick`. **Not checked:** the "nine pages" in §1 step 2 (the PDF's
 page tree is compressed and the printed numbers are ambiguous). **Still unwalked:** `torture`,
 `bibliography-demo`, and the exit demos listed above.
+
+**Owed walks, third pass (10 November 2026): the v0.3 exit demo, by hand.** `fixtures/torture/SMOKE.md`
+§1–§3 against the real app, all twenty rows in order, which settles S6.4's `[~]` (it waited on a
+webview only). Every card named the file the table says, at the table's line, in sentences with no
+`!` or `l.NN` in them; the raw log appeared only when asked for (§1 step 4) and nowhere else. The six
+rows with a button (02, 06, 11, 14, 15, 20) were fixed by clicking it, and each did what its label
+says; the other fourteen by editing the file from outside, which the watcher picked up each time.
+Row 12 offers no button, as written. After row 20 the build succeeded, the PDF showed the twenty
+sections plus the appendix and the drawer closed itself; `Ctrl Z` on the row-20 button fix brought the
+`\include` back and the next build reported it again; the *errors* / *warnings* / *This file* chips
+combine and the counts stay live. **Found and fixed, three bugs the recorded captures could not have
+shown**, because each captured log is one chapter's error on its own: row 08's file heading read
+`sections/08-undefined-environment [1` (the page marker TeX prints after the first shipped page was
+taken into the name); row 14's error did not appear at all, leaving "The build failed" with no card,
+because the line opening that chapter is exactly 79 characters and was read as wrapped, with the `!`
+line glued on; and long names in the file tree squashed the chevron column. Regression tests for the
+first two failed first. **What this walk did not do:** click each of the twenty cards to see the
+cursor land (done for row 01 only; the earlier walks cover the jump itself), and run from a machine
+that has never had a TeX installation (the v0.1 exit demo, still owed).
 
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
