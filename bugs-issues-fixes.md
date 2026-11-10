@@ -1663,11 +1663,23 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
     reader in a room makes memory grow without bound. Acceptable for a trusted friends-only
     deployment; worth a bounded channel (drop the peer when full) and a handshake timeout before it
     is described as safe to expose.
+    **Fixed 10 Nov 2026.** `Limits` (defaults: 10 s handshake, 16 peers a room, 1 000 rooms, 16 MiB
+    a message and frame, 1 024 queued messages a peer, 2 048 connections) applied in `accept`,
+    `serve`, `broadcast` and the new `Relay::run` that `main.rs` now calls. A peer whose queue is
+    full is dropped from the room and its connection closed; the queue is a bounded channel with
+    `try_send`. Five tests (silent handshake, full room, oversized message, stalled reader, the
+    connection cap), all written before the code. Not covered: an idle connection that sends nothing
+    after joining is still held (no ping/pong timeout), and there is no per-address limit.
   - **Risk: invites default to plaintext `ws://`** (`invite.ts`). The key never crosses the wire (it
     is after the `#`, and independent of the 128-bit room id), so confidentiality holds; but the
     room id, which is the only thing gating entry to a room, is visible to anyone on the path, who
     can then join and flood it. A `wss://` default for any address that is not `localhost` would
     close that.
+    **Handled differently, 10 Nov 2026:** not by changing the default, because the relay binary
+    speaks no TLS and `wss://` by default would break running one without a proxy (and the existing
+    test names `ws://` as the deliberate default). `plaintextRelayNotice` returns a sentence for an
+    address that reaches another machine without TLS (not for TLS, this computer, or nothing typed),
+    and the Share window shows it under the address field. Three tests; not walked in the app.
   - **Risk: working-copy comparison has no size bound.** `copy_working_tree` copies everything not
     ignored, including large untracked files, on every click; the commit side only exports tracked
     files. A project with a big untracked data folder pays for it each time.

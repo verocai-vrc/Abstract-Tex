@@ -15,14 +15,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "abstract-tex-relay listening");
 
-    let relay = Relay::new();
-    loop {
-        let (stream, peer) = listener.accept().await?;
-        let relay = relay.clone();
-        tokio::spawn(async move {
-            if let Err(error) = relay.accept(stream).await {
-                tracing::debug!(%peer, %error, "connection ended before it joined a room");
-            }
-        });
-    }
+    Relay::new().run(listener).await?;
+    Ok(())
 }

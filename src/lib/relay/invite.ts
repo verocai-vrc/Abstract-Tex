@@ -13,6 +13,37 @@ function normalizeRelayAddress(address: string): string {
   return /^wss?:\/\//.test(trimmed) ? trimmed : `${DEFAULT_SCHEME}${trimmed}`;
 }
 
+/** Whether `host` is this computer: `localhost` or a loopback address. A name that merely resolves
+ * there cannot be told from here, so it is not trusted (the assistant's address check does the same). */
+function isThisComputer(host: string): boolean {
+  const bare = host.replace(/^\[|\]$/g, '').toLowerCase();
+  return bare === 'localhost' || bare === '::1' || /^127(\.\d{1,3}){3}$/.test(bare);
+}
+
+/**
+ * A sentence for an address that reaches another machine without TLS, or `null` when there is
+ * nothing to say. An address with no scheme means `ws://` (above), and over `ws://` the room's name,
+ * which is the only thing that lets someone into the room, is visible to anyone on the network
+ * path. The text itself is safe either way: it is encrypted end to end with a key that stays after
+ * the `#` and never reaches the relay. So this informs and does not refuse: the relay binary speaks
+ * no TLS, and refusing `ws://` would break running one without a proxy.
+ */
+export function plaintextRelayNotice(address: string): string | null {
+  const trimmed = address.trim();
+  if (trimmed === '') return null;
+  let url: URL;
+  try {
+    url = new URL(normalizeRelayAddress(trimmed));
+  } catch {
+    return null; // not an address yet; the connection attempt will say so
+  }
+  if (url.protocol !== 'ws:' || isThisComputer(url.hostname)) return null;
+  return (
+    'This relay is reached without TLS. Your text is still encrypted end to end, but the name of the room ' +
+    'can be seen by anyone on the network between you and the relay. Use a wss:// address if the relay has one.'
+  );
+}
+
 /** 16 bytes of randomness, hex-encoded: long enough that two unrelated authors never collide,
  * short enough to read back while debugging a stuck connection. */
 function randomRoomId(): string {

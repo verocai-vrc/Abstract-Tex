@@ -9,6 +9,7 @@
   import { live } from '../lib/live.svelte';
   import { modalFocus } from '../lib/dialog';
   import { closeShareWindow, startShare } from '../lib/controller.svelte';
+  import { plaintextRelayNotice } from '../lib/relay/invite';
 
   let copied = $state(false);
   $effect(() => {
@@ -19,6 +20,8 @@
   // behind it can still fail or drop afterward — this is what tells the author that happened
   // without making them go find the status bar's own, smaller version of the same thing.
   const connectionStatus = $derived(app.activePath ? (live.status.get(app.activePath) ?? null) : null);
+  // What the typed address means for the room's name (relay/invite.ts): said, not refused.
+  const plaintextNotice = $derived(plaintextRelayNotice(live.relayAddress));
   const connectionError = $derived(app.activePath ? (live.error.get(app.activePath) ?? null) : null);
 
   function onKeydown(event: KeyboardEvent) {
@@ -84,6 +87,7 @@
             autocomplete="off"
           />
         </div>
+        {#if plaintextNotice}<p class="muted plaintext-notice">{plaintextNotice}</p>{/if}
         <footer>
           {#if live.shareError}<p class="error">{live.shareError}</p>{/if}
           <span class="spacer"></span>

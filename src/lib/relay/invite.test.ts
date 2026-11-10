@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createInvite, inviteToText, parseInvite } from './invite';
+import { createInvite, inviteToText, parseInvite, plaintextRelayNotice } from './invite';
 
 describe('invite', () => {
   it('round-trips through text with the same relay URL and key', () => {
@@ -37,5 +37,30 @@ describe('invite', () => {
     expect(parseInvite('not an invite at all')).toBeNull();
     expect(parseInvite('ws://relay.example.com:8080/room#dG9vc2hvcnQ')).toBeNull(); // "tooshort"
     expect(parseInvite(`https://relay.example.com:8080/room#${'A'.repeat(43)}`)).toBeNull();
+  });
+
+  // Review finding (relay, second pass): an invite with no scheme means `ws://`, and the room id in
+  // its path is the only thing that gates a room, in the clear. The text stays private (the key is
+  // after the `#` and never leaves the machines), so this is a sentence, not a refusal: the relay
+  // binary speaks no TLS, and refusing `ws://` would break the zero-setup way of running one.
+  describe('plaintextRelayNotice', () => {
+    it('says so for a relay on another machine reached without TLS', () => {
+      for (const address of ['relay.example.com:8080', 'ws://relay.example.com', '203.0.113.7:4444', 'ws://192.168.1.20:4444']) {
+        const notice = plaintextRelayNotice(address);
+        expect(notice, address).not.toBeNull();
+        expect(notice).toContain('end to end');
+      }
+    });
+
+    it('stays quiet for TLS, for this computer, and for nothing typed yet', () => {
+      for (const address of ['wss://relay.example.com', 'localhost:4444', 'ws://127.0.0.1:4444', 'ws://[::1]:4444', '', '   ']) {
+        expect(plaintextRelayNotice(address), address).toBeNull();
+      }
+    });
+
+    it('reads the host, not the look of the text: a name that merely starts with localhost is not local', () => {
+      expect(plaintextRelayNotice('ws://localhost.example.com:4444')).not.toBeNull();
+      expect(plaintextRelayNotice('ws://user@localhost:4444')).toBeNull();
+    });
   });
 });
