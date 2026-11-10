@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the README first
+    url: https://github.com/verocai-vrc/Abstract-Tex#readme
+    about: Known limitations are listed there, so you may find your answer without waiting.

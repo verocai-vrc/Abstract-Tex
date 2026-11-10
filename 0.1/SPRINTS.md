@@ -6863,6 +6863,27 @@ high-contrast / forced-colors mode is untested; the tab order was walked for the
 activity bar only, not through every dialog; CodeMirror's own focus indication (the caret) is
 unchanged; the PDF pane is a canvas with no text alternative for its pages beyond pdf.js's own.
 
+**S16.5 (9 November 2026).** `[x]` — documentation only, so `pnpm verify` is unaffected (the YAML
+templates were parsed, the links were not followed). **README:** it still described v0.4 — its
+Versions table called v0.6, v0.7 and v0.8 "Planned" and its features stopped at citations. It now
+says what the code does: starting from a template, snapshots, Source Control and one-button Sync,
+GitHub sign-in and clone, conflicts as paragraphs, `latexdiff` comparison; the optional assistant
+and its citation guard; live sharing, reconnection, the offer to commit and comments; and the
+privacy paragraph names every way the app can use the network, plus crash reports. The Versions
+table is deliberately blunt — v0.5's 1.2 s target "is not met for a sixty-page thesis on the
+bundled engine", v0.6's two-machine demo "is not yet performed" — because the plan's own outcome
+paragraphs say so. Known limitations gained three honest lines (no installers, comments are not
+pushed with Sync, screen readers unchecked). **New:** `CONTRIBUTING.md` (what to read first, how to
+propose a change, the learner-readable Rust rule, where tests and the bug ledger fit, what a pull
+request must show), issue forms for bugs and ideas (the bug form asks for the version, system,
+engine and any crash report, and says not to paste private text; the idea form points at the
+non-goals), a pull-request template that restates the project's rules as checkboxes, and
+`DEVELOPMENT.md` links the new guide. **Not done / for the maintainer:** the security paragraph
+tells people to contact the maintainer privately — there is no `SECURITY.md` and I did not assume
+GitHub's private reporting is switched on; there is no code of conduct; user-facing documentation
+beyond the README (a guide to each feature) does not exist, and the README's feature text is
+the only description of the live, assistant and Git features that a stranger will read.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

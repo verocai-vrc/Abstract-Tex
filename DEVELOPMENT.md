@@ -12,6 +12,7 @@ build and test it.
 | [`0.1/SPRINTS.md`](0.1/SPRINTS.md) | The sprint plan as numbered loops (`S<sprint>.<loop>`), each with a verification command and a done-when clause, and the recorded outcome of every loop run so far. The live project status is its §3. |
 | [`bugs-issues-fixes.md`](bugs-issues-fixes.md) | The bug ledger. Every bug found gets an entry the moment it is found, and the entry is updated in place, never deleted. |
 | [`user-suggested-features.md`](user-suggested-features.md) | Feature requests from early testers, not yet planned. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to propose a change, the code style, and what a pull request must show. |
 | [`CLAUDE.md`](CLAUDE.md) | Conventions for anyone working here, human or agent: code style, error handling, commit messages. |
 | [`fixtures/corpus/README.md`](fixtures/corpus/README.md) | The golden corpus of eight real documents, what building them found, and the measured build times. |
 

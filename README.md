@@ -67,10 +67,61 @@ converting anything.
 - Continuous bibliography checks: undefined citations, entries never cited, duplicate DOIs,
   missing required fields, the wrong dash in a page range.
 
+### Start a document, keep its history
+
+- **New from template**: a paper, thesis, report, essay, letter, CV, slides or a blank page,
+  compiled on your machine, with the fill-in-the-blanks parts marked so you can jump between them.
+- **Every successful build is remembered.** A hidden snapshot is taken after each one, as real Git
+  objects that never touch your branch, so an earlier version of a file can be read and restored
+  from inside the app, even in a folder that is not a Git repository.
+- **Source Control** is a VS Code-style view on libgit2, with no terminal needed: changes, staging,
+  a commit box pre-filled with a summary in a writer's units ("Revised 3.2 Methods, +240 words"),
+  a history graph, and one **Sync** button that commits, pulls, merges and pushes.
+- Sign in to GitHub from the app, create a repository (private by default), or **clone** one;
+  credentials go to your operating system's keychain.
+- A conflict in a paragraph is shown as your version and theirs side by side, with a choice. You
+  never see `<<<<<<<` in your document.
+- Compare any two versions as a marked-up PDF, with insertions underlined and deletions struck
+  through. This uses `latexdiff`, which you install yourself (it comes with TeX Live and MiKTeX);
+  without it the app says so and the rest keeps working.
+
+### An assistant that cannot make up a citation (optional)
+
+- Off until you switch it on for a project, and it needs your own API key, kept in the keychain:
+  Anthropic, or any OpenAI-compatible endpoint, including one running on your own machine.
+- Select text and ask it to tighten, clarify, match your voice or translate it. You see each
+  change as a diff and accept or reject it hunk by hunk. Nothing is written until you apply it.
+- It can explain a build error it has no rule for. Before anything is sent you can see exactly
+  what the request carries; a request is only ever made when you ask.
+- A guard checks that no `\cite` key in a suggestion is missing from your bibliography, so a
+  fabricated reference cannot reach your document.
+- Every one of these has a version that works without it.
+
+### Write together, live
+
+- **Share** a document to get an invite, or **Join** one you were sent: two or more people edit
+  one file at once, with each other's cursors and names showing.
+- Sessions go through a small relay you host yourself (`abstract-tex-relay`, one binary; it
+  stores nothing). Everything between people is encrypted with a key that is in the invite and
+  never reaches the relay.
+- If your connection drops, you keep writing. When it returns, both sides' changes are merged
+  with nothing lost.
+- When you leave, the app offers to commit the shared file, in one click, with a message like
+  "Live session with Bea, 9 Nov". It never commits without your click.
+- **Comments** are attached to a quoted passage, not a line number, so they stay with the text as
+  it moves, and are kept in the project's own Git history. A comment whose passage has been
+  rewritten is listed as orphaned, never silently attached to the wrong sentence.
+
 ### Yours, on your machine
 
 - No account and no telemetry. After a document's packages are cached, writing and compiling
-  work offline; only looking up a pasted DOI, arXiv ID or ISBN needs the network.
+  work offline. The network is used only when you ask: looking up a pasted DOI, arXiv ID or ISBN;
+  signing in to or syncing with GitHub or another remote; an assistant request; a live session
+  with a relay you chose. A test in the repository pins which parts of the program can reach the
+  network at all.
+- If the app ever crashes, it writes a report on your machine and, the next time it starts, shows
+  you the whole text and offers to open a prefilled GitHub issue that you read and submit
+  yourself. It never uploads anything.
 - Build output goes to a hidden `.abstract-tex/` folder inside the project. Settings, if you
   need any, go in one small `abstract-tex.toml`.
 
@@ -116,11 +167,11 @@ development line. Work is organised in milestones, each ending in something usab
 | v0.2 | **It navigates**: language server, SyncTeX, multi-file projects, command palette | Implemented, in pre-release testing |
 | v0.3 | **It explains itself**: every error traced to its file and line and explained in plain language | Implemented, in pre-release testing |
 | v0.4 | **It cites**: citation completion, paste-to-cite, Zotero, bibliography checks | Implemented, in pre-release testing |
-| v0.5 | **It's fast**: single-pass warm builds, system TeX engines, a performance gate in CI | In progress |
-| v0.6 | **It syncs**: history and sync through any Git remote, conflicts shown as plain paragraphs | Planned |
-| v0.7 | **It assists**: an optional prose assistant using your own API key, unable to invent citations | Planned |
-| v0.8 | **It shares, live**: real-time co-editing through a self-hostable relay | Planned |
-| v0.9 | **It ships**: signed installers and auto-update | Planned |
+| v0.5 | **It's fast**: single-pass warm builds, system TeX engines, a performance gate in CI | Implemented; the 1.2 s target is not met for a sixty-page thesis on the bundled engine (see `0.1/SPRINTS.md`) |
+| v0.6 | **It syncs**: history and sync through any Git remote, conflicts shown as plain paragraphs | Implemented, in pre-release testing; the two-machine demo is not yet performed |
+| v0.7 | **It assists**: an optional prose assistant using your own API key, unable to invent citations | Implemented, in pre-release testing |
+| v0.8 | **It shares, live**: real-time co-editing through a self-hostable relay | Implemented; the exit demo passes against the real relay |
+| v0.9 | **It ships**: signed installers and auto-update | In progress: crash reports, an accessibility pass and these docs are done; installers and the updater wait on a code-signing decision |
 | v1.0 | Public release | Planned |
 
 Bundled components: Tectonic 0.17.0 (TeX engine) and TexLab 5.26.0 (language server).
@@ -210,8 +261,11 @@ the bundled engine instead.
   build yet.
 - With the bundled engine, `fontspec` finds fonts by file name (`\setmainfont{FreeSerif.otf}`),
   not by family name (`\setmainfont{DejaVu Serif}`).
-- There are no installers, and Git sync, the assistant and live collaboration are not built yet
-  (see [Versions](#versions)).
+- There are no installers yet. Live sessions need a relay you run yourself; a relay's address is
+  typed into the Share window each time.
+- Comments are kept on a Git ref of their own. They are not yet pushed with *Sync*, so for now
+  they stay on the machine that wrote them.
+- Screen-reader support has been checked by reading the markup, not yet with a screen reader.
 
 ---
 
@@ -222,8 +276,8 @@ These are deliberate choices, not missing features:
 - **Not WYSIWYG.** Source on one side, PDF on the other.
 - **Not a TeX distribution.** It bundles one engine and uses the ones you already have; it does
   not manage packages.
-- **Not a cloud service.** Nothing is stored anywhere but your machine and, later, a Git remote
-  you choose.
+- **Not a cloud service.** Nothing is stored anywhere but your machine and a Git remote you
+  choose. The live-session relay passes messages along and keeps none.
 - **Not a replacement for Zotero or Git.** It works with both.
 - **Not for mobile.**
 
@@ -250,7 +304,8 @@ it on Linux, Windows and macOS for every push. Build details, the repository lay
 architecture and the development plan are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 Bug reports and suggestions are welcome as
-[GitHub issues](https://github.com/verocai-vrc/Abstract-Tex/issues).
+[GitHub issues](https://github.com/verocai-vrc/Abstract-Tex/issues); there are templates for both.
+To contribute code, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

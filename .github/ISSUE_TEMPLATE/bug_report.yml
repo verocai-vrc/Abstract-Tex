@@ -1,0 +1,57 @@
+name: Something is broken
+description: The app did the wrong thing, crashed, or built a document wrongly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you. The more of this you can fill in, the faster it can be fixed. Please do **not**
+        paste a whole document or private text; a few lines that reproduce the problem are enough.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: And what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can it be reproduced?
+      description: The steps, from opening the app. A minimal `.tex` snippet that shows it is ideal.
+      placeholder: |
+        1. Open a folder with ...
+        2. Type ...
+        3. Press ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Abstract-Tex version or commit
+      description: Shown in a crash report, or run `git rev-parse --short HEAD` if you built it from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Operating system
+      options: [Windows, macOS, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Which engine was building?
+      options: [Bundled (Tectonic), pdflatex, xelatex, lualatex, Not a build problem]
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash report
+      description: If the app offered to report a crash, the text it showed. Read it first; it holds no documents, but a panic message can quote a path.
+      render: text
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else?
+      description: Screenshots are welcome. For a wrong explanation of a TeX error, include the few lines of the log it was about.

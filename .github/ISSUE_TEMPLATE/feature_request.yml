@@ -1,0 +1,35 @@
+name: An idea
+description: Something Abstract-Tex could do, or do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please skim the non-goals in [`0.1/DESIGN.md`](https://github.com/verocai-vrc/Abstract-Tex/blob/main/0.1/DESIGN.md) §1.3 first: no WYSIWYG, no
+        TeX distribution, no cloud service, no replacement for Zotero or Git, no mobile. Ideas outside
+        them are very welcome; ideas inside them will get a kind no.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, not the feature. What were you writing when you wished this existed?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What do you do today instead?
+      description: Another editor, a script, a workaround. It tells us how much it matters.
+  - type: checkboxes
+    id: commitments
+    attributes:
+      label: Does it fit?
+      options:
+        - label: It works without an account or a network connection, or asks first.
+        - label: It has a version that works without AI, if it uses AI at all.
