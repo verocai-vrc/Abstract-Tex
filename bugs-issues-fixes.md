@@ -1801,6 +1801,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      It is called for every external change to an open file (a branch switch from B4, a pull, a
      snapshot restore). Fix: give `similar` a deadline and fall back to the single replace the
      module already uses for small changes, and make the command `async` with `spawn_blocking`.
+     **Fixed 10 Nov 2026.** `DIFF_BUDGET` (150 ms) is passed to `similar`'s `timeout`, which makes
+     it finish the rest as one block, so the result is coarser but exact (test: a 300-line document
+     with every third line rewritten failed at 6.7 s in a debug build against a 1 s bound and now
+     passes; the round trip through `apply_ops` is asserted). `diff_ops` is `async` on
+     `spawn_blocking`.
 
   **Medium**
   3. **R. Git verbs act on unvalidated paths.** `discard` (and `stage`, `unstage`, `diff_sides`) join
@@ -1823,6 +1828,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      while Rust diffed, it falls through to `lastSavedText = diskText`, leaving the typed text in the
      buffer, so the next save overwrites the external change with no question asked (the conflict
      bar is for the dirty-at-arrival case only). Finding 2 makes the window long enough to matter.
+     **Fixed 10 Nov 2026.** `applyExternal` returns whether the change landed and records nothing
+     when it did not; the controller then raises the same conflict bar a dirty buffer gets, with
+     saves held, from both the watcher path and "load from disk". Three tests (document, watcher
+     path, load-disk path), the controller one checked by removing the guard.
   7. **S. Cancelling a build kills only the direct child.** `process.rs` calls `child.kill()` and
      sets `kill_on_drop`; latexmk's own children (pdflatex, bibtex) are not in a process group and
      keep running and writing into the build folder, and their open pipes keep the two stderr/stdout

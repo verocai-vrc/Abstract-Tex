@@ -104,6 +104,26 @@ describe('OpenDocument', () => {
     doc.dispose();
   });
 
+  // Review finding R4.6. The diff is computed asynchronously; if the author types while it runs the
+  // ops no longer fit, so `applyExternal` retries. When every retry is overtaken it used to fall
+  // through, record the disk text as saved, and leave the author's typing in the buffer, so the next
+  // autosave overwrote the external change without a question. It now says it did not apply.
+  it('says so when the change landed, and when the author kept typing through every attempt', async () => {
+    const { backend } = fakeBackend();
+    const doc = new OpenDocument('main.tex', 'old text', backend);
+    expect(await doc.applyExternal('new text')).toBe(true);
+    expect(doc.text()).toBe('new text');
+
+    const real = backend.diffOps;
+    backend.diffOps = async (oldText, newText) => {
+      doc.ytext.insert(doc.ytext.length, '!'); // a keystroke lands while Rust is diffing
+      return real(oldText, newText);
+    };
+    expect(await doc.applyExternal('somebody else wrote this')).toBe(false);
+    expect(doc.text()).toBe('new text!!!'); // one keystroke per attempt, nothing of the disk text merged
+    doc.dispose();
+  });
+
   it('external changes are not undoable, but the author\'s own edits still are', async () => {
     const { backend } = fakeBackend();
     const doc = new OpenDocument('main.tex', 'one', backend);

@@ -29,6 +29,9 @@ pub struct TextOp {
     pub insert: String,
 }
 
+/// How long one diff may search for a short edit script before settling for a coarser one.
+const DIFF_BUDGET: std::time::Duration = std::time::Duration::from_millis(150);
+
 /// Compute the ops that turn `old` into `new`.
 ///
 /// Two passes: strip the common prefix and suffix first, then run a character-level diff on
@@ -86,8 +89,14 @@ pub fn diff_ops(old: &str, new: &str) -> Vec<TextOp> {
 
     // General case: character diff of the middle. Myers is the standard choice; `similar`
     // also offers Patience, which reads better for humans but we are not showing this to one.
+    // A time budget, because Myers is quadratic in the number of differences and this runs where
+    // the author is looking at a frozen window if it is slow (review finding R4.2: 81 KB with a
+    // third of its lines rewritten took 4.7 s). When the budget runs out `similar` stops looking for
+    // the shortest edit script and replaces what is left as one block, so the result is coarser but
+    // still exact, and `apply_ops` still gives `new`.
     let diff = TextDiff::configure()
         .algorithm(Algorithm::Myers)
+        .timeout(DIFF_BUDGET)
         .diff_chars(old_mid, new_mid);
 
     let mut ops: Vec<TextOp> = Vec::new();
@@ -235,6 +244,50 @@ mod tests {
         assert_eq!(apply_ops(&old, &ops), new);
         let total_deleted: usize = ops.iter().map(|o| o.delete).sum();
         assert!(total_deleted < 20, "diff should not delete the filler: {ops:?}");
+    }
+
+    /// Review finding R4.2. Myers is quadratic in the number of differences, and this runs on the
+    /// window's thread: 81 KB with a third of its lines rewritten took 4.7 s and a 244 KB case did
+    /// not finish in minutes. The diff now has a time budget and degrades to a coarser (still
+    /// exact) result instead. 24 KB is about 0.4 s of work in a release build, far more in the debug
+    /// build tests run in, so the old code fails the bound below by a wide margin.
+    #[test]
+    fn a_heavily_changed_document_is_diffed_within_its_time_budget_and_still_round_trips() {
+        let words = [
+            "the",
+            "result",
+            "of",
+            "this",
+            "analysis",
+            "shows",
+            "that",
+            "convergence",
+            "is",
+            "quadratic",
+        ];
+        let line = |line_number: usize, rewritten: bool| -> String {
+            let mut text = String::new();
+            for position in 0..12 {
+                let pick = if rewritten {
+                    (line_number * 31 + position * 17 + 5) % words.len()
+                } else {
+                    (line_number * 7 + 3) % words.len()
+                };
+                text.push_str(words[pick]);
+                text.push(' ');
+            }
+            text.push('\n');
+            text
+        };
+        let old: String = (0..300).map(|n| line(n, false)).collect();
+        let new: String = (0..300).map(|n| line(n, n % 3 == 0)).collect();
+
+        let started = std::time::Instant::now();
+        let ops = diff_ops(&old, &new);
+        let took = started.elapsed();
+
+        assert_eq!(apply_ops(&old, &ops), new, "the coarser diff must still be exact");
+        assert!(took < std::time::Duration::from_secs(1), "diffing took {took:?}");
     }
 
     // The property that matters: for any two strings, applying the ops to the first yields the

@@ -2830,10 +2830,13 @@ export async function resolveConflict(choice: 'keep-mine' | 'load-disk'): Promis
     // Force a write even if the debounce has not fired; the write is remembered, so the
     // watcher will not report it back as another external change.
     await doc.save();
-  } else {
-    await doc.applyExternal(conflict.diskText);
+  } else if (await doc.applyExternal(conflict.diskText)) {
     await tellServerTextArrivedFromDisk(conflict.path);
     await triggerCompile();
+  } else {
+    // Typing overtook the load again. The choice is not made: put the bar back, saves held.
+    doc.holdSaves();
+    app.conflict = conflict;
   }
 }
 
@@ -2989,8 +2992,16 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
         break;
       case 'apply':
         if (diskText !== null) {
-          await doc.applyExternal(diskText);
-          await tellServerTextArrivedFromDisk(relative);
+          if (await doc.applyExternal(diskText)) {
+            await tellServerTextArrivedFromDisk(relative);
+          } else {
+            // The author typed through every attempt, so the buffer is no longer clean and the
+            // change cannot be folded in under them: the same question as a dirty buffer, asked
+            // the same way, with saves held so nothing answers it for them (R4.6).
+            app.conflict = { path: relative, diskText };
+            app.activePath = relative;
+            keepHeldForConflict = true;
+          }
         }
         break;
       case 'conflict':

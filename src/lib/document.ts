@@ -197,25 +197,33 @@ export class OpenDocument {
    * Fold a new on-disk version into the document as CRDT edits, preserving undo history and
    * any future remote peers' positions. The caller must have decided this is safe
    * (see `decideExternalChange`); this method never checks `dirty`.
+   *
+   * Returns whether the disk text is now what the buffer holds. `false` means the author kept
+   * typing while the diff was being computed, on every one of the attempts: nothing was applied
+   * and nothing was recorded as saved, so the caller must treat the change as a conflict and ask,
+   * never save over it (review finding R4.6: the old code recorded the disk text as saved and let
+   * the next autosave overwrite it).
    */
-  async applyExternal(diskText: string): Promise<void> {
+  async applyExternal(diskText: string): Promise<boolean> {
     // The diff is computed asynchronously (in Rust). If the author types in between, the ops
     // would land on the wrong indices, so we re-check and retry a couple of times.
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = this.text();
-      if (current === diskText) break;
-      const ops = await this.backend.diffOps(current, diskText);
-      if (this.text() !== current) continue;
-      this.ydoc.transact(() => {
-        for (const op of ops) {
-          if (op.delete > 0) this.ytext.delete(op.index, op.delete);
-          if (op.insert.length > 0) this.ytext.insert(op.index, op.insert);
-        }
-      }, ORIGIN_EXTERNAL);
-      break;
+      if (current !== diskText) {
+        const ops = await this.backend.diffOps(current, diskText);
+        if (this.text() !== current) continue;
+        this.ydoc.transact(() => {
+          for (const op of ops) {
+            if (op.delete > 0) this.ytext.delete(op.index, op.delete);
+            if (op.insert.length > 0) this.ytext.insert(op.index, op.insert);
+          }
+        }, ORIGIN_EXTERNAL);
+      }
+      this.lastSavedText = diskText;
+      this.setDirty(this.text() !== diskText);
+      return true;
     }
-    this.lastSavedText = diskText;
-    this.setDirty(this.text() !== diskText);
+    return false;
   }
 
   /**

@@ -233,6 +233,7 @@ vi.mock('./ipc', () => ({
       return ++calls.compiles;
     },
     diffOps: async (oldText: string, newText: string): Promise<TextOp[]> => {
+      diffHook?.(); // a test's way of typing while Rust is still diffing
       // Prefix/suffix trimming, as the Rust reconciler does. Its own correctness is proved by
       // the proptests in abstract-tex-reconcile; here it only has to leave untouched text alone.
       let prefix = 0;
@@ -749,6 +750,9 @@ async function fileChanged(relative: string): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+/** Called at the start of every `diffOps`, so a test can type while the diff is "running". */
+let diffHook: (() => void) | null = null;
+
 /** Type into the open buffer as the author would, without waiting for the 700 ms save. */
 function type(text: string): void {
   const doc = app.activeDoc!;
@@ -974,6 +978,20 @@ describe('an external change to the open file', () => {
     expect(calls.writes).toHaveLength(0);
     expect(disk.get('main.tex')).toBe('hello world');
     expect(calls.compiles).toBe(0);
+  });
+
+  // Review finding R4.6: typing while the diff ran, three times over, used to leave the buffer
+  // clean-looking and let the next autosave overwrite what the other program had written.
+  it('asks, and never overwrites the disk, when the author kept typing while the change was being applied', async () => {
+    diffHook = () => type('!');
+    disk.set('main.tex', 'hello world');
+    await fileChanged('main.tex');
+    diffHook = null;
+
+    expect(app.conflict).toEqual({ path: 'main.tex', diskText: 'hello world' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls.writes).toHaveLength(0);
+    expect(disk.get('main.tex')).toBe('hello world');
   });
 
   it('does not lose the buffer when the file is deleted underneath it', async () => {
@@ -1226,6 +1244,17 @@ describe('resolving a conflict', () => {
     expect(disk.get('main.tex')).toBe('hello there');
     expect(app.activeDoc!.text()).toBe('hello there');
     expect(app.dirty).toBe(false);
+  });
+
+  it('"load from disk" keeps the question open when typing overtakes the load', async () => {
+    diffHook = () => type('!');
+    await resolveConflict('load-disk');
+    diffHook = null;
+
+    expect(app.conflict).toEqual({ path: 'main.tex', diskText: 'hello world' });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls.writes).toHaveLength(0); // nothing answered it for the author
+    expect(calls.compiles).toBe(0);
   });
 
   it('"load from disk" takes the disk version into the buffer and rebuilds', async () => {

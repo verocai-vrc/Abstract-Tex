@@ -502,9 +502,15 @@ pub fn read_log(state: State<'_, AppState>) -> CommandResult<String> {
 
 /// Diff two texts into CRDT operations. Pure; lives in Rust because `similar` is there and the
 /// UTF-16 conversion is the kind of detail we want in one tested place.
+///
+/// `async` with `spawn_blocking`: a plain `#[tauri::command]` function runs on the main thread, so
+/// a diff of a large rewritten document froze the whole window (review finding R4.2). The reconciler
+/// now has a time budget as well, but the thread it runs on should not be the one the author types on.
 #[tauri::command]
-pub fn diff_ops(old: String, new: String) -> Vec<TextOp> {
-    abstract_tex_reconcile::diff_ops(&old, &new)
+pub async fn diff_ops(old: String, new: String) -> CommandResult<Vec<TextOp>> {
+    tauri::async_runtime::spawn_blocking(move || abstract_tex_reconcile::diff_ops(&old, &new))
+        .await
+        .map_err(to_message)
 }
 
 // ---------------------------------------------------------------------------
