@@ -61,9 +61,12 @@ impl Tectonic {
             "--keep-logs".to_string(),
             // Keep .aux/.bbl between runs: they are the warm cache (DESIGN.md §5.1, rung 1).
             "--keep-intermediates".to_string(),
-            // Less noise on stderr; errors are still printed.
+            // Tectonic's default chatter, not `minimal`: its progress notes are the only way to
+            // know a cold first build is fetching packages rather than hung ("note: downloading
+            // <file>", turned into the status bar's "Downloading <file>" by `process.rs`).
+            // `minimal` suppressed them, and a first build looked frozen for a minute or more.
             "--chatter".to_string(),
-            "minimal".to_string(),
+            "default".to_string(),
         ];
         if job.synctex {
             args.push("--synctex".to_string());

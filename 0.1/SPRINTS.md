@@ -6972,6 +6972,18 @@ first); and the sidebar's *New file* used the browser's `window.prompt` (now an 
 unwalked:** §3 step 5 (package-fetch progress), `F5` and `Ctrl O` (the harness cannot send them),
 `bibliography-demo` (needs Zotero and live DOI lookups), and the exit demos.
 
+**Owed walks, fifth pass (10 November 2026): the cold-cache build.** `fixtures/paper/SMOKE.md` §3
+step 5, run with `XDG_CACHE_HOME` on an empty folder so the real cache was left alone. **It failed:**
+88 seconds of "Compiling… N.Ns" and no "Downloading" suffix once. Three causes, each found by looking
+at what the real binary prints rather than at the code: the app ran Tectonic with `--chatter minimal`,
+which suppresses the `note: downloading <file>` lines; nothing translated them into the words the
+status bar was written to show; and Tectonic's command-line interface prints them to **stdout**, which
+the engine discarded. Fixed (default chatter, stdout drained for progress only, `progress_from_line`),
+with a test that failed first, the ignored real-engine suite re-run green, and the build re-walked: the
+suffix changes file by file for the whole 117 s, which fetched about 40 MB. §3 steps 1–2 reworded for
+the runaway-argument change. **Still unwalked:** `F5` and `Ctrl O` (the harness cannot send them),
+`bibliography-demo`, and the exit demos.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

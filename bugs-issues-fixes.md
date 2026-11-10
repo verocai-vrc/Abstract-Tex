@@ -1454,6 +1454,22 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   cancels. First attempt pre-filled the suggestion and selected it; typing then appended to it in the
   webview, so it became a placeholder. Walked in the app.
 
+- **A cold first build shows only "Compiling… N.Ns" for as long as it takes, with no
+  "Downloading <package>" suffix.** (Found 10 Nov 2026 on the walk of `fixtures/paper/SMOKE.md` §3
+  step 5, with an empty cache: 88 seconds, no suffix once. **Fixed** the same session; see below.) Rule 4
+  ("zero setup to first PDF") promises the wait is explained. Two causes: the app runs Tectonic with
+  `--chatter minimal`, which suppresses the `note: downloading <file>` lines it prints for each file
+  it fetches (checked by running the bundled binary on a cold cache), and nothing translates those
+  lines into the "Downloading <name>" the status bar was written to show. The unit test for
+  `pump_stderr` only ever fed it a made-up `Downloading amsmath.sty` line. A third cause turned up
+  on the first attempt at a fix: Tectonic's command-line interface (the one the app uses) prints
+  those notes to **stdout**, which the engine threw away (`Stdio::null()`); only `-X` mode uses
+  stderr. **Fixed:** default chatter, stdout piped and drained for progress only, and
+  `progress_from_line` turns `note: downloading <file>` into `Downloading <file>` and forwards
+  nothing else. Tests: the translation, and a fake engine run through the real `run`, which failed
+  first; the ignored real-engine suite (corpus, torture, timings) still passes; and a cold-cache
+  build re-walked in the app, where the suffix changed file by file for the whole fetch.
+
 - **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
   nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Fixed** 10 Nov 2026
   by `place_unlocated_errors`.) The card is honest — it explains that TeX reports the end of the file and the

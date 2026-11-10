@@ -36,16 +36,18 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 1. Delete the `\end{document}` line's closing brace. Within a second the drawer opens with
    `1 error stopped the build` and the message, \end is missing its closing brace. TeX reports this
-   one at the end of the file, so the card sits under *Not inside any file* with no line number. The PDF pane still shows the
-   last good PDF.
-2. Click the error: the cursor lands on that line. (For the missing-brace error above there is no
-   line; the tooltip says *TeX did not say which line* and the click goes nowhere.)
+   one only at the end of the file and names neither file nor line, so the card is filed under
+   `main.tex` at its last line (`place_unlocated_errors`); its explanation says the culprit is earlier.
+   The PDF pane still shows the last good PDF.
+2. Click the error: the cursor lands on the last line of `main.tex`.
 3. *Raw log* shows the log; *Hide raw output* hides it. The raw log is never shown by default.
 4. Restore the brace: the drawer closes on the next successful build.
 5. Delete `.abstract-tex/` (or use a document with a package not yet cached) so Tectonic fetches
-   packages on the next build. While it runs, the status bar's `Compiling… N.Ns` grows a
-   `· Downloading <package>` suffix that changes as each package arrives — never a spinner
-   frozen on the same text for the whole fetch.
+   packages on the next build (on a machine with a warm cache, start the app with
+   `XDG_CACHE_HOME` pointing at an empty folder instead of deleting your real cache). While it
+   runs, the status bar's `Compiling… N.Ns` grows a `· Downloading <file>` suffix that changes as
+   each file arrives — never a spinner frozen on the same text for the whole fetch. A cold first
+   build took 117 s and fetched about 40 MB on the Linux machine (10 Nov 2026).
 
 ## §4 Keyboard (S2.4)
 
