@@ -22,7 +22,9 @@ use std::path::{Path, PathBuf};
 use git2::{Status as GitStatus, StatusOptions};
 
 mod branches;
+mod tags;
 pub use branches::{branches, create_branch, switch_branch, BranchRow};
+pub use tags::create_tag;
 
 /// The handle [`open`] hands back, re-exported so that a caller can name it without depending on
 /// `git2` itself. The app crate does exactly that (`src-tauri/src/git.rs`): every Git question it
@@ -157,6 +159,18 @@ pub enum GitError {
 
     /// B4: the other branch has a file where the author has one Git has never seen. Checking it
     /// out would destroy work that exists nowhere else.
+    /// A11: a name Git cannot use for a tag; said with the rule, as branch names are.
+    #[error("\"{0}\" cannot be used as a name for a version. Use letters, numbers, hyphens and underscores, with no spaces.")]
+    InvalidTagName(String),
+
+    /// A11: a tag is a promise that a name means one version, so it is never moved.
+    #[error("A version is already called \"{0}\". Pick another name.")]
+    TagExists(String),
+
+    /// A11: a commit id the project's history does not hold.
+    #[error("That version is not in this project's history.")]
+    NoSuchCommit(String),
+
     #[error("A file in your folder that Git has never seen would be overwritten by the other branch's version of it. Move it, or commit it, then switch.")]
     WouldOverwriteFiles,
 }

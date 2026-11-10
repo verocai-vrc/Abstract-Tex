@@ -22,7 +22,10 @@
     ignoreOurFolder,
     initialiseRepository,
     loadMoreCommits,
+    beginNamingVersion,
+    cancelNamingVersion,
     markGraphRow,
+    nameVersion,
     openChangeRow,
     openSnapshot,
     suggestedRemoteName,
@@ -121,6 +124,13 @@
       document.removeEventListener('keydown', onDocumentKeydown);
     };
   });
+
+  /** The name typed in the "name this version" box (A11); cleared only once the name was taken. */
+  let versionName = $state('');
+
+  async function onNameVersion(commitId: string) {
+    if (await nameVersion(commitId, versionName)) versionName = '';
+  }
 
   async function onStartBranch() {
     if (await startBranch(newBranchName)) newBranchName = '';
@@ -617,6 +627,37 @@
                   {/if}
                 </div>
               </button>
+              <!-- A11: a sibling of the row's button, not inside it (a button cannot hold a
+                   button). Shown on hover or focus so the list stays quiet, and reachable by Tab. -->
+              <button
+                class="ghost name-version"
+                title="Name this version"
+                aria-label={`Name version ${commit.shortId}`}
+                onclick={() => beginNamingVersion(commit.id)}
+              >
+                ⌑
+              </button>
+              {#if git.namingCommit === commit.id}
+                <div class="version-name">
+                  <!-- svelte-ignore a11y_autofocus -->
+                  <input
+                    type="text"
+                    autofocus
+                    placeholder="e.g. sent-to-supervisor"
+                    aria-label="A name for this version"
+                    bind:value={versionName}
+                    onkeydown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        void onNameVersion(commit.id);
+                      } else if (event.key === 'Escape') {
+                        cancelNamingVersion();
+                      }
+                    }}
+                  />
+                  <button class="primary" disabled={versionName.trim() === ''} onclick={() => void onNameVersion(commit.id)}>Name</button>
+                </div>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -879,6 +920,34 @@
   }
   .commit-row {
     padding: 0;
+    position: relative;
+  }
+  /* A11: out of the way until the row is hovered or something inside it has focus. */
+  .name-version {
+    position: absolute;
+    top: 2px;
+    right: 4px;
+    padding: 0 5px;
+    opacity: 0;
+  }
+  .commit-row:hover .name-version,
+  .commit-row:focus-within .name-version {
+    opacity: 1;
+  }
+  .version-name {
+    display: flex;
+    gap: 4px;
+    padding: 2px 10px 6px;
+  }
+  .version-name input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-editor);
+    color: var(--fg);
   }
   .commit-row:hover {
     background: var(--bg-hover);

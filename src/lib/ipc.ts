@@ -683,6 +683,8 @@ export const ipc = {
   /** B4: switch to a local branch, rewriting the files on disk. Refuses while tracked files have
    * uncommitted changes. */
   gitSwitchBranch: (name: string) => invoke<void>('git_switch_branch', { name }),
+  /** A11: give a commit a name the Graph shows beside it. Local only: `sync` does not carry tags. */
+  gitCreateTag: (commit: string, name: string) => invoke<void>('git_create_tag', { commit, name }),
   /** One page of the history for the Graph section. Empty on a repository with no commits. */
   gitLog: (skip: number, limit: number) => invoke<CommitRow[]>('git_log', { skip, limit }),
   /** Commit whatever is staged; resolves to the new commit's id. Rejects with the sentence for

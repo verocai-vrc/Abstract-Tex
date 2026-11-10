@@ -181,6 +181,7 @@ pub fn run() {
             commands::git_branches,
             commands::git_create_branch,
             commands::git_switch_branch,
+            commands::git_create_tag,
             commands::git_log,
             commands::git_commit,
             commands::git_commit_file,

@@ -7041,15 +7041,26 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   change. Walked in the app with a stand-in `latexdiff` script on `PATH` that fails by default and
   passes with the simpler switches: failure, the button in the banner and the drawer, the retry, the
   banner after it. **Not walked:** a real `latexdiff`; this machine has none.
-- [~] **Compare the working tree, or a tag** (A11) — the working tree against a commit (one side
+- [x] **Compare the working tree, or a tag** (A11) — the working tree against a commit (one side
   needs no export), and named versions ("Sent to supervisor, 3 Oct"), which need tag creation too.
   **Working-tree half done 10 November 2026:** a "Working copy" row at the top of the Graph while
   anything is uncommitted, markable like a commit; Rust puts it last whichever order it was clicked,
   refuses two working copies, copies the project folder (not `.git`, our folder, or ignored files) into
   the export instead of reading a tree, and never reuses its PDF, since it changes between clicks.
   `render_exported` in `abstract-tex-latexdiff` is the new step. Walked with a pass-through stand-in
-  `latexdiff`: the PDF held the uncommitted sentence. **Tags half not done** (see below).
-- **⇄ swap in the comparison toolbar** (A4) — only if anyone asks for a reversed diff.
+  `latexdiff`: the PDF held the uncommitted sentence. **Tags half done the same day:**
+  `create_tag` (`crates/abstract-tex-git/src/tags.rs`) makes a *lightweight* tag, so naming a version
+  never fails for want of an identity; it refuses a name Git cannot use (with the rule, as branches do:
+  "Sent to supervisor, 3 Oct" has to be `sent-to-supervisor-3-oct`) and never moves an existing tag. The
+  Graph already drew tags as chips, so a hover button on each row opens a name box and the chip is the
+  result; comparing "against a tag" is clicking the row that carries it. The controller re-reads the
+  Graph itself, since a tag does not move `HEAD` and the Graph only reloads when it does. Walked in the
+  app. **Limits:** tags are local; `sync` carries branches, not tags, so a name made here exists on this
+  machine until pushed by other means. There is no way to delete or rename one.
+- **⇄ swap in the comparison toolbar** (A4) — only if anyone asks for a reversed diff. **Deliberately
+  not built (10 November 2026):** the card's own condition ("only if anyone asks") is not met, and the
+  design reasoned that a reversed diff reads as "everything I wrote was deleted". It touches what
+  `older` and `newer` mean throughout the comparison code, so it should be built when someone asks, not before.
 - [x] **Branch create and switch** (B4) — out of v0.6; needed by "a branch against `main`". **Done 10
   November 2026**, local branches only: list, create (`git switch -c`: starts at the current commit,
   uncommitted work travels) and switch. `crates/abstract-tex-git/src/branches.rs`, three commands, and a

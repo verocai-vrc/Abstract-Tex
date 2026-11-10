@@ -294,6 +294,9 @@ class GitState {
    * leaving Source Control for Files and coming back does not leave a stale menu on screen. */
   branchMenuOpen = $state(false);
 
+  /** The commit whose "name this version" box is open, or `null` (A11). One at a time. */
+  namingCommit = $state<string | null>(null);
+
   /** The Graph section's rows, oldest page last. Replaced whole on a refresh and appended to by
    * *Show more*, so the author never loses the pages they had already asked for. */
   commits = $state.raw<CommitRow[]>([]);

@@ -946,6 +946,22 @@ pub fn git_switch_branch(app: AppHandle, state: State<'_, AppState>, name: Strin
     Ok(())
 }
 
+/// Give a commit a name the Graph will show beside it (A11): a lightweight, local tag. The refusal
+/// for a name Git cannot use, or one already taken, is the command's error, in the crate's sentence.
+#[tauri::command]
+pub fn git_create_tag(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit: String,
+    name: String,
+) -> CommandResult<()> {
+    git::in_repository(&state, |repository| {
+        abstract_tex_git::create_tag(repository, &commit, &name)
+    })?;
+    git::emit_status_changed(&app);
+    Ok(())
+}
+
 /// One page of the history for the Graph section. `skip` rows in, at most `limit` rows out.
 #[tauri::command]
 pub fn git_log(state: State<'_, AppState>, skip: usize, limit: usize) -> CommandResult<Vec<CommitRow>> {

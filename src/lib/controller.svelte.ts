@@ -1734,6 +1734,40 @@ export async function startBranch(name: string): Promise<boolean> {
   return true;
 }
 
+// ---- Naming a version (A11) --------------------------------------------------------------------
+
+/** Open the "name this version" box under one Graph row. */
+export function beginNamingVersion(commitId: string): void {
+  git.error = null;
+  git.namingCommit = commitId;
+}
+
+export function cancelNamingVersion(): void {
+  git.namingCommit = null;
+}
+
+/**
+ * Give a commit a name the Graph shows beside it ("sent-to-supervisor"). The name is trimmed and
+ * nothing else; what Git accepts is Rust's rule, said in a sentence on a refusal. The history is
+ * re-read here, because the Graph only reloads when `HEAD` moves and a tag does not move it, so
+ * the chip would otherwise not appear until something else did. Returns whether it was made.
+ */
+export async function nameVersion(commitId: string, name: string): Promise<boolean> {
+  const trimmed = name.trim();
+  if (trimmed === '') {
+    git.error = 'Give this version a name first.';
+    return false;
+  }
+  const done = await runGitVerb(async () => {
+    await ipc.gitCreateTag(commitId, trimmed);
+    return true; // `()` arrives as `null`, which is also what a refusal returns; see `switchToBranch`
+  });
+  if (!done) return false;
+  git.namingCommit = null;
+  await refreshGitGraph();
+  return true;
+}
+
 /** The author has typed in the commit box, so it is theirs from now on (S10.3c). */
 export function claimCommitMessage(): void {
   git.messageIsSuggested = false;

@@ -98,6 +98,7 @@ let branchOnDisk: BranchState = { name: 'main', aheadBehind: null, unborn: false
 let branchesOnDisk: BranchRow[] = [{ name: 'main', current: true }];
 let branchVerbError: string | null = null;
 let diskAtLastSwitch: string | undefined;
+let tagVerbError: string | null = null;
 /** What `gitProseSummary` answers with (S10.3c). */
 let proseOnDisk: ProseSummary = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
 /** Set to a message to make the next commit be refused, as the crate refuses an empty message,
@@ -406,6 +407,12 @@ vi.mock('./ipc', () => ({
       // returned `undefined` hid a bug the running app showed: success read as failure.
       return null as never;
     },
+    gitCreateTag: async (commit: string, name: string) => {
+      if (tagVerbError) throw new Error(tagVerbError);
+      calls.gitVerbs.push(`tag ${commit} ${name}`);
+      commitsOnDisk = commitsOnDisk.map((row) => (row.id === commit ? { ...row, tags: [...row.tags, name] } : row));
+      return null as never; // what the real bridge answers for `()`
+    },
     gitSwitchBranch: async (name: string) => {
       diskAtLastSwitch = disk.get('main.tex');
       if (branchVerbError) throw new Error(branchVerbError);
@@ -671,7 +678,10 @@ const {
   toggleRawLog,
   trackLargeFilesWithLfs,
   triggerCompile,
+  beginNamingVersion,
+  cancelNamingVersion,
   clearComparison,
+  nameVersion,
   startBranch,
   switchToBranch,
   toggleBranchMenu,
@@ -776,6 +786,7 @@ beforeEach(async () => {
   discardAnswer = false;
   gitVerbError = null;
   branchVerbError = null;
+  tagVerbError = null;
   branchesOnDisk = [
     { name: 'main', current: true },
     { name: 'second-draft', current: false },
@@ -4164,5 +4175,64 @@ describe('switching and starting branches (B4)', () => {
     expect(done).toBe(false);
     expect(git.error).toContain('no spaces');
     expect(git.branchMenuOpen).toBe(true);
+  });
+});
+
+describe('naming a version (A11)', () => {
+  const row = (id: string): CommitRow => ({
+    id,
+    shortId: id.slice(0, 7),
+    summary: id,
+    author: 'Ada',
+    time: 1_000,
+    tags: [],
+    wordDelta: 0,
+  });
+
+  beforeEach(async () => {
+    commitsOnDisk = [row('c3c3c3c3'), row('a1a1a1a1')];
+    await refreshGitStatus();
+    git.namingCommit = null;
+    git.error = null;
+    calls.gitLogPages = [];
+  });
+
+  it('opens the name box for one row, and closing it forgets the row', () => {
+    beginNamingVersion('a1a1a1a1');
+    expect(git.namingCommit).toBe('a1a1a1a1');
+    cancelNamingVersion();
+    expect(git.namingCommit).toBeNull();
+  });
+
+  // The Graph is only re-read when HEAD moves, and a tag does not move HEAD, so the chip would
+  // never appear if the controller did not ask for the history itself.
+  it('names the version under the trimmed name, re-reads the history so the chip appears, and closes the box', async () => {
+    beginNamingVersion('a1a1a1a1');
+
+    const done = await nameVersion('a1a1a1a1', '  sent-to-supervisor ');
+
+    expect(done).toBe(true);
+    expect(calls.gitVerbs).toContain('tag a1a1a1a1 sent-to-supervisor');
+    expect(calls.gitLogPages.length).toBeGreaterThan(0);
+    expect(git.commits.find((c) => c.id === 'a1a1a1a1')?.tags).toContain('sent-to-supervisor');
+    expect(git.namingCommit).toBeNull();
+  });
+
+  it('asks nothing for an empty name', async () => {
+    const done = await nameVersion('a1a1a1a1', '  ');
+    expect(done).toBe(false);
+    expect(calls.gitVerbs.filter((v) => v.startsWith('tag'))).toEqual([]);
+    expect(git.error).toMatch(/name/i);
+  });
+
+  it('keeps the box open and reports the sentence when Git refuses the name', async () => {
+    beginNamingVersion('a1a1a1a1');
+    tagVerbError = '"a b" cannot be used as a name for a version. Use letters, numbers, hyphens and underscores, with no spaces.';
+
+    const done = await nameVersion('a1a1a1a1', 'a b');
+
+    expect(done).toBe(false);
+    expect(git.error).toContain('no spaces');
+    expect(git.namingCommit).toBe('a1a1a1a1');
   });
 });
