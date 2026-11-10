@@ -11,8 +11,8 @@
 use std::path::Path;
 
 use abstract_tex_comments::{
-    add, author_name, fetch_refspec, has_comments, load, merge_from, push_refspec, record_resolution,
-    AnchorStatus, CommentRecord, MergeOutcome, OrphanReason, ResolutionEvent,
+    add, author_name, fetch_refspec, has_comments, load, merge_from, push_refspec, resolve, AnchorStatus,
+    CommentRecord, MergeOutcome, OrphanReason,
 };
 use serde::Serialize;
 
@@ -149,15 +149,7 @@ pub fn add_comment(
 pub fn set_resolved(root: &Path, comment: &str, resolved: bool, now: i64) -> Result<(), CommentError> {
     let repository = open(root)?;
     let author = author_name(&repository);
-    record_resolution(
-        &repository,
-        &ResolutionEvent {
-            comment: comment.to_string(),
-            resolved,
-            author,
-            created: now,
-        },
-    )?;
+    resolve(&repository, comment, &author, resolved, now)?;
     Ok(())
 }
 

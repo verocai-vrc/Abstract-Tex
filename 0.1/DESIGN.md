@@ -478,9 +478,13 @@ untouched, it works with any Git host, and the relay still stores nothing. The s
 (`crates/abstract-tex-comments`) proved the part of this that was a genuine risk rather than a
 detail: two authors who comment offline build two histories on the ref with no common ancestor,
 and because every comment is its own blob named by its own content hash, Git's ordinary tree merge
-resolves that with no hand-written conflict logic. Not yet designed: editing or resolving an
-existing comment, which needs its own append-only event rather than a rewrite of one — left to
-S14.3.
+resolves that with no hand-written conflict logic. **Resolving a comment (S14.3a, 7 October
+2026)** is the same move, not a new one: a resolve-or-reopen is its own append-only, content-
+addressed event naming the comment rather than a rewrite of it, folded by timestamp into one
+current answer on load — so two authors resolving the same thread offline also merge as additions.
+Still open: anchoring a comment to a live CRDT relative position while a session is open (distinct
+from this ref's quote-anchoring for after the session ends), and the Tauri command/UI that calls
+any of this — the rest of S14.3.
 
 ### 5.7 Storage, history and change review
 

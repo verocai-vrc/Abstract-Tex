@@ -15,6 +15,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Two answers to "this project folder is not a Git repository" for comments.** (10 Nov 2026, found
+  merging `origin/main`, S14.3e) The 7 Oct `project.rs` in `abstract-tex-comments` gives such a folder
+  its own repository for comments; the 9 Nov `src-tauri/src/comments.rs` (S14.3b) refuses it with a
+  sentence. Both compile and both are tested, but the Tauri commands still use the refusing path, so
+  `project.rs` has no caller and a non-Git project cannot yet be commented on. Not decided: which one
+  wins, and whether `comments.rs` should call `project::*` instead of `open`. **Open.**
+
 - **Starting a branch looked like a failure: the picker stayed open and the name stayed in the box.**
   (10 Nov 2026, found walking B4 in the app, in code not yet committed) Tauri answers a command that
   returns `()` with `null`, and `runGitVerb` also returns `null` for a refusal, so `startBranch` and
@@ -547,6 +554,51 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   **Fixed (3 Oct 2026, S12.0):** `blankComments` blanks each unescaped `%` to end of line before the scan (offsets kept; the span's TeX is still cut from the original text), and `renderMath` passes `strict: 'ignore'`. The `$a$$b$` boundary advisory is cosmetic and left.
 
 ## Fixed
+
+- **`pkg-config` is not installed on this Linux agent session (no root to add it), so any
+  `--workspace` Rust build failed before reaching whatever loop's own diff prompted it — first
+  hit at the start of S14.3a, on a plain `cargo test --workspace`.** (7 Oct 2026) `libdbus-sys`
+  (`keyring`'s Secret Service backend, reached through `abstract-tex-assistant`/`abstract-tex-github`,
+  and `tao`) and `openssl-sys` (`git2`'s `https` feature, enabled somewhere in the graph by
+  `abstract-tex-git`/`abstract-tex-snapshot`/`abstract-tex-latexdiff`) both need it; Cargo's
+  feature unification means either one poisons a single `--workspace` invocation even for a crate
+  that touches neither. `CLAUDE.md`'s Linux notes say WebKitGTK is installed but do not mention
+  `pkg-config` itself, and this session genuinely has neither it nor `libdbus-1-dev` (confirmed
+  with `dpkg -l`: `libssl-dev` *was* already present, headers and `.pc` file both — only the
+  `pkg-config`/`pkgconf` binary and the dbus headers were missing).
+  **Fixed (7 Oct 2026), without root:** `apt-get download` fetches a `.deb` to the working
+  directory with no privilege check (only *installing* one needs root), and `dpkg-deb -x <deb>
+  <dir>` extracts a package's files into an arbitrary directory, also with no root. Downloaded
+  `pkgconf`, `pkgconf-bin`, `libpkgconf7` (the real binary behind the `pkg-config` metapackage on
+  this Ubuntu release, which itself ships no binary at all) and `libdbus-1-dev`, extracted all
+  four into a scratch prefix, then two small patches: `dbus-1.pc`'s `prefix=/usr` rewritten to
+  that prefix (so its relative `includedir`/`libdir` resolve inside it, not into the real `/usr`
+  this session cannot write to), and its `Requires.private: libsystemd >= 209` line deleted (no
+  `libsystemd.pc` exists here, and nothing this build needs cares about `dbus`'s systemd
+  socket-activation support). Linking still failed once
+  (`undefined symbol: sd_listen_fds`/`sd_is_socket`, from the extracted package's static
+  `libdbus-1.a`, which was compiled against systemd); fixed by symlinking an unversioned
+  `libdbus-1.so` in the scratch prefix to the system's real, already-installed, already-linked
+  `/usr/lib/x86_64-linux-gnu/libdbus-1.so.3`, which prefers dynamic linking over that static
+  archive and carries no unresolved symbol. With `PKG_CONFIG` pointed at the extracted `pkgconf`,
+  `PKG_CONFIG_PATH` at the scratch prefix's `pkgconfig` dir (plus the system's own, for the
+  already-present `openssl.pc`), and `LD_LIBRARY_PATH` at the scratch prefix's lib dir,
+  `cargo test --workspace --exclude abstract-tex` went from failing at the first `-sys` crate to
+  **575 tests passing across every library crate, zero failures** (one further fix needed: a
+  `git config --global user.name`/`user.email` — also genuinely absent on this session — for the
+  `abstract-tex-git` tests that expect a resolvable identity).
+  **Still not fixed, and a much bigger job:** `abstract-tex` itself (the Tauri app crate) does not
+  build here — `tao`/`tauri-runtime-wry` need `glib-2.0` and roughly fifty more GTK3/WebKitGTK
+  `-dev` packages and their own recursive dependencies, an order of magnitude more than the two
+  packages above, with real ABI-compatibility risk if versions are mismatched by hand. Left for
+  the maintainer's own `apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev
+  libsoup-3.0-dev libjavascriptcoregtk-4.1-dev` (the standard Tauri Linux prerequisite list) rather
+  than extended further by hand — this is the same standing gap `CLAUDE.md`/`SPRINTS.md` have
+  recorded since sprint 2, just now isolated to exactly that one crate instead of the whole
+  workspace. **For the next session on this machine:** the extracted prefix does not survive a
+  fresh sandbox (it lives under this session's scratchpad, not the repository), so this fix
+  itself is not durable — rebuilding it takes four `apt-get download`s, two `dpkg-deb -x`s, one
+  `sed`, and one `ln -s`, all above, plus the three environment variables.
 
 - **A joined session's own content, after the joiner cleared it, silently stopped a peer's edits
   from ever being learned about — permanently, with no error anywhere.** (4 Oct 2026, found
@@ -1370,6 +1422,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Won't fix
 
+- **`crates/abstract-tex-comments/src/anchor.rs`'s `context_before`/`context_after` doc comments
+  link to the private constant `CONTEXT_CHARS`, which fails `RUSTDOCFLAGS="-D warnings" cargo doc`
+  (pre-existing, not introduced by S14.3a).** (7 Oct 2026, found while running that check as S7.5's
+  outcome established for `texbib`; not part of `pnpm verify` or CI for this crate, so it was
+  never caught before.) **Won't fix for now:** low priority, cosmetic, and this crate (unlike
+  `texlog`/`texbib`) is not slated for separate publishing where docs.rs would surface it; fix by
+  swapping the two links for plain backticks, the same move S14.3a made for its own two new links
+  to private items, whenever someone next touches `anchor.rs`.
+
 - **Turning shell-escape consent on or off makes the next latexmk build a full one.** (29 Sep
   2026, found verifying S9.12) `.fdb_latexmk` is latexmk's own dependency database, and it
   records every source file by the path latexmk saw — relative (`"main.tex"`) from the project
@@ -1552,3 +1613,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   project has exactly one, and the author is given nowhere to go. A better answer for this rule is
   the file the build was started from, at its last line, which is what `place_unlocated_errors`
   (`src-tauri/src/compile.rs`, three tests) now does for any error with neither a file nor a line.
+
+- **Agentic review of the E1–A11 card commits (`97670b9`..`05177e9`), 10 Nov 2026: no defect
+  confirmed; three risks left open.** Read in full: `branches.rs`, `tags.rs`, `fragile_command.rs`,
+  `latexdiff.rs` (working-copy export), `compile.rs` (BibTeX and placement), the `detect_root` and
+  include-scan changes, the branch/tag controller code. Real Tectonic run: `main.blg` is rewritten
+  on a text-only rebuild and `Repeated entry---line N of file F` matches `blg.rs`'s parser, so the
+  freshness check holds for the bundled engine. **Open, unverified:**
+  1. *Switching branch during a live session.* `switchToBranch` saves open tabs first, but nothing
+     stops a switch while a live (Yjs) session is open; the files rewrite under the shared document.
+     Needs a walk with a session, or a guard that refuses the switch with a sentence.
+  2. *`read_bibtex_diagnostics` with `latexmk`.* A system `latexmk` run skips BibTeX when `.aux` and
+     `.bib` are unchanged, so `.blg` is not rewritten, and a still-true repeated-entry warning
+     disappears from the drawer after a text-only edit. Bundled Tectonic does not do this.
+  3. *Working-copy comparison drops symlinked files.* `copy_working_tree` copies regular files and
+     directories only, so a symlinked chapter is silently missing from the "working copy" side.
