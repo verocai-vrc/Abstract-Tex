@@ -13,12 +13,15 @@
 //! wording, which a rule is free to improve, and never TeX's own words, which the drawer never
 //! shows. Timing is measured by `warm_build_timings` and, since S9.5, asserted there too: a
 //! document whose warm p95 breaches its [`THRESHOLD_MS`] entry fails the build, the same "no
-//! warning, only pass or fail" rule the broken document's diagnostics already get.
+//! warning, only pass or fail" rule the broken document's diagnostics already get. That gate is
+//! for the bundled Tectonic only; a system TeX has its own, by wall-clock alone
+//! (`system_engine_warm_builds_stay_under_a_wall_clock_ceiling`, E6).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use abstract_tex_engine::latexmk::{Latexmk, TexProgram};
 use abstract_tex_engine::tectonic::Tectonic;
 use abstract_tex_engine::{BuildJob, Engine, EngineError};
 use serde_json::{json, Value};
@@ -47,7 +50,8 @@ const CORPUS: [(&str, Expect); 8] = [
     ("pathological-preamble", Expect::Builds { min_pages: 1 }),
 ];
 
-/// S9.5's performance gate, one warm p95 ceiling per buildable document, in milliseconds.
+/// S9.5's performance gate for the bundled Tectonic: one warm p95 ceiling per buildable
+/// document, in milliseconds. A system TeX is gated separately, by `SYSTEM_ENGINE_GATE` below.
 ///
 /// DESIGN.md §7's exit criterion asked for one number — 1.2 s on the thesis — for every warm
 /// build. S9.3 and S9.7 found the thesis cannot reach it on the bundled engine (its ~1.9 s
@@ -70,6 +74,39 @@ const THRESHOLD_MS: &[(&str, u64)] = &[
     ("non-latin", 1_500),  // 833 ms measured
     ("pathological-preamble", 4_500), // 2_513 ms measured — heavy by design (S9.1)
 ];
+
+/// E6: the same gate for a system TeX distribution driven through `latexmk` (S9.4), which
+/// `THRESHOLD_MS` above does not cover — those numbers are Tectonic's, and a system engine has
+/// different costs altogether. **Wall-clock only**: `latexmk` decides its own rerun loop and does
+/// not say how many passes it ran, so every build reports zero passes and `full: true`
+/// (`latexmk.rs`), and the warm/cold distinction sprint 9 is built on is invisible here.
+///
+/// Each row is a document, the program a project of that shape would choose, and a warm p95
+/// ceiling in milliseconds. The corpus was written for XeTeX (Tectonic's engine), so the
+/// documents that load `fontspec` run on LuaLaTeX, the one Unicode engine a TeX Live install
+/// always has; the rest run on pdfLaTeX. **Provisional**, as `THRESHOLD_MS` is: measured on one
+/// machine with generous headroom, to be tightened from a real CI run and not from a guess.
+const SYSTEM_ENGINE_GATE: &[(&str, TexProgram, u64)] = &[
+    // Measured: TeX Live 2025, pdfLaTeX, `ABSTRACT_TEX_BENCH_RUNS=5`, 10 Nov 2026, ~2.5x headroom.
+    ("beamer", TexProgram::PdfLatex, 3_000),       // 1_105 ms measured
+    ("tikz-figures", TexProgram::PdfLatex, 9_000), // 3_547 ms measured
+    // UNMEASURED: the machine this was written on has a partial TeX Live (no `IEEEtran`, `siunitx`
+    // or `luabidi`), so these four skip there. Each is three times its Tectonic ceiling, a guess
+    // loose enough not to turn the first full-TeX run red for no reason. Replace each with a
+    // measured number the first time a complete distribution runs this test.
+    ("conference", TexProgram::PdfLatex, 3_600),
+    ("thesis", TexProgram::LuaLatex, 18_000),
+    ("non-latin", TexProgram::LuaLatex, 4_500),
+    ("pathological-preamble", TexProgram::LuaLatex, 13_500),
+];
+
+fn system_engine_gate(document: &str) -> (TexProgram, u64) {
+    SYSTEM_ENGINE_GATE
+        .iter()
+        .find(|(name, _, _)| *name == document)
+        .map(|(_, program, ceiling)| (*program, *ceiling))
+        .unwrap_or_else(|| panic!("{document} has no SYSTEM_ENGINE_GATE entry; the system-engine gate must cover every buildable corpus document"))
+}
 
 fn threshold_ms(document: &str) -> u64 {
     THRESHOLD_MS
@@ -118,6 +155,17 @@ fn pages_written(log: &str) -> Option<u32> {
         .take_while(char::is_ascii_digit)
         .collect();
     digits.parse().ok()
+}
+
+/// E6: as `every_buildable_document_has_a_performance_ceiling`, for the system-engine table. Runs
+/// with no engine, so a document added to the corpus without a row is caught on every `cargo test`.
+#[test]
+fn every_buildable_document_has_a_system_engine_ceiling() {
+    for (name, expect) in &CORPUS {
+        if matches!(expect, Expect::Builds { .. }) {
+            system_engine_gate(name); // panics with a clear message if `name` is missing
+        }
+    }
 }
 
 #[test]
@@ -310,6 +358,99 @@ async fn warm_build_timings() {
     let path = repo_root().join("target/corpus-report.json");
     fs::write(&path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     println!("report: {}", path.display());
+}
+
+/// E6: for every document that builds, one cold build and then `runs` warm builds after an edit,
+/// through the system `latexmk`, with the warm p95 held to `SYSTEM_ENGINE_GATE`'s ceiling. Fails,
+/// does not warn — the same rule S9.5 applies to Tectonic.
+///
+/// Needs a system TeX Live or MiKTeX, which CI's runners do not have by default, and a *complete*
+/// one: a distribution without `IEEEtran.cls` cannot build `conference`, and a missing package is
+/// the host's state, not a slowdown. So a document whose program is not on `PATH`, or whose
+/// **cold** build fails, is **skipped with a printed line** and the reason — that a document
+/// builds at all is `every_corpus_document_builds_as_recorded`'s question, not this one's. Set
+/// `ABSTRACT_TEX_REQUIRE_SYSTEM_TEX` where a full TeX has been installed on purpose: either
+/// condition then fails the run, so the gate cannot go quiet by itself.
+///
+/// A *warm* build that fails after the cold one succeeded is always a failure, and so is a warm
+/// p95 over the ceiling.
+#[tokio::test]
+#[ignore]
+async fn system_engine_warm_builds_stay_under_a_wall_clock_ceiling() {
+    let runs: usize = std::env::var("ABSTRACT_TEX_BENCH_RUNS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(3);
+    let required = std::env::var_os("ABSTRACT_TEX_REQUIRE_SYSTEM_TEX").is_some();
+    let mut gated = 0;
+
+    for (name, expect) in &CORPUS {
+        if !matches!(expect, Expect::Builds { .. }) {
+            continue;
+        }
+        let (program, ceiling) = system_engine_gate(name);
+        let engine = match Latexmk::locate(program) {
+            Ok(engine) => engine,
+            Err(EngineError::NotFound) if !required => {
+                println!(
+                    "{name:<22} SKIPPED: latexmk or {} is not on PATH",
+                    program.binary_name()
+                );
+                continue;
+            }
+            Err(error) => panic!("{name}: no system engine for {}: {error}", program.binary_name()),
+        };
+
+        let tmp = tempfile::tempdir().unwrap();
+        copy_dir(&corpus_dir().join(name), tmp.path());
+        let job = BuildJob {
+            project_dir: tmp.path().to_path_buf(),
+            root_file: PathBuf::from("main.tex"),
+            out_dir: tmp.path().join(".abstract-tex/build"),
+            synctex: true,
+            shell_escape: false,
+        };
+
+        let cold = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+        if !cold.success {
+            let first_line = cold.stderr.lines().next().unwrap_or("no output");
+            assert!(
+                !required,
+                "{name}: the cold build on {} failed:\n{}",
+                program.binary_name(),
+                cold.stderr
+            );
+            println!(
+                "{name:<22} SKIPPED: the cold build on {} failed here ({first_line})",
+                program.binary_name()
+            );
+            continue;
+        }
+
+        let main = tmp.path().join("main.tex");
+        let mut millis = Vec::new();
+        for _ in 0..runs {
+            let mut text = fs::read_to_string(&main).unwrap();
+            text.push_str("\n% warm edit\n");
+            fs::write(&main, text).unwrap();
+            let warm = engine.build(&job, CancellationToken::new(), None).await.unwrap();
+            assert!(warm.success, "{name}: a warm build failed:\n{}", warm.stderr);
+            millis.push(warm.duration.as_millis() as u64);
+        }
+        let (median, p95) = (percentile(&millis, 50), percentile(&millis, 95));
+        println!(
+            "{name:<22} {:<8} cold {:>6} ms | warm median {median:>6} ms, p95 {p95:>6} ms (ceiling {ceiling} ms)",
+            program.binary_name(),
+            cold.duration.as_millis(),
+        );
+        assert!(
+            p95 <= ceiling,
+            "{name} on {}: warm p95 {p95} ms breached its {ceiling} ms ceiling (SYSTEM_ENGINE_GATE in this file)",
+            program.binary_name()
+        );
+        gated += 1;
+    }
+    println!("system-engine gate: {gated} documents measured");
 }
 
 /// S9.7's done-when, on the document it is for: after a full build of the thesis and an edit to

@@ -7064,8 +7064,15 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   inert stub first and failed on behaviour, not on a missing name. **Not run here:** the case-folding
   branch needs a case-insensitive filesystem; the wiring test takes whichever branch the host takes,
   so the Windows and macOS legs of CI are its first real run (ledger entry says so).
-- **Wall-clock gate for system engines** (E6) — a ceiling in CI where a system TeX is installed,
-  and the S9.5 doc comment narrowed to what it actually gates.
+- [x] **Wall-clock gate for system engines** (E6) — a ceiling in CI where a system TeX is installed,
+  and the S9.5 doc comment narrowed to what it actually gates. **Done 10 November 2026,
+  with a limit.** `SYSTEM_ENGINE_GATE` and `system_engine_warm_builds_stay_under_a_wall_clock_ceiling`
+  (`crates/abstract-tex-engine/tests/corpus.rs`); a completeness test that runs on every `cargo test`
+  keeps a new corpus document from going ungated. Two of the six documents were measured here
+  (TeX Live is partial on this machine); four ceilings are marked `UNMEASURED`. **The gate does not
+  yet run in CI**: the runner has no TeX, so it skips with a printed line until someone adds a full
+  TeX Live step and sets `ABSTRACT_TEX_REQUIRE_SYSTEM_TEX` (comment in `verify.yml`). That is a cost
+  and a maintenance burden, so it is left as a decision, not made here.
 - [x] **Fragile-command source search** (E7) — when the fragile-command rule matched but TeX's
   50-character context cut the command off, the diagnosed source line is searched. **Done 10
   November 2026**, at the app edge in Rust (`src-tauri/src/fragile_command.rs`, called from

@@ -91,6 +91,11 @@ jobs:
       # exists to absorb. Fails the same way a broken document's diagnostics do: no warning, the
       # build goes red. `THRESHOLD_MS` in `corpus.rs` documents how each ceiling was chosen and
       # that the numbers are provisional until this step has actually gone green here once.
+      #
+      # E6: the same command also runs the system-engine gate, which skips a document with a
+      # printed line when no `latexmk` is on the runner (none is installed here today). To make it
+      # bite, install a full TeX Live in an earlier step and set ABSTRACT_TEX_REQUIRE_SYSTEM_TEX=1
+      # below, so a missing program fails the run rather than skipping.
       - name: Golden corpus and performance gate
         if: runner.os == 'Linux'
         env:

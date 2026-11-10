@@ -198,6 +198,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   **Decided (2 Oct 2026, design interview E6):** a wall-clock-only ceiling for system engines in CI
   where one is installed, with S9.5's doc comment narrowed in the same card (*Unplaced cards*,
   `SPRINTS.md`).
+  **Fixed (10 Nov 2026):** `system_engine_warm_builds_stay_under_a_wall_clock_ceiling` in `corpus.rs`,
+  with its own `SYSTEM_ENGINE_GATE` table (document, program, ceiling), and S9.5's two comments now say
+  "the bundled Tectonic". Checked three ways: it passes at the real ceilings, fails with a clear message
+  with a ceiling set below the measurement, and fails loudly under `ABSTRACT_TEX_REQUIRE_SYSTEM_TEX` on a
+  partial install. **Limits, stated plainly:** only two documents could be measured on this machine
+  (`beamer` 1.1 s, `tikz-figures` 3.5 s warm p95, pdfLaTeX); the other four skip because its TeX Live
+  lacks `IEEEtran`, `siunitx` and `luabidi`, and their ceilings are three times Tectonic's, marked
+  `UNMEASURED` in the file. **CI's runner has no TeX installed**, so the gate skips there today; it bites
+  only once a full TeX Live is installed in the workflow and the require variable is set (a comment in
+  `verify.yml` says where). That install is a cost the maintainer should choose.
 
 - **`latexminted` 0.6.0, which minted v3 needs, crashes on this machine's Python 3.14.** (29 Sep
   2026, S9.12) `latexminted --version` dies in `argparse` with `ArgParser.__init__() got an
