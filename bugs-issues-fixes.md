@@ -1665,3 +1665,102 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
     message and nothing reuses one; `dismiss` rejects every path-shaped id; `fragile_command` offers a
     fix only when exactly one candidate is on the line; the E6 gate's skip/require switch matches
     the other `ABSTRACT_TEX_*` flags in the repository.
+
+- **Agentic review, third pass (10 Nov 2026): the remaining areas. Findings for one fix batch
+  later; nothing below is fixed yet.** Method: read the code, then reproduce what could be
+  reproduced with throwaway probes kept outside the repository (a mutation fuzzer over the
+  repository's own `.tex`, `.bib`, `.log` and `.blg` files, about 920 seeds times 60 rounds, and
+  three one-off programs). Severity is the reviewer's guess. **R** = reproduced, **S** = by reading.
+  Covered: `abstract-tex-comments` (store, anchor, app wrapper), `abstract-tex-github`, the
+  credential path in `abstract-tex-git`, `abstract-tex-assistant` (provider, guard, review flow),
+  `abstract-tex-snapshot`, `texbib` acquisition, `texwords`, the watcher, the file commands, the
+  LSP frame reader, SyncTeX, the CSP and the one `innerHTML` use.
+
+  **High**
+  1. **R. `texwords::count_prose` panics on a backslash followed by any non-ASCII character** (a
+     stray `\é`, `\ç`, `\—`, or a Windows path in prose; minimal input `"\\𝑥"`, panic at
+     `crates/texwords/src/lib.rs:277`: slicing inside a multi-byte character). Its callers are the
+     per-compile snapshot (`abstract-tex-snapshot`, `prose_words`) and Source Control's prose
+     summary (`abstract-tex-git`, three call sites). A project with one such line can stop getting
+     snapshots on every compile, which is the "never press commit" safety net, and panics the
+     summary. Fix with a test per call shape; also make the snapshot treat a failed word count as
+     "unknown", never as a failed snapshot.
+  2. **R. The citation-fabrication guard misses `\textcquote`, `\blockcquote`, `\foreigntextcquote`
+     and `\bibentry`.** All take a key, none has "cite" in its name, and `is_citation_command` is a
+     substring test. `As shown \textcquote{fake2020}{quote}.` against a `.bib` without that key
+     comes back clean. The design calls the guard "not negotiable". Add the names (and test the
+     list against biblatex's and bibentry's own command lists), and consider holding any unknown
+     command that is followed by a key-shaped brace group in a prose edit.
+  3. **S. The guard also learns the author's own citation wrappers from the root file's preamble
+     only** (`assistant_review.rs`, `preamble_of(root_text)`). A `\see` or `\citeas` defined in an
+     `\input`ed preamble file, a `.sty` or a `.cls` is invisible, so `\see{invented}` passes. Read
+     the include graph's files and the project's own style files.
+  4. **S. One malformed comment record blanks every comment.** `read_tree_entries`
+     (`abstract-tex-comments/src/store.rs`) returns on the first JSON error, so a blob a coauthor's
+     newer version wrote, or a damaged one, turns the whole Comments view into an error. Skip the
+     bad entry and say so.
+
+  **Medium**
+  5. **R. `texwords::headings` panics on a heading line whose `{` is never closed and which ends in
+     a non-ASCII character** (`"\\section{ο"`, `lib.rs:140`: `inner_end` is `end - 1`, a byte index
+     inside the last character). Reached from Source Control's summary (`git/lib.rs:940`).
+  6. **R. Snapshots follow symlinks**, against what their own comment says. `tree_for_folder` tests
+     `path.is_dir()` and `is_file()`, which follow links, so a link inside the project copies
+     whatever it points at into the snapshot (a link to `outside/secret.txt` and one to a folder
+     both came back from `read`), and a link such as `sub/up -> ..` is walked about forty levels
+     deep before the OS stops it. Use `symlink_metadata`.
+  7. **S. `comments::list` reads each anchored file twice** (once inside `load`, once to convert
+     offsets), then slices `text[..byte]`. If the file changes between the reads (autosave every
+     700 ms, a branch switch), a byte offset can be out of range or inside a character and the
+     command panics. Convert from the same text the offsets came from.
+  8. **S. Re-anchoring is quadratic.** `context_matches` calls `last_chars(&text[..start], n)`, which
+     collects the whole prefix into a `Vec<char>` for every occurrence of the quote. A comment on a
+     common word in a long chapter does that thousands of times on every list. Take the last `n`
+     characters from the end with `char_indices().rev()`. An empty quote from a hostile or damaged
+     record matches at every position and makes it worse; refuse empty quotes on load.
+  9. **S. A comment's `file` is trusted on read.** `list` does `root.join(relative)` on a string a
+     coauthor wrote; an absolute path or `..` makes the app read any file the user can, and the
+     answer (anchored, orphaned, ambiguous, and the offsets) is a yes/no oracle on its contents.
+     Run it through `Project::resolve`'s rules before reading.
+  10. **S. No lock around comment writes, and the ref is updated with force.** `write_blob_on_ref`
+      reads the tip, builds a commit, then overwrites the ref. The commands run on blocking threads
+      with no lock (unlike `AT_A_TIME` for snapshots), so two overlapping writes (a double click, a
+      resolve during a sync) can drop one. Use a compare-and-set or a mutex.
+  11. **S. The ISBN lookup builds follow-up URLs from the response.** `"https://openlibrary.org{key}.json"`
+      with `key` taken from the JSON (`isbn.rs`): a key of `@evil.example/x` or `.evil.example`
+      changes the host. Needs a hostile or intercepted response, but the fix is one `starts_with`
+      check (`/works/`, `/authors/`).
+  12. **S. Project paths are checked lexically only** (`Project::resolve`). A symlink inside a cloned
+      project that points outside it is followed by `read_file`, and `create_file`'s
+      `create_dir_all` creates folders through it. Clone is a feature (S11.5b), so a repository an
+      author did not write is in scope. Refuse a resolved path whose existing ancestors leave the
+      project.
+
+  **Low and design notes**
+  13. **S. `abstract_tex_comments::open` needs the repository root exactly** while Source Control
+      discovers it, so a thesis in a subfolder of a larger repository is told "this folder is not a
+      Git repository yet" by Comments only. The new `project` module (`open_or_create`, discover,
+      then an own bare repository) is not called by the app. Pick one rule and delete the other.
+  14. **S. Comment and resolution identity is unauthenticated.** `author` and `created` are
+      whatever the writer put there, and a resolution with a very large `created` wins for ever.
+      Acceptable among trusted coauthors; say so in the design.
+  15. **S. The guard's plain-text rule accepts `[12]`-style numeric references** and any citation
+      form it has no pattern for; the design already calls it a heuristic.
+  16. **S. DOI lookups** send no user agent (the arXiv and ISBN ones do) and read the whole body with
+      no size cap; the SyncTeX gunzip and the LSP `Content-Length` are likewise unbounded, and
+      `body_start + length` can overflow on a hostile length. All three sources are local or
+      trusted; bound them anyway.
+
+  **Checked and fine:** the GitHub token is offered only to `https://github.com` (user-info and
+  look-alike hosts included) and only once per operation; the assistant client follows no
+  redirects, refuses to send a key over `http://` to another machine, and shows what it will send;
+  keychain use matches its own tests; snapshot restore goes through `Project::resolve`; the
+  watcher's echo filter forgets a hash once the file differs; KaTeX renders with `trust` off and
+  the CSP is tight; and the fuzzer found **no panic** in `texbib::parse` and `render_entry`,
+  `texlog::diagnostics`, `quick_errors` and `bibtex_diagnostics`, `abstract_tex_includes::scan_includes`,
+  `Guard::check`, or the comment anchor functions.
+
+  **Not reviewed in any pass:** `abstract-tex-lsp` beyond framing, `abstract-tex-reconcile`,
+  `abstract-tex-templates`, `abstract-tex-sidecar`, the engine crate's process handling,
+  `abstract-tex-git`'s sync and merge internals, `bibliography.rs`, `paste.rs`, `assistant.rs`,
+  and the frontend's editor, PDF viewer and accessibility pass (S16.4).
