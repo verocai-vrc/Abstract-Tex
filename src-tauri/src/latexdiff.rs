@@ -560,6 +560,13 @@ fn copy_working_tree(
             copy_working_tree(repository, &entry.path(), &to.join(&name), &relative)?;
         } else if file_type.is_file() {
             std::fs::copy(entry.path(), to.join(&name))?;
+        } else if file_type.is_symlink()
+            && std::fs::metadata(entry.path()).is_ok_and(|target| target.is_file())
+        {
+            // A link to a file is copied as what it points at, as TeX would read it. A link to a
+            // folder is skipped (it could lead back up the tree), and so is one that points at
+            // nothing (review finding R1.3).
+            std::fs::copy(entry.path(), to.join(&name))?;
         }
     }
     Ok(())
@@ -803,6 +810,40 @@ mod tests {
         let reusable = make_room(&project.join(".abstract-tex/latexdiff"), &the_plan).unwrap();
 
         assert!(!reusable);
+    }
+
+    // Review finding R1.3. The copy took each entry's own type, so a symlinked file was neither a file
+    // nor a folder and was silently left out of "your working copy" (while the commit side keeps a
+    // link as a file). A chapter that is a link to a shared file went missing from one side. TeX reads
+    // through a link, so the copy does too, for files; a link to a *folder* is still skipped, because
+    // following one could walk back up the tree for ever.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_file_is_copied_as_what_it_points_at_and_a_symlinked_folder_is_left_alone() {
+        let (tmp, repository, _first, _second) = two_commits();
+        let project = tmp.path().join("paper");
+        let shared = tmp.path().join("shared");
+        fs::create_dir_all(&shared).unwrap();
+        fs::write(shared.join("notes.tex"), "shared notes\n").unwrap();
+        std::os::unix::fs::symlink(shared.join("notes.tex"), project.join("notes.tex")).unwrap();
+        std::os::unix::fs::symlink(&shared, project.join("shared-folder")).unwrap();
+        std::os::unix::fs::symlink("..", project.join("up")).unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("nothing-here"), project.join("dangling.tex")).unwrap();
+        let destination = tmp.path().join("copy");
+
+        export_working_tree(&repository, &project, &destination).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(destination.join("notes.tex")).unwrap(),
+            "shared notes\n"
+        );
+        assert!(!destination.join("shared-folder").exists());
+        assert!(!destination.join("up").exists());
+        assert!(
+            !destination.join("dangling.tex").exists(),
+            "a link to nothing is nothing to copy"
+        );
+        assert!(destination.join("main.tex").is_file());
     }
 
     #[test]

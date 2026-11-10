@@ -1697,6 +1697,13 @@ export async function switchToBranch(name: string): Promise<boolean> {
     git.branchMenuOpen = false;
     return true;
   }
+  // A switch rewrites files, and the watcher then reports them as outside changes to the shared
+  // document, which folds them in and sends them to every coauthor: their text silently becomes the
+  // other version's. The session has to end first (review finding R1.1).
+  if (liveSessions.size > 0) {
+    git.error = 'A live session is open, and switching versions would change the shared text for everyone in it. Leave the session first, then switch.';
+    return false;
+  }
   await manager.saveAll().catch(() => {
     /* a tab that failed to save is still dirty; Git will say so if it matters */
   });

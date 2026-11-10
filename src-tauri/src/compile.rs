@@ -440,10 +440,19 @@ fn respell_files(diagnostics: &mut [texlog::Diagnostic], project_dir: &Path) {
 /// `\include`, every chapter's `.aux` is also run through BibTeX and each of those logs carries
 /// three errors that are not the author's (`texlog/src/blg.rs` says which).
 ///
-/// It is read only if this build wrote it. A build that does not run BibTeX (the author deleted
-/// `\bibliography`, say) leaves the previous build's `.blg` where it was, and reading that would
-/// show a card for something no longer true, which nothing would ever clear. A second of slack,
-/// because some filesystems keep timestamps to a coarse resolution.
+/// It is read when this build wrote it (a second of slack, because some filesystems keep
+/// timestamps to a coarse resolution). A build that does not run BibTeX leaves the previous `.blg`
+/// where it was, and there are two reasons for that, which look the same from the file:
+///
+/// - The author deleted `\bibliography`. The old file describes something no longer true, and
+///   reading it would show a card nothing would ever clear.
+/// - `latexmk` found the `.aux` and the `.bib` unchanged (a text-only edit) and did not need to run
+///   BibTeX. The old answer is still true, and dropping it made a repeated-entry warning vanish
+///   after the next keystroke (review finding R1.2).
+///
+/// They are told apart by asking whether the root file still names a bibliography; if it does, and
+/// this very file was read before, the answer then given is given again. A file never read in this
+/// session is not trusted (nothing to repeat).
 fn read_bibtex_diagnostics(
     log_path: &Path,
     project_dir: &Path,
@@ -455,7 +464,19 @@ fn read_bibtex_diagnostics(
         return Vec::new();
     };
     if modified + Duration::from_secs(1) < build_started {
-        return Vec::new();
+        // Not rewritten by this build. Repeat the answer from when it was, if it still applies.
+        let still_wants_a_bibliography = std::fs::read_to_string(project_dir.join(root_file))
+            .map(|text| !crate::bibliography::scan_bib_resources(&text).is_empty())
+            .unwrap_or(false);
+        let remembered = last_blg_answers()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        return match remembered.get(&blg_path) {
+            Some((read_at, diagnostics)) if *read_at == modified && still_wants_a_bibliography => {
+                diagnostics.clone()
+            }
+            _ => Vec::new(),
+        };
     }
     let Ok(bytes) = std::fs::read(&blg_path) else {
         return Vec::new();
@@ -465,7 +486,23 @@ fn read_bibtex_diagnostics(
     place_bibliography_style(&mut diagnostics, root_file, project_dir);
     // Whatever is still without a place goes where every other placeless error goes.
     place_unlocated_errors(&mut diagnostics, root_file, project_dir);
+    last_blg_answers()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(blg_path, (modified, diagnostics.clone()));
     diagnostics
+}
+
+/// What was last read from one `.blg`: when the file was written, and what it said.
+type BlgAnswers = std::collections::HashMap<std::path::PathBuf, (SystemTime, Vec<texlog::Diagnostic>)>;
+
+/// For each `.blg` read, when it was last written and what it said, so a build that leaves it alone
+/// can say it again. Process-wide because the build task that reads it has no handle on the
+/// orchestrator's state; a stale entry is harmless (it is only used when the file's time still
+/// matches). `OnceLock` builds the map on first use, since `HashMap::new` is not `const`.
+fn last_blg_answers() -> &'static Mutex<BlgAnswers> {
+    static ANSWERS: std::sync::OnceLock<Mutex<BlgAnswers>> = std::sync::OnceLock::new();
+    ANSWERS.get_or_init(|| Mutex::new(BlgAnswers::new()))
 }
 
 /// BibTeX reports a missing style against a line of the `.aux`, which the author never opens. The
@@ -815,6 +852,59 @@ mod tests {
         assert!(
             read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started).is_empty()
         );
+    }
+
+    // Review finding R1.2. `latexmk` runs BibTeX only when the `.aux` or a `.bib` changed, so after a
+    // text-only edit `main.blg` is not rewritten, and a repeated-entry warning that is still true
+    // vanished from the drawer. The last answer read from a given `.blg` is kept, and shown again
+    // while the file is untouched and the document still asks for a bibliography.
+    #[test]
+    fn a_blg_that_this_build_did_not_rewrite_still_speaks_while_the_document_wants_a_bibliography() {
+        let (project, log_path) = project_with_blg(
+            "\\bibliography{refs}\n\\bibliographystyle{nosuchstyle}\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::from_secs(0),
+        );
+        let first_build = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+        let first = read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), first_build);
+        assert_eq!(first.len(), 1, "read when this build wrote it");
+
+        // The next build is a text-only edit: BibTeX does not run, the .blg keeps its old time.
+        let next_build = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        let again = read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), next_build);
+
+        assert_eq!(again, first, "the same card is still there");
+    }
+
+    #[test]
+    fn a_blg_nobody_has_read_is_not_trusted_and_neither_is_one_for_a_deleted_bibliography() {
+        // Never read in this session: nothing to show.
+        let (project, log_path) = project_with_blg(
+            "\\bibliography{refs}\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::from_secs(60),
+        );
+        let later = std::time::SystemTime::now();
+        assert!(read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), later).is_empty());
+
+        // Read once, then the author deletes the \bibliography line: the card must go.
+        let (project, log_path) = project_with_blg(
+            "\\bibliography{refs}\n\\bibliographystyle{nosuchstyle}\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::from_secs(0),
+        );
+        let during = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+        assert_eq!(
+            read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), during).len(),
+            1
+        );
+        std::fs::write(
+            project.path().join("main.tex"),
+            "\\bibliographystyle{nosuchstyle}\n",
+        )
+        .unwrap();
+        let next = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+        assert!(read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), next).is_empty());
     }
 
     #[test]

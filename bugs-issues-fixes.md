@@ -1623,11 +1623,28 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   1. *Switching branch during a live session.* `switchToBranch` saves open tabs first, but nothing
      stops a switch while a live (Yjs) session is open; the files rewrite under the shared document.
      Needs a walk with a session, or a guard that refuses the switch with a sentence.
+     **Fixed 10 Nov 2026** by the guard: `switchToBranch` refuses while any live session is open
+     (`git.error`: "A live session is open, and switching versions would change the shared text for
+     everyone in it. Leave the session first, then switch."). Test with a stubbed `LiveSession`:
+     refused with no `switch` verb sent, and the same switch goes through after leaving. Creating a
+     branch is not guarded, since it changes no file.
   2. *`read_bibtex_diagnostics` with `latexmk`.* A system `latexmk` run skips BibTeX when `.aux` and
      `.bib` are unchanged, so `.blg` is not rewritten, and a still-true repeated-entry warning
      disappears from the drawer after a text-only edit. Bundled Tectonic does not do this.
+     **Fixed 10 Nov 2026.** `read_bibtex_diagnostics` remembers, per `.blg`, when it was written and
+     what it said; a build that did not rewrite it repeats that answer while the file's time still
+     matches and the root file still names a bibliography (`scan_bib_resources`). Deleting the
+     `\bibliography` line clears the card; a `.blg` never read in this session is not trusted. Two
+     tests (repeat; never-read and deleted-bibliography), the first red before. Limit: only the root
+     file is asked about `\bibliography`, so a bibliography named in a chapter loses the repeat
+     (as before this change).
   3. *Working-copy comparison drops symlinked files.* `copy_working_tree` copies regular files and
      directories only, so a symlinked chapter is silently missing from the "working copy" side.
+     **Fixed for files, 10 Nov 2026.** A symlink to a file is copied as what it points at (as TeX
+     reads it); a link to a folder, and a link to nothing, are still skipped. One test. **The size
+     point is not changed, on purpose:** the commit side exports every tracked file of any size too,
+     and a size limit would make comparisons fail for projects with large figures; untracked
+     non-ignored large files are copied each time, which is the price of "as it is now".
 
 - **Agentic review, second pass (10 Nov 2026): `texlog` rules, latexdiff retry and working-copy
   lane, E6 gate, crash reports (S16.3), relay (S14.1) and the encrypted channel (S14.2). Read, not

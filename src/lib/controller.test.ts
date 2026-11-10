@@ -682,6 +682,8 @@ const {
   nameVersion,
   startBranch,
   switchToBranch,
+  startShare,
+  leaveLiveSession,
   toggleBranchMenu,
   comparisonTitle,
   retryComparisonWithSimplerMarkup,
@@ -738,6 +740,8 @@ const { ipc } = await import('./ipc');
 const { app } = await import('./state.svelte');
 const { bibliography } = await import('./bibliography.svelte');
 const { git } = await import('./git.svelte');
+const { live } = await import('./live.svelte');
+const { LiveSession } = await import('./relay/live-session');
 const { github } = await import('./github.svelte');
 const { allCommands } = await import('./commands');
 
@@ -4194,6 +4198,35 @@ describe('switching and starting branches (B4)', () => {
     expect(git.error).toContain('not committed');
     expect(git.branchMenuOpen).toBe(true);
     expect(git.branch?.name).toBe('main');
+  });
+
+  // Review finding R1.1. A branch switch rewrites the shared file under a live session; the watcher
+  // then reports an outside change, `applyExternal` folds it into the shared document, and every
+  // coauthor's text silently becomes the other version's. A session has to end first.
+  it('refuses to switch while a live session is open, and says what to do', async () => {
+    const fake = {
+      status: 'connected',
+      awareness: { awareness: null },
+      destroy: async () => {},
+      onStatusChange: undefined,
+      onPeersChange: undefined,
+    } as unknown as LiveSession;
+    const connect = vi.spyOn(LiveSession, 'connect').mockResolvedValue(fake);
+    live.relayAddress = 'localhost:4444';
+    await startShare();
+    await toggleBranchMenu();
+
+    const done = await switchToBranch('second-draft');
+
+    expect(done).toBe(false);
+    expect(git.error).toContain('live session');
+    expect(calls.gitVerbs.filter((verb) => verb.startsWith('switch'))).toEqual([]);
+    expect(git.branch?.name).toBe('main');
+
+    // Once the session is left, the same switch goes through.
+    leaveLiveSession('main.tex');
+    connect.mockRestore();
+    expect(await switchToBranch('second-draft')).toBe(true);
   });
 
   it('does nothing for the branch that is already checked out', async () => {
