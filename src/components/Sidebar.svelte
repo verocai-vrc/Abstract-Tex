@@ -15,7 +15,7 @@
     <div class="files-section">
       <div class="sidebar-head">
         <span class="label">Files</span>
-        <button class="ghost" title="New file" onclick={newFile}>+</button>
+        <button class="ghost" title="New file" aria-label="New file" onclick={newFile}>+</button>
       </div>
       <ul class="tree" role="tree">
         {#each app.project.tree as node (node.path)}

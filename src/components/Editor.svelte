@@ -155,7 +155,7 @@
     <div class="bar notice" role="status">
       <span>{app.notice}</span>
       <span class="spacer"></span>
-      <button class="ghost" onclick={() => (app.notice = null)}>×</button>
+      <button class="ghost" aria-label="Dismiss" onclick={() => (app.notice = null)}>×</button>
     </div>
   {/if}
 

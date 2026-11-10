@@ -171,12 +171,12 @@
     </button>
     <span class="change-actions">
       {#if staged}
-        <button class="ghost" title="Unstage this file" onclick={() => void unstageChange(item.path)}>−</button>
+        <button class="ghost" title="Unstage this file" aria-label={`Unstage ${item.path}`} onclick={() => void unstageChange(item.path)}>−</button>
       {:else}
         <button class="ghost" title="Discard changes to this file" onclick={() => void discardChange(item.path, item.kind === 'untracked')}>
           ↺
         </button>
-        <button class="ghost" title="Stage this file" onclick={() => void stageChange(item.path)}>+</button>
+        <button class="ghost" title="Stage this file" aria-label={`Stage ${item.path}`} onclick={() => void stageChange(item.path)}>+</button>
       {/if}
     </span>
     <span class={`change-letter kind-${item.kind}`} title={item.kind}>{item.letter}</span>
@@ -319,7 +319,7 @@
     <div class="sidebar-head">
       <span class="label">Source Control</span>
       <button class="ghost" title="Commit (Ctrl Enter)" disabled={!canCommit} onclick={() => void commitStaged()}>✓</button>
-      <button class="ghost" title="Refresh" onclick={() => void refreshGitStatus()}>⟳</button>
+      <button class="ghost" title="Refresh" aria-label="Refresh" onclick={() => void refreshGitStatus()}>⟳</button>
     </div>
 
     <div class="commit-box">

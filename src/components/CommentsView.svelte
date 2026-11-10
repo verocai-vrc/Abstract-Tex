@@ -25,7 +25,7 @@
 <aside class="sidebar comments" aria-label="Comments">
   <div class="sidebar-head">
     <span class="label">Comments</span>
-    <button class="ghost" title="Comment on the selected text" onclick={startComment}>+</button>
+    <button class="ghost" title="Comment on the selected text" aria-label="Comment on the selected text" onclick={startComment}>+</button>
   </div>
 
   {#if comments.draft}

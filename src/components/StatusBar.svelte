@@ -8,6 +8,7 @@
   import { leftToFillIn } from '../lib/editor/placeholders';
   import { detectZotero, disallowShellEscape, goToNextPlaceholder, leaveAndOfferCommit, showActivityView, showJoinWindow, showShareWindow, toggleDrawer } from '../lib/controller.svelte';
   import { live } from '../lib/live.svelte';
+  import { compileAnnouncement } from '../lib/announce';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -69,6 +70,10 @@
 </script>
 
 <footer class="statusbar">
+  <!-- S16.4: what the build is doing, said once per change for a screen reader. The visible text
+       also ticks every second while compiling, which must not be read out each time, so the
+       announcement is its own element carrying only the state. -->
+  <span class="sr-only" role="status">{compileAnnouncement(app.compile.phase, app.compile.durationMs ?? 0, app.errorCount)}</span>
   {#if branch}
     <!-- Clicking it opens the panel the branch belongs to, which is what VS Code's does. The
          arrows stay information only even now that §5.7's one-verb path works (S11.1): the design

@@ -6840,6 +6840,29 @@ same call `openInBrowser` already makes for the GitHub sign-in page. Panics befo
 (argument parsing, plugin start-up) are not covered. Aborts and native crashes (a signal in
 WebKit or libgit2) never reach a Rust panic hook and leave no report.
 
+**S16.4 (9 November 2026).** `[~]` — `pnpm verify` exit 0, Vitest 756 passed (6 new). The first
+accessibility pass, measured rather than eyeballed; what is left is named below. **Contrast:** a
+script over the theme's tokens found seven text pairs under WCAG AA's 4.5:1 — in the light palette
+`ok` and `warn` on the panel colour (4.28, 4.24) and the comment, number and string syntax colours
+(3.12 for comments), in the dark palette the comment colour (3.62 on the panel). The nearest
+compliant values replace them (`--ok #2c784b`, `--warn #9c5b00`, light comments `#6e6a5f`, dark
+`#8d8c85`), and `contrast.test.ts` now reads `app.css` and fails if any text colour drops under
+4.5:1 on any surface in either palette, so a future token change is checked. **Focus:** there was
+no focus style of the app's own; a global `:focus-visible` ring in the accent colour now marks
+where the keyboard is (mouse clicks do not trigger it), the two palette inputs get an accent
+underline, and the dialogs keep the ringless box their existing rule asks for. **Motion:**
+`prefers-reduced-motion` stills the pulsing dot and the fades. **Names:** nine icon-only buttons
+(`+`, `×`, `−`, `⟳`) relied on `title`, which assistive technology treats as a fallback; each now
+has an `aria-label`, and the stage/unstage buttons name their file. **Announcements:** the build's
+state is a polite live region of its own (`compileAnnouncement`) that changes once per stage — the
+visible "Compiling… 4s" ticks every second and is deliberately not the live region. Walked on the
+virtual display: the ring on the activity bar's Files icon after Tab, and the darker comment text
+in the editor. **Not done, and why this is `[~]`:** no screen reader was run (Orca is not
+installed here), so the labels are checked by reading the markup, not by listening; Windows
+high-contrast / forced-colors mode is untested; the tab order was walked for the toolbar and
+activity bar only, not through every dialog; CodeMirror's own focus indication (the caret) is
+unchanged; the PDF pane is a canvas with no text alternative for its pages beyond pdf.js's own.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

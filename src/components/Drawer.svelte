@@ -131,7 +131,7 @@
       <button class="ghost" onclick={toggleComparisonOutput}>
         {showComparisonOutput ? 'Back to explanations' : 'Raw output'}
       </button>
-      <button class="ghost" title="Close" onclick={() => (app.drawerOpen = false)}>×</button>
+      <button class="ghost" title="Close" aria-label="Close diagnostics" onclick={() => (app.drawerOpen = false)}>×</button>
     </header>
     <div class="body">
       {#if showComparisonOutput}
@@ -178,7 +178,7 @@
     <button class="ghost" onclick={() => void toggleRawLog()}>
       {app.showRawLog ? 'Back to explanations' : 'Raw log'}
     </button>
-    <button class="ghost" title="Close" onclick={() => (app.drawerOpen = false)}>×</button>
+    <button class="ghost" title="Close" aria-label="Close diagnostics" onclick={() => (app.drawerOpen = false)}>×</button>
   </header>
   <div class="body">
     {#if app.showRawLog}

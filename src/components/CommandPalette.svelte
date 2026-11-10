@@ -179,6 +179,9 @@
     border-bottom: 1px solid var(--border);
     outline: none;
   }
+  input:focus-visible {
+    border-bottom-color: var(--accent);
+  }
   ul {
     list-style: none;
     margin: 0;
