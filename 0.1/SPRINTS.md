@@ -6999,6 +6999,18 @@ dark popover, readable. **Found and fixed:** toggling either mode threw the curs
 because the effect that builds the editor read both flags as dependencies and so rebuilt the whole
 editor on every toggle (`untrack`; no unit test, the repository has no component harness; walked).
 
+**Owed walks, seventh pass (10 November 2026): areas no smoke script covers.** Walked in the app on
+the virtual display and found **nothing wrong**: *New…* (template chooser with search, category chips
+and previews; a thesis created from a title and author into a folder named from the title, built in
+1.5 s, opened on its first `% FILL IN:` placeholder with "6 left to fill in"), Source Control on that
+project (*Create a Git repository here*, the suggested message, the badge on the activity icon,
+staging with the row's **+**, `Ctrl Enter` committing, the graph updating, the Commit button staying
+disabled until something is staged), and the Snapshots section (*Look at this version* opens a read-only
+view of every file in the snapshot with *Restore this file*). The folder picker is a real GTK dialog
+and drops keystrokes under the harness: a path typed into it landed one directory off, which is why
+that project was created in a stray folder (removed). Not walked: *Clone…*, GitHub sign-in, the
+assistant, bibliography paste (network and accounts), and live sessions beyond S15.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite
