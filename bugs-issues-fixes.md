@@ -1934,6 +1934,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      (`lib/dialog.ts`) and neither handles Escape, which is the bug `dialog.ts` says it was written
      to fix: focus stays on the editor behind, so typed text lands in the manuscript. Rule 5
      (keyboard first).
+     **Fixed 10 Nov 2026.** Both now use `modalFocus` and close on Escape (the handler sits on the
+     dialog, where `modalFocus` puts focus). `src/components/dialogs.test.ts` is a guard over the
+     markup (the repository has no component harness): every `role="dialog"` over a `.backdrop`
+     must close on Escape, set `aria-modal`, and use `modalFocus` unless it is one of the two
+     palettes that focus their own input. It failed 17 ways first. **Not walked in the running
+     app** (no Xvfb run this pass): the next by-hand walk should open the Bibliography panel and
+     the Zotero window, press Tab and Escape.
 
   **Low and design notes**
   9. **R. Sync with something staged shows libgit2's own sentence**, not ours: `Git reported: 1
@@ -1957,6 +1964,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       resolves a bare name against the current directory.
   14. **S. No dialog sets `aria-modal`**, so a screen reader's virtual cursor can leave one although
       `modalFocus` keeps keyboard focus inside.
+      **Fixed 10 Nov 2026** with item 8: `aria-modal="true"` on all thirteen dialogs, enforced by
+      the same test.
 
   **Checked and fine:** template fields are LaTeX-escaped and written through a staging folder renamed
   into place; folder names from titles and `clone_destination` refuse separators, `..` and the

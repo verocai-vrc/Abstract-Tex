@@ -14,6 +14,7 @@
     <div
       class="dialog"
       role="dialog"
+      aria-modal="true"
       aria-label="Abstract-Tex closed unexpectedly"
       tabindex="-1"
       use:modalFocus

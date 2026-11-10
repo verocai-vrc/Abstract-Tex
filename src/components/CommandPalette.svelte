@@ -109,7 +109,7 @@
     role="presentation"
     onclick={(e) => e.target === e.currentTarget && (app.commandPaletteVisible = false)}
   >
-    <div class="palette" role="dialog" aria-label="Command palette">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
       <input
         bind:this={input}
         bind:value={query}

@@ -6,6 +6,7 @@
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
   import { linkZoteroCollection, listZoteroLibraries, unlinkBibFile } from '../lib/controller.svelte';
+  import { modalFocus } from '../lib/dialog';
   import type { ZoteroCollection, ZoteroLibrary } from '../lib/ipc';
 
   let linking = $state<string | null>(null);
@@ -18,6 +19,11 @@
   function close() {
     app.zoteroLinkVisible = false;
     bibliography.zoteroLibraries = null;
+  }
+
+  /** Escape closes the window, heard on the dialog because `modalFocus` puts focus inside it. */
+  function onKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') close();
   }
 
   async function pick(collection: ZoteroCollection) {
@@ -40,7 +46,16 @@
 
 {#if app.zoteroLinkVisible}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-label="Link a Zotero collection">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Link a Zotero collection"
+      tabindex="-1"
+      use:modalFocus
+      onkeydown={onKeydown}
+    >
       <header>
         <span>Link a Zotero collection</span>
         <button class="ghost" onclick={close} aria-label="Close">✕</button>

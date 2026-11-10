@@ -29,7 +29,7 @@
 {#if review}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeReview()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="Review the assistant’s suggestion" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Review the assistant’s suggestion" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{review.actionLabel}</span>
         <button class="ghost" onclick={closeReview} aria-label="Close">✕</button>

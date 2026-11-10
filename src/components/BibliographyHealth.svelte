@@ -8,6 +8,7 @@
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
   import { applyFindingFix, jumpToFinding, unlinkBibFile } from '../lib/controller.svelte';
+  import { modalFocus } from '../lib/dialog';
   import type { Finding } from '../lib/ipc';
 
   function close() {
@@ -26,6 +27,11 @@
     if (await applyFindingFix(finding)) close();
   }
 
+  /** Escape closes the panel, heard on the dialog because `modalFocus` puts focus inside it. */
+  function onDialogKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') close();
+  }
+
   function onKeydown(event: KeyboardEvent, finding: Finding) {
     if (event.key !== 'Enter' && event.key !== ' ') return;
     event.preventDefault();
@@ -35,7 +41,16 @@
 
 {#if app.bibliographyPanelVisible}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
-    <div class="dialog" role="dialog" aria-label="Bibliography health">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Bibliography health"
+      tabindex="-1"
+      use:modalFocus
+      onkeydown={onDialogKeydown}
+    >
       <header>
         <span>Bibliography</span>
         <button class="ghost" onclick={close} aria-label="Close">✕</button>

@@ -64,7 +64,7 @@
   <!-- A click on the backdrop itself closes the list; clicks inside the palette bubble up here
        too, so check the target. Escape is handled on the input, which has focus. -->
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && (app.quickOpenVisible = false)}>
-    <div class="palette" role="dialog" aria-label="Go to file">
+    <div class="palette" role="dialog" aria-modal="true" aria-label="Go to file">
       <input
         bind:this={input}
         bind:value={query}

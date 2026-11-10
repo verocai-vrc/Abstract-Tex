@@ -16,7 +16,7 @@
 {#if snapshots.selected}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeSnapshot()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="An earlier version" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="An earlier version" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{snapshotLabel(snapshots.selected, now)}</span>
         <button class="ghost" onclick={closeSnapshot} aria-label="Close">✕</button>

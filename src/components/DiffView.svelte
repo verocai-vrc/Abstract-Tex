@@ -31,7 +31,7 @@
 {#if diffView.open}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeDiff()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="Changes in {diffView.open.path}" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Changes in {diffView.open.path}" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{diffView.open.path}</span>
         <button class="ghost" onclick={closeDiff} aria-label="Close">✕</button>

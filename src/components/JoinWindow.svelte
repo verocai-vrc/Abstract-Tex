@@ -14,7 +14,7 @@
 {#if live.joinVisible}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeJoinWindow()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="Join a live session" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Join a live session" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>Join a live session</span>
         <button class="ghost" onclick={closeJoinWindow} aria-label="Close">✕</button>

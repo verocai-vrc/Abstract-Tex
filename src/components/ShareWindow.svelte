@@ -35,7 +35,7 @@
 {#if live.shareVisible}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeShareWindow()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-label="Share this document, live" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="Share this document, live" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>Share this document, live</span>
         <button class="ghost" onclick={closeShareWindow} aria-label="Close">✕</button>
