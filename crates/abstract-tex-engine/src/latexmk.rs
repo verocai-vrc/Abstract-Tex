@@ -120,6 +120,12 @@ impl Latexmk {
     fn invocation(&self, job: &BuildJob) -> Invocation {
         let mut args = vec![
             self.program.latexmk_flag().to_string(),
+            // Read no rc file, system, user or project. `latexmk` runs `latexmkrc` and `.latexmkrc`
+            // from its working folder as Perl, and with shell escape off that folder is the
+            // project, which can arrive in a cloned repository together with the `engine` setting
+            // that selects this program. Without this flag, opening such a project is running its
+            // author's code (review finding R4.1, reproduced).
+            "-norc".to_string(),
             // Never stop to ask on the terminal nobody is looking at; stop at the first error,
             // the same way the bundled engine does, so texlog sees the same shape of log.
             "-interaction=nonstopmode".to_string(),
@@ -360,6 +366,28 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a.starts_with("-outdir=") && a.ends_with("build")));
+    }
+
+    /// Review finding R4.1. `latexmk` reads `latexmkrc` and `.latexmkrc` from its working folder and
+    /// runs them as Perl. A project arrives with whatever its author (or a cloned repository) put
+    /// there, and the engine choice in `abstract-tex.toml` travels with it, so the rc files must
+    /// never be read: with shell escape off the working folder *is* the project, and nothing else
+    /// stands between the project and code execution.
+    #[test]
+    fn no_rc_file_is_ever_read_whatever_the_shell_escape_setting() {
+        for shell_escape in [false, true] {
+            for program in [TexProgram::PdfLatex, TexProgram::XeLatex, TexProgram::LuaLatex] {
+                let job = BuildJob {
+                    shell_escape,
+                    ..job(true)
+                };
+                let args = Latexmk::at("latexmk", program).invocation(&job).args;
+                assert!(
+                    args.contains(&"-norc".to_string()),
+                    "shell_escape={shell_escape}, {program:?}: {args:?}"
+                );
+            }
+        }
     }
 
     #[test]

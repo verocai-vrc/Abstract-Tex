@@ -257,6 +257,11 @@ Trusted Signing is the cheap route). Decide by sprint 14, not sprint 16.
 Engines sit behind one trait — `probe()` to report availability and capability, `build(job)` to
 produce artifacts — so Tectonic, a system `latexmk`, and whatever comes next are interchangeable.
 One build in flight per project; a new keystroke burst cancels and restarts rather than queueing.
+A project may *name* a system engine (`engine` in `abstract-tex.toml`) but never *configure* it: the
+project arrives with a cloned repository, so nothing it carries may be code the program runs.
+`latexmk` is therefore started with `-norc`, which skips every rc file, the project's `.latexmkrc`
+(Perl) above all; the same goes for anything else an engine would read from the project folder
+and execute (agentic review, finding R4.1).
 The one exception is a change-review build (§5.7), which runs in a lane of its own: at most one
 *live* build and at most one *diff* build in flight, each cancelling only an older build of its
 own kind — a 30-second marked-up thesis is never thrown away by the next save, and the live PDF

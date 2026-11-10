@@ -199,3 +199,46 @@ async fn without_shell_escape_nothing_moves_and_the_log_still_names_files_relati
         "expected the relative spelling in the log:\n{log}"
     );
 }
+
+/// Review finding R4.1, against the real program. A project that carries a `.latexmkrc` (a cloned
+/// repository can) must not have it run: `latexmk` executes the file as Perl. The rc file here
+/// plants a marker one folder above the project; the build must succeed and leave none.
+///
+/// Reproduced before the fix: with the flags the app used to pass, the marker appeared.
+#[tokio::test]
+#[ignore]
+async fn a_project_rc_file_is_never_run() {
+    let engine = match Latexmk::locate(TexProgram::PdfLatex) {
+        Ok(engine) => engine,
+        Err(_) => {
+            println!("SKIPPED: latexmk or pdflatex is not on PATH");
+            return;
+        }
+    };
+    let outer = tempfile::tempdir().unwrap();
+    let project = outer.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(
+        project.join("main.tex"),
+        "\\documentclass{article}\n\\begin{document}Hello.\\end{document}\n",
+    )
+    .unwrap();
+    let marker = outer.path().join("RC_FILE_RAN");
+    fs::write(
+        project.join(".latexmkrc"),
+        format!("system(\"touch '{}'\");\n", marker.display()),
+    )
+    .unwrap();
+
+    for shell_escape in [false, true] {
+        let outcome = engine
+            .build(&job(&project, shell_escape), CancellationToken::new(), None)
+            .await
+            .unwrap();
+        assert!(outcome.success, "shell_escape={shell_escape}: {}", outcome.stderr);
+        assert!(
+            !marker.exists(),
+            "shell_escape={shell_escape}: the project's .latexmkrc was executed"
+        );
+    }
+}
