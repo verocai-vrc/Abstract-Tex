@@ -100,6 +100,27 @@ function syncDocumentToServer(relativePath: string): void {
 }
 
 /**
+ * Text has just arrived from disk (a file changed under us and the buffer followed): tell the
+ * server and redraw the Outline from its answer. `syncDocumentToServer` only runs after a *save*,
+ * and an outside change is not one, so without this TexLab kept describing text that was gone and
+ * the Outline, built from its symbols and our own scan, showed every heading twice until the next
+ * keystroke. Awaited so the Outline asks only once the server has heard.
+ */
+async function tellServerTextArrivedFromDisk(relativePath: string): Promise<void> {
+  const text = manager.get(relativePath)?.text();
+  const absolute = absolutePath(relativePath);
+  if (text !== undefined && absolute && app.lspReady) {
+    try {
+      await lsp.didChange(absolute, text);
+      await lsp.didSave(absolute);
+    } catch (error) {
+      console.warn('language server:', error);
+    }
+  }
+  if (app.activePath === relativePath) await refreshOutline();
+}
+
+/**
  * Ask the language server for completions at a position in the given file, for the editor layer
  * (`completion.ts`) to call. Returns `null` for every case that must degrade silently rather
  * than error — no project, no server, or a `didChange` that failed to send — matching what
@@ -2692,6 +2713,7 @@ export async function resolveConflict(choice: 'keep-mine' | 'load-disk'): Promis
     await doc.save();
   } else {
     await doc.applyExternal(conflict.diskText);
+    await tellServerTextArrivedFromDisk(conflict.path);
     await triggerCompile();
   }
 }
@@ -2847,7 +2869,10 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
       case 'ignore':
         break;
       case 'apply':
-        if (diskText !== null) await doc.applyExternal(diskText);
+        if (diskText !== null) {
+          await doc.applyExternal(diskText);
+          await tellServerTextArrivedFromDisk(relative);
+        }
         break;
       case 'conflict':
         // Stop the loop here; the author decides (DESIGN.md §5.6). Bring the tab to the front

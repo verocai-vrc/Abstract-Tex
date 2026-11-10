@@ -1435,6 +1435,25 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   merge had happened or that files now held conflict markers. **Fixed** the same session: both kinds
   are in the type and have sentences; `git.test.ts` asserts all five.
 
+- **After a file changes on disk and the buffer follows, the Outline (and perhaps the language
+  server's view of the file) stays on the old text until the next keystroke.** (Found 10 Nov 2026 on
+  the walk of `fixtures/paper/SMOKE.md` §5 step 6: a line inserted from outside left every outline
+  heading doubled, one row per source, one line apart, until a character was typed. **Fixed** the same
+  session. Cause: only a *save* told TexLab about new text (`afterSave`), and an outside change is
+  not one, so the server described the old file. `tellServerTextArrivedFromDisk` now sends
+  `didChange`/`didSave` after both places that load disk text into a buffer and then redraws the
+  Outline; two controller tests failed first, and the same external edit was re-walked in the app.)
+
+- **The sidebar's `+` asked for the new file's name with the browser's own `window.prompt`, a dialog
+  titled "JavaScript - http://localhost:1420/".** (Found 10 Nov 2026 on the walk of
+  `fixtures/paper/SMOKE.md` §6.) Off-brand, unstyleable, and `prompt()` is not reliably implemented by
+  every webview the app ships on (WKWebView on macOS has historically ignored it, which would make
+  *New file* do nothing there; not checked on that machine). It was the only native dialog in the
+  frontend. **Fixed** the same session: an inline field under the Files header, with
+  `sections/new.tex` as its placeholder; Enter creates and opens the file, Esc or leaving the field
+  cancels. First attempt pre-filled the suggestion and selected it; typing then appended to it in the
+  webview, so it became a placeholder. Walked in the app.
+
 - **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
   nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Fixed** 10 Nov 2026
   by `place_unlocated_errors`.) The card is honest — it explains that TeX reports the end of the file and the

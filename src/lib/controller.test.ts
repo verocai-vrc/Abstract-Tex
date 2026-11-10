@@ -1559,6 +1559,31 @@ describe('the language server (S3.2)', () => {
     expect(opens[0]?.params.textDocument.uri).toBe('file:///proj/sections/results.tex');
   });
 
+  // Found on the paper walk (10 Nov 2026): a line inserted from outside left the Outline doubled
+  // until the next keystroke, because only a *save* told the server, and an outside change is not one.
+  it('an outside change to the file is sent to the server too', async () => {
+    calls.lsp = [];
+    disk.set('main.tex', 'hello world');
+    await fileChanged('main.tex');
+
+    const change = calls.lsp.find((c) => c.method === 'textDocument/didChange');
+    expect(change?.params.contentChanges[0].text).toBe('hello world');
+    expect(change?.params.textDocument.version).toBe(2);
+  });
+
+  it('taking the disk version in a conflict sends it to the server too', async () => {
+    type(' there');
+    disk.set('main.tex', 'hello world');
+    await fileChanged('main.tex');
+    expect(app.conflict).not.toBeNull();
+    calls.lsp = [];
+
+    await resolveConflict('load-disk');
+
+    const change = calls.lsp.find((c) => c.method === 'textDocument/didChange');
+    expect(change?.params.contentChanges[0].text).toBe('hello world');
+  });
+
   it('a save sends the new text and then didSave, with a higher version', async () => {
     calls.lsp = [];
     type(' there');

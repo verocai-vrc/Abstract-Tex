@@ -6957,6 +6957,21 @@ tried. **Found on the way and fixed:** the Sync sentence was blank after a merge
 TypeScript outcome type had three of Rust's five kinds). Also closed: a runaway-argument error with no
 file or line is now filed under the root file at its last line (`place_unlocated_errors`).
 
+**Owed walks, fourth pass (10 November 2026): the rest of `fixtures/paper/SMOKE.md`.** **Passed:** §5
+step 6 (a missing citation: the PDF appears, the drawer stays closed, `1 warning`, an amber card),
+step 7 (an uncatalogued error: a dashed card, "no explanation for this one yet", only TeX's one-line
+message), steps 8–10 on a fresh thesis copy (`All 7 · 1 error · 6 warnings`, headings in order,
+each chip, *This file*, the exact "Nothing reported in preamble.tex. 7 problems are in other files."
+sentence, gutter dots per tab, and the palette's *Show raw log* and *Toggle diagnostics*); §6 steps 1–3
+(a second tab, a dirty dot that survives a tab switch, `Ctrl B` writing both files). §6 step 4 (a tab
+closed with an unsaved edit) is covered by `closeTab`'s own save-first code and its controller test; the
+harness could not drive that click reliably (it also drops or reorders keystrokes sent right before a
+click, so every typed step now waits). **Found and fixed:** the Outline doubled its headings after
+a file changed on disk, because only a save told TexLab about new text (two controller tests failed
+first); and the sidebar's *New file* used the browser's `window.prompt` (now an inline field). **Still
+unwalked:** §3 step 5 (package-fetch progress), `F5` and `Ctrl O` (the harness cannot send them),
+`bibliography-demo` (needs Zotero and live DOI lookups), and the exit demos.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

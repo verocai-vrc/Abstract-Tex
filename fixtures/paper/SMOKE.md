@@ -105,7 +105,8 @@ Open `fixtures/broken` instead.
 ## §6 Multi-document tabs (S2.3)
 
 `fixtures/paper` is one file, so use the `+` in the sidebar to create a second one (e.g.
-`notes.tex`) — any project with two or more files works the same way.
+`notes.tex`): type the name into the field that appears and press Enter (Esc cancels). Any project
+with two or more files works the same way.
 
 1. With `main.tex` open, open the second file from the tree: a second tab appears next to it,
    and the second file becomes active.
