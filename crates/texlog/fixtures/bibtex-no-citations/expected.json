@@ -1,0 +1,13 @@
+[
+  {
+    "explanation": "BibTeX found no `\\cite` or `\\nocite` in the document, so it had nothing to look up and the bibliography is empty. Cite something with `\\cite{key}`, or add `\\nocite{*}` to list every entry in your `.bib` file, or remove the `\\bibliography` line until you have something to cite.",
+    "file": null,
+    "fix": null,
+    "line": null,
+    "openFiles": [],
+    "rawMessage": "I found no \\citation commands---while reading file main.aux",
+    "rule": "bibtex-no-citations",
+    "severity": "warning",
+    "title": "Nothing in the document is cited"
+  }
+]

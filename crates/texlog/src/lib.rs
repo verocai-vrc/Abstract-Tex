@@ -22,10 +22,12 @@
 // an error, so an undocumented field cannot reach crates.io.
 #![warn(missing_docs)]
 
+pub mod blg;
 pub mod resolver;
 pub mod rules;
 pub mod tokenizer;
 
+pub use blg::bibtex_diagnostics;
 pub use resolver::{file_at, open_files, stack_at};
 pub use rules::{diagnostics, Diagnostic, Fix, Severity};
 pub use tokenizer::{tokenize, LineKind, LogLine, ParenEvent};

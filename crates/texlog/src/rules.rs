@@ -487,6 +487,31 @@ const CATALOG: &[&dyn Rule] = &[
         explain: explain_preamble_only_command,
         fix: None,
     },
+    // BibTeX's own wording, from the `.blg` (E3, `blg.rs`). These never overlap with the rules
+    // above: nothing TeX prints starts "I couldn't open style file" or "Repeated entry".
+    &FnRule {
+        id: "bibtex-style-not-found",
+        severity: Severity::Error,
+        matches: |e| e.message.starts_with("I couldn't open style file "),
+        explain: explain_bibtex_style_not_found,
+        fix: None,
+    },
+    &FnRule {
+        id: "bibtex-repeated-entry",
+        severity: Severity::Warning,
+        matches: |e| e.message == "Repeated entry",
+        explain: explain_bibtex_repeated_entry,
+        fix: None,
+    },
+    &FnRule {
+        id: "bibtex-no-citations",
+        // A warning, not an error as BibTeX counts it: a draft with a `\bibliography` line and
+        // nothing cited yet is an ordinary state, and the PDF is not wrong, only without a list.
+        severity: Severity::Warning,
+        matches: |e| e.message.starts_with("I found no \\citation commands"),
+        explain: explain_bibtex_no_citations,
+        fix: None,
+    },
 ];
 
 /// Explain everything in a log: the `!` errors, plus the warnings that mean the PDF is wrong.
@@ -1233,6 +1258,68 @@ fn fix_fragile_command_in_moving_argument(error: &QuickError) -> Option<Fix> {
         find: command.clone(),
         replace: format!("\\protect{command}"),
     })
+}
+
+/// BibTeX looked for the style named by `\bibliographystyle` and found no such `.bst`.
+fn explain_bibtex_style_not_found(error: &QuickError) -> (String, String) {
+    let name = error
+        .message
+        .strip_prefix("I couldn't open style file ")
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches(".bst");
+    (
+        format!("`{name}` is not a bibliography style BibTeX can find"),
+        format!(
+            "The `\\bibliographystyle{{{name}}}` line names a style file, `{name}.bst`, that is \
+             neither in the project folder nor in this TeX installation, so BibTeX could not format \
+             the bibliography and it will be empty. Check the spelling against a style you know \
+             exists (`plain`, `unsrt`, `alpha` and `abbrv` come with every installation), or put the \
+             `.bst` file the journal gave you next to your `.tex` files."
+        ),
+    )
+}
+
+/// Two entries share one key, so BibTeX kept the first and skipped this one. `context` is the
+/// `@article{a` BibTeX printed, which holds the type and the key.
+fn explain_bibtex_repeated_entry(error: &QuickError) -> (String, String) {
+    let key = error
+        .context
+        .as_deref()
+        .and_then(|context| context.split_once('{'))
+        .map(|(_, key)| key.trim())
+        .filter(|key| !key.is_empty());
+    let file = error.file.as_deref().unwrap_or("the bibliography");
+    match key {
+        Some(key) => (
+            format!("`{key}` is defined twice in the bibliography"),
+            format!(
+                "{file} has more than one entry with the key `{key}`. BibTeX keeps the first and \
+                 skips this one, so every `\\cite{{{key}}}` shows the first entry, whichever you \
+                 meant. Give one of them a different key and cite that one where you want it."
+            ),
+        ),
+        None => (
+            "An entry is defined twice in the bibliography".to_string(),
+            format!(
+                "{file} has two entries with the same key. BibTeX keeps the first and skips the \
+                 second, so a `\\cite` of that key shows the first, whichever you meant. Give one \
+                 of them a different key."
+            ),
+        ),
+    }
+}
+
+/// BibTeX found no `\cite` (or `\nocite`) anywhere in the document it was asked about.
+fn explain_bibtex_no_citations(_error: &QuickError) -> (String, String) {
+    (
+        "Nothing in the document is cited".to_string(),
+        "BibTeX found no `\\cite` or `\\nocite` in the document, so it had nothing to look up and \
+         the bibliography is empty. Cite something with `\\cite{key}`, or add `\\nocite{*}` to list \
+         every entry in your `.bib` file, or remove the `\\bibliography` line until you have \
+         something to cite."
+            .to_string(),
+    )
 }
 
 /// A fix was considered here and rejected, not merely skipped: TeX's own `l.NN` marker for this

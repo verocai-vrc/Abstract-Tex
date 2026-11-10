@@ -28,6 +28,8 @@ node_modules/
 # ...except the logs and SyncTeX output captured deliberately as parser fixtures, the whole
 # point of both crates that read them.
 !crates/texlog/fixtures/**/*.log
+# BibTeX's own log, captured the same way (E3).
+!crates/texlog/fixtures/**/*.blg
 !fixtures/**/*.log
 !crates/abstract-tex-synctex/fixtures/**/*.synctex.gz
 

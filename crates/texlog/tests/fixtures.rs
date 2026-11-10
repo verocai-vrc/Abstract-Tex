@@ -40,4 +40,27 @@ fn run_fixture(name: &str) {
     );
 }
 
+/// The same, for a BibTeX log: `fixtures/<name>/main.blg` through [`texlog::bibtex_diagnostics`].
+fn run_blg_fixture(name: &str) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join(name);
+
+    let blg = fs::read_to_string(dir.join("main.blg"))
+        .unwrap_or_else(|e| panic!("{name}: could not read main.blg: {e}"));
+    let expected_text = fs::read_to_string(dir.join("expected.json"))
+        .unwrap_or_else(|e| panic!("{name}: could not read expected.json: {e}"));
+    let expected: serde_json::Value = serde_json::from_str(&expected_text)
+        .unwrap_or_else(|e| panic!("{name}: expected.json is not valid JSON: {e}"));
+
+    let found = texlog::bibtex_diagnostics(&blg);
+    let found_json = serde_json::to_value(&found).expect("Diagnostic always serialises");
+
+    assert_eq!(
+        found_json,
+        expected,
+        "{name}: parsed diagnostics did not match expected.json.\n\
+         If this is a new or intentionally changed fixture, this is the expected.json to write:\n{}",
+        serde_json::to_string_pretty(&found_json).unwrap()
+    );
+}
+
 include!(concat!(env!("OUT_DIR"), "/fixture_tests.rs"));

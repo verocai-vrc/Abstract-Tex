@@ -33,8 +33,9 @@
       const n = app.errorCount;
       return n === 0 ? 'The build failed.' : n === 1 ? '1 error stopped the build.' : `${n} errors stopped the build.`;
     }
-    if (c.phase === 'ok' && app.warningCount > 0) {
-      const n = app.warningCount;
+    // Errors too: BibTeX's (E3) arrive on a build that succeeded, because the engine ignores them.
+    if (c.phase === 'ok' && app.errorCount + app.warningCount > 0) {
+      const n = app.errorCount + app.warningCount;
       return n === 1 ? 'Built, with 1 thing to look at.' : `Built, with ${n} things to look at.`;
     }
     return 'Build succeeded.';

@@ -1,0 +1,15 @@
+[
+  {
+    "explanation": "refs.bib has more than one entry with the key `a`. BibTeX keeps the first and skips this one, so every `\\cite{a}` shows the first entry, whichever you meant. Give one of them a different key and cite that one where you want it.",
+    "file": "refs.bib",
+    "fix": null,
+    "line": 2,
+    "openFiles": [
+      "refs.bib"
+    ],
+    "rawMessage": "Repeated entry",
+    "rule": "bibtex-repeated-entry",
+    "severity": "warning",
+    "title": "`a` is defined twice in the bibliography"
+  }
+]

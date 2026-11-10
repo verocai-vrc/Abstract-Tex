@@ -349,6 +349,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   priority.
   **Deferred, low priority (2 Oct 2026, design interview E3):** when built, it reads only the root's
   `.blg`, which sidesteps the `\include` trap above.
+  **Fixed (10 Nov 2026):** `texlog::bibtex_diagnostics(blg)` (`crates/texlog/src/blg.rs`) with three
+  rules, from real captures by the bundled Tectonic: `bibtex-style-not-found` (an error; the app finds the
+  `\bibliographystyle` line in the root file), `bibtex-repeated-entry` (a warning, with the `.bib` file and
+  line BibTeX names) and `bibtex-no-citations` (a warning). Every other BibTeX message produces nothing.
+  `compile.rs` reads only the root's `.blg` (named like the log) and **only if this build wrote it**,
+  because a build that does not run BibTeX leaves the last one behind. Found while walking the app:
+  the drawer's header and the status bar counted warnings only on a successful build, so "1 error, 1
+  warning" read "1 warning"; both now count both (`problemCounts`). **Known limit:** these cards'
+  `rawMessage` is BibTeX's, so "Raw log" does not highlight it in `main.log`.
 
 - **`unwrap_lines` does not undo a `\PackageError` message's own multi-line continuation, only a
   plain 79-column hard wrap.** (S6.1, builder, 17 Sep 2026) LaTeX's `\PackageError`/`\GenericError`

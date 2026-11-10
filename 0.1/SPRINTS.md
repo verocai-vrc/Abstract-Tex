@@ -7082,8 +7082,14 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   assigned; several candidates allowed) and watching the right test fail; one wiring test through
   `read_diagnostics`. The ledger entry records what stays open (a cut-off context that still holds
   some other backslash).
-- **A BibTeX `.blg` rule** (E3, low priority) — read only the root's `.blg`.
-
+- [x] **A BibTeX `.blg` rule** (E3, low priority) — read only the root's `.blg`. **Done 10 November
+  2026.** `texlog::bibtex_diagnostics` with three rules (a missing `.bst`, a repeated entry key, a
+  document that cites nothing) from real `.blg` captures; `build.rs` and the fixture harness learned
+  `main.blg`. At the app edge `compile.rs` reads the root's `.blg` only when this build wrote it, and
+  finds the `\bibliographystyle` line itself. Walked in the app on a real Tectonic build: the card on
+  line 4, the gutter dot, and — found there — the header and status bar undercounting a successful
+  build that carries an error, fixed with `problemCounts`. Mutation-checked: the stale-file guard and
+  the commented-out-line guard each fail their test when removed.
 ---
 
 ## 4. Decisions taken at sprint 1

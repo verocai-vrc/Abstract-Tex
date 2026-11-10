@@ -1,0 +1,13 @@
+[
+  {
+    "explanation": "The `\\bibliographystyle{nosuchstyle}` line names a style file, `nosuchstyle.bst`, that is neither in the project folder nor in this TeX installation, so BibTeX could not format the bibliography and it will be empty. Check the spelling against a style you know exists (`plain`, `unsrt`, `alpha` and `abbrv` come with every installation), or put the `.bst` file the journal gave you next to your `.tex` files.",
+    "file": null,
+    "fix": null,
+    "line": null,
+    "openFiles": [],
+    "rawMessage": "I couldn't open style file nosuchstyle.bst",
+    "rule": "bibtex-style-not-found",
+    "severity": "error",
+    "title": "`nosuchstyle` is not a bibliography style BibTeX can find"
+  }
+]

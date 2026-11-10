@@ -9,6 +9,7 @@
   import { detectZotero, disallowShellEscape, goToNextPlaceholder, leaveAndOfferCommit, showActivityView, showJoinWindow, showShareWindow, toggleDrawer } from '../lib/controller.svelte';
   import { live } from '../lib/live.svelte';
   import { compileAnnouncement } from '../lib/announce';
+  import { problemCounts } from '../lib/drawer';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -95,9 +96,10 @@
     {/if}
   {:else if app.compile.phase === 'ok'}
     <span class="ok"><span class="dot"></span>Built in {((app.compile.durationMs ?? 0) / 1000).toFixed(1)}s</span>
-    {#if app.warningCount > 0}
-      <button class="ghost warn" onclick={() => toggleDrawer()}>
-        {app.warningCount === 1 ? '1 warning' : `${app.warningCount} warnings`}
+    {#if app.errorCount + app.warningCount > 0}
+      <!-- Errors as well as warnings: a successful build can carry BibTeX's (E3). -->
+      <button class="ghost" class:warn={app.errorCount === 0} class:error={app.errorCount > 0} onclick={() => toggleDrawer()}>
+        {problemCounts(app.errorCount, app.warningCount)}
       </button>
     {/if}
   {:else if app.compile.phase === 'error'}

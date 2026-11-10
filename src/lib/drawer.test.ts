@@ -14,6 +14,7 @@ import {
   diagnosticsForFile,
   groupDiagnostics,
   locateInLog,
+  problemCounts,
 } from './drawer';
 
 function undefinedReference(file: string, line: number, label: string, page: number): Diagnostic {
@@ -347,5 +348,21 @@ describe('locateInLog', () => {
   it('returns null for a message nowhere in the log', () => {
     expect(locateInLog(log, 'Undefined control sequence.')).toBeNull();
     expect(locateInLog('', 'Missing $ inserted.')).toBeNull();
+  });
+});
+
+// E3: BibTeX's errors arrive on a build that succeeded (Tectonic ignores them), so a finished
+// build can carry errors as well as warnings, and the status bar and the drawer's header must
+// count both or they disagree with the chips beside them.
+describe('problemCounts', () => {
+  it('says only the parts that are not zero', () => {
+    expect(problemCounts(0, 0)).toBe('');
+    expect(problemCounts(0, 1)).toBe('1 warning');
+    expect(problemCounts(1, 0)).toBe('1 error');
+  });
+
+  it('says both, errors first, with the right plurals', () => {
+    expect(problemCounts(1, 1)).toBe('1 error, 1 warning');
+    expect(problemCounts(2, 3)).toBe('2 errors, 3 warnings');
   });
 });

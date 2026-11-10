@@ -24,6 +24,15 @@ export interface DrawerFilter {
 
 export const DEFAULT_FILTER: DrawerFilter = { severity: 'all', activeFileOnly: false };
 
+/** "1 error, 2 warnings": only the parts that are not zero, errors first, `''` when both are.
+ * What a finished build's status says when it carries problems of either kind. */
+export function problemCounts(errors: number, warnings: number): string {
+  const parts: string[] = [];
+  if (errors > 0) parts.push(errors === 1 ? '1 error' : `${errors} errors`);
+  if (warnings > 0) parts.push(warnings === 1 ? '1 warning' : `${warnings} warnings`);
+  return parts.join(', ');
+}
+
 /** Where a diagnostic lives in the author's project. */
 export interface DiagnosticPlace {
   /** The tab it belongs to: see `diagnosticTarget`. */

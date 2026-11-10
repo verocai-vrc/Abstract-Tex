@@ -1,0 +1,13 @@
+This is BibTeX, Version 0.99d
+Capacity: max_strings=35307, hash_size=35307, hash_prime=30011
+The top-level auxiliary file: main.aux
+The style file: plain.bst
+Database file #1: refs.bib
+Repeated entry---line 2 of file refs.bib
+ : @article{a
+ :           , author={B. Dup}, title={U}, journal={J}, year={2021}}
+I'm skipping whatever remains of this entry
+Warning--I didn't find a database entry for "zzz"
+Warning--to sort, need author, editor, or key in b
+Warning--empty author and editor in b
+(There was 1 error message)

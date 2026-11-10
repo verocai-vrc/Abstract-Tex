@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_engine::latexmk::{EngineChoice, Latexmk};
@@ -283,6 +284,8 @@ impl Orchestrator {
                         (draft_token, handle)
                     });
 
+            // Before the build, not after: `main.blg` is only read when this build wrote it.
+            let build_started = SystemTime::now();
             let result = engine.build(&job, token, Some(progress_tx)).await;
 
             // `build` dropped its end of the progress channel on the way out (whether it
@@ -309,7 +312,16 @@ impl Orchestrator {
                         let diagnostics = outcome
                             .log
                             .as_deref()
-                            .map(|log| read_diagnostics(log, &job.project_dir, &job.root_file))
+                            .map(|log| {
+                                let mut diagnostics = read_diagnostics(log, &job.project_dir, &job.root_file);
+                                diagnostics.extend(read_bibtex_diagnostics(
+                                    log,
+                                    &job.project_dir,
+                                    &job.root_file,
+                                    build_started,
+                                ));
+                                diagnostics
+                            })
                             .unwrap_or_default();
                         info!(
                             generation,
@@ -395,16 +407,7 @@ fn read_diagnostics(log_path: &Path, project_dir: &Path, root_file: &Path) -> Ve
         // TeX logs are not reliably UTF-8; lossy conversion keeps the parser simple.
         Ok(bytes) => {
             let mut diagnostics = texlog::diagnostics(&String::from_utf8_lossy(&bytes));
-            for diagnostic in &mut diagnostics {
-                if let Some(file) = diagnostic.file.as_mut() {
-                    *file = as_the_project_spells_it(file, project_dir);
-                }
-                // The whole stack, for the same reason: the frontend matches every entry against
-                // the include graph, not only the innermost one.
-                for file in diagnostic.open_files.iter_mut() {
-                    *file = as_the_project_spells_it(file, project_dir);
-                }
-            }
+            respell_files(&mut diagnostics, project_dir);
             place_unlocated_errors(&mut diagnostics, root_file, project_dir);
             // After the respelling above: it reads `file` from `project_dir`, so the name must be
             // the project's own.
@@ -412,6 +415,87 @@ fn read_diagnostics(log_path: &Path, project_dir: &Path, root_file: &Path) -> Ve
             diagnostics
         }
         Err(_) => Vec::new(),
+    }
+}
+
+/// Spell every file a diagnostic names, and every file on its stack, the way the project does.
+///
+/// The whole stack, and not only `file`: the frontend matches every entry against the include
+/// graph (E1), so a `./main.tex` or an absolute path anywhere in it would miss its tab.
+fn respell_files(diagnostics: &mut [texlog::Diagnostic], project_dir: &Path) {
+    for diagnostic in diagnostics.iter_mut() {
+        if let Some(file) = diagnostic.file.as_mut() {
+            *file = as_the_project_spells_it(file, project_dir);
+        }
+        for file in diagnostic.open_files.iter_mut() {
+            *file = as_the_project_spells_it(file, project_dir);
+        }
+    }
+}
+
+/// E3: what BibTeX said about this build, from the root document's own `.blg`.
+///
+/// BibTeX writes its errors to `main.blg`, beside the engine's `main.log`, and `texlog::diagnostics`
+/// is never given it. Only the **root's** `.blg` is read, which is the one named like the log: with
+/// `\include`, every chapter's `.aux` is also run through BibTeX and each of those logs carries
+/// three errors that are not the author's (`texlog/src/blg.rs` says which).
+///
+/// It is read only if this build wrote it. A build that does not run BibTeX (the author deleted
+/// `\bibliography`, say) leaves the previous build's `.blg` where it was, and reading that would
+/// show a card for something no longer true, which nothing would ever clear. A second of slack,
+/// because some filesystems keep timestamps to a coarse resolution.
+fn read_bibtex_diagnostics(
+    log_path: &Path,
+    project_dir: &Path,
+    root_file: &Path,
+    build_started: SystemTime,
+) -> Vec<texlog::Diagnostic> {
+    let blg_path = log_path.with_extension("blg");
+    let Ok(modified) = std::fs::metadata(&blg_path).and_then(|metadata| metadata.modified()) else {
+        return Vec::new();
+    };
+    if modified + Duration::from_secs(1) < build_started {
+        return Vec::new();
+    }
+    let Ok(bytes) = std::fs::read(&blg_path) else {
+        return Vec::new();
+    };
+    let mut diagnostics = texlog::bibtex_diagnostics(&String::from_utf8_lossy(&bytes));
+    respell_files(&mut diagnostics, project_dir);
+    place_bibliography_style(&mut diagnostics, root_file, project_dir);
+    // Whatever is still without a place goes where every other placeless error goes.
+    place_unlocated_errors(&mut diagnostics, root_file, project_dir);
+    diagnostics
+}
+
+/// BibTeX reports a missing style against a line of the `.aux`, which the author never opens. The
+/// line they can act on is `\bibliographystyle{name}`, and when it is in the root file it is found
+/// by reading for it. When it is not (an included file, a macro), the diagnostic is left unplaced
+/// and `place_unlocated_errors` files it at the end of the root, which is honest if unhelpful.
+fn place_bibliography_style(diagnostics: &mut [texlog::Diagnostic], root_file: &Path, project_dir: &Path) {
+    let Ok(root_text) = std::fs::read_to_string(project_dir.join(root_file)) else {
+        return;
+    };
+    for diagnostic in diagnostics.iter_mut() {
+        if diagnostic.rule != Some("bibtex-style-not-found") || diagnostic.file.is_some() {
+            continue;
+        }
+        let Some(style) = diagnostic
+            .raw_message
+            .strip_prefix("I couldn't open style file ")
+            .map(|name| name.trim().trim_end_matches(".bst"))
+        else {
+            continue;
+        };
+        let command = format!("\\bibliographystyle{{{style}}}");
+        // A commented-out copy must not win: everything from a `%` on is not the document.
+        let found = root_text
+            .lines()
+            .position(|line| line.split('%').next().unwrap_or("").contains(&command));
+        if let Some(index) = found {
+            diagnostic.file = Some(root_file.to_string_lossy().replace('\\', "/"));
+            diagnostic.line = Some(index as u32 + 1);
+        }
     }
 }
 
@@ -626,6 +710,122 @@ mod tests {
         assert_eq!(
             (fix.find.as_str(), fix.replace.as_str()),
             ("\\footnote", "\\protect\\footnote")
+        );
+    }
+
+    // ---- E3: BibTeX's own log, the root's `main.blg` ----
+
+    /// A project whose build log sits beside a `main.blg`, written at `blg_age` before now.
+    fn project_with_blg(
+        main_tex: &str,
+        blg: &str,
+        blg_age: std::time::Duration,
+    ) -> (tempfile::TempDir, std::path::PathBuf) {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("main.tex"), main_tex).unwrap();
+        let log_path = project.path().join("main.log");
+        std::fs::write(&log_path, "This is XeTeX\n").unwrap();
+        let blg_file = std::fs::File::create(project.path().join("main.blg")).unwrap();
+        std::io::Write::write_all(&mut &blg_file, blg.as_bytes()).unwrap();
+        blg_file
+            .set_modified(std::time::SystemTime::now() - blg_age)
+            .unwrap();
+        (project, log_path)
+    }
+
+    const STYLE_NOT_FOUND_BLG: &str = "This is BibTeX, Version 0.99d\n\
+        The top-level auxiliary file: main.aux\n\
+        I couldn't open style file nosuchstyle.bst\n\
+        ---line 3 of file main.aux\n";
+
+    #[test]
+    fn a_missing_bibliography_style_is_placed_on_its_own_line_in_the_root_file() {
+        let (project, log_path) = project_with_blg(
+            "\\documentclass{article}\n\\begin{document}\n\\bibliographystyle{nosuchstyle}\n\\end{document}\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::ZERO,
+        );
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
+
+        let found = read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started);
+
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].rule, Some("bibtex-style-not-found"));
+        assert_eq!(found[0].file.as_deref(), Some("main.tex"));
+        assert_eq!(found[0].line, Some(3));
+    }
+
+    #[test]
+    fn a_commented_out_style_line_is_not_the_one_that_is_found() {
+        let (project, log_path) = project_with_blg(
+            "% \\bibliographystyle{nosuchstyle}\nbody\n\\bibliographystyle{nosuchstyle} % the real one\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::ZERO,
+        );
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
+
+        let found = read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started);
+
+        assert_eq!(found[0].line, Some(3));
+    }
+
+    #[test]
+    fn a_missing_style_named_in_no_root_file_line_falls_back_to_the_end_of_the_root() {
+        // The `\bibliographystyle` line lives in an included file, which this does not search.
+        let (project, log_path) = project_with_blg(
+            "one\ntwo\nthree\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::ZERO,
+        );
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
+
+        let found = read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started);
+
+        assert_eq!(
+            (found[0].file.as_deref(), found[0].line),
+            (Some("main.tex"), Some(3))
+        );
+    }
+
+    #[test]
+    fn a_repeated_entry_keeps_its_bib_file_spelled_the_projects_way() {
+        let blg = "Repeated entry---line 2 of file ./refs.bib\n : @article{a\n :           ,\n";
+        let (project, log_path) = project_with_blg("x\n", blg, std::time::Duration::ZERO);
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
+
+        let found = read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started);
+
+        assert_eq!(found[0].file.as_deref(), Some("refs.bib"));
+        assert_eq!(found[0].open_files, vec!["refs.bib".to_string()]);
+        assert_eq!(found[0].line, Some(2));
+    }
+
+    /// A build that does not run BibTeX leaves the last build's `main.blg` where it was. Reading
+    /// it would show a card for a problem the author has since fixed (or a `\bibliography` line
+    /// they have since deleted), and nothing would ever clear it.
+    #[test]
+    fn a_blg_older_than_this_build_is_not_this_builds_and_is_ignored() {
+        let (project, log_path) = project_with_blg(
+            "\\bibliographystyle{nosuchstyle}\n",
+            STYLE_NOT_FOUND_BLG,
+            std::time::Duration::from_secs(60),
+        );
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
+
+        assert!(
+            read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started).is_empty()
+        );
+    }
+
+    #[test]
+    fn no_blg_at_all_is_no_diagnostics() {
+        let project = tempfile::tempdir().unwrap();
+        let log_path = project.path().join("main.log");
+        std::fs::write(&log_path, "x\n").unwrap();
+        let started = std::time::SystemTime::now();
+
+        assert!(
+            read_bibtex_diagnostics(&log_path, project.path(), Path::new("main.tex"), started).is_empty()
         );
     }
 

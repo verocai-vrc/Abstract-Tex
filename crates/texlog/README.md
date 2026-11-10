@@ -57,6 +57,10 @@ Three layers, each usable on its own:
   outermost first, so a caller that knows the project's files can take the innermost one it has.
   The `line` is the innermost file's: it is not a line of any file further out.
 - **It does not run `biber`,** so `biblatex`'s own errors have no rule yet.
+- **It reads BibTeX's log only if you hand it over.** `bibtex_diagnostics(blg)` explains a missing
+  `.bst`, a repeated entry key and a document that cites nothing, from the `.blg`. Give it the
+  **root document's** `.blg` only: with `\include`, every chapter's own `.blg` carries three errors
+  that are not the author's. Every other BibTeX message produces nothing, not a fallback card.
 - **It is tested against one engine so far:** Tectonic 0.17.0 (XeTeX). The wrap width and the
   shapes it recognises are the classic ones shared by pdfTeX and LuaTeX, but every fixture in
   `fixtures/` is a Tectonic capture. Logs from other engines that parse wrongly are exactly the

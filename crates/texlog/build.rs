@@ -1,5 +1,5 @@
 //! Generates one `#[test]` per fixture directory under `fixtures/` that carries both a
-//! `main.log` and an `expected.json` (S5.3, SPRINTS.md). Cargo re-runs this script whenever
+//! `main.log` (or, since E3, a BibTeX `main.blg`) and an `expected.json` (S5.3, SPRINTS.md). Cargo re-runs this script whenever
 //! `fixtures/` changes (the `cargo:rerun-if-changed` line below), so adding a new fixture
 //! directory with both files is enough to add its test — no Rust file needs editing, which is
 //! the whole point: S5.4's twenty fixtures should be able to land as data, not code.
@@ -36,7 +36,11 @@ fn main() {
             .file_name()
             .into_string()
             .expect("fixture directory names are ASCII");
-        if !entry.path().join("main.log").is_file() || !entry.path().join("expected.json").is_file() {
+        // A fixture is a `main.log` (the engine's log) or a `main.blg` (BibTeX's, E3) with an
+        // `expected.json` beside it. `bibtex-*` directories carry the second kind.
+        let has_log = entry.path().join("main.log").is_file();
+        let has_blg = entry.path().join("main.blg").is_file();
+        if !(has_log || has_blg) || !entry.path().join("expected.json").is_file() {
             // No expected.json: this fixture belongs to tokenizer.rs or resolver.rs instead
             // (crates/texlog/fixtures/README.md says which), not the rule catalog this harness
             // checks. Skipped rather than treated as an error.
@@ -45,8 +49,9 @@ fn main() {
         // A directory name like `undefined-control-sequence` is not a valid Rust identifier
         // (hyphens are not allowed in one); the generated test's name swaps them for underscores.
         let test_name = dir_name.replace('-', "_");
+        let runner = if has_log { "run_fixture" } else { "run_blg_fixture" };
         generated.push_str(&format!(
-            "#[test]\nfn fixture_{test_name}() {{\n    run_fixture({dir_name:?});\n}}\n\n"
+            "#[test]\nfn fixture_{test_name}() {{\n    {runner}({dir_name:?});\n}}\n\n"
         ));
     }
 
