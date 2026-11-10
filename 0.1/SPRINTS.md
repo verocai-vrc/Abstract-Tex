@@ -7296,7 +7296,7 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 - [x] `R3.2`, `R3.3` the citation guard misses `\textcquote`, `\blockcquote`, `\bibentry`, and learns the author's wrappers from the root's preamble only. Done 10 November 2026; the editor's own undefined-citation scan still misses `\\textcquote`/`\\bibentry` (ledger).
 - [x] `R3.4`, `R3.7`, `R3.8`, `R3.9`, `R3.10` comments: one bad record blanks the list, a double read can panic, re-anchoring is quadratic, `file` is read unchecked, writes can race. Done 10 November 2026.
 - [x] `R3.6` snapshots follow symlinks. Done 10 November 2026.
-- [ ] `R4.3`, `R4.9` git verbs act on unvalidated paths; sync shows libgit2's own sentence.
+- [x] `R4.3`, `R4.9` git verbs act on unvalidated paths; sync shows libgit2's own sentence. Done 10 November 2026 (the merge commit's title is left).
 - [ ] `R2.a`..`R2.c` crash reports: the issue URL can exceed its cap; caught panics are reported; the home-folder scrub is case-sensitive.
 - [ ] `R4.4`, `R4.5` `paste_cite` hides its write from the watcher; a failed autosave is silent.
 - [ ] `R4.8`, `R4.14` two dialogs miss the focus rules; no dialog sets `aria-modal`.

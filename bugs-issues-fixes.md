@@ -1867,6 +1867,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      a tracked file whose status cannot be read is deleted instead of restored. The webview is our
      own code, so this needs a compromised or buggy frontend, but `Project::resolve`'s own comment
      says every write command is checked and these are not.
+     **Fixed 10 Nov 2026.** One `inside_project` check (empty, absolute, drive prefix, `..`, or
+     inside `.git`) now guards `stage`, `unstage`, `discard` and `diff_sides` (which had it inline,
+     without the `.git` rule); `discard` deletes only when Git says "new in the working tree" or
+     has no status at all, and returns any other error. Three tests (the reproduced absolute and
+     `../` paths plus `.git/config` and `.git`, across all three verbs; a folder path; a file that
+     is already gone). Side note found by the clippy gate: `Option::is_none_or` needs Rust 1.82 and
+     the workspace floor is 1.80.
   4. **S. `paste_cite` hides its write from the watcher.** It rewrites the `.bib` with
      `remember_write`, so the echo filter drops the change and an open tab holding that `.bib` is
      never reloaded (snapshot restore deliberately does the opposite, `snapshots.rs`). The next
@@ -1902,6 +1909,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      Nothing is lost (the merge refuses, and an unstaged edit is kept and not pushed; both checked),
      but a staged file blocks a diverged sync with no explanation in plain words. The merge commit
      is titled `Merge commit '<sha>'`, not the "Merge branch 'origin/main'" the code comment promises.
+     **Partly fixed 10 Nov 2026.** `GitError::SyncNeedsCommit` ("…while you have changes that are
+     not committed. Commit them (or discard them), then sync again. Nothing was changed.") replaces
+     libgit2's text for a merge or a fast-forward it refused; test: a staged edit blocks a diverged
+     sync, the sentence has no `class=`, and the head, the remote and the staged edit are untouched.
+     The merge commit's title was not changed (cosmetic; the comment that promised the other
+     wording is the thing to correct, left for the next pass over `merge`).
   10. **S. `amend` in the git crate has no "already pushed" check**; the design leaves it to the panel
       (`ahead_behind`). A second caller would amend published history.
   11. **S. `resolve_bib_argument` treats any dot in a name as an extension**, so `\bibliography{refs.v2}`

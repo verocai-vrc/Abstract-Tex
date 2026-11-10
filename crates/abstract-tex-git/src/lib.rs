@@ -173,6 +173,11 @@ pub enum GitError {
 
     #[error("A file in your folder that Git has never seen would be overwritten by the other branch's version of it. Move it, or commit it, then switch.")]
     WouldOverwriteFiles,
+
+    /// A sync that libgit2 refused because the merge would run over changes that are staged or
+    /// otherwise uncommitted. The merge is not started, so nothing is half done.
+    #[error("Your coauthor's changes cannot be combined with yours while you have changes that are not committed. Commit them (or discard them), then sync again. Nothing was changed.")]
+    SyncNeedsCommit,
 }
 
 /// What one changed file is, in the words the row in the view uses.
@@ -416,12 +421,39 @@ fn path_string(path: &Path) -> String {
         .join("/")
 }
 
+/// Refuse a path that is not a plain project-relative one: empty, absolute, with a drive prefix,
+/// with a `..` in it, or inside Git's own folder.
+///
+/// The paths come from the window, and `Path::join` with an absolute path *replaces* the base, so
+/// without this `discard("/home/me/thesis.docx")` or `discard("../x")` deleted a file outside the
+/// project, and `discard(".git/config")` deleted the repository's configuration (review finding
+/// R4.3, reproduced). `diff_sides` had the rule already, inline; the verbs that change things did
+/// not, so it lives here for all of them.
+fn inside_project(path: &str) -> Result<(), GitError> {
+    let relative = Path::new(path);
+    let plain = !path.is_empty()
+        && !relative.is_absolute()
+        && relative
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+        && relative
+            .components()
+            .next()
+            .map_or(true, |first| first.as_os_str() != ".git");
+    if plain {
+        Ok(())
+    } else {
+        Err(GitError::OutsideProject(path.to_string()))
+    }
+}
+
 /// Stage one path: add it to the index, or record its deletion there.
 ///
 /// `add_path` cannot record a deletion — it reads the file — so a path that is gone from the
 /// working tree goes through `remove_path` instead. Getting this wrong is the classic "staging a
 /// deleted file does nothing" bug, and it is invisible until someone deletes a chapter.
 pub fn stage(repository: &Repository, path: &str) -> Result<(), GitError> {
+    inside_project(path)?;
     let mut index = repository.index()?;
     let relative = Path::new(path);
     if workdir_path(repository, path).is_some_and(|full| full.exists()) {
@@ -440,6 +472,7 @@ pub fn stage(repository: &Repository, path: &str) -> Result<(), GitError> {
 /// between unstaging and discarding. A repository with no commits yet has no `HEAD` to reset
 /// from, so there the entry is simply removed, which leaves the file untracked again.
 pub fn unstage(repository: &Repository, path: &str) -> Result<(), GitError> {
+    inside_project(path)?;
     match repository.head().and_then(|head| head.peel_to_commit()) {
         Ok(commit) => repository.reset_default(Some(commit.as_object()), [path])?,
         Err(_) => {
@@ -465,10 +498,16 @@ pub enum Discarded {
 
 /// Throw away the working-tree changes to one path.
 pub fn discard(repository: &Repository, path: &str) -> Result<Discarded, GitError> {
-    let tracked = repository
-        .status_file(Path::new(path))
-        .map(|flags| !flags.is_wt_new())
-        .unwrap_or(false);
+    inside_project(path)?;
+    // Only "Git has never seen this file" may lead to a deletion. A path Git has no status for at
+    // all (`NotFound`) is already gone, so nothing is deleted; any other error means Git could not
+    // judge, and an answer it could not give is no permission to delete (review finding R4.3: the
+    // error used to be read as "untracked").
+    let tracked = match repository.status_file(Path::new(path)) {
+        Ok(flags) => !flags.is_wt_new(),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => false,
+        Err(error) => return Err(error.into()),
+    };
     if !tracked {
         if let Some(full) = workdir_path(repository, path) {
             if full.exists() {
@@ -1460,6 +1499,18 @@ pub fn push(repository: &Repository, token: Option<&str>) -> Result<(), GitError
     Ok(())
 }
 
+/// libgit2 refuses a merge or a checkout that would run over changes that are not committed with a
+/// `Conflict` error whose own text ("1 uncommitted change would be overwritten by merge;
+/// class=Merge (22); code=Conflict (-13)") is not something to show an author. Everything else
+/// passes through unchanged (review finding R4.9).
+fn refused_for_uncommitted_changes(error: git2::Error) -> GitError {
+    if error.code() == git2::ErrorCode::Conflict {
+        GitError::SyncNeedsCommit
+    } else {
+        GitError::Git(error)
+    }
+}
+
 /// Move the current branch, and the working tree, straight to `target` — safe only because the
 /// branch has no commit of its own that this would throw away.
 ///
@@ -1467,7 +1518,9 @@ pub fn push(repository: &Repository, token: Option<&str>) -> Result<(), GitError
 /// change in it, the same refusal `git pull --ff-only` gives — this never forces past it.
 fn fast_forward(repository: &Repository, branch_name: &str, target: git2::Oid) -> Result<(), GitError> {
     let commit = repository.find_commit(target)?;
-    repository.checkout_tree(commit.as_object(), None)?;
+    repository
+        .checkout_tree(commit.as_object(), None)
+        .map_err(refused_for_uncommitted_changes)?;
     repository.reference(
         &format!("refs/heads/{branch_name}"),
         target,
@@ -1534,7 +1587,9 @@ fn merge(
     token: Option<&str>,
 ) -> Result<SyncOutcome, GitError> {
     let their_commit = repository.find_annotated_commit(their_target)?;
-    repository.merge(&[&their_commit], None, None)?;
+    repository
+        .merge(&[&their_commit], None, None)
+        .map_err(refused_for_uncommitted_changes)?;
 
     if repository.index()?.has_conflicts() {
         return Ok(SyncOutcome::Conflicted);
@@ -1638,14 +1693,8 @@ pub struct DiffSides {
 /// unborn branch's `HEAD`) is empty text, so the view shows a pure addition or a pure removal.
 /// Reads only: nothing here touches the index or the working tree.
 pub fn diff_sides(repository: &Repository, path: &str, staged: bool) -> Result<DiffSides, GitError> {
+    inside_project(path)?;
     let relative = Path::new(path);
-    let stays_inside = !relative.is_absolute()
-        && relative
-            .components()
-            .all(|component| matches!(component, std::path::Component::Normal(_)));
-    if !stays_inside {
-        return Err(GitError::OutsideProject(path.to_string()));
-    }
 
     let in_index = || -> Result<String, GitError> {
         let index = repository.index()?;
@@ -2836,6 +2885,58 @@ mod tests {
         assert_eq!(repository.state(), git2::RepositoryState::Clean);
     }
 
+    // Review finding R4.9. A diverged sync with something staged is refused by libgit2 ("1
+    // uncommitted change would be overwritten by merge; class=Merge (22); code=Conflict (-13)") and
+    // that sentence went to the author as it was. Nothing is lost either way (checked: the staged
+    // edit stays staged and is not published), but the refusal should say what to do, in our words.
+    #[test]
+    fn a_sync_blocked_by_a_staged_change_says_what_to_do_and_changes_nothing() {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        commit_into_bare(
+            bare.path(),
+            &branch,
+            "notes.tex",
+            "a coauthor's notes\n",
+            "coauthor",
+        );
+        fs::write(tmp.path().join("chapter.tex"), "a local chapter\n").unwrap();
+        commit_all(&repository, "local edit");
+        let local_head = repository.head().unwrap().target().unwrap();
+        let remote_before = bare_tip(bare.path(), &branch);
+        fs::write(tmp.path().join("main.tex"), "half-written\n").unwrap();
+        stage(&repository, "main.tex").unwrap();
+
+        let error = sync(&repository, None).unwrap_err();
+
+        assert!(matches!(error, GitError::SyncNeedsCommit), "{error:?}");
+        let sentence = error.to_string();
+        assert!(
+            !sentence.contains("class="),
+            "libgit2's own wording leaked: {sentence}"
+        );
+        assert!(sentence.contains("Commit"), "it says what to do: {sentence}");
+        assert_eq!(
+            repository.head().unwrap().target().unwrap(),
+            local_head,
+            "nothing was merged"
+        );
+        assert_eq!(
+            bare_tip(bare.path(), &branch),
+            remote_before,
+            "nothing was published"
+        );
+        assert_eq!(
+            fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
+            "half-written\n"
+        );
+        assert_eq!(
+            changes(&repository).staged.len(),
+            1,
+            "the staged edit is still staged"
+        );
+    }
+
     /// Both sides edited the same line: libgit2 cannot resolve it on its own, and `sync` leaves
     /// exactly the state a terminal `git merge` would — real markers on disk, a real `MERGE_HEAD`,
     /// nothing committed and nothing pushed.
@@ -3476,5 +3577,72 @@ mod tests {
             diff_sides(&repository, "main.tex", false),
             Err(GitError::NotText(_))
         ));
+    }
+
+    // Review finding R4.3, reproduced: `discard` joined whatever path it was given onto the working
+    // directory, so an absolute path and `../x` both deleted a file outside the repository, and
+    // `.git/config` was deletable too. `diff_sides` already refused such paths; the verbs that
+    // change things did not.
+    #[test]
+    fn the_verbs_that_change_things_refuse_a_path_that_leaves_the_project() {
+        let outer = tempfile::tempdir().unwrap();
+        let project = outer.path().join("project");
+        fs::create_dir(&project).unwrap();
+        fs::write(project.join("main.tex"), "the manuscript\n").unwrap();
+        let repository = Repository::init(&project).unwrap();
+        commit_all(&repository, "first");
+
+        let precious = outer.path().join("precious.txt");
+        fs::write(&precious, "not ours to delete").unwrap();
+        let absolute = precious.to_string_lossy().into_owned();
+        let git_config = project.join(".git/config");
+
+        for bad in [
+            absolute.as_str(),
+            "../precious.txt",
+            "sub/../../precious.txt",
+            ".git/config",
+            ".git",
+            "",
+        ] {
+            let discarded = discard(&repository, bad).unwrap_err();
+            assert!(
+                matches!(discarded, GitError::OutsideProject(_)),
+                "{bad:?}: {discarded:?}"
+            );
+            assert!(
+                matches!(stage(&repository, bad), Err(GitError::OutsideProject(_))),
+                "{bad:?}"
+            );
+            assert!(
+                matches!(unstage(&repository, bad), Err(GitError::OutsideProject(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(precious.exists(), "a file outside the project was deleted");
+        assert!(git_config.exists(), "Git's own configuration was deleted");
+    }
+
+    // The other half of the same finding: an error from `status_file` was read as "this file is not
+    // tracked", so the file was deleted. An answer Git could not give is not permission to delete.
+    #[test]
+    fn a_path_git_cannot_judge_is_an_error_and_never_a_deletion() {
+        let (tmp, repository) = repo();
+        fs::create_dir(tmp.path().join("chapters")).unwrap();
+        fs::write(tmp.path().join("chapters/one.tex"), "one\n").unwrap();
+        commit_all(&repository, "chapters");
+
+        // A folder is ambiguous to `status_file`; the work inside it must be untouched.
+        assert!(discard(&repository, "chapters").is_err());
+        assert!(tmp.path().join("chapters/one.tex").exists());
+    }
+
+    #[test]
+    fn an_untracked_file_that_is_already_gone_is_reported_deleted_without_fuss() {
+        let (_tmp, repository) = repo();
+        assert_eq!(
+            discard(&repository, "never-existed.tex").unwrap(),
+            Discarded::Deleted
+        );
     }
 }
