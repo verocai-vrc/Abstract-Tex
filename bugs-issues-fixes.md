@@ -1628,3 +1628,40 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      disappears from the drawer after a text-only edit. Bundled Tectonic does not do this.
   3. *Working-copy comparison drops symlinked files.* `copy_working_tree` copies regular files and
      directories only, so a symlinked chapter is silently missing from the "working copy" side.
+
+- **Agentic review, second pass (10 Nov 2026): `texlog` rules, latexdiff retry and working-copy
+  lane, E6 gate, crash reports (S16.3), relay (S14.1) and the encrypted channel (S14.2). Read, not
+  run, except where said. One real defect, the rest risks.**
+  - **Real, by reading: a crash report's GitHub URL can exceed its cap.** `issue_url`
+    (`src-tauri/src/crash.rs`) cuts lines from the end until the URL fits 6 000 bytes, but stops at
+    three lines (`lines.len() <= 3`) and returns whatever is left. The third line is the panic
+    message, so one long message (an `unwrap()` on an `Err` whose `Debug` is a few thousand
+    characters, which percent-encodes to three times its length) gives a URL GitHub or the browser
+    refuses, on exactly the report the author most wants to send. Fix: cut the message line itself
+    to fit, as the backtrace is. Needs a test with a 3 000-character message first.
+  - **Risk: the crash hook reports caught panics too.** `install` replaces the process-wide hook, so
+    a panic in a spawned task that tokio or a `JoinHandle` catches, with the app still running,
+    writes a report and the next launch asks about "a crash" that did not stop anything.
+  - **Risk: `scrub_home` is a case- and separator-sensitive string replace.** On Windows a path
+    spelled `c:/Users/…` against `USERPROFILE=C:\Users\…` keeps the account name. The module's own
+    note says the author's read-through is the guarantee, so this is a leak the review step catches,
+    not one the scrub prevents.
+  - **Risk: the relay has no resource limits** (`crates/abstract-tex-relay`). Per-peer outbox is an
+    unbounded channel, there is no message-size setting beyond tungstenite's default, no cap on
+    connections, rooms or peers per room, and no handshake timeout, so sockets that never finish
+    the upgrade hold a task each. It binds `0.0.0.0` by default, for a person's own VPS. A slow
+    reader in a room makes memory grow without bound. Acceptable for a trusted friends-only
+    deployment; worth a bounded channel (drop the peer when full) and a handshake timeout before it
+    is described as safe to expose.
+  - **Risk: invites default to plaintext `ws://`** (`invite.ts`). The key never crosses the wire (it
+    is after the `#`, and independent of the 128-bit room id), so confidentiality holds; but the
+    room id, which is the only thing gating entry to a room, is visible to anyone on the path, who
+    can then join and flood it. A `wss://` default for any address that is not `localhost` would
+    close that.
+  - **Risk: working-copy comparison has no size bound.** `copy_working_tree` copies everything not
+    ignored, including large untracked files, on every click; the commit side only exports tracked
+    files. A project with a big untracked data folder pays for it each time.
+  - **Checked and fine:** key derivation and room id are independent; AES-GCM draws a fresh IV per
+    message and nothing reuses one; `dismiss` rejects every path-shaped id; `fragile_command` offers a
+    fix only when exactly one candidate is on the line; the E6 gate's skip/require switch matches
+    the other `ABSTRACT_TEX_*` flags in the repository.
