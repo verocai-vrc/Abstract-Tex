@@ -1701,10 +1701,26 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      comes back clean. The design calls the guard "not negotiable". Add the names (and test the
      list against biblatex's and bibentry's own command lists), and consider holding any unknown
      command that is followed by a key-shaped brace group in a prose edit.
+     **Fixed 10 Nov 2026.** `key_command_shape` in the guard: any name containing `cquote` (with a
+     language group first for the `foreign` and `hyphen` forms) and `bibentry`, reading only the first
+     key group, because the next group of `\textcquote{key}{words}` is the quoted words and reading
+     it as keys would refuse every honest use. Three tests in `tests/citation_guard.rs` (the attacks
+     from the reproduction, the honest uses that must pass, a wrapper around one), two of them red
+     before. Not done, and recorded here so it is not forgotten: `texbib::is_citation_command`, which
+     the editor's own undefined-citation scan uses, still does not see these commands (widening it
+     would report the quoted words as undefined citations, so it needs the same shape handling);
+     and "hold any unknown command followed by a key-shaped group" was not built, since it would
+     refuse honest text.
   3. **S. The guard also learns the author's own citation wrappers from the root file's preamble
      only** (`assistant_review.rs`, `preamble_of(root_text)`). A `\see` or `\citeas` defined in an
      `\input`ed preamble file, a `.sty` or a `.cls` is invisible, so `\see{invented}` passes. Read
      the include graph's files and the project's own style files.
+     **Fixed 10 Nov 2026.** `macro_sources` (`assistant_review.rs`) reads every file of the include
+     graph plus the project's own `.sty`, `.cls` and `.def` files (four folders deep, never `.git`
+     or our folder, nothing over 2 MB); a `.tex` file the document does not read is left out on
+     purpose. Two tests with a project in a temporary folder (wrappers in an `\input`ed preamble, a
+     local package and a chapter all found; one in an unread file not), red against the old
+     root-preamble-only behaviour. `preamble_of` had no caller left and was removed.
   4. **S. One malformed comment record blanks every comment.** `read_tree_entries`
      (`abstract-tex-comments/src/store.rs`) returns on the first JSON error, so a blob a coauthor's
      newer version wrote, or a damaged one, turns the whole Comments view into an error. Skip the

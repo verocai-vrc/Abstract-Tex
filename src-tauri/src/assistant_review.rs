@@ -232,13 +232,79 @@ fn project_guard(state: &AppState) -> Result<(Guard, PathBuf), String> {
         )
     };
     let index = bibliography::build_index(&root_dir, &root_file, &extra_bib_files);
-    let root_text = std::fs::read_to_string(root_dir.join(&root_file)).unwrap_or_default();
-    Ok((guard_for(&index, preamble_of(&root_text)), root_dir))
+    Ok((guard_for(&index, &macro_sources(&root_dir, &root_file)), root_dir))
 }
 
-/// Everything before `\begin{document}`: where a document defines its own commands.
-fn preamble_of(text: &str) -> &str {
-    text.find("\\begin{document}").map_or(text, |end| &text[..end])
+/// The text the author's own citation commands can be defined in: every `.tex` file the document
+/// reads (the include graph, root first), and the project's own `.sty`, `.cls` and `.def` files.
+///
+/// The guard used to learn these from the root file's preamble alone, so a `\see` defined in an
+/// `\input`ed preamble, a chapter or a local package was invisible and `\see{invented}` passed
+/// (review finding R3.3). A file nothing reads is left out on purpose: its definitions are not
+/// callable from the document, and treating them as citation commands would only refuse honest
+/// edits. Files over two megabytes are skipped; no macro file is that big, and a data file named
+/// `.def` should not be read into memory for this.
+fn macro_sources(project_dir: &Path, root_file: &Path) -> String {
+    const LARGEST_FILE: u64 = 2 * 1024 * 1024;
+    let mut text = String::new();
+    let mut take = |path: &Path| {
+        let readable = std::fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.len() <= LARGEST_FILE);
+        if readable {
+            if let Ok(contents) = std::fs::read_to_string(path) {
+                text.push_str(&contents);
+                text.push('\n');
+            }
+        }
+    };
+
+    let graph = abstract_tex_includes::build_graph(project_dir, root_file);
+    let mut seen_root = false;
+    for node in &graph.nodes {
+        seen_root |= Path::new(&node.path) == root_file;
+        take(&project_dir.join(&node.path));
+    }
+    if !seen_root {
+        take(&project_dir.join(root_file)); // a root the graph could not read still gets its turn
+    }
+    for style in project_style_files(project_dir) {
+        take(&style);
+    }
+    text
+}
+
+/// The project's own `.sty`, `.cls` and `.def` files, found a few folders deep and never inside
+/// `.git` or our own folder.
+fn project_style_files(project_dir: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            let Ok(kind) = entry.file_type() else { continue };
+            if kind.is_dir() {
+                if depth < 4 {
+                    walk(&path, depth + 1, found);
+                }
+            } else if kind.is_file()
+                && matches!(
+                    path.extension().and_then(|extension| extension.to_str()),
+                    Some("sty" | "cls" | "def")
+                )
+            {
+                found.push(path);
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(project_dir, 0, &mut found);
+    found.sort();
+    found
 }
 
 /// Refuse unless every condition for sending holds. Not trusted from the window.
@@ -522,13 +588,46 @@ mod tests {
         );
     }
 
+    /// Review finding R3.3. The author's citation wrappers were learned from the root file's
+    /// preamble only, so a `\see` defined in an `\input`ed preamble, a chapter or the project's own
+    /// `.sty` was invisible and `\see{invented}` passed the guard.
     #[test]
-    fn the_preamble_is_what_comes_before_begin_document() {
-        assert_eq!(
-            preamble_of("\\def\\a{b}\n\\begin{document}\nbody \\cite{x}"),
-            "\\def\\a{b}\n"
+    fn citation_wrappers_are_found_wherever_the_project_defines_them() {
+        let project = tempfile::tempdir().unwrap();
+        let write = |path: &str, text: &str| {
+            let full = project.path().join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, text).unwrap();
+        };
+        write(
+            "main.tex",
+            "\\documentclass{article}\n\\usepackage{mystyle}\n\\input{preamble}\n\\begin{document}\n\\input{chapters/one}\n\\end{document}\n",
         );
-        assert_eq!(preamble_of("no document here"), "no document here");
+        write("preamble.tex", "\\newcommand{\\see}[1]{(see \\cite{#1})}\n");
+        write("mystyle.sty", "\\NewDocumentCommand{\\src}{m}{\\textcite{#1}}\n");
+        write("chapters/one.tex", "\\def\\vgl#1{\\citep[vgl.][]{#1}}\nText.\n");
+        write("notes/unused.tex", "\\newcommand{\\ghost}[1]{\\cite{#1}}\n");
+
+        let mut found = citation_macros(&macro_sources(project.path(), Path::new("main.tex")));
+        found.sort();
+
+        assert_eq!(found, vec!["see", "src", "vgl"]);
+        // `ghost` lives in a file nothing reads, so it does not make a command: the document
+        // cannot call it, and treating it as one would only refuse honest text.
+    }
+
+    #[test]
+    fn a_wrapper_defined_in_the_root_body_is_still_found() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("main.tex"),
+            "\\begin{document}\n\\newcommand{\\see}[1]{\\cite{#1}}\n\\end{document}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            citation_macros(&macro_sources(project.path(), Path::new("main.tex"))),
+            vec!["see"]
+        );
     }
 
     #[test]

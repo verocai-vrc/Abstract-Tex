@@ -20,8 +20,9 @@
 //!
 //! 1. [`FindingKind::UnknownKey`] — a key in a cite command that no `.bib` entry has. The commands
 //!    are every control word with "cite" in it, in any case ([`texbib::is_citation_command`], the
-//!    very predicate the editor's own undefined-citation scan uses, so the two cannot disagree),
-//!    plus the author's own wrappers if the caller passes them ([`citation_macros`] finds them).
+//!    predicate the editor's own undefined-citation scan uses), plus the few that take a key
+//!    without saying so (`\textcquote`, `\blockcquote`, `\bibentry`: `key_command_shape`), plus the
+//!    author's own wrappers if the caller passes them ([`citation_macros`] finds them).
 //!    The key is compared exactly: `Smith2020` is not `smith2020`, and a zero-width space or a
 //!    Cyrillic letter makes a different key.
 //! 2. [`FindingKind::OwnReferenceList`] — a `\bibitem`, `thebibliography`, a `filecontents` that
@@ -224,18 +225,22 @@ impl Guard {
         Verdict { findings }
     }
 
-    fn is_citation_command(&self, name: &str) -> bool {
-        texbib::is_citation_command(name) || self.extra_commands.contains(&name.to_ascii_lowercase())
+    /// How the arguments of `name` are laid out, or `None` when `name` takes no citation key.
+    fn argument_shape(&self, name: &str) -> Option<ArgumentShape> {
+        if texbib::is_citation_command(name) || self.extra_commands.contains(&name.to_ascii_lowercase()) {
+            return Some(ArgumentShape::EVERY_GROUP_IS_KEYS);
+        }
+        key_command_shape(name)
     }
 
     /// Every citation command in `text`, with the keys it names.
     fn citations_in(&self, text: &str) -> Vec<Citation> {
         let mut found = Vec::new();
         for word in control_words(text) {
-            if !self.is_citation_command(word.name) {
+            let Some(shape) = self.argument_shape(word.name) else {
                 continue;
-            }
-            let (keys, end) = read_arguments(text, word.end);
+            };
+            let (keys, end) = read_arguments(text, word.end, shape);
             found.push(Citation {
                 span: word.start..end,
                 keys,
@@ -300,6 +305,51 @@ fn control_words(text: &str) -> Vec<ControlWord<'_>> {
     words
 }
 
+/// Which of a command's braced arguments hold citation keys.
+#[derive(Debug, Clone, Copy)]
+struct ArgumentShape {
+    /// Groups at the front that are something else (`\foreigntextcquote{english}{key}{...}`).
+    leading_groups_that_are_not_keys: usize,
+    /// How many groups after those are keys; `None` means every group that follows directly,
+    /// which is what `\cites{a}{b}` does.
+    max_key_groups: Option<usize>,
+}
+
+impl ArgumentShape {
+    const EVERY_GROUP_IS_KEYS: ArgumentShape = ArgumentShape {
+        leading_groups_that_are_not_keys: 0,
+        max_key_groups: None,
+    };
+}
+
+/// Commands that take a key and have no "cite" in their name, so [`texbib::is_citation_command`]
+/// cannot see them (review finding R3.2, reproduced: `\textcquote{fake2020}{...}` came back
+/// clean). biblatex's csquotes integration (`\textcquote`, `\blockcquote`, and the `foreign` and
+/// `hyphen` forms that put a language first) and the `bibentry` package. Only their first key group
+/// is a key; for `\textcquote` the next group is the quoted words, and reading it as keys would
+/// refuse every honest use.
+///
+/// Kept here and not in `texbib`: that predicate is the editor's undefined-citation scan too, which
+/// reads *every* following group as keys. Widening it would report the quoted words as undefined
+/// citations. (The editor's scan therefore still does not see these commands; ledger, same entry.)
+fn key_command_shape(name: &str) -> Option<ArgumentShape> {
+    let lower = name.to_ascii_lowercase();
+    if lower == "bibentry" {
+        return Some(ArgumentShape {
+            leading_groups_that_are_not_keys: 0,
+            max_key_groups: Some(1),
+        });
+    }
+    if lower.contains("cquote") {
+        let language_first = lower.contains("foreign") || lower.contains("hyphen");
+        return Some(ArgumentShape {
+            leading_groups_that_are_not_keys: usize::from(language_first),
+            max_key_groups: Some(1),
+        });
+    }
+    None
+}
+
 /// Read the arguments of the command whose name ends at `from`: returns the keys they name and
 /// the offset just past the last argument.
 ///
@@ -308,7 +358,7 @@ fn control_words(text: &str) -> Vec<ControlWord<'_>> {
 /// are accepted only if they follow it directly (`\cites{a}{b}`), because `\cite{a} {\bf b}` is a
 /// citation followed by prose. `[…]` and `(…)` are options (natbib's, and biblatex's
 /// `\parencites(pre)(post)`); the braced groups hold comma-separated keys.
-fn read_arguments(text: &str, from: usize) -> (Vec<String>, usize) {
+fn read_arguments(text: &str, from: usize, shape: ArgumentShape) -> (Vec<String>, usize) {
     let bytes = text.as_bytes();
     let mut keys = Vec::new();
     let mut index = from;
@@ -316,6 +366,8 @@ fn read_arguments(text: &str, from: usize) -> (Vec<String>, usize) {
         index += 1;
     }
     let mut read_a_key_group = false;
+    // Braced groups seen so far, and how many of them were read as keys.
+    let (mut groups_seen, mut key_groups) = (0usize, 0usize);
     loop {
         let probe = if read_a_key_group {
             index
@@ -326,12 +378,21 @@ fn read_arguments(text: &str, from: usize) -> (Vec<String>, usize) {
             Some(b'[') => index = matching_close(text, probe, b'[', b']').unwrap_or(probe + 1),
             Some(b'(') => index = matching_close(text, probe, b'(', b')').unwrap_or(probe + 1),
             Some(b'{') => {
+                // The groups after the last key group (the words `\textcquote` quotes) are prose,
+                // not keys, and are not part of the command's span.
+                if shape.max_key_groups.is_some_and(|most| key_groups >= most) {
+                    break;
+                }
                 // An unclosed group is read to the end of the text: the reading that loses no key.
                 let (inner_end, after) = match matching_close(text, probe, b'{', b'}') {
                     Some(after) => (after - 1, after),
                     None => (bytes.len(), bytes.len()),
                 };
-                keys.extend(keys_of(&text[probe + 1..inner_end]));
+                if groups_seen >= shape.leading_groups_that_are_not_keys {
+                    keys.extend(keys_of(&text[probe + 1..inner_end]));
+                    key_groups += 1;
+                }
+                groups_seen += 1;
                 read_a_key_group = true;
                 index = after;
             }
@@ -614,10 +675,9 @@ pub fn citation_macros(text: &str) -> Vec<String> {
             }
         }
         if let Some(body) = body {
-            if control_words(&text[body])
-                .iter()
-                .any(|inner| texbib::is_citation_command(inner.name))
-            {
+            if control_words(&text[body]).iter().any(|inner| {
+                texbib::is_citation_command(inner.name) || key_command_shape(inner.name).is_some()
+            }) {
                 names.push(name.to_string());
             }
         }

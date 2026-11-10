@@ -202,6 +202,53 @@ fn every_unknown_key_in_one_edit_is_reported_once() {
 // 1b. Attacks: the author's own citation macros
 // ---------------------------------------------------------------------------------------------
 
+/// Review finding R3.2, reproduced: commands that take a key and have no "cite" in their name were
+/// invisible, so `\textcquote{fake2020}{...}` and `\bibentry{fake2020}` came back clean.
+#[test]
+fn an_unknown_key_is_refused_in_commands_that_do_not_say_cite() {
+    for result in [
+        "As shown \\textcquote{fake2020}{some quoted words}.",
+        "As shown \\Textcquote{fake2020}{some quoted words}.",
+        "As shown \\textcquote*{fake2020}{some quoted words}.",
+        "As shown \\textcquote[12]{fake2020}{some quoted words}.",
+        "As shown \\textcquote[see][12]{fake2020}{some quoted words}.",
+        "As shown \\blockcquote[12]{fake2020}{some quoted words}.",
+        "As shown \\blockcquote{fake2020}[.]{some quoted words}.",
+        "As shown \\foreigntextcquote{english}{fake2020}{some quoted words}.",
+        "As shown \\hyphenblockcquote{english}{fake2020}{some quoted words}.",
+        "As shown \\bibentry{fake2020}.",
+        "As shown \\bibentry*{fake2020}.",
+    ] {
+        assert_eq!(kinds(result), vec![FindingKind::UnknownKey], "{result}");
+        let text = guard().check("", result).findings[0].text.clone();
+        assert_eq!(
+            text, "fake2020",
+            "only the key is a key, never the quoted words: {result}"
+        );
+    }
+}
+
+/// The quoted words and the language are arguments of these commands, not keys: a legitimate
+/// `\textcquote{smith2020}{some words}` must pass, and so must a language name before the key.
+#[test]
+fn the_quoted_words_and_the_language_are_not_taken_for_keys() {
+    for result in [
+        "As shown \\textcquote{smith2020}{some quoted words, with a comma}.",
+        "As shown \\blockcquote[12]{lee2019}[.]{more, quoted words}.",
+        "As shown \\foreigntextcquote{english}{smith2020}{some quoted words}.",
+        "As shown \\bibentry{garcia-lopez:2015}.",
+    ] {
+        assert!(!refused(result), "{result}");
+    }
+}
+
+/// A wrapper around one of them is a citation command too, once the guard learns it.
+#[test]
+fn a_macro_that_wraps_textcquote_is_a_citation_command() {
+    let names = citation_macros("\\newcommand{\\quoted}[2]{\\textcquote{#1}{#2}}");
+    assert_eq!(names, vec!["quoted".to_string()]);
+}
+
 #[test]
 fn a_macro_that_wraps_cite_is_a_citation_command_once_the_guard_knows_it() {
     let preamble = r"
