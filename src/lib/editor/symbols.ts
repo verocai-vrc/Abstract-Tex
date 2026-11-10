@@ -14,7 +14,9 @@ export interface FlatSymbol {
   name: string;
   detail: string | null;
   kind: number;
-  /** 1-based, the way CodeMirror and the rest of the editor layer count lines. */
+  /** 1-based, the way CodeMirror and the rest of the editor layer count lines. This is the line
+   * the symbol starts on (`range.start`), not `selectionRange`: TexLab points a section's
+   * `selectionRange` at its `\label` when it has one, which is the line *under* the heading. */
   line: number;
   /** How deeply nested this symbol was — 0 for a top-level section, 1 for a child of one, and
    * so on. `DocumentSymbol.children` is exactly this nesting; a flat list needs its own way to
@@ -35,7 +37,7 @@ export function flattenSymbols(symbols: DocumentSymbol[] | null): FlatSymbol[] {
         name: node.name,
         detail: node.detail ?? null,
         kind: node.kind,
-        line: node.selectionRange.start.line + 1,
+        line: node.range.start.line + 1,
         depth,
       });
       if (node.children && node.children.length > 0) visit(node.children, depth + 1);

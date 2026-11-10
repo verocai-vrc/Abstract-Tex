@@ -106,4 +106,45 @@ describe('mergeOutline', () => {
       { kind: 'todo', title: 'TODO: revisit', line: 5, level: 0 },
     ]);
   });
+
+  // The thesis fixture's `background.tex`, as the real TexLab answered it on 10 Nov 2026: the
+  // heading is on line 1 and its label on line 2. Before the fix both the server's "Background"
+  // and the scan's showed, and the label row was removed along with the line it shared.
+  it('shows a heading once and keeps the label under it', () => {
+    const scan = scanOutline('\\chapter{Background}\n\\label{ch:background}\n');
+    const symbols: FlatSymbol[] = [{ name: 'Background', detail: null, kind: 1, line: 1, depth: 0 }];
+
+    expect(mergeOutline(scan, symbols)).toEqual([
+      { kind: 'section', title: 'Background', line: 1, level: 0 },
+      { kind: 'label', title: 'ch:background', line: 2, level: 0 },
+    ]);
+  });
+
+  it('keeps the scan\'s table row and drops the server\'s multi-line copy of it', () => {
+    const scan = scanOutline(
+      ['\\begin{table}', '\\caption{Median latency}', '\\label{tab:t}', '\\end{table}'].join('\n'),
+    );
+    const symbols: FlatSymbol[] = [
+      { name: 'Table: Median latency\n    more', detail: null, kind: 1, line: 1, depth: 0 },
+    ];
+
+    expect(mergeOutline(scan, symbols).map((item) => [item.kind, item.title])).toEqual([
+      ['table', 'Median latency'],
+      ['label', 'tab:t'],
+    ]);
+  });
+
+  it('borrows the server\'s caption when the scan could not read one that wraps lines', () => {
+    const scan = scanOutline(
+      ['\\begin{table}', '\\caption{Median latency,', '  at three sizes.}', '\\end{table}'].join('\n'),
+    );
+    expect(scan[0]!.title).toBe('Table'); // the scan's one-line limit
+    const symbols: FlatSymbol[] = [
+      { name: 'Table: Median latency,\n    at three sizes.', detail: null, kind: 1, line: 1, depth: 0 },
+    ];
+
+    expect(mergeOutline(scan, symbols)).toEqual([
+      { kind: 'table', title: 'Median latency, at three sizes.', line: 1, level: 0 },
+    ]);
+  });
 });

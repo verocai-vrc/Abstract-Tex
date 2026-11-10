@@ -47,14 +47,17 @@ describe('flattenSymbols', () => {
     expect(flattenSymbols([symbol('fig', 0)])[0]!.detail).toBeNull();
   });
 
-  it('uses selectionRange, not range, for the reported line', () => {
+  it('reports the line the symbol starts on, not where its selectionRange sits', () => {
+    // TexLab puts a section's selectionRange on its \label when it has one: the heading is on
+    // line 1 (index 0) and the label under it on line 2 (index 1). The heading is what the
+    // author means, and what the scanned outline reports, so the two must agree.
     const node: DocumentSymbol = {
       name: 'sec',
       kind: 1,
       range: { start: { line: 0, character: 0 }, end: { line: 10, character: 0 } },
-      selectionRange: { start: { line: 3, character: 0 }, end: { line: 3, character: 5 } },
+      selectionRange: { start: { line: 1, character: 0 }, end: { line: 1, character: 5 } },
     };
-    expect(flattenSymbols([node])[0]!.line).toBe(4);
+    expect(flattenSymbols([node])[0]!.line).toBe(1);
   });
 
   it('treats an empty children array the same as no children at all', () => {

@@ -48,8 +48,9 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 ## §3 Command palette (S4.3)
 
-1. `Ctrl K` opens the palette with the input focused. With nothing typed, open tabs come
-   first, then other project actions.
+1. `Ctrl K` opens the palette with the input focused. With nothing typed, every action is
+   listed first (Save, Build, …), then the project's files with open tabs ahead of the rest, then
+   the active file's sections (DESIGN.md §5.3: "every action reachable").
 2. Type `results`: `sections/results.tex` rises to the top with the matched letters bold.
    `Enter` opens it in a new tab and closes the palette.
 3. With `sections/results.tex` now the active tab, open the palette again and type
@@ -65,18 +66,19 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 
 1. In `sections/results.tex`, `Ctrl`-click (or your platform's go-to-definition chord) on
    `\ref{sec:intro-contributions}` in the opening paragraph. `sections/introduction.tex`
-   comes to the front in its own tab and the cursor lands on the `\label{sec:intro-
-   contributions}` line under "Contributions" — a cross-file reference, not a
-   same-file one.
+   comes to the front in its own tab and the cursor lands on the `\section{Contributions}` heading
+   (TexLab's target for a label is the heading it names; the `\label` is the line below) — a
+   cross-file reference, not a same-file one.
 2. Similarly, `Ctrl`-click `\ref{sec:token-bucket}` in `sections/introduction.tex`'s
    "Contributions" section: `sections/background.tex` comes forward with the cursor on
-   the token-bucket section's label.
+   the `\section{The token bucket}` heading.
 3. In the PDF pane, scroll to the table in the results chapter (page showing
-   "Table~1: Median and 99th-percentile decision latency…") and click inside it. Focus
+   "Table 3.1: Median and 99th-percentile decision latency…") and **double-click** inside it
+   (a single click is left to pdf.js's text selection). Focus
    moves to the editor, `sections/results.tex`'s tab comes to the front (creating one if
-   it is not already open), and the cursor lands on the `\begin{table}` line — not just
-   the right file, the right line.
-4. Click a sentence in the conclusion chapter's "Limitations" section in the PDF: the
+   it is not already open), and the cursor lands on the line of what was clicked — the matching
+   `\begin{table}` block, and on a table row, that row — not just the right file, the right line.
+4. **Double-click** a sentence in the conclusion chapter's "Limitations" section in the PDF: the
    cursor lands on that sentence's line in `sections/conclusion.tex`, confirming the
    click-to-source direction works this deep into a multi-`\include` document, not only on
    the first chapter.

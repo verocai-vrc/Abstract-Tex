@@ -3,6 +3,7 @@
 
     scripts/xvfb-ui.py shot out.png          # screenshot of the whole display
     scripts/xvfb-ui.py click X Y             # left click at X, Y
+    scripts/xvfb-ui.py ctrlclick X Y         # the same with Ctrl held (go to definition)
     scripts/xvfb-ui.py key ctrl+shift+n      # a key or chord, as `xdotool key` spells it
     scripts/xvfb-ui.py type "some text"      # type text into whatever has focus
 
@@ -37,6 +38,11 @@ DELAY_MICROSECONDS = 12000
 if sys.argv[1] == "click":
     xdo.xdo_move_mouse(handle, int(sys.argv[2]), int(sys.argv[3]), 0)
     xdo.xdo_click_window(handle, CURRENT_WINDOW, 1)
+elif sys.argv[1] == "ctrlclick":
+    xdo.xdo_move_mouse(handle, int(sys.argv[2]), int(sys.argv[3]), 0)
+    xdo.xdo_send_keysequence_window_down(handle, CURRENT_WINDOW, b"ctrl", DELAY_MICROSECONDS)
+    xdo.xdo_click_window(handle, CURRENT_WINDOW, 1)
+    xdo.xdo_send_keysequence_window_up(handle, CURRENT_WINDOW, b"ctrl", DELAY_MICROSECONDS)
 elif sys.argv[1] == "key":
     xdo.xdo_send_keysequence_window(handle, CURRENT_WINDOW, sys.argv[2].encode(), DELAY_MICROSECONDS)
 elif sys.argv[1] == "type":

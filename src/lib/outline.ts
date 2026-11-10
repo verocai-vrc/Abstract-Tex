@@ -200,26 +200,50 @@ export function scanOutline(text: string): OutlineItem[] {
 }
 
 /**
- * Combine the scan above with TexLab's `documentSymbol` answer. The server, when it answers,
- * knows the document's real sectioning structure better than a regex ever will (it has parsed
- * the whole include graph, macros and all); the scan is what supplies figures, tables and labels
- * the server has no opinion about, and TODOs, which no LSP server has a concept of at all.
+ * Combine the scan above with TexLab's `documentSymbol` answer. Each source is trusted for what
+ * it is good at: the server, when it answers, knows the real sectioning structure (it has parsed
+ * the whole include graph, macros and all), while the scan supplies figures and tables (the
+ * server's rows for those carry a multi-line caption as their name), labels, which the server
+ * folds into the heading above them, and TODOs, which no LSP server has a concept of at all.
  *
- * A scanned section is dropped when a symbol already claims its line — the server's answer wins
- * on a shared line rather than showing the same heading twice. With no symbols at all (server not
- * ready, or nothing found), the scan is returned unchanged: it is the entire outline.
+ * So on a shared line a scanned *section* gives way to the server's symbol, and a server symbol
+ * gives way to a scanned figure or table. Labels and TODOs are never dropped: a label on the same
+ * line as its heading is still a label. With no symbols at all (server not ready, or nothing
+ * found), the scan is returned unchanged: it is the entire outline.
  */
 export function mergeOutline(scanned: OutlineItem[], symbols: FlatSymbol[]): OutlineItem[] {
   if (symbols.length === 0) return scanned;
 
-  const claimedLines = new Set(symbols.map((s) => s.line));
-  const fromServer: OutlineItem[] = symbols.map((s) => ({
-    kind: 'section',
-    title: s.name,
-    line: s.line,
-    level: s.depth,
-  }));
-  const fromScan = scanned.filter((item) => item.kind === 'todo' || !claimedLines.has(item.line));
+  const isFloat = (item: OutlineItem) => item.kind === 'figure' || item.kind === 'table';
+  const floatLines = new Set(scanned.filter(isFloat).map((item) => item.line));
+  const serverNameAt = new Map(symbols.map((symbol) => [symbol.line, symbol.name]));
+  const fromServer: OutlineItem[] = symbols
+    .filter((symbol) => !floatLines.has(symbol.line))
+    .map((symbol) => ({ kind: 'section', title: symbol.name, line: symbol.line, level: symbol.depth }));
+  const claimedLines = new Set(fromServer.map((item) => item.line));
+  const fromScan = scanned
+    .filter((item) => item.kind !== 'section' || !claimedLines.has(item.line))
+    .map((item) => {
+      // The scan reads a caption only when it sits on one line, and falls back to the bare word
+      // "Table"/"Figure" otherwise. The server has read the whole caption, so borrow its words.
+      const serverName = serverNameAt.get(item.line);
+      if (!isFloat(item) || serverName === undefined || item.title !== floatFallback(item)) return item;
+      return { ...item, title: captionFromSymbolName(serverName) || item.title };
+    });
 
   return [...fromServer, ...fromScan].sort((a, b) => a.line - b.line);
+}
+
+function floatFallback(item: OutlineItem): string {
+  return item.kind === 'figure' ? 'Figure' : 'Table';
+}
+
+/** TexLab names a float "Table: <caption>" with the caption's own line breaks and indentation
+ * left in. The row already says it is a table (its "Tbl" prefix), so keep only the caption, on
+ * one line. */
+function captionFromSymbolName(name: string): string {
+  return name
+    .replace(/\s+/g, ' ')
+    .replace(/^(Table|Figure): /, '')
+    .trim();
 }

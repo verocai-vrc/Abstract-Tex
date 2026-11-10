@@ -96,6 +96,9 @@ const theme = EditorView.theme({
     backgroundColor: 'var(--selection)',
   },
   '.cm-matchingBracket': { outline: '1px solid var(--syn-bracket)', backgroundColor: 'transparent' },
+  // CodeMirror's own tooltip box is light grey whatever the theme; without this the hover text
+  // (which inherits `--fg`) is near-white on near-white in the dark theme.
+  '.cm-tooltip': { backgroundColor: 'var(--bg-panel)', color: 'var(--fg)', border: '1px solid var(--border)' },
 });
 
 const hoverTheme = EditorView.baseTheme({

@@ -6904,6 +6904,23 @@ an external change, §5 steps 3–4 and 6–10, §6 (tabs), and the other fixtur
 (`thesis`, `torture`, `bibliography-demo`). The exit demos (v0.1 on a machine with no TeX, the
 twenty-error torture document, the forty-reference paper) are still unperformed.
 
+**Owed walks, second pass (10 November 2026, same virtual display).** `fixtures/thesis/SMOKE.md` §1–§4,
+the v0.2 exit demo's keyboard-and-PDF navigation, against the real app. **Passed:** §1 (a change in an
+`\include`d chapter and in the `\input` preamble each rebuild; the renamed system shows throughout the
+PDF); §2 (the document map per file, clicking a row moves the cursor, the nesting under *The token
+bucket*); §3 (`Ctrl K` focuses its input, a file name and a section title each rank first, `Enter`
+opens or moves without a new tab, `Esc` and a click outside close it); §4 (cross-file go-to-definition
+both ways, and a **double-click** in the PDF lands on the table row and on a conclusion sentence).
+**Found and fixed, two bugs:** the Outline listed every heading twice and no labels once TexLab was
+answering (TexLab points a section's `selectionRange` at its `\label`, so the server's row and the
+scan's sat on different lines; probed against the real binary), and the dark theme's hover tooltip was
+near-white on near-white. Both are in `bugs-issues-fixes.md`. A float's caption that wraps lines is
+now borrowed from the server's row, since the one-line scan can only say "Table". **Script wording
+corrected** (palette order, the label-versus-heading landing line, "double-click", "Table 3.1").
+`scripts/xvfb-ui.py` gained `ctrlclick`. **Not checked:** the "nine pages" in §1 step 2 (the PDF's
+page tree is compressed and the printed numbers are ambiguous). **Still unwalked:** `torture`,
+`bibliography-demo`, and the exit demos listed above.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

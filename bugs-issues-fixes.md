@@ -1379,6 +1379,26 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   hash and the hash of A is still remembered from the app's own save, long after that save's echo
   came and went. Why it matters: rule 1 — the file on disk is the truth — and the next save from
   that buffer would overwrite the author's restore with B.
+- **The Outline panel lists every heading twice and shows no labels once the language server is
+  answering.** (Found 10 Nov 2026 on the owed walk of `fixtures/thesis/SMOKE.md` §1. **Fixed** the same session;
+  regression tests in `symbols.test.ts` and `outline.test.ts`, and the panel re-walked on the
+  thesis chapters.) TexLab puts a section symbol's `selectionRange` on its `\label` line when it
+  has one (probed with the real binary: `\chapter` on line 1, `range` starts at 1, `selectionRange`
+  at 2). `flattenSymbols` reads `selectionRange`, so the server's "Background" sits on line 2 while
+  the scan's sits on line 1; `mergeOutline` only drops a scanned item whose line a symbol claims, so
+  both survive, at two indents. The same claimed-line test also removes the label rows themselves,
+  which is why none appeared. Fix: take the line from `range.start`, and only let a symbol replace a
+  scanned *section*.
+
+- **Editor hover tooltips are near-white text on a near-white box in the dark theme.** (Found 10 Nov 2026
+  on the thesis walk: hovering `\ref{ch:introduction}` shows "Chapter (Introduction)" almost
+  invisibly.) CodeMirror's default `.cm-tooltip` is a light grey box; the editor theme is not marked
+  dark, so it keeps that box while the text inherits `--fg`. The maths popover was already set to
+  `--bg-panel`, which hid it there. **Fixed** the same session: the editor theme styles `.cm-tooltip`
+  with the app's tokens (`--bg-panel`, `--fg`, both already in the contrast guard `contrast.test.ts`),
+  and the tooltip re-photographed in the app. No dedicated test: a CSS rule inside a CodeMirror
+  theme is not worth a brittle assertion.
+
 - **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
   nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Open**,
   low priority.) The card is honest — it explains that TeX reports the end of the file and the
