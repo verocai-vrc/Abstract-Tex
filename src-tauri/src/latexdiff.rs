@@ -162,7 +162,7 @@ where
     if !ticket.is_latest() {
         return Ok(ComparisonStarted::Superseded); // asked for again while this one rendered
     }
-    let (older, newer) = (plan.older.to_string(), plan.newer.to_string());
+    let (older, newer) = (plan.older.to_string(), plan.newer.id());
     if reused {
         return Ok(ComparisonStarted::Ready {
             older,
@@ -200,6 +200,44 @@ pub fn read_comparison_log(latexdiff_dir: &Path, root_file: &Path) -> String {
         }
     }
     String::new()
+}
+
+/// What the frontend sends in place of a commit id for "the files as they are now" (A11).
+pub const WORKING_TREE: &str = "working-tree";
+
+/// The newer side of a comparison: a commit, or the working copy (A11). The older side is always
+/// a commit, because a working copy that is older than a commit is not a thing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Newer {
+    Commit(Oid),
+    WorkingTree,
+}
+
+impl Newer {
+    /// What the frontend is told and sends back: the full commit id, or [`WORKING_TREE`].
+    pub fn id(&self) -> String {
+        match self {
+            Newer::Commit(commit) => commit.to_string(),
+            Newer::WorkingTree => WORKING_TREE.to_string(),
+        }
+    }
+
+    /// The folder-name part: seven characters of a commit, or `working`.
+    fn short(&self) -> String {
+        match self {
+            Newer::Commit(commit) => short(*commit),
+            Newer::WorkingTree => "working".to_string(),
+        }
+    }
+}
+
+/// The newer side as the frontend named it: a commit id, or [`WORKING_TREE`].
+pub fn parse_newer(id: &str) -> Result<Newer, String> {
+    if id == WORKING_TREE {
+        Ok(Newer::WorkingTree)
+    } else {
+        parse_commit(id).map(Newer::Commit)
+    }
 }
 
 /// The frontend's optional `simpler` flag as a [`Markup`]: absent means the first attempt, which
@@ -253,12 +291,12 @@ impl ComparisonDirs {
     /// `markup` is part of the name: the same pair under a different setting is a different
     /// document, so a retry never finds the failed attempt's folder or a standard PDF and takes
     /// it for its own.
-    pub fn new(latexdiff_dir: &Path, older: Oid, newer: Oid, markup: Markup) -> Self {
+    pub fn new(latexdiff_dir: &Path, older: Oid, newer: Newer, markup: Markup) -> Self {
         let suffix = match markup {
             Markup::Standard => "",
             Markup::Simpler => "-simpler",
         };
-        let root = latexdiff_dir.join(format!("{}-{}{suffix}", short(older), short(newer)));
+        let root = latexdiff_dir.join(format!("{}-{}{suffix}", short(older), newer.short()));
         Self {
             old: root.join("old"),
             new: root.join("new"),
@@ -281,7 +319,7 @@ impl ComparisonDirs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plan {
     pub older: Oid,
-    pub newer: Oid,
+    pub newer: Newer,
     /// The root file as a commit's tree spells it: from the repository's top, `/`-separated.
     pub tree_root_file: String,
     pub dirs: ComparisonDirs,
@@ -307,6 +345,25 @@ impl Plan {
     }
 }
 
+/// The pair as `(older commit, newer side)`. Two commits go older first, whatever order they were
+/// clicked in (A4); a commit and the working copy always put the working copy last, since nothing
+/// the author has not committed yet can be older than a commit.
+fn order(repository: &Repository, a: &str, b: &str) -> Result<(Oid, Newer), String> {
+    match (parse_newer(a)?, parse_newer(b)?) {
+        (Newer::WorkingTree, Newer::WorkingTree) => {
+            Err("Pick a commit to compare your working copy with.".to_string())
+        }
+        (Newer::WorkingTree, Newer::Commit(commit)) | (Newer::Commit(commit), Newer::WorkingTree) => {
+            Ok((commit, Newer::WorkingTree))
+        }
+        (Newer::Commit(a), Newer::Commit(b)) => {
+            let (older, newer) =
+                abstract_tex_git::older_first(repository, a, b).map_err(|e| e.to_string())?;
+            Ok((older, Newer::Commit(newer)))
+        }
+    }
+}
+
 /// Order the pair and refuse what cannot be compared, touching nothing on disk.
 ///
 /// `a` and `b` arrive in click order; the plan is always older → newer (design interview A4).
@@ -320,19 +377,38 @@ pub fn plan(
     b: &str,
     markup: Markup,
 ) -> Result<Plan, String> {
-    let (older, newer) = abstract_tex_git::older_first(repository, parse_commit(a)?, parse_commit(b)?)
-        .map_err(|e| e.to_string())?;
+    let (older, newer) = order(repository, a, b)?;
 
     let prefix = project_prefix(repository, project_dir);
     let tree_root_file = prefix.join(root_file).to_string_lossy().replace('\\', "/");
-    for commit in [older, newer] {
-        if !abstract_tex_git::has_path(repository, commit, &tree_root_file).map_err(|e| e.to_string())? {
-            return Err(format!(
-                "Commit {} has no {}: the root file was renamed, or did not exist yet, so there is \
-                 nothing in it to compare.",
-                short(commit),
-                root_file.to_string_lossy().replace('\\', "/")
-            ));
+    let root_name = root_file.to_string_lossy().replace('\\', "/");
+    let sides = [
+        Some(older),
+        match newer {
+            Newer::Commit(commit) => Some(commit),
+            Newer::WorkingTree => None,
+        },
+    ];
+    for side in sides {
+        match side {
+            Some(commit) => {
+                if !abstract_tex_git::has_path(repository, commit, &tree_root_file)
+                    .map_err(|e| e.to_string())?
+                {
+                    return Err(format!(
+                        "Commit {} has no {root_name}: the root file was renamed, or did not exist yet, so \
+                         there is nothing in it to compare.",
+                        short(commit),
+                    ));
+                }
+            }
+            None => {
+                if !project_dir.join(root_file).is_file() {
+                    return Err(format!(
+                        "Your working copy has no {root_name} right now, so there is nothing in it to compare."
+                    ));
+                }
+            }
         }
     }
 
@@ -355,7 +431,8 @@ pub fn plan(
 /// It is cleared too, rather than exported over: an export only ever *adds* files, so a stale one
 /// from a half-finished run could otherwise end up in the next compile.
 pub fn make_room(latexdiff_dir: &Path, plan: &Plan) -> std::io::Result<bool> {
-    let reusable = plan.pdf.is_file();
+    // A working copy changes between one click and the next, so its PDF is never reusable.
+    let reusable = plan.pdf.is_file() && plan.newer != Newer::WorkingTree;
     let Ok(entries) = std::fs::read_dir(latexdiff_dir) else {
         return Ok(false); // no comparison has ever run here
     };
@@ -396,7 +473,7 @@ pub fn prepare(
     let plan = plan(&repository, project_dir, root_file, latexdiff_dir, a, b, markup)?;
     let reused = make_room(latexdiff_dir, &plan).map_err(|e| e.to_string())?;
     if !reused {
-        render(latexdiff, &repository, &plan)?;
+        render(latexdiff, &repository, &plan, project_dir)?;
     }
     Ok((plan, reused))
 }
@@ -404,21 +481,88 @@ pub fn prepare(
 /// Export both revisions and mark up the newer one's root file (S11.4b). The first attempt is
 /// `latexdiff`'s own defaults, `--flatten` the only flag (design interview A7, A8); the plan's
 /// `markup` asks for the simpler setting on a retry.
-pub fn render(latexdiff: &Path, repository: &Repository, plan: &Plan) -> Result<(), String> {
-    abstract_tex_latexdiff::render_with(
-        latexdiff,
-        repository,
-        plan.older,
-        plan.newer,
-        &plan.tree_root_file,
-        abstract_tex_latexdiff::ExportDirs {
-            old: &plan.dirs.old,
-            new: &plan.dirs.new,
-        },
-        plan.markup,
-    )
-    .map(|_| ())
+pub fn render(
+    latexdiff: &Path,
+    repository: &Repository,
+    plan: &Plan,
+    project_dir: &Path,
+) -> Result<(), String> {
+    let dirs = abstract_tex_latexdiff::ExportDirs {
+        old: &plan.dirs.old,
+        new: &plan.dirs.new,
+    };
+    match plan.newer {
+        Newer::Commit(newer) => abstract_tex_latexdiff::render_with(
+            latexdiff,
+            repository,
+            plan.older,
+            newer,
+            &plan.tree_root_file,
+            dirs,
+            plan.markup,
+        )
+        .map(|_| ()),
+        Newer::WorkingTree => {
+            // Checked first, as `render_with` does: a machine with no `latexdiff` must not have
+            // two exports written for a comparison that cannot run.
+            if !abstract_tex_latexdiff::is_installed(latexdiff) {
+                return Err(sentence(LatexdiffError::NotInstalled));
+            }
+            abstract_tex_git::export_tree(repository, plan.older, &plan.dirs.old)
+                .map_err(|e| e.to_string())?;
+            // Copied to where the project sits inside the export, so the root file's path is the
+            // same one `plan.tree_root_file` names for the older side.
+            export_working_tree(repository, project_dir, &plan.project_in_export)
+                .map_err(|e| e.to_string())?;
+            abstract_tex_latexdiff::render_exported(latexdiff, &plan.tree_root_file, dirs, plan.markup)
+                .map(|_| ())
+        }
+    }
     .map_err(sentence)
+}
+
+/// Copy the project folder as it is now to `destination`, without what is not the document:
+/// Git's own folder, ours, and anything the repository's ignore rules exclude (build output, mostly).
+///
+/// A copy and not a tree export because the working copy has files Git has never seen, and the
+/// whole point of comparing against it is to see an uncommitted chapter.
+pub fn export_working_tree(
+    repository: &Repository,
+    project_dir: &Path,
+    destination: &Path,
+) -> std::io::Result<()> {
+    let prefix = project_prefix(repository, project_dir);
+    copy_working_tree(repository, project_dir, destination, &prefix)
+}
+
+fn copy_working_tree(
+    repository: &Repository,
+    from: &Path,
+    to: &Path,
+    relative_to_repository: &Path,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_text = name.to_string_lossy();
+        if matches!(name_text.as_ref(), ".git" | ".abstract-tex" | ".preamble") {
+            continue;
+        }
+        let relative = relative_to_repository.join(&name);
+        // `is_path_ignored` errs for a path it cannot judge; treat that as "not ignored" so an odd
+        // file is copied rather than silently missing from the comparison.
+        if repository.is_path_ignored(&relative).unwrap_or(false) {
+            continue;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            copy_working_tree(repository, &entry.path(), &to.join(&name), &relative)?;
+        } else if file_type.is_file() {
+            std::fs::copy(entry.path(), to.join(&name))?;
+        }
+    }
+    Ok(())
 }
 
 /// A comparison's refusal as the Graph shows it (design interview A12). On Windows, one more
@@ -518,7 +662,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(forwards, backwards);
-        assert_eq!((forwards.older, forwards.newer), (first, second));
+        assert_eq!((forwards.older, forwards.newer), (first, Newer::Commit(second)));
         assert_eq!(forwards.tree_root_file, "paper/main.tex");
         assert_eq!(forwards.project_in_export, forwards.dirs.new.join("paper"));
         assert_eq!(forwards.pdf, forwards.dirs.build.join("main.pdf"));
@@ -587,6 +731,138 @@ mod tests {
         fs::create_dir_all(&someone_else).unwrap();
         assert!(make_room(&latexdiff_dir, &the_plan).unwrap());
         assert!(the_plan.pdf.is_file() && !someone_else.exists());
+    }
+
+    // ---- A11: the working copy as the newer side ----
+
+    fn ask(repository: &Repository, project: &Path, a: &str, b: &str) -> Result<Plan, String> {
+        plan(
+            repository,
+            project,
+            Path::new("main.tex"),
+            &project.join(".abstract-tex/latexdiff"),
+            a,
+            b,
+            Markup::Standard,
+        )
+    }
+
+    #[test]
+    fn the_working_copy_is_always_the_newer_side_whichever_way_it_was_asked() {
+        let (tmp, repository, first, _second) = two_commits();
+        let project = tmp.path().join("paper");
+        let id = first.to_string();
+
+        let forwards = ask(&repository, &project, &id, WORKING_TREE).unwrap();
+        let backwards = ask(&repository, &project, WORKING_TREE, &id).unwrap();
+
+        assert_eq!(forwards, backwards);
+        assert_eq!(forwards.older, first);
+        assert_eq!(forwards.newer, Newer::WorkingTree);
+        assert_eq!(forwards.newer.id(), "working-tree");
+        assert_eq!(forwards.tree_root_file, "paper/main.tex");
+        assert_eq!(forwards.project_in_export, forwards.dirs.new.join("paper"));
+        assert!(forwards
+            .dirs
+            .root
+            .to_string_lossy()
+            .ends_with(&format!("{}-working", short(first))));
+    }
+
+    #[test]
+    fn a_working_copy_against_itself_is_not_a_comparison() {
+        let (tmp, repository, _first, _second) = two_commits();
+        let refusal = ask(&repository, &tmp.path().join("paper"), WORKING_TREE, WORKING_TREE).unwrap_err();
+        assert!(refusal.contains("commit"), "{refusal}");
+    }
+
+    #[test]
+    fn a_working_copy_without_the_root_file_is_refused_by_name() {
+        let (tmp, repository, first, _second) = two_commits();
+        let project = tmp.path().join("paper");
+        fs::remove_file(project.join("main.tex")).unwrap();
+
+        let refusal = ask(&repository, &project, &first.to_string(), WORKING_TREE).unwrap_err();
+
+        assert!(
+            refusal.contains("working copy") && refusal.contains("main.tex"),
+            "{refusal}"
+        );
+    }
+
+    /// The working copy changes between one click and the next, so a PDF on disk for "this commit
+    /// against the working copy" is a PDF of an older working copy, never a reusable one.
+    #[test]
+    fn a_working_copy_comparison_is_never_reused() {
+        let (tmp, repository, first, _second) = two_commits();
+        let project = tmp.path().join("paper");
+        let the_plan = ask(&repository, &project, &first.to_string(), WORKING_TREE).unwrap();
+        fs::create_dir_all(&the_plan.dirs.build).unwrap();
+        fs::write(&the_plan.pdf, "%PDF").unwrap();
+
+        let reusable = make_room(&project.join(".abstract-tex/latexdiff"), &the_plan).unwrap();
+
+        assert!(!reusable);
+    }
+
+    #[test]
+    fn the_working_copy_is_copied_without_git_our_folder_or_ignored_files() {
+        let (tmp, repository, _first, _second) = two_commits();
+        let project = tmp.path().join("paper");
+        fs::create_dir_all(project.join("chapters")).unwrap();
+        fs::write(project.join("chapters/a.tex"), "a new, uncommitted chapter\n").unwrap();
+        fs::create_dir_all(project.join(".abstract-tex/build")).unwrap();
+        fs::write(project.join(".abstract-tex/build/main.pdf"), "x").unwrap();
+        fs::write(tmp.path().join(".gitignore"), "*.aux\n").unwrap();
+        fs::write(project.join("main.aux"), "build junk").unwrap();
+        let destination = tmp.path().join("copy");
+
+        export_working_tree(&repository, &project, &destination).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(destination.join("chapters/a.tex")).unwrap(),
+            "a new, uncommitted chapter\n"
+        );
+        assert!(destination.join("main.tex").is_file());
+        assert!(
+            !destination.join(".abstract-tex").exists(),
+            "our folder is not the author's"
+        );
+        assert!(
+            !destination.join("main.aux").exists(),
+            "an ignored file is not part of the document"
+        );
+    }
+
+    /// End to end through `prepare`, with a stand-in `latexdiff` that passes the newer file
+    /// through: what lands in the marked-up document is the *uncommitted* text.
+    #[cfg(unix)]
+    #[test]
+    fn prepare_marks_up_the_uncommitted_text_of_the_working_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let (tmp, _repository, first, _second) = two_commits();
+        let project = tmp.path().join("paper");
+        fs::write(project.join("main.tex"), "uncommitted words\n").unwrap();
+        let script = tmp.path().join("latexdiff");
+        fs::write(&script, "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nfor a in \"$@\"; do last=\"$a\"; done\ncat \"$last\"\n").unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let (the_plan, reused) = prepare(
+            &script,
+            &project,
+            Path::new("main.tex"),
+            &project.join(".abstract-tex/latexdiff"),
+            &first.to_string(),
+            WORKING_TREE,
+            Markup::Standard,
+        )
+        .unwrap();
+
+        assert!(!reused);
+        assert_eq!(
+            fs::read_to_string(the_plan.project_in_export.join("main.tex")).unwrap(),
+            "uncommitted words\n"
+        );
     }
 
     // ---- A7: try again with simpler markup ----

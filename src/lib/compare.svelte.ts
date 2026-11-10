@@ -18,6 +18,10 @@ export interface Marks {
 
 export const NO_MARKS: Marks = { from: null, to: null };
 
+/** The id the Graph's "Working copy" row carries, and what Rust takes in place of a commit id for
+ * the files as they are now (A11). Never a real commit id, which is forty hex digits. */
+export const WORKING_COPY = 'working-tree';
+
 /** What one click or `Enter` did: the new marks, and the pair to compare if that click completed
  * one. */
 export interface MarkStep {

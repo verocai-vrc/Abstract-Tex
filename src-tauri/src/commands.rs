@@ -1296,7 +1296,7 @@ pub fn save_comparison_pdf(
     let dirs = latexdiff::ComparisonDirs::new(
         &latexdiff_dir,
         latexdiff::parse_commit(&older)?,
-        latexdiff::parse_commit(&newer)?,
+        latexdiff::parse_newer(&newer)?,
         latexdiff::markup_from(simpler),
     );
     let pdf = dirs.pdf(&root_file);

@@ -722,7 +722,7 @@ const {
 const { snapshots } = await import('./snapshots.svelte');
 const { assistant } = await import('./assistant.svelte');
 const { diffView } = await import('./diffview.svelte');
-const { compare } = await import('./compare.svelte');
+const { compare, WORKING_COPY } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
 const { newProject } = await import('./templates.svelte');
 const { placeholders } = await import('./placeholders.svelte');
@@ -2923,6 +2923,26 @@ describe('comparing two commits (S11.4d)', () => {
 
     expect(compare.view.generation).toBe(2);
     expect(compare.view.newer).toBe('c3c3c3c3');
+  });
+
+  // A11: the files as they are now, against a commit. Rust orders the pair and refuses two
+  // working copies; the frontend's part is to send the sentinel and to say so in the banner.
+  it('asks to compare a commit with the working copy, and says so in the banner', async () => {
+    markGraphRow('a1a1a1a1');
+    markGraphRow(WORKING_COPY);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(comparisons.asked).toEqual([['a1a1a1a1', 'working-tree']]);
+    expect(comparisonTitle(Date.now())).toContain('your working copy');
+    expect(comparisonTitle(Date.now())).toContain('a1a1a1a');
+  });
+
+  it('is the same one-click flow from the working copy first', async () => {
+    markGraphRow(WORKING_COPY);
+    markGraphRow('a1a1a1a1');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(comparisons.asked).toEqual([['working-tree', 'a1a1a1a1']]);
   });
 
   // A7: "Try again with simpler markup" after latexdiff's markup broke the document.

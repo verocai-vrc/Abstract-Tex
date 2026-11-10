@@ -39,7 +39,7 @@
     toggleBranchMenu,
   } from '../lib/controller.svelte';
   import { branchLabel, formatMegabytes, git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
-  import { compare, markOf } from '../lib/compare.svelte';
+  import { compare, markOf, WORKING_COPY } from '../lib/compare.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
   import { snapshotLabel, snapshots } from '../lib/snapshots.svelte';
   import { app } from '../lib/state.svelte';
@@ -181,6 +181,7 @@
       return compare.view.older ? `Rendering ${comparisonTitle(now).replace('Comparing ', '')}…` : 'Rendering the comparison…';
     }
     if (compare.mode) return comparisonTitle(now);
+    if (compare.marks.from === WORKING_COPY) return 'Working copy marked — click a commit to compare';
     const from = git.commits.find((commit) => commit.id === compare.marks.from);
     return from ? `${from.shortId} marked — click another commit to compare` : null;
   });
@@ -552,6 +553,31 @@
         <p class="hint">No commits yet. The first one starts the history.</p>
       {:else}
         <ul class="commit-list">
+          {#if git.changedCount > 0}
+            <!-- A11: the files as they are now, uncommitted changes included, markable like a
+                 commit. Only drawn when there is something uncommitted to look at. -->
+            {@const workingMark = markOf(compare.marks, WORKING_COPY)}
+            <li class="commit-row" class:marked={workingMark !== null}>
+              <button
+                class="commit-button"
+                aria-pressed={workingMark !== null}
+                title={workingMark
+                  ? 'Marked for a comparison. Click to unmark.'
+                  : compare.marks.from === null
+                    ? 'Click to compare your uncommitted changes with a commit'
+                    : 'Click to compare with the marked commit'}
+                onclick={() => markGraphRow(WORKING_COPY)}
+              >
+                <div class="commit-summary">
+                  {#if workingMark}<span class="mark-badge">{workingMark === 'from' ? 'from' : 'to'}</span>{/if}
+                  Working copy
+                </div>
+                <div class="commit-meta">
+                  {git.changedCount === 1 ? '1 file changed' : `${git.changedCount} files changed`}, not committed
+                </div>
+              </button>
+            </li>
+          {/if}
           {#each git.commits as commit, index (commit.id)}
             {#if git.outgoing > 0 && index === 0}
               <!-- The newest `outgoing` rows are the ones the upstream does not have. One number

@@ -21,6 +21,7 @@ import {
   NO_COMPARISON,
   NO_MARKS,
   startedComparison,
+  WORKING_COPY,
 } from './compare.svelte';
 import { git, GRAPH_PAGE, NO_CHANGES, relativeTime, suggestedMessage, syncOutcomeSentence } from './git.svelte';
 import { applySignInEvent, github, suggestedRepositoryName } from './github.svelte';
@@ -1518,6 +1519,7 @@ export async function saveComparisonAs(): Promise<void> {
  * bare short ids for a commit the loaded page of the Graph does not hold. */
 export function comparisonTitle(now: number): string {
   const label = (id: string) => {
+    if (id === WORKING_COPY) return 'your working copy';
     const row = git.commits.find((candidate) => candidate.id === id);
     return describeEnd(row?.shortId ?? id.slice(0, 7), row ? relativeTime(row.time, now) : null);
   };

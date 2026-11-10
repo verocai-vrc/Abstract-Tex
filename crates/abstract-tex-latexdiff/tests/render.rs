@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use abstract_tex_git::Repository;
-use abstract_tex_latexdiff::{render_with, ExportDirs, Markup};
+use abstract_tex_latexdiff::{render_exported, render_with, ExportDirs, Markup};
 
 fn installed() -> &'static Path {
     Path::new(env!("CARGO_BIN_EXE_fake-latexdiff-installed"))
@@ -182,4 +182,52 @@ fn simpler_markup_adds_the_two_switches_the_interview_named() {
         switches_used(Markup::Simpler),
         "% switches: --flatten --math-markup=whole --graphics-markup=none\n"
     );
+}
+
+/// A11: a side that is not a commit (the working copy) is copied into place by the caller, so the
+/// marking-up must be runnable on two folders that already hold the files.
+#[test]
+fn two_folders_already_in_place_can_be_marked_up_without_any_repository() {
+    let old_dir = tempfile::tempdir().unwrap();
+    let new_dir = tempfile::tempdir().unwrap();
+    std::fs::write(old_dir.path().join("main.tex"), "before\n").unwrap();
+    std::fs::write(new_dir.path().join("main.tex"), "after\n").unwrap();
+
+    let path = render_exported(
+        echoes_flags(),
+        "main.tex",
+        ExportDirs {
+            old: old_dir.path(),
+            new: new_dir.path(),
+        },
+        Markup::Simpler,
+    )
+    .unwrap();
+
+    assert_eq!(path, new_dir.path().join("main.tex"));
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "% switches: --flatten --math-markup=whole --graphics-markup=none\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(old_dir.path().join("main.tex")).unwrap(),
+        "before\n"
+    );
+}
+
+#[test]
+fn marking_up_two_folders_is_refused_by_name_when_latexdiff_is_missing() {
+    let old_dir = tempfile::tempdir().unwrap();
+    let new_dir = tempfile::tempdir().unwrap();
+    let error = render_exported(
+        missing(),
+        "main.tex",
+        ExportDirs {
+            old: old_dir.path(),
+            new: new_dir.path(),
+        },
+        Markup::Standard,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("isn't installed"), "{error}");
 }

@@ -120,7 +120,22 @@ pub fn render_with(
 
     abstract_tex_git::export_tree(repository, old, dirs.old)?;
     abstract_tex_git::export_tree(repository, new, dirs.new)?;
+    render_exported(latexdiff, root_file, dirs, markup)
+}
 
+/// Mark up `root_file` between two folders that already hold the files, writing the result over
+/// the new folder's copy and returning its path. [`render_with`] is this after exporting two
+/// commits; the app calls it directly when the newer side is the working copy (A11), which is
+/// copied into place rather than exported from Git.
+pub fn render_exported(
+    latexdiff: &Path,
+    root_file: &str,
+    dirs: ExportDirs<'_>,
+    markup: Markup,
+) -> Result<PathBuf, LatexdiffError> {
+    if !is_installed(latexdiff) {
+        return Err(LatexdiffError::NotInstalled);
+    }
     let old_root = dirs.old.join(root_file);
     let new_root = dirs.new.join(root_file);
     let output = Command::new(latexdiff)
