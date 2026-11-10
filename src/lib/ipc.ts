@@ -412,6 +412,13 @@ export interface BranchState {
   head: string | null;
 }
 
+/** One local branch, for the picker (`abstract_tex_git::BranchRow`, B4). */
+export interface BranchRow {
+  name: string;
+  /** Whether this is the branch the project is on. */
+  current: boolean;
+}
+
 /** What making a folder a repository did (`abstract_tex_git::Initialised`). */
 export interface Initialised {
   /** The first commit's id, or `null` when Git does not know who the author is yet. */
@@ -669,6 +676,13 @@ export const ipc = {
   /** S10.3b: which branch, and how far ahead of or behind its upstream. `null` when the project
    * is not inside a Git repository, like `gitStatus`. */
   gitBranch: () => invoke<BranchState | null>('git_branch'),
+  /** B4: every local branch, the current one first. */
+  gitBranches: () => invoke<BranchRow[]>('git_branches'),
+  /** B4: start a branch at the current commit and switch to it. Refusals are sentences. */
+  gitCreateBranch: (name: string) => invoke<void>('git_create_branch', { name }),
+  /** B4: switch to a local branch, rewriting the files on disk. Refuses while tracked files have
+   * uncommitted changes. */
+  gitSwitchBranch: (name: string) => invoke<void>('git_switch_branch', { name }),
   /** One page of the history for the Graph section. Empty on a repository with no commits. */
   gitLog: (skip: number, limit: number) => invoke<CommitRow[]>('git_log', { skip, limit }),
   /** Commit whatever is staged; resolves to the new commit's id. Rejects with the sentence for

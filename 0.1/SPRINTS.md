@@ -7044,7 +7044,15 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
 - **Compare the working tree, or a tag** (A11) — the working tree against a commit (one side
   needs no export), and named versions ("Sent to supervisor, 3 Oct"), which need tag creation too.
 - **⇄ swap in the comparison toolbar** (A4) — only if anyone asks for a reversed diff.
-- **Branch create and switch** (B4) — out of v0.6; needed by "a branch against `main`".
+- [x] **Branch create and switch** (B4) — out of v0.6; needed by "a branch against `main`". **Done 10
+  November 2026**, local branches only: list, create (`git switch -c`: starts at the current commit,
+  uncommitted work travels) and switch. `crates/abstract-tex-git/src/branches.rs`, three commands, and a
+  picker under the Source Control header. Switch **refuses and touches nothing** while tracked files have
+  uncommitted changes, and a safe checkout refuses to overwrite an untracked file (each guard removed in
+  turn to confirm a test fails). A name Git cannot use is refused with the rule in a sentence, not
+  rewritten. Open buffers are saved first. Walked in the app: refused name, a corrected name, a refused
+  switch with an uncommitted edit, then a switch whose files changed under the open editor. The walk found
+  a bug (ledger). **Not built:** delete, rename, merge-a-branch, and anything about remotes.
 - [x] **`texlog::Diagnostic` carries the whole open-file stack** (E1) — the frontend picks the first
   file the project has, so an error inside `babel.sty` lands on the author's line. Changes
   texlog's public type, so it lands **before** `texlog` and `texbib` are published (C8: after E1,

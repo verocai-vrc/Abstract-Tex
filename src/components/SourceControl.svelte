@@ -34,8 +34,11 @@
     syncChanges,
     trackLargeFilesWithLfs,
     unstageChange,
+    startBranch,
+    switchToBranch,
+    toggleBranchMenu,
   } from '../lib/controller.svelte';
-  import { formatMegabytes, git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
+  import { branchLabel, formatMegabytes, git, relativeTime, syncArrows, wordDeltaLabel, type ChangeRow } from '../lib/git.svelte';
   import { compare, markOf } from '../lib/compare.svelte';
   import { github, timeLeft } from '../lib/github.svelte';
   import { snapshotLabel, snapshots } from '../lib/snapshots.svelte';
@@ -96,6 +99,32 @@
    * otherwise a caret that opens onto two disabled rows would be worse than one that does not
    * open at all. */
   const canOpenCommitMenu = $derived(canCommit || canAmendNow);
+
+  /** The name typed in the branch picker's box (B4). Kept here, not in `git`, because it is the
+   * box's own draft: cleared only when a branch was made, so a refused name can be corrected. */
+  let newBranchName = $state('');
+
+  // Closes the branch picker on a click anywhere else or on Escape, the same shape as the commit
+  // menu below. Listens only while it is open.
+  $effect(() => {
+    if (!git.branchMenuOpen) return;
+    function onDocumentClick(event: MouseEvent) {
+      if (!(event.target as HTMLElement).closest('.branch-picker')) git.branchMenuOpen = false;
+    }
+    function onDocumentKeydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') git.branchMenuOpen = false;
+    }
+    document.addEventListener('click', onDocumentClick);
+    document.addEventListener('keydown', onDocumentKeydown);
+    return () => {
+      document.removeEventListener('click', onDocumentClick);
+      document.removeEventListener('keydown', onDocumentKeydown);
+    };
+  });
+
+  async function onStartBranch() {
+    if (await startBranch(newBranchName)) newBranchName = '';
+  }
 
   /** The Commit button's dropdown (DESIGN.md §6: *Commit & Push*, *Commit & Sync*, *Amend*).
    * Closed by choosing an item, by Escape, or by clicking anywhere else. */
@@ -321,6 +350,56 @@
       <button class="ghost" title="Commit (Ctrl Enter)" disabled={!canCommit} onclick={() => void commitStaged()}>✓</button>
       <button class="ghost" title="Refresh" aria-label="Refresh" onclick={() => void refreshGitStatus()}>⟳</button>
     </div>
+
+    {#if git.branch && !git.branch.unborn}
+      <!-- B4: the branch the project is on, and the way to start another or move to one. Not drawn
+           before the first commit: there is nothing yet to branch from. -->
+      <div class="branch-picker">
+        <button
+          class="ghost branch-button"
+          aria-haspopup="menu"
+          aria-expanded={git.branchMenuOpen}
+          title="Switch branch, or start a new one"
+          onclick={() => void toggleBranchMenu()}
+        >
+          <span class="branch-name">{branchLabel(git.branch)}</span> ▾
+        </button>
+        {#if git.branchMenuOpen}
+          <div class="branch-panel">
+            <ul class="branch-list" role="menu" aria-label="Branches">
+              {#each git.branches as row (row.name)}
+                <li role="none">
+                  <button
+                    role="menuitem"
+                    class:current={row.current}
+                    aria-current={row.current ? 'true' : undefined}
+                    onclick={() => void switchToBranch(row.name)}
+                  >
+                    <span class="mark">{row.current ? '✓' : ''}</span>{row.name}
+                  </button>
+                </li>
+              {/each}
+            </ul>
+            <div class="branch-new">
+              <input
+                type="text"
+                placeholder="New branch name"
+                aria-label="Name for a new branch"
+                bind:value={newBranchName}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void onStartBranch();
+                  }
+                }}
+              />
+              <button class="primary" disabled={newBranchName.trim() === ''} onclick={() => void onStartBranch()}>Start</button>
+            </div>
+            <p class="hint">Starting one keeps your changes and moves you onto it. Switching needs everything committed first.</p>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <div class="commit-box">
       <textarea
@@ -633,6 +712,66 @@
     color: var(--error);
   }
 
+  /* B4: the branch button and its panel. The panel opens in flow, under the button, rather than
+     floating: the left pane is narrow, and a floating list would be clipped by it. */
+  .branch-picker {
+    padding: 0 10px 6px;
+  }
+  .branch-button {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .branch-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .branch-panel {
+    margin-top: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-panel);
+    padding: 4px;
+  }
+  .branch-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  .branch-list button {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    padding: 4px 6px;
+  }
+  .branch-list button.current {
+    font-weight: 600;
+  }
+  .branch-list .mark {
+    width: 1em;
+    color: var(--ok);
+  }
+  .branch-new {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .branch-new input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-editor);
+    color: var(--fg);
+  }
   .commit-box {
     display: flex;
     flex-direction: column;

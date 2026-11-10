@@ -9,6 +9,7 @@ import type {
   AssistantProvider,
   AssistantStatus,
   BibliographyIndex,
+  BranchRow,
   BranchState,
   CommitRow,
   Diagnostic,
@@ -93,6 +94,10 @@ let gitVerbError: string | null = null;
 /** The fake history, newest first, and the branch it is on (S10.3b). */
 let commitsOnDisk: CommitRow[] = [];
 let branchOnDisk: BranchState = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
+/** B4: the local branches, and what `main.tex` held on disk at the moment of the last switch. */
+let branchesOnDisk: BranchRow[] = [{ name: 'main', current: true }];
+let branchVerbError: string | null = null;
+let diskAtLastSwitch: string | undefined;
 /** What `gitProseSummary` answers with (S10.3c). */
 let proseOnDisk: ProseSummary = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
 /** Set to a message to make the next commit be refused, as the crate refuses an empty message,
@@ -390,6 +395,26 @@ vi.mock('./ipc', () => ({
       ourFolderIgnoredOnDisk = true;
     },
     gitBranch: async (): Promise<BranchState | null> => (gitOnDisk === null ? null : branchOnDisk),
+    gitBranches: async (): Promise<BranchRow[]> => branchesOnDisk,
+    gitCreateBranch: async (name: string) => {
+      if (branchVerbError) throw new Error(branchVerbError);
+      calls.gitVerbs.push(`create ${name}`);
+      branchesOnDisk = [{ name, current: true }, ...branchesOnDisk.map((row) => ({ ...row, current: false }))];
+      branchOnDisk = { ...branchOnDisk, name };
+      gitStatusHandler();
+      // Tauri answers a command that returns `()` with `null`, not `undefined`. A mock that
+      // returned `undefined` hid a bug the running app showed: success read as failure.
+      return null as never;
+    },
+    gitSwitchBranch: async (name: string) => {
+      diskAtLastSwitch = disk.get('main.tex');
+      if (branchVerbError) throw new Error(branchVerbError);
+      calls.gitVerbs.push(`switch ${name}`);
+      branchesOnDisk = branchesOnDisk.map((row) => ({ ...row, current: row.name === name }));
+      branchOnDisk = { ...branchOnDisk, name };
+      gitStatusHandler();
+      return null as never; // as above: what the real bridge answers for `()`
+    },
     gitProseSummary: async (): Promise<ProseSummary | null> => (gitOnDisk === null ? null : proseOnDisk),
     gitLog: async (skip: number, limit: number): Promise<CommitRow[]> => {
       calls.gitLogPages.push(`${skip}+${limit}`);
@@ -647,6 +672,9 @@ const {
   trackLargeFilesWithLfs,
   triggerCompile,
   clearComparison,
+  startBranch,
+  switchToBranch,
+  toggleBranchMenu,
   comparisonTitle,
   retryComparisonWithSimplerMarkup,
   forgetAssistantKey,
@@ -747,6 +775,13 @@ beforeEach(async () => {
   gitOnDisk = { staged: [], unstaged: [], conflicted: [] };
   discardAnswer = false;
   gitVerbError = null;
+  branchVerbError = null;
+  branchesOnDisk = [
+    { name: 'main', current: true },
+    { name: 'second-draft', current: false },
+  ];
+  branchOnDisk = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
+  diskAtLastSwitch = undefined;
   commitsOnDisk = [];
   branchOnDisk = { name: 'main', aheadBehind: null, unborn: false, head: 'head0' };
   proseOnDisk = { wordsBefore: 0, wordsAfter: 0, sections: [], paths: [], addedPaths: [] };
@@ -4030,5 +4065,84 @@ describe('asking the assistant about a build error no rule explains (S13.2)', ()
     expect(assistant.prepared).toBeNull();
     expect(assistant.explaining).toBeNull();
     expect(assistant.answers).toEqual({});
+  });
+});
+
+describe('switching and starting branches (B4)', () => {
+  beforeEach(async () => {
+    await refreshGitStatus();
+    git.branchMenuOpen = false;
+    git.branches = [];
+    git.error = null;
+  });
+
+  it('opening the picker reads the branches, and opening it again closes it', async () => {
+    await toggleBranchMenu();
+    expect(git.branchMenuOpen).toBe(true);
+    expect(git.branches.map((row) => row.name)).toEqual(['main', 'second-draft']);
+
+    await toggleBranchMenu();
+    expect(git.branchMenuOpen).toBe(false);
+  });
+
+  it('saves what is open first, so Git sees what the author sees, then switches and closes the picker', async () => {
+    await toggleBranchMenu();
+    const doc = app.docs.get('main.tex')!;
+    doc.ytext.insert(0, 'EDITED ');
+
+    const done = await switchToBranch('second-draft');
+
+    expect(done).toBe(true);
+    expect(diskAtLastSwitch).toContain('EDITED ');
+    expect(calls.gitVerbs).toContain('switch second-draft');
+    expect(git.branchMenuOpen).toBe(false);
+    expect(git.branch?.name).toBe('second-draft');
+  });
+
+  it('says why under the box when a switch is refused, and leaves the picker open to try again', async () => {
+    await toggleBranchMenu();
+    branchVerbError = 'You have changes that are not committed, and switching would mix them in.';
+
+    const done = await switchToBranch('second-draft');
+
+    expect(done).toBe(false);
+    expect(git.error).toContain('not committed');
+    expect(git.branchMenuOpen).toBe(true);
+    expect(git.branch?.name).toBe('main');
+  });
+
+  it('does nothing for the branch that is already checked out', async () => {
+    await refreshGitStatus();
+    const done = await switchToBranch('main');
+    expect(done).toBe(true);
+    expect(calls.gitVerbs.filter((verb) => verb.startsWith('switch'))).toEqual([]);
+  });
+
+  it('starts a branch under the trimmed name and closes the picker', async () => {
+    await toggleBranchMenu();
+
+    const done = await startBranch('  chapter-3-rewrite  ');
+
+    expect(done).toBe(true);
+    expect(calls.gitVerbs).toContain('create chapter-3-rewrite');
+    expect(git.branchMenuOpen).toBe(false);
+  });
+
+  it('asks nothing for an empty name, and says what is missing', async () => {
+    const done = await startBranch('   ');
+    expect(done).toBe(false);
+    expect(calls.gitVerbs.filter((verb) => verb.startsWith('create'))).toEqual([]);
+    expect(git.error).toMatch(/name/i);
+  });
+
+  it('keeps the picker open and reports the sentence when Git refuses the name', async () => {
+    await toggleBranchMenu();
+    branchVerbError = '"second draft" cannot be used as a branch name. Use letters, numbers, hyphens and underscores, with no spaces.';
+
+    const done = await startBranch('second draft');
+
+    expect(done).toBe(false);
+    expect(git.error).toContain('no spaces');
+    expect(git.branchMenuOpen).toBe(true);
   });
 });

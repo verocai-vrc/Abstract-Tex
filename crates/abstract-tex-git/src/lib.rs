@@ -21,6 +21,9 @@ use std::path::{Path, PathBuf};
 
 use git2::{Status as GitStatus, StatusOptions};
 
+mod branches;
+pub use branches::{branches, create_branch, switch_branch, BranchRow};
+
 /// The handle [`open`] hands back, re-exported so that a caller can name it without depending on
 /// `git2` itself. The app crate does exactly that (`src-tauri/src/git.rs`): every Git question it
 /// asks goes through this crate, so libgit2 stays one crate's business and one crate's version.
@@ -128,6 +131,34 @@ pub enum GitError {
 
     #[error("{0} is over {1} MB — GitHub refuses any file over 100 MB. Push refused; remove it from history or track it with Git LFS first.")]
     FileTooLarge(String, u64),
+
+    /// B4: a name Git cannot use for a branch. The rule is said in the sentence, because the
+    /// author typed something natural ("second draft") and needs to know what to type instead.
+    #[error("\"{0}\" cannot be used as a branch name. Use letters, numbers, hyphens and underscores, with no spaces.")]
+    InvalidBranchName(String),
+
+    /// B4: creating a branch under a name another one already has.
+    #[error("There is already a branch called \"{0}\".")]
+    BranchExists(String),
+
+    /// B4: switching to a branch that is not there.
+    #[error("There is no branch called \"{0}\".")]
+    NoSuchBranch(String),
+
+    /// B4: a branch starts from a commit, and an unborn one has none.
+    #[error("A branch starts from a commit, and this project has none yet. Make the first commit, then start a branch.")]
+    NothingToBranchFrom,
+
+    /// B4: a switch would rewrite files that have changes Git has not recorded. Refused rather
+    /// than carried across, because the files are open in an editor and "your edits came along"
+    /// is not something an author who has never used Git can reason about.
+    #[error("You have changes that are not committed, and switching would mix them into the other version. Commit them, or discard them, then switch.")]
+    UncommittedChanges,
+
+    /// B4: the other branch has a file where the author has one Git has never seen. Checking it
+    /// out would destroy work that exists nowhere else.
+    #[error("A file in your folder that Git has never seen would be overwritten by the other branch's version of it. Move it, or commit it, then switch.")]
+    WouldOverwriteFiles,
 }
 
 /// What one changed file is, in the words the row in the view uses.

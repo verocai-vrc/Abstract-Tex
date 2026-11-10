@@ -1672,6 +1672,66 @@ export async function ignoreOurFolder(): Promise<void> {
   await refreshGitStatus();
 }
 
+// ---- Branches (B4) -----------------------------------------------------------------------------
+
+/** Open the branch picker, reading the branches as it opens, or close it. */
+export async function toggleBranchMenu(): Promise<void> {
+  if (git.branchMenuOpen) {
+    git.branchMenuOpen = false;
+    return;
+  }
+  git.branchMenuOpen = true;
+  git.branches = await ipc.gitBranches().catch(() => []);
+}
+
+/**
+ * Switch to another local branch. Everything open is saved first, so Git sees the files the author
+ * sees: an edit still waiting for its 700 ms save would otherwise slip past the refusal and then
+ * collide with the switch as an outside change. The refusal is Rust's sentence under the box, and
+ * the picker stays open so the author can commit and try again. Returns whether the branch changed.
+ */
+export async function switchToBranch(name: string): Promise<boolean> {
+  if (git.branch?.name === name) {
+    git.branchMenuOpen = false;
+    return true;
+  }
+  await manager.saveAll().catch(() => {
+    /* a tab that failed to save is still dirty; Git will say so if it matters */
+  });
+  // `?? true` is not enough and `=== null` is wrong: Tauri answers a command that returns `()`
+  // with `null`, which is also what `runGitVerb` returns for a refusal. The verb says outright
+  // that it got as far as succeeding.
+  const done = await runGitVerb(async () => {
+    await ipc.gitSwitchBranch(name);
+    return true;
+  });
+  if (!done) return false;
+  git.branchMenuOpen = false;
+  await refreshGitStatus();
+  return true;
+}
+
+/**
+ * Start a branch at the current commit and switch to it. The name is trimmed and nothing else:
+ * what Git accepts is Rust's rule, and a refusal says it in a sentence rather than rewriting what
+ * was typed. Returns whether it was made, so the box can keep the text on a refusal.
+ */
+export async function startBranch(name: string): Promise<boolean> {
+  const trimmed = name.trim();
+  if (trimmed === '') {
+    git.error = 'Give the branch a name first.';
+    return false;
+  }
+  const done = await runGitVerb(async () => {
+    await ipc.gitCreateBranch(trimmed);
+    return true; // see `switchToBranch`: `()` arrives as `null`, which is what a refusal returns too
+  });
+  if (!done) return false;
+  git.branchMenuOpen = false;
+  await refreshGitStatus();
+  return true;
+}
+
 /** The author has typed in the commit box, so it is theirs from now on (S10.3c). */
 export function claimCommitMessage(): void {
   git.messageIsSuggested = false;

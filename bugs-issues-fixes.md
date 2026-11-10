@@ -15,6 +15,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
 
 ## Open
 
+- **Starting a branch looked like a failure: the picker stayed open and the name stayed in the box.**
+  (10 Nov 2026, found walking B4 in the app, in code not yet committed) Tauri answers a command that
+  returns `()` with `null`, and `runGitVerb` also returns `null` for a refusal, so `startBranch` and
+  `switchToBranch` read success as failure. The unit tests were green because their mocks returned
+  `undefined`. **Fixed:** the mocks now answer `null` like the real bridge (and failed first), and both
+  verbs report success explicitly instead of through `runGitVerb`'s return value. Worth knowing for any
+  future verb that returns nothing: do not test `runGitVerb`'s result for `null`.
+
 - **Ctrl Z did nothing in the editor on Linux.** (3 Oct 2026, found under Xvfb while checking that an
   applied assistant suggestion undoes in one step; plain typing did not undo either) `y-codemirror.next`
   undoes through the browser's own `beforeinput` "historyUndo" event and ships its `Mod-z` keymap as an

@@ -7,7 +7,7 @@
 // the same rule `app` follows. The helpers take their input as arguments rather than reading the
 // store, so `git.test.ts` exercises them with literals and no Svelte runtime.
 
-import type { BranchState, ChangeKind, CommitRow, FileChange, GitStatus, LargeFile, ProseSummary, SyncOutcome } from './ipc';
+import type { BranchRow, BranchState, ChangeKind, CommitRow, FileChange, GitStatus, LargeFile, ProseSummary, SyncOutcome } from './ipc';
 
 /** An empty answer: what the view shows before the first refresh, and after a project closes. */
 export const NO_CHANGES: GitStatus = { staged: [], unstaged: [], conflicted: [] };
@@ -285,6 +285,14 @@ class GitState {
   /** Which branch, and how far it has drifted (S10.3b). `null` before the first answer and where
    * there is no repository. */
   branch = $state.raw<BranchState | null>(null);
+
+  /** The local branches, read when the picker opens (B4) and not on every refresh: it is only
+   * ever looked at there. */
+  branches = $state.raw<BranchRow[]>([]);
+
+  /** Whether the branch picker is open (B4). Lives here, with the rest of the panel's state, so
+   * leaving Source Control for Files and coming back does not leave a stale menu on screen. */
+  branchMenuOpen = $state(false);
 
   /** The Graph section's rows, oldest page last. Replaced whole on a refresh and appended to by
    * *Show more*, so the author never loses the pages they had already asked for. */

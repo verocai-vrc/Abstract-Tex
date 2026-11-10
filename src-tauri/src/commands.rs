@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_engine::{BuildJob, EngineInfo};
 use abstract_tex_git::{
-    BranchState, CommitRow, DiffSides, Discarded, Initialised, LargeFile, ProseSummary, Status as GitStatus,
-    SyncOutcome,
+    BranchRow, BranchState, CommitRow, DiffSides, Discarded, Initialised, LargeFile, ProseSummary,
+    Status as GitStatus, SyncOutcome,
 };
 use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_reconcile::TextOp;
@@ -914,6 +914,36 @@ pub fn git_discard(app: AppHandle, state: State<'_, AppState>, path: String) -> 
 #[tauri::command]
 pub fn git_branch(state: State<'_, AppState>) -> CommandResult<Option<BranchState>> {
     git::with_repository(&state, abstract_tex_git::branch_state)
+}
+
+/// Every local branch, the current one first, for the picker (B4). Empty where there is no
+/// repository or no commit yet.
+#[tauri::command]
+pub fn git_branches(state: State<'_, AppState>) -> CommandResult<Vec<BranchRow>> {
+    Ok(git::with_repository(&state, abstract_tex_git::branches)?.unwrap_or_default())
+}
+
+/// Start a branch at the current commit and switch to it (B4). Every refusal — a name Git cannot
+/// use, a name taken, no commit yet — is the command's error, in the crate's own sentence.
+#[tauri::command]
+pub fn git_create_branch(app: AppHandle, state: State<'_, AppState>, name: String) -> CommandResult<()> {
+    git::in_repository(&state, |repository| {
+        abstract_tex_git::create_branch(repository, &name)
+    })?;
+    git::emit_status_changed(&app);
+    Ok(())
+}
+
+/// Switch to another local branch, rewriting the files on disk to its version (B4). Refuses, and
+/// touches nothing, while tracked files have uncommitted changes. The files that change are seen by
+/// the watcher like any other outside edit, so open tabs reload through the usual flow.
+#[tauri::command]
+pub fn git_switch_branch(app: AppHandle, state: State<'_, AppState>, name: String) -> CommandResult<()> {
+    git::in_repository(&state, |repository| {
+        abstract_tex_git::switch_branch(repository, &name)
+    })?;
+    git::emit_status_changed(&app);
+    Ok(())
 }
 
 /// One page of the history for the Graph section. `skip` rows in, at most `limit` rows out.
