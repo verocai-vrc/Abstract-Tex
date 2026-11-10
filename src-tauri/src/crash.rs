@@ -56,11 +56,45 @@ pub fn build_report(
 /// Replace the home folder with `~` wherever it appears, so a report does not carry the person's
 /// account name. An empty or missing home changes nothing (replacing "" would insert `~` between
 /// every character).
+///
+/// Matched whatever the slashes and the case: a Windows home of `C:\Users\Ada` also appears as
+/// `c:/Users/ada` in a panic location or a backtrace, and the old exact replace left the account
+/// name in those. And only at the end of a name: `/home/ada` must not eat the start of
+/// `/home/adam`, which would leave `~m` behind.
 pub fn scrub_home(text: &str, home: Option<&str>) -> String {
-    match home {
-        Some(home) if !home.is_empty() && home != "/" => text.replace(home, "~"),
-        _ => text.to_string(),
+    let Some(home) = home.filter(|home| !home.is_empty() && *home != "/") else {
+        return text.to_string();
+    };
+    // The same thing compared with every `\` read as `/` and ASCII case folded; both strings keep
+    // their length, so a position in one is a position in the other.
+    let fold = |value: &str| value.replace('\\', "/").to_ascii_lowercase();
+    let (folded_text, folded_home) = (fold(text), fold(home));
+
+    let mut scrubbed = String::with_capacity(text.len());
+    let mut copied_to = 0;
+    let mut search_from = 0;
+    while let Some(found) = folded_text[search_from..].find(&folded_home) {
+        let start = search_from + found;
+        let end = start + folded_home.len();
+        let ends_a_name = breaks_a_name(folded_text[end..].chars().next());
+        search_from = end;
+        if !ends_a_name {
+            continue;
+        }
+        scrubbed.push_str(&text[copied_to..start]);
+        scrubbed.push('~');
+        copied_to = end;
     }
+    scrubbed.push_str(&text[copied_to..]);
+    scrubbed
+}
+
+/// Whether `next` (the character after a home folder in a path, if any) ends the name: a
+/// separator, whitespace, a quote, a colon or the end of the text, but not more of a name.
+fn breaks_a_name(next: Option<char>) -> bool {
+    next.map_or(true, |next| {
+        !(next.is_alphanumeric() || next == '_' || next == '-' || next == '.')
+    })
 }
 
 /// Percent-encode for a URL query value: everything but the unreserved characters becomes `%XX`
@@ -89,22 +123,43 @@ pub fn issue_url(report: &str) -> String {
         .collect::<String>();
     let title = percent_encode(&format!("Crash: {first_message_line}"));
 
-    let mut lines: Vec<&str> = report.lines().collect();
+    let original_lines = report.lines().count();
+    // Owned lines, because the message line may be replaced by a shorter one below.
+    let mut lines: Vec<String> = report.lines().map(str::to_string).collect();
+    let mut message_cut = false;
     loop {
         let shown = lines.join("\n");
-        let note = if lines.len() < report.lines().count() {
+        let note = if lines.len() < original_lines || message_cut {
             "\n… (cut to fit; the full report is in the app's crash-reports folder)"
         } else {
             ""
         };
         let body = format!("**What were you doing when it crashed?**\n\n\n\n```text\n{shown}{note}\n```\n");
         let url = format!("{ISSUES_URL}?title={title}&body={}", percent_encode(&body));
-        if url.len() <= MAX_ISSUE_URL_BYTES || lines.len() <= 3 {
+        if url.len() <= MAX_ISSUE_URL_BYTES {
             return url;
         }
-        lines.pop();
+        if lines.len() > 3 {
+            lines.pop();
+            continue;
+        }
+        // Three lines are left (the version, the panic's place, its message) and the URL is still too
+        // long, so the message itself is what is long: cut it a few characters at a time, never
+        // inside a multi-byte one, until the rest fits. A 3 000-character message used to give a link
+        // GitHub refuses, on the report most worth sending.
+        match lines.get_mut(2) {
+            Some(message) if !message.is_empty() => {
+                let keep = message.chars().count().saturating_sub(CUT_STEP_CHARS);
+                *message = message.chars().take(keep).collect();
+                message_cut = true;
+            }
+            _ => return url, // nothing left to cut: the first two lines alone are too long
+        }
     }
 }
+
+/// How many characters of an over-long message go at a time; small enough to land close to the cap.
+const CUT_STEP_CHARS: usize = 100;
 
 /// Install the panic hook, writing reports into `directory`.
 ///
@@ -113,6 +168,7 @@ pub fn issue_url(report: &str) -> String {
 /// removing the message a developer running from a terminal expects to see. `move` gives the
 /// closure its own copy of `directory`; it must be `'static` because the hook outlives this call.
 pub fn install(directory: PathBuf) {
+    let _ = session_started_seconds(); // fixes the session's start time now, not at first use
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current();
@@ -167,6 +223,48 @@ pub fn write_report(directory: &Path, text: &str) -> io::Result<PathBuf> {
         }
     }
     Err(io::Error::other("too many crash reports in one second"))
+}
+
+/// Move the reports written since this session began (`since_seconds`, the Unix time it started)
+/// into `caught/`, and say how many. Called when the app exits normally.
+///
+/// The panic hook cannot tell a panic that ends the program from one that something catches (a
+/// task, a joined thread) while the app carries on, so it writes a report for both. A report whose
+/// session then ended in an ordinary exit was therefore not a crash, and offering it next launch
+/// ("Abstract-Tex quit unexpectedly") is false. They are kept, not deleted, in case a caught panic is
+/// worth reading. A real crash never reaches this call, so its report stays and is offered.
+pub fn set_aside_session_reports(directory: &Path, since_seconds: u64) -> io::Result<usize> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Ok(0);
+    };
+    let caught = directory.join("caught");
+    let mut moved = 0;
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if !(name.starts_with("crash-") && name.ends_with(".txt")) {
+            continue;
+        }
+        if report_order(&name).0 < since_seconds {
+            continue; // an earlier session's, and it did not end normally
+        }
+        fs::create_dir_all(&caught)?;
+        fs::rename(entry.path(), caught.join(&name))?;
+        moved += 1;
+    }
+    Ok(moved)
+}
+
+/// The Unix time this process started the crash hook, for [`set_aside_session_reports`].
+pub fn session_started_seconds() -> u64 {
+    static STARTED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *STARTED.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_secs())
+            .unwrap_or(0)
+    })
 }
 
 /// A report the author has not yet been asked about.
@@ -310,5 +408,85 @@ mod tests {
         let report = newest_pending(tmp.path()).expect("a report was written");
         assert!(report.text.contains("thread 'doomed'"));
         assert!(report.text.contains("the demo panic"));
+    }
+
+    // Review finding R2 (crash reports), first defect, found by reading `issue_url`: it cut lines
+    // from the end until the URL fitted but stopped at three, and the third is the panic message, so
+    // one long message (an `unwrap()` on an `Err` whose `Debug` is a few thousand characters) gave a
+    // URL GitHub refuses, for exactly the report most worth sending.
+    #[test]
+    fn a_single_very_long_panic_message_is_cut_to_fit_as_well() {
+        let message = "called `Result::unwrap()` on an `Err` value: ".to_string() + &"é".repeat(3_000);
+        let report =
+            format!("Abstract-Tex 0.1.0 (x)\nPanic in thread 'main' at y:\n{message}\n\nBacktrace:\n0: f\n");
+
+        let url = issue_url(&report);
+
+        assert!(url.len() <= MAX_ISSUE_URL_BYTES, "{} bytes", url.len());
+        assert!(url.contains("cut%20to%20fit"), "the cut says so");
+        assert!(!url.contains(' '), "still a valid URL");
+        // The part of the message that survives is a prefix, and is still valid text (a cut inside
+        // a multi-byte character would have panicked on the slice).
+        assert!(url.contains("called%20%60Result%3A%3Aunwrap"));
+    }
+
+    // Second: a panic that something catches (a task, a joined thread) leaves the app running, but the
+    // hook cannot know that when it runs, so the next launch asked about "a crash" that was not one.
+    // Reports written during a session that then ends normally are set aside instead.
+    #[test]
+    fn reports_from_a_session_that_ended_normally_are_set_aside_not_offered() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A report left by an earlier session that really did die.
+        fs::write(
+            tmp.path().join("crash-100-0.txt"),
+            "Abstract-Tex\nPanic:\nan old, real crash",
+        )
+        .unwrap();
+        // One written by this session.
+        let this_session_started = 5_000;
+        fs::write(
+            tmp.path().join("crash-5100-0.txt"),
+            "Abstract-Tex\nPanic:\ncaught, and the app lived",
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("crash-5100-1.txt"),
+            "Abstract-Tex\nPanic:\nanother caught one",
+        )
+        .unwrap();
+
+        let moved = set_aside_session_reports(tmp.path(), this_session_started).unwrap();
+
+        assert_eq!(moved, 2);
+        assert!(
+            tmp.path().join("caught/crash-5100-0.txt").exists(),
+            "kept, not deleted"
+        );
+        assert!(newest_pending(tmp.path())
+            .unwrap()
+            .text
+            .contains("an old, real crash"));
+    }
+
+    // Third: the home folder was replaced only where it matched exactly, so on Windows a path spelled
+    // `c:/Users/ada/…` (forward slashes, another case) kept the account name.
+    #[test]
+    fn the_home_folder_is_hidden_whatever_its_slashes_or_case() {
+        let home = Some("C:\\Users\\Ada");
+        assert_eq!(
+            scrub_home("at C:\\Users\\Ada\\src\\x.rs", home),
+            "at ~\\src\\x.rs"
+        );
+        assert_eq!(scrub_home("at c:/Users/ada/src/x.rs", home), "at ~/src/x.rs");
+        assert_eq!(scrub_home("at C:/USERS/ADA/.cargo", home), "at ~/.cargo");
+        assert_eq!(
+            scrub_home("nothing of the sort here", home),
+            "nothing of the sort here"
+        );
+        // Not a prefix match inside a longer name.
+        assert_eq!(
+            scrub_home("/home/adam/x and /home/ada/x", Some("/home/ada")),
+            "/home/adam/x and ~/x"
+        );
     }
 }

@@ -218,6 +218,19 @@ pub fn run() {
             commands::compare_revisions,
             commands::save_comparison_pdf,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the Abstract-Tex window");
+        .build(tauri::generate_context!())
+        .expect("error while building the Abstract-Tex window")
+        .run(|app, event| {
+            // An ordinary exit: whatever panics this session reported were caught, so the next launch
+            // must not call them a crash (`crash::set_aside_session_reports`). A real crash never
+            // gets here, and its report is still offered.
+            if let tauri::RunEvent::Exit = event {
+                if let Ok(config) = app.path().app_config_dir() {
+                    let _ = crash::set_aside_session_reports(
+                        &config.join("crash-reports"),
+                        crash::session_started_seconds(),
+                    );
+                }
+            }
+        });
 }
