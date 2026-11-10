@@ -379,8 +379,8 @@ pub fn crash_dismiss(app: AppHandle, id: String) -> CommandResult<()> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// S14.3b: comments. Kept on `refs/abstract-tex/comments` (`crate::comments`); nothing here pushes
-// or fetches them, and nothing touches the working tree.
+// S14.3b: comments. Kept on `refs/abstract-tex/comments` (`crate::comments`); only `comments_sync`
+// (S14.3d, after the person pressed Sync) sends or fetches them, and nothing touches the working tree.
 // ---------------------------------------------------------------------------------------------
 
 fn seconds_since_epoch() -> i64 {
@@ -417,6 +417,19 @@ pub async fn comment_add(
     .await
     .map_err(to_message)?
     .map_err(to_message)
+}
+
+/// Exchange comments with `origin` (S14.3d): the frontend calls this right after a successful
+/// *Sync*, so one click moves the text and the margin notes together. Reads the saved GitHub token
+/// the same way `git_sync` does; nothing here runs unless the person pressed Sync.
+#[tauri::command]
+pub async fn comments_sync(state: State<'_, AppState>) -> CommandResult<crate::comments::CommentsSync> {
+    let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
+    let token = state.github.token().map_err(to_message)?;
+    tauri::async_runtime::spawn_blocking(move || crate::comments::sync(&root, token.as_deref()))
+        .await
+        .map_err(to_message)?
+        .map_err(to_message)
 }
 
 /// Resolve a comment, or reopen it.

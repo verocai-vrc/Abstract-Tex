@@ -528,10 +528,21 @@ export type Discarded = 'restored' | 'deleted';
 
 /** What `git_sync` decided (`abstract_tex_git::SyncOutcome`), S11.1b — the one-verb path's own
  * answer, which `git.svelte.ts`'s `syncOutcomeSentence` turns into the words under the button. */
+/** What `comments_sync` did: `received` means the list should be read again. */
+export interface CommentsSync {
+  received: boolean;
+  sent: boolean;
+}
+
 export type SyncOutcome =
   | { kind: 'upToDate' }
   | { kind: 'pushed'; ahead: number }
-  | { kind: 'fastForwarded'; behind: number };
+  | { kind: 'fastForwarded'; behind: number }
+  /** S11.2a: both sides had moved; the two were combined cleanly and pushed. */
+  | { kind: 'merged' }
+  /** S11.2a: both sides had moved and some file could not be combined; its markers are in the
+   * working tree and Source Control lists it as conflicted. */
+  | { kind: 'conflicted' };
 
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
@@ -749,6 +760,8 @@ export const ipc = {
   crashDismiss: (id: string) => invoke<void>('crash_dismiss', { id }),
   /** S14.3b: every comment in the project, reanchored against the files on disk. Rejects with a sentence when the folder is not a Git repository. */
   commentsList: () => invoke<CommentRow[]>('comments_list'),
+  /** S14.3d: exchange comments with the remote, after a successful Sync. */
+  commentsSync: () => invoke<CommentsSync>('comments_sync'),
   /** S14.3b: comment on `from..to` (UTF-16 units) of `text`, the editor's buffer. Resolves to the comment's id. */
   commentAdd: (file: string, text: string, from: number, to: number, body: string) =>
     invoke<string>('comment_add', { file, text, from, to, body }),

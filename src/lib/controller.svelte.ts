@@ -1577,8 +1577,26 @@ export async function commitAndPush(): Promise<void> {
 export async function commitAndSync(): Promise<void> {
   await commitThen(async () => {
     const outcome = await runGitVerb(() => ipc.gitSync());
-    if (outcome) git.lastSync = syncOutcomeSentence(outcome);
+    if (outcome) git.lastSync = syncOutcomeSentence(outcome) + (await syncCommentsAlongside());
   });
+}
+
+/**
+ * Exchange comments with the remote once the text has synced (S14.3d), so one click moves both.
+ * Returns the words to add after the Sync sentence: nothing when nothing arrived, so a project
+ * that has no comments reads exactly as it did before.
+ *
+ * Never throws and never fails the Sync that already succeeded: a remote that took the branch but
+ * refused the comments ref is reported in a sentence and the author carries on.
+ */
+async function syncCommentsAlongside(): Promise<string> {
+  try {
+    const result = await ipc.commentsSync();
+    if (result.received) await refreshComments();
+    return result.received ? ' New comments arrived.' : '';
+  } catch (error) {
+    return ` Comments could not be synced: ${String(error)}`;
+  }
 }
 
 /**
@@ -1589,7 +1607,7 @@ export async function syncChanges(): Promise<void> {
   if (git.syncing) return;
   git.syncing = true;
   const outcome = await runGitVerb(() => ipc.gitSync());
-  if (outcome) git.lastSync = syncOutcomeSentence(outcome);
+  if (outcome) git.lastSync = syncOutcomeSentence(outcome) + (await syncCommentsAlongside());
   git.syncing = false;
   await refreshGitStatus();
 }

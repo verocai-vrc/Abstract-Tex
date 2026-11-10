@@ -135,6 +135,11 @@ describe('the Sync button (S11.1b)', () => {
     expect(syncOutcomeSentence({ kind: 'pushed', ahead: 3 })).toBe('Pushed 3 commits.');
     expect(syncOutcomeSentence({ kind: 'fastForwarded', behind: 1 })).toBe('Pulled 1 commit.');
     expect(syncOutcomeSentence({ kind: 'fastForwarded', behind: 2 })).toBe('Pulled 2 commits.');
+    // S11.2a's two outcomes, which this function once fell through on and answered `undefined`.
+    expect(syncOutcomeSentence({ kind: 'merged' })).toBe('Combined your changes with theirs and pushed the result.');
+    expect(syncOutcomeSentence({ kind: 'conflicted' })).toBe(
+      'Your changes and theirs overlap. Open the files marked ! and choose what to keep.',
+    );
   });
 });
 

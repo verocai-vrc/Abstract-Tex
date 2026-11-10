@@ -164,6 +164,10 @@ export function syncOutcomeSentence(outcome: SyncOutcome): string {
       return outcome.ahead === 1 ? 'Pushed 1 commit.' : `Pushed ${outcome.ahead} commits.`;
     case 'fastForwarded':
       return outcome.behind === 1 ? 'Pulled 1 commit.' : `Pulled ${outcome.behind} commits.`;
+    case 'merged':
+      return 'Combined your changes with theirs and pushed the result.';
+    case 'conflicted':
+      return 'Your changes and theirs overlap. Open the files marked ! and choose what to keep.';
   }
 }
 

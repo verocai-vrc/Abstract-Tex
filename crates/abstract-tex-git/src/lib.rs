@@ -1293,6 +1293,54 @@ pub fn fetch(repository: &Repository, token: Option<&str>) -> Result<(), GitErro
     Ok(())
 }
 
+/// Fetch one explicitly named ref, such as the comments ref, using the same credentials as
+/// [`fetch`]. `refspec` is `source:destination`, spelled by the caller; nothing else is fetched.
+///
+/// A remote that nobody has commented on has no such ref, which is the ordinary first state of
+/// every project, so a missing source ref is not an error: nothing lands at the destination and
+/// the caller finds that out by looking there (libgit2 itself says nothing; a transport that does
+/// say `NotFound` is treated the same way).
+///
+/// This lives here, and not in the crate that owns comments, because this crate is the one place
+/// allowed to talk to a remote over `https` (`src-tauri/tests/no_silent_network.rs`).
+pub fn fetch_refspec(repository: &Repository, refspec: &str, token: Option<&str>) -> Result<(), GitError> {
+    let mut remote = origin(repository)?;
+    let mut options = git2::FetchOptions::new();
+    options.remote_callbacks(credentials(token));
+    match remote.fetch(&[refspec], Some(&mut options), None) {
+        Ok(()) => Ok(()),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Push one explicitly named ref, such as the comments ref, using the same credentials as
+/// [`push`]. `refspec` is `source:destination`. Never pushes a branch as a side effect, and does
+/// not move any branch's tracking ref, unlike [`push`], because it is not about a branch.
+///
+/// A refusal the server makes after accepting the connection arrives as
+/// [`GitError::PushRejected`], the same as for a branch.
+pub fn push_refspec(repository: &Repository, refspec: &str, token: Option<&str>) -> Result<(), GitError> {
+    let mut remote = origin(repository)?;
+    // Same pattern, and the same reason for the `RefCell`, as in `push` above.
+    let rejected = std::cell::RefCell::new(None);
+    let mut callbacks = credentials(token);
+    callbacks.push_update_reference(|_refname, status| {
+        if let Some(message) = status {
+            *rejected.borrow_mut() = Some(message.to_string());
+        }
+        Ok(())
+    });
+    let mut options = git2::PushOptions::new();
+    options.remote_callbacks(callbacks);
+    remote.push(&[refspec], Some(&mut options))?;
+    drop(options);
+    match rejected.into_inner() {
+        Some(message) => Err(GitError::PushRejected(message)),
+        None => Ok(()),
+    }
+}
+
 /// GitHub rejects any pushed file over this many bytes outright (100 MiB, its documented hard
 /// limit — the 50 MiB figure elsewhere on that page is only a warning). `oversized_blobs` checks
 /// against this before `push` sends anything, so the refusal below names the file instead of
@@ -2518,6 +2566,63 @@ mod tests {
             .unwrap()
             .target()
             .unwrap()
+    }
+
+    // ----- fetch_refspec / push_refspec: sending and fetching one named ref (comments, S14.3d) -----
+
+    const SIDE_REF: &str = "refs/abstract-tex/comments";
+
+    /// Point `SIDE_REF` at the repository's current commit, standing in for a comments ref (which
+    /// is a ref of its own that no branch ever contains).
+    fn make_side_ref(repository: &Repository) -> git2::Oid {
+        let head = repository.head().unwrap().target().unwrap();
+        repository.reference(SIDE_REF, head, true, "test").unwrap();
+        head
+    }
+
+    #[test]
+    fn pushing_a_named_ref_sends_exactly_that_ref_and_not_the_branch() {
+        let (_tmp, repository, bare, branch) = repo_with_empty_remote();
+        let tip = make_side_ref(&repository);
+
+        push_refspec(&repository, &format!("{SIDE_REF}:{SIDE_REF}"), None).unwrap();
+
+        let remote = Repository::open_bare(bare.path()).unwrap();
+        assert_eq!(remote.find_reference(SIDE_REF).unwrap().target(), Some(tip));
+        assert!(
+            remote.find_reference(&format!("refs/heads/{branch}")).is_err(),
+            "pushing the side ref must not push the branch as a side effect"
+        );
+    }
+
+    #[test]
+    fn fetching_a_named_ref_lands_it_where_asked_and_nowhere_else() {
+        let (_tmp, repository, _bare, _branch) = repo_with_empty_remote();
+        let tip = make_side_ref(&repository);
+        push_refspec(&repository, &format!("{SIDE_REF}:{SIDE_REF}"), None).unwrap();
+        repository.find_reference(SIDE_REF).unwrap().delete().unwrap();
+
+        let landing = "refs/remotes/origin/abstract-tex/comments";
+        fetch_refspec(&repository, &format!("{SIDE_REF}:{landing}"), None).unwrap();
+
+        assert_eq!(repository.find_reference(landing).unwrap().target(), Some(tip));
+        assert!(
+            repository.find_reference(SIDE_REF).is_err(),
+            "the local ref is not touched by a fetch"
+        );
+    }
+
+    /// A remote nobody has commented on has no such ref. That is the normal first state of every
+    /// project, so it must come back as a quiet "nothing there", not as a failed sync.
+    #[test]
+    fn fetching_a_ref_the_remote_does_not_have_is_not_an_error() {
+        let (_tmp, repository, _bare, _branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+
+        let landing = "refs/remotes/origin/abstract-tex/comments";
+        fetch_refspec(&repository, &format!("{SIDE_REF}:{landing}"), None).unwrap();
+
+        assert!(repository.find_reference(landing).is_err());
     }
 
     /// The card's first done-when: a push moves the remote and its own tracking ref, with no

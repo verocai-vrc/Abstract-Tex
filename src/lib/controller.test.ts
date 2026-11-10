@@ -28,6 +28,7 @@ import type {
   LspEvent,
   ProjectInfo,
   SyncOutcome,
+  CommentsSync,
   TextOp,
 } from './ipc';
 
@@ -102,6 +103,10 @@ let commitError: string | null = null;
  * apart; this layer only has to carry whichever sentence Rust would have sent. */
 let syncOutcome: SyncOutcome = { kind: 'upToDate' };
 let syncError: string | null = null;
+// S14.3d: what the comments exchange that follows a Sync does in this fake.
+let commentsSyncResult: CommentsSync = { received: false, sent: false };
+let commentsSyncError: string | null = null;
+let commentsSyncCount = 0;
 /** S11.3c: the LFS banner's own candidates, and a message to make `git_track_with_lfs` fail —
  * most often "Git LFS isn't installed", which is a sentence and not a thrown shape this fake
  * needs to distinguish from any other verb's refusal. */
@@ -419,6 +424,11 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return syncOutcome;
     },
+    commentsSync: async (): Promise<CommentsSync> => {
+      if (commentsSyncError) throw new Error(commentsSyncError);
+      commentsSyncCount += 1;
+      return commentsSyncResult;
+    },
     gitLargeFiles: async (): Promise<LargeFile[] | null> => (gitOnDisk === null ? null : largeFilesOnDisk),
     gitTrackWithLfs: async (paths: string[]): Promise<void> => {
       if (lfsError) throw new Error(lfsError);
@@ -730,6 +740,9 @@ beforeEach(async () => {
   commitError = null;
   syncOutcome = { kind: 'upToDate' };
   syncError = null;
+  commentsSyncResult = { received: false, sent: false };
+  commentsSyncError = null;
+  commentsSyncCount = 0;
   largeFilesOnDisk = [];
   lfsError = null;
   initialiseError = null;
@@ -2302,6 +2315,44 @@ describe('syncing (S11.1b)', () => {
     expect(calls.gitVerbs).toEqual(['sync']);
     expect(git.lastSync).toBe('Pulled 1 commit.');
     expect(git.syncing).toBe(false);
+  });
+
+  it('a Sync also exchanges comments, and says so only when some arrived', async () => {
+    branchOnDisk = { ...branchOnDisk, aheadBehind: [0, 1] };
+    syncOutcome = { kind: 'fastForwarded', behind: 1 };
+    await refreshGitStatus();
+
+    await syncChanges();
+    expect(commentsSyncCount).toBe(1);
+    expect(git.lastSync).toBe('Pulled 1 commit.');
+
+    commentsSyncResult = { received: true, sent: true };
+    await syncChanges();
+    expect(commentsSyncCount).toBe(2);
+    expect(git.lastSync).toBe('Pulled 1 commit. New comments arrived.');
+  });
+
+  it('a failed comments exchange is a sentence after the Sync, never a failed Sync', async () => {
+    branchOnDisk = { ...branchOnDisk, aheadBehind: [1, 0] };
+    syncOutcome = { kind: 'pushed', ahead: 1 };
+    await refreshGitStatus();
+    commentsSyncError = 'Git reported: the remote refused the ref';
+
+    await syncChanges();
+
+    expect(git.lastSync).toContain('Pushed 1 commit.');
+    expect(git.lastSync).toContain('Comments could not be synced');
+    expect(git.error).toBeNull();
+  });
+
+  it('a Sync that failed does not go on to exchange comments', async () => {
+    branchOnDisk = { ...branchOnDisk, aheadBehind: [1, 1] };
+    await refreshGitStatus();
+    syncError = 'Both your computer and the remote have commits the other does not.';
+
+    await syncChanges();
+
+    expect(commentsSyncCount).toBe(0);
   });
 
   it('a refused sync shows the sentence under the button rather than a dialog', async () => {

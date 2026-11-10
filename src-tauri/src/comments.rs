@@ -11,7 +11,8 @@
 use std::path::Path;
 
 use abstract_tex_comments::{
-    add, author_name, load, record_resolution, AnchorStatus, CommentRecord, OrphanReason, ResolutionEvent,
+    add, author_name, fetch_refspec, has_comments, load, merge_from, push_refspec, record_resolution,
+    AnchorStatus, CommentRecord, MergeOutcome, OrphanReason, ResolutionEvent,
 };
 use serde::Serialize;
 
@@ -24,6 +25,13 @@ pub enum CommentError {
     EmptySelection,
     #[error("{0}")]
     Store(#[from] abstract_tex_comments::CommentsError),
+    /// The remote could not be reached or refused: the git crate's own sentence.
+    #[error("{0}")]
+    Remote(#[from] abstract_tex_git::GitError),
+    #[error(
+        "Your comments and your coauthor's could not be combined automatically ({0}). Nothing was sent."
+    )]
+    Conflicted(String),
 }
 
 /// One comment as the comments panel draws it.
@@ -153,6 +161,42 @@ pub fn set_resolved(root: &Path, comment: &str, resolved: bool, now: i64) -> Res
     Ok(())
 }
 
+/// What a comments sync did, for the sentence the app shows and for knowing whether to redraw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommentsSync {
+    /// Comments from the remote were folded into ours: the list should be read again.
+    pub received: bool,
+    /// Our comments were sent to the remote.
+    pub sent: bool,
+}
+
+/// Exchange comments with `origin`: fetch theirs, fold them into ours, send ours.
+///
+/// Run after a successful *Sync* so one click moves the text and the margin notes together. The
+/// network part is `abstract_tex_git`'s (it holds the credentials and is the one crate allowed to
+/// talk to a remote); the combining is `abstract_tex_comments`'s and happens strictly between
+/// the fetch and the push, so what goes out already contains what came in.
+///
+/// Two quiet cases are not errors: a remote nobody has commented on (nothing to fetch), and a
+/// project with no comments of its own yet (nothing to push).
+pub fn sync(root: &Path, token: Option<&str>) -> Result<CommentsSync, CommentError> {
+    let repository = open(root)?;
+
+    abstract_tex_git::fetch_refspec(&repository, &fetch_refspec(abstract_tex_git::ORIGIN), token)?;
+    let received = match merge_from(&repository, abstract_tex_git::ORIGIN)? {
+        MergeOutcome::NothingToMerge => false,
+        MergeOutcome::FastForwarded | MergeOutcome::Merged => true,
+        MergeOutcome::Conflicted(paths) => return Err(CommentError::Conflicted(paths.join(", "))),
+    };
+
+    let sent = has_comments(&repository);
+    if sent {
+        abstract_tex_git::push_refspec(&repository, &push_refspec(), token)?;
+    }
+    Ok(CommentsSync { received, sent })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -207,5 +251,87 @@ mod tests {
         std::fs::write(tmp.path().join("main.tex"), "something else entirely").unwrap();
         let row = &list(tmp.path()).unwrap()[0];
         assert_eq!((row.state, row.from), ("orphaned", None));
+    }
+    /// A bare repository standing in for the shared GitHub repository, and a function to make a
+    /// working copy of the project pointed at it.
+    fn shared_remote() -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        git2::Repository::init_bare(tmp.path()).unwrap();
+        tmp
+    }
+
+    fn working_copy(remote: &Path, text: &str) -> tempfile::TempDir {
+        let tmp = project_with(text);
+        let repository = git2::Repository::open(tmp.path()).unwrap();
+        repository.remote("origin", remote.to_str().unwrap()).unwrap();
+        tmp
+    }
+
+    #[test]
+    fn syncing_with_nothing_anywhere_is_quiet() {
+        let remote = shared_remote();
+        let ada = working_copy(remote.path(), "the result stands");
+        assert_eq!(
+            sync(ada.path(), None).unwrap(),
+            CommentsSync {
+                received: false,
+                sent: false
+            }
+        );
+    }
+
+    /// The point of the loop: Ada comments and syncs, Bea syncs and sees it, Bea answers with a
+    /// comment of her own, and after one more sync each of them has both.
+    #[test]
+    fn two_authors_end_up_with_each_others_comments_after_syncing() {
+        let text = "the result stands";
+        let remote = shared_remote();
+        let ada = working_copy(remote.path(), text);
+        let bea = working_copy(remote.path(), text);
+
+        add_comment(ada.path(), "main.tex", text, 4, 10, "source?", 1).unwrap();
+        assert_eq!(
+            sync(ada.path(), None).unwrap(),
+            CommentsSync {
+                received: false,
+                sent: true
+            }
+        );
+
+        assert!(list(bea.path()).unwrap().is_empty());
+        let received = sync(bea.path(), None).unwrap();
+        assert!(received.received);
+        assert_eq!(list(bea.path()).unwrap().len(), 1);
+
+        add_comment(bea.path(), "main.tex", text, 0, 3, "which result?", 2).unwrap();
+        sync(bea.path(), None).unwrap();
+        sync(ada.path(), None).unwrap();
+
+        let bodies = |root: &Path| {
+            let mut bodies: Vec<String> = list(root).unwrap().into_iter().map(|row| row.body).collect();
+            bodies.sort();
+            bodies
+        };
+        assert_eq!(bodies(ada.path()), vec!["source?", "which result?"]);
+        assert_eq!(bodies(bea.path()), bodies(ada.path()));
+    }
+
+    /// Comments sync must not move the author's branch: it is a separate ref on purpose.
+    #[test]
+    fn syncing_comments_sends_no_branch() {
+        let text = "the result stands";
+        let remote = shared_remote();
+        let ada = working_copy(remote.path(), text);
+        add_comment(ada.path(), "main.tex", text, 4, 10, "?", 1).unwrap();
+        sync(ada.path(), None).unwrap();
+
+        let bare = git2::Repository::open_bare(remote.path()).unwrap();
+        let heads: Vec<String> = bare
+            .references_glob("refs/heads/*")
+            .unwrap()
+            .flatten()
+            .map(|reference| reference.name().unwrap().to_string())
+            .collect();
+        assert!(heads.is_empty(), "{heads:?}");
     }
 }

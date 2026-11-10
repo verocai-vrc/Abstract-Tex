@@ -6940,6 +6940,23 @@ first two failed first. **What this walk did not do:** click each of the twenty 
 cursor land (done for row 01 only; the earlier walks cover the jump itself), and run from a machine
 that has never had a TeX installation (the v0.1 exit demo, still owed).
 
+**S14.3d comments travel with Sync (10 November 2026).** `[x]` on rungs 1–2, rung 4 not run (needs a
+second machine or account). One *Sync* click now also exchanges comments: after the branch syncs
+successfully the app fetches `refs/abstract-tex/comments` into its own tracking ref, folds it into
+ours with the existing merge, and pushes ours, in that order so what goes out already holds what came
+in. The network calls are two new functions in `abstract-tex-git` (`fetch_refspec`, `push_refspec`),
+the one crate already allowed to speak `https`, so `no_silent_network.rs` needed no new line and the
+comments crate still has no way to reach a network; libgit2 does not call a missing source ref an
+error (the test that assumed it would failed first), so a remote nobody has commented on is simply
+quiet. `src-tauri/src/comments.rs::sync` has three tests, one with two clones and a shared bare
+remote ending with both holding both comments, one asserting no branch is sent. The frontend adds
+" New comments arrived." after the Sync sentence only when some did, and a failed exchange is a
+sentence, never a failed Sync. **Not verified:** against GitHub itself (only local `file://` remotes);
+GitHub is expected to accept a push to a custom `refs/abstract-tex/…` ref but that has not been
+tried. **Found on the way and fixed:** the Sync sentence was blank after a merge or a conflict (the
+TypeScript outcome type had three of Rust's five kinds). Also closed: a runaway-argument error with no
+file or line is now filed under the root file at its last line (`place_unlocated_errors`).
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

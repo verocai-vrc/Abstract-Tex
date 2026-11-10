@@ -309,7 +309,7 @@ impl Orchestrator {
                         let diagnostics = outcome
                             .log
                             .as_deref()
-                            .map(|log| read_diagnostics(log, &job.project_dir))
+                            .map(|log| read_diagnostics(log, &job.project_dir, &job.root_file))
                             .unwrap_or_default();
                         info!(
                             generation,
@@ -390,7 +390,7 @@ fn lay_out_draft(job: &BuildJob, draft_job: DraftJob) -> Option<(String, draft::
     }
 }
 
-fn read_diagnostics(log_path: &Path, project_dir: &Path) -> Vec<texlog::Diagnostic> {
+fn read_diagnostics(log_path: &Path, project_dir: &Path, root_file: &Path) -> Vec<texlog::Diagnostic> {
     match std::fs::read(log_path) {
         // TeX logs are not reliably UTF-8; lossy conversion keeps the parser simple.
         Ok(bytes) => {
@@ -400,9 +400,46 @@ fn read_diagnostics(log_path: &Path, project_dir: &Path) -> Vec<texlog::Diagnost
                     *file = as_the_project_spells_it(file, project_dir);
                 }
             }
+            place_unlocated_errors(&mut diagnostics, root_file, project_dir);
             diagnostics
         }
         Err(_) => Vec::new(),
+    }
+}
+
+/// Give an error that TeX reported with no file and no line somewhere to go: the root file, at
+/// its last line.
+///
+/// Some mistakes are only noticed when TeX runs out of input (`File ended while scanning use of
+/// \emph`): the log's file trail is already closed and there is no `l.NN` marker, so `texlog`
+/// honestly reports neither. A card with nowhere to go is worse than a card that goes somewhere
+/// close, and the end of the root file is where TeX stopped reading. Its explanation already says
+/// the real culprit is earlier in the file.
+///
+/// Only errors are moved. A warning with no place stays unplaced, and so does anything that
+/// already names a file or a line.
+///
+/// `&mut [T]` (a mutable slice) rather than `&mut Vec<T>`: this edits elements in place and never
+/// adds or removes one, so it does not need to promise more than that.
+fn place_unlocated_errors(diagnostics: &mut [texlog::Diagnostic], root_file: &Path, project_dir: &Path) {
+    // Read lazily and at most once: most builds have no such error and never touch the disk here.
+    let mut last_line_of_root: Option<Option<u32>> = None;
+    for diagnostic in diagnostics.iter_mut() {
+        let is_unplaced_error = diagnostic.severity == texlog::Severity::Error
+            && diagnostic.file.is_none()
+            && diagnostic.line.is_none();
+        if !is_unplaced_error {
+            continue;
+        }
+        let last_line = *last_line_of_root.get_or_insert_with(|| {
+            let text = std::fs::read_to_string(project_dir.join(root_file)).ok()?;
+            Some(text.lines().count().max(1) as u32)
+        });
+        // Only when the root file could be read: a file name with no line would still mislead.
+        if last_line.is_some() {
+            diagnostic.file = Some(root_file.to_string_lossy().replace('\\', "/"));
+            diagnostic.line = last_line;
+        }
     }
 }
 
@@ -440,6 +477,59 @@ fn as_the_project_spells_it(file: &str, project_dir: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn error_with_no_place() -> texlog::Diagnostic {
+        texlog::diagnostics("! File ended while scanning use of \\emph.\n")
+            .into_iter()
+            .next()
+            .expect("the rule catalog explains this error")
+    }
+
+    /// A runaway argument is only noticed when TeX runs out of file, and the log then names no file
+    /// and no line (`bugs-issues-fixes.md`, 9 Nov 2026). The card used to sit under "Not inside any
+    /// file" and go nowhere; it is now filed under the root file, at its last line.
+    #[test]
+    fn an_error_with_no_place_is_filed_under_the_root_file_at_its_last_line() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("main.tex"), "one\ntwo\nthree\n").unwrap();
+        let mut found = vec![error_with_no_place()];
+        assert_eq!(
+            (found[0].file.clone(), found[0].line),
+            (None, None),
+            "the premise of this test"
+        );
+
+        place_unlocated_errors(&mut found, Path::new("main.tex"), project.path());
+
+        assert_eq!(found[0].file.as_deref(), Some("main.tex"));
+        assert_eq!(found[0].line, Some(3));
+    }
+
+    #[test]
+    fn an_error_that_already_has_a_place_is_left_alone() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("main.tex"), "one\ntwo\n").unwrap();
+        let mut found = vec![error_with_no_place()];
+        found[0].file = Some("sections/a.tex".to_string());
+        found[0].line = Some(7);
+
+        place_unlocated_errors(&mut found, Path::new("main.tex"), project.path());
+
+        assert_eq!(found[0].file.as_deref(), Some("sections/a.tex"));
+        assert_eq!(found[0].line, Some(7));
+    }
+
+    #[test]
+    fn a_warning_with_no_place_is_not_moved() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("main.tex"), "one\n").unwrap();
+        let mut found = vec![error_with_no_place()];
+        found[0].severity = texlog::Severity::Warning;
+
+        place_unlocated_errors(&mut found, Path::new("main.tex"), project.path());
+
+        assert_eq!(found[0].file, None);
+    }
 
     /// S9.12. Whatever the engine called a file, the drawer is handed the project's own spelling,
     /// because that is the only spelling `drawer.ts` can match against a tab.

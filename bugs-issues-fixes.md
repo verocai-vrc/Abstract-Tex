@@ -1427,9 +1427,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   **Fixed** the same session in `app.css`: the chevron and badge do not shrink, and the name clips with
   an ellipsis. Checked in the app; no test (pure CSS layout).
 
+- **After a *Sync* that merged two diverged histories, or hit a conflict, the sentence under the button
+  is blank.** (Found 10 Nov 2026 while wiring comments into Sync, from reading, not from a walk.)
+  The Rust `SyncOutcome` has five kinds (`merged` and `conflicted` were added by S11.2a); the
+  TypeScript `SyncOutcome` and `syncOutcomeSentence` still had three, so for the other two the
+  function fell off the end of its `switch` and `git.lastSync` became `undefined`. Nothing said a
+  merge had happened or that files now held conflict markers. **Fixed** the same session: both kinds
+  are in the type and have sentences; `git.test.ts` asserts all five.
+
 - **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
-  nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Open**,
-  low priority.) The card is honest — it explains that TeX reports the end of the file and the
+  nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Fixed** 10 Nov 2026
+  by `place_unlocated_errors`.) The card is honest — it explains that TeX reports the end of the file and the
   tooltip says "TeX did not say which line" — but the group heading names no file although the
   project has exactly one, and the author is given nowhere to go. A better answer for this rule is
-  the file the build was started from, at its last line.
+  the file the build was started from, at its last line, which is what `place_unlocated_errors`
+  (`src-tauri/src/compile.rs`, three tests) now does for any error with neither a file nor a line.

@@ -273,6 +273,24 @@ pub fn load(
         .collect()
 }
 
+/// The refspec that sends [`COMMENTS_REF`] to a remote, by exactly that name on both ends. For a
+/// caller that has its own way of talking to the remote (credentials for `https`, which this crate
+/// deliberately has no way to do); [`push`] below is the same thing without credentials.
+pub fn push_refspec() -> String {
+    format!("{COMMENTS_REF}:{COMMENTS_REF}")
+}
+
+/// The refspec that fetches `remote_name`'s comments into the tracking ref [`merge_from`] reads,
+/// never into [`COMMENTS_REF`] itself. The counterpart of [`push_refspec`].
+pub fn fetch_refspec(remote_name: &str) -> String {
+    format!("{COMMENTS_REF}:{}", tracking_ref(remote_name))
+}
+
+/// Whether this repository has any comments of its own yet. There is nothing to push before then.
+pub fn has_comments(repository: &Repository) -> bool {
+    repository.find_reference(COMMENTS_REF).is_ok()
+}
+
 /// Push [`COMMENTS_REF`] to `remote_name`, by exactly that name on both ends — the explicit
 /// refspec the design interview's answer calls for, so *Sync* never sends this ref as a side
 /// effect of pushing the author's branch, and never sends the branch as a side effect of this.

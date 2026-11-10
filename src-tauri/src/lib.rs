@@ -198,6 +198,7 @@ pub fn run() {
             commands::crash_dismiss,
             commands::comments_list,
             commands::comment_add,
+            commands::comments_sync,
             commands::comment_set_resolved,
             commands::snapshot_list,
             commands::snapshot_files,
