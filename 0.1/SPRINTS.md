@@ -145,13 +145,13 @@ and the first five error rules exist so the demo never shows a raw log.
 
 | ✓ | Loop | Size | Depends | Verify |
 |---|---|---|---|---|
-| [~] | S2.1 External change → diff → CRDT transaction end to end; dirty-buffer conflict bar (*Keep mine* / *Load from disk*), never an automatic merge | M | S1.6, S1.7, S1.9 | vitest for the decision table; smoke §2 |
-| [~] | S2.2 Compile feedback: spinner and elapsed time in the status bar, Tectonic package-fetch progress surfaced from stderr, failure count in the drawer, raw log behind one click | M | S1.5, S1.11 | smoke §3 |
-| [~] | S2.3 Multi-document editing: open any `.tex`/`.bib` from the tree, tabs, per-file Y.Doc, save-all on compile | M | S1.9 | `pnpm test -- documents` |
+| [x] | S2.1 External change → diff → CRDT transaction end to end; dirty-buffer conflict bar (*Keep mine* / *Load from disk*), never an automatic merge | M | S1.6, S1.7, S1.9 | vitest for the decision table; smoke §2 |
+| [x] | S2.2 Compile feedback: spinner and elapsed time in the status bar, Tectonic package-fetch progress surfaced from stderr, failure count in the drawer, raw log behind one click | M | S1.5, S1.11 | smoke §3 |
+| [x] | S2.3 Multi-document editing: open any `.tex`/`.bib` from the tree, tabs, per-file Y.Doc, save-all on compile | M | S1.9 | `pnpm test -- documents` |
 | [~] | S2.4 Keyboard: `Ctrl S` save, `Ctrl B`/`F5` compile, `Ctrl O` open folder, `Ctrl P` quick-open file (seed of the palette) | S | S2.3 | smoke §4 |
 | [~] | S2.5 Fixtures: `fixtures/paper` (a real 8-page article), `fixtures/broken` (underscore, undefined control sequence, missing brace), `fixtures/paper/SMOKE.md` manual script | S | — | `cargo test -p preamble-engine -- --ignored` |
 | [x] | S2.6 First five diagnostic rules in `texlog`: undefined control sequence, missing `$`, missing `}`/runaway argument, undefined reference/citation, file not found — each with a sentence and a fixture (brought forward from sprint 5 so the demo is honest) | M | S1.11 | `cargo test -p texlog` |
-| [~] | S2.7 Diagnostics drawer v0: sentence per error, click jumps to line, gutter marker; raw log one click away | M | S2.6 | smoke §5 |
+| [x] | S2.7 Diagnostics drawer v0: sentence per error, click jumps to line, gutter marker; raw log one click away | M | S2.6 | smoke §5 |
 | [~] | S2.8 CI: 3-OS matrix runs `pnpm verify`; Linux installs WebKitGTK deps; engine fetched in CI; `cargo build` of the Tauri app on all three | M | S1.1 | green Actions run |
 | [~] | S2.9 Name decision recorded in `DESIGN.md` §10; README moved to repository root with a real *Building* section; installer smoke on Windows via `pnpm tauri build` | S | — | installer launches and opens `fixtures/paper` |
 
@@ -843,10 +843,10 @@ before `set_root_file` is more prominently exposed in the UI.
 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
-| [~] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
-| [~] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
-| [~] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
-| [~] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
+| [x] | S4.1 `\input`/`\include` graph in Rust; root detection uses it; watcher compiles on any node change | M | S1.4 |
+| [x] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
+| [x] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
+| [x] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
 | [~] | S4.5 Focus and typewriter modes | S | S1.9 |
 | [~] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
 | [ ] | S4.7 Linux and macOS smoke on CI artifacts; WebKitGTK issues logged as loops | M | S2.8 |
@@ -1425,8 +1425,8 @@ a pure library-crate loop, same as every other loop this sprint. Net +180 lines 
 | ✓ | Loop | Size | Depends |
 |---|---|---|---|
 | [x] | S6.1 Rules 6–40: the list in `DESIGN.md` §5.2, one fixture each | L | S5.6 |
-| [~] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
-| [~] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
+| [x] | S6.2 One-click fixes for the ten unambiguous cases, applied through the CRDT, undoable | M | S6.1 |
+| [x] | S6.3 Drawer v1: grouping, severity, filter, "raw log" always one click away | M | S2.7 |
 | [x] | S6.4 Torture document with twenty errors; exit demo recorded | S | S6.1 |
 | [~] | S6.5 `texlog` published as its own MIT crate | S | S6.1 |
 
@@ -6983,6 +6983,14 @@ with a test that failed first, the ignored real-engine suite re-run green, and t
 suffix changes file by file for the whole 117 s, which fetched about 40 MB. §3 steps 1–2 reworded for
 the runaway-argument change. **Still unwalked:** `F5` and `Ctrl O` (the harness cannot send them),
 `bibliography-demo`, and the exit demos.
+
+**Ticks settled by the walks above (10 November 2026).** `[~]` → `[x]` for S2.1, S2.2, S2.3, S2.7,
+S4.1, S4.2, S4.3, S4.4, S6.2 and S6.3, each of which was `[~]` only because its by-hand walk was owed:
+`paper/SMOKE.md` §2, §3, §5, §6 (S2.1, S2.2, S2.3, S2.7), `thesis/SMOKE.md` §1–§4 (S4.1–S4.4), and the
+twenty-row `torture` walk with its six one-click fixes (S6.2, S6.3). S2.2's package-fetch progress was
+the one part that did *not* work when walked and is fixed above. **Not ticked:** S2.4 (`F5` and `Ctrl O`
+could not be driven), S4.5 and S4.6 (focus mode, typewriter mode and the maths popover were not
+walked), and the rest, which wait on other things (publishing, CI, Windows).
 
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
