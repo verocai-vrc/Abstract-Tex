@@ -135,6 +135,12 @@ fn authors_via_work(transport: &impl Transport, edition: &Json) -> Result<Vec<St
     else {
         return Ok(Vec::new());
     };
+    // Followed only if it is an Open Library work path. The key comes from the reply, and gluing it
+    // after the host unchecked let `@evil.example/x` or `.evil.example/x` change the host the next
+    // request goes to (review finding R3.11).
+    if !is_record_key(work_key, "works", 'W') {
+        return Ok(Vec::new());
+    }
     let Some(work) = fetch_json(transport, &format!("https://openlibrary.org{work_key}.json"))? else {
         return Ok(Vec::new());
     };
@@ -147,6 +153,9 @@ fn authors_via_work(transport: &impl Transport, edition: &Json) -> Result<Vec<St
         let Some(author_key) = author_entry.get("author").and_then(|a| a.get_str("key")) else {
             continue;
         };
+        if !is_record_key(author_key, "authors", 'A') {
+            continue; // not an author record path; it is not requested
+        }
         let Ok(Some(author)) = fetch_json(transport, &format!("https://openlibrary.org{author_key}.json"))
         else {
             continue;
@@ -156,6 +165,23 @@ fn authors_via_work(transport: &impl Transport, edition: &Json) -> Result<Vec<St
         }
     }
     Ok(names)
+}
+
+/// Whether `key` has the shape of an Open Library record path of one kind: `/works/OL123W` or
+/// `/authors/OL45A` (`kind` is the folder, `suffix` the letter that ends the id). Nothing else is
+/// allowed to reach a URL: no host, no user-info, no query, no `..`.
+fn is_record_key(key: &str, kind: &str, suffix: char) -> bool {
+    let Some(id) = key
+        .strip_prefix('/')
+        .and_then(|rest| rest.strip_prefix(kind))
+        .and_then(|rest| rest.strip_prefix("/OL"))
+    else {
+        return false;
+    };
+    let Some(digits) = id.strip_suffix(suffix) else {
+        return false;
+    };
+    !digits.is_empty() && digits.chars().all(|digit| digit.is_ascii_digit())
 }
 
 /// `GET url`, returning `Ok(None)` for a 404 (the one non-error "this does not exist" case every
@@ -514,5 +540,56 @@ mod tests {
         let entry = fetch_isbn("9780262033848").expect("a real, stable ISBN");
         assert!(entry.field("title").is_some());
         assert!(entry.field("author").is_some());
+    }
+
+    // Review finding R3.11. The follow-up requests were built as `https://openlibrary.org{key}.json`
+    // with `key` taken from the reply, so a key such as `@evil.example/x` (user-info) or
+    // `.evil.example/x` (a longer host name) moved the request to another host. It takes a hostile or
+    // intercepted reply to matter, but the keys have a known shape, and anything else is not followed.
+    #[test]
+    fn a_key_in_a_reply_that_is_not_an_open_library_path_is_never_requested() {
+        use std::cell::RefCell;
+        struct Recording(RefCell<Vec<String>>);
+        impl Transport for Recording {
+            fn get(&self, url: &str) -> Result<(u16, String), String> {
+                self.0.borrow_mut().push(url.to_string());
+                Ok((404, String::new()))
+            }
+        }
+        for hostile in [
+            "@evil.example/x",
+            ".evil.example/x",
+            "//evil.example/x",
+            "/works/../../x",
+            "/authors/OL1A", // the wrong kind of record for a work
+            "/works/OL1W?x=1",
+            "",
+        ] {
+            let edition = Json::parse(&format!("{{\"works\": [{{\"key\": \"{hostile}\"}}]}}")).unwrap();
+            let transport = Recording(RefCell::new(Vec::new()));
+
+            let authors = authors_via_work(&transport, &edition).unwrap();
+
+            assert!(authors.is_empty(), "{hostile:?}");
+            assert!(
+                transport.0.borrow().is_empty(),
+                "{hostile:?} was requested: {:?}",
+                transport.0.borrow()
+            );
+        }
+    }
+
+    #[test]
+    fn a_hostile_author_key_is_skipped_and_the_honest_ones_still_resolve() {
+        let transport = RoutedReplies(vec![
+            ("/works/OL1W.json", Ok((200, r#"{"authors": [{"author": {"key": "@evil.example/x"}}, {"author": {"key": "/authors/OL9A"}}]}"#.to_string()))),
+            ("/authors/OL9A.json", Ok((200, r#"{"name": "Real Author"}"#.to_string()))),
+        ]);
+        let edition = Json::parse(r#"{"works": [{"key": "/works/OL1W"}]}"#).unwrap();
+
+        assert_eq!(
+            authors_via_work(&transport, &edition).unwrap(),
+            vec!["Real Author".to_string()]
+        );
     }
 }

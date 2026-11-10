@@ -78,7 +78,9 @@ mod tests {
         id: &str,
         path: &str,
     ) -> Result<(), String> {
-        let absolute = project.resolve(path).map_err(|error| error.to_string())?;
+        let absolute = project
+            .resolve_for_write(path)
+            .map_err(|error| error.to_string())?;
         restore_file(tmp.path(), &absolute, id, path)
     }
 

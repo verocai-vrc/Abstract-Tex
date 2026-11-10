@@ -1814,11 +1814,25 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       with `key` taken from the JSON (`isbn.rs`): a key of `@evil.example/x` or `.evil.example`
       changes the host. Needs a hostile or intercepted response, but the fix is one `starts_with`
       check (`/works/`, `/authors/`).
+      **Fixed 10 Nov 2026.** `is_record_key` accepts only `/works/OL<digits>W` and
+      `/authors/OL<digits>A`; anything else is not requested (a hostile author key is skipped and
+      the honest ones still resolve). Two tests; the first showed the request going to
+      `https://openlibrary.org@evil.example/x.json` before the change. Note for anyone running the
+      tests: `texbib`'s acquire tests need `--features acquire` when run on their own.
   12. **S. Project paths are checked lexically only** (`Project::resolve`). A symlink inside a cloned
       project that points outside it is followed by `read_file`, and `create_file`'s
       `create_dir_all` creates folders through it. Clone is a feature (S11.5b), so a repository an
       author did not write is in scope. Refuse a resolved path whose existing ancestors leave the
       project.
+      **Fixed for writes, 10 Nov 2026; reads deliberately unchanged.** `Project::resolve_for_write`
+      canonicalises the nearest existing folder above the path (a dangling link counts as a link)
+      and refuses if it is outside the project; `write_file`, `create_file`, `snapshot_restore`,
+      the paste-to-cite write, the Zotero export path and `snapshots::restore_file` use it. Only the
+      folder is checked, not the file name: a write is atomic and replaces a link that is itself
+      the file, so a `refs.bib` linked to a shared export keeps working (tested), as does a link
+      to a folder inside the project. Reading through a link out of the project still works, on
+      purpose, for the same shared-folder reason; the exposure that remains is a clone whose link
+      points at a file the author then opens, which shows them a file they can already read.
 
   **Low and design notes**
   13. **S. `abstract_tex_comments::open` needs the repository root exactly** while Source Control
@@ -1980,6 +1994,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       (`ahead_behind`). A second caller would amend published history.
   11. **S. `resolve_bib_argument` treats any dot in a name as an extension**, so `\bibliography{refs.v2}`
       is looked up as `refs.v2` and reported missing, where BibTeX looks for `refs.v2.bib`.
+      **Fixed 10 Nov 2026.** `.bib` is appended unless the name already ends in it (case
+      insensitively). One test over seven spellings.
   12. **S. LSP: `request` has no timeout**, and a caller that is dropped while waiting leaves its entry
       in `pending` until the server answers, which a cancelled request never does.
   13. **S. `sidecar::find_on_path` accepts any file** (not only executables) and an empty `PATH` entry

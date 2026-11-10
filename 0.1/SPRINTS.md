@@ -7302,7 +7302,7 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 - [x] `R4.8`, `R4.14` two dialogs miss the focus rules; no dialog sets `aria-modal`. Done 10 November 2026; not yet walked in the app.
 - [x] `R4.7` cancelling a build leaves latexmk's children running; no build time limit; unbounded output. Done 10 November 2026 (Windows branch untested).
 - [x] `R2.d`, `R2.e` the relay has no resource limits; invites default to plaintext `ws://`. Done 10 November 2026 (limits built; plaintext is a notice, not a new default).
-- [ ] `R3.11`, `R3.12`, `R4.11` ISBN follow-up URLs from the response; paths are checked lexically only; a dotted `.bib` name.
+- [x] `R3.11`, `R3.12`, `R4.11` ISBN follow-up URLs from the response; paths are checked lexically only; a dotted `.bib` name. Done 10 November 2026 (symlinks: writes only, by design).
 - [ ] `R1.1`..`R1.3` a branch switch during a live session; BibTeX warnings under `latexmk`; working-copy comparison (symlinks, size).
 - [ ] The low and design notes (`R3.13`..`R3.16`, `R4.10`, `R4.12`, `R4.13`): each is fixed or given a reason in the ledger.
 

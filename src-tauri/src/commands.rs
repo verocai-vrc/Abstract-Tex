@@ -165,7 +165,7 @@ pub fn write_file(
     contents: String,
 ) -> CommandResult<()> {
     with_project(&state, |project| {
-        let absolute = project.resolve(&path)?;
+        let absolute = project.resolve_for_write(&path)?;
         remember_write(&state.written, &absolute, contents.as_bytes());
         write_atomically(&absolute, &contents)?;
         Ok(())
@@ -187,7 +187,7 @@ pub fn write_file(
 #[tauri::command]
 pub fn create_file(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<ProjectInfo> {
     let info = with_project(&state, |project| {
-        let absolute = project.resolve(&path)?;
+        let absolute = project.resolve_for_write(&path)?;
         if absolute.exists() {
             anyhow::bail!("{path} already exists");
         }
@@ -343,7 +343,7 @@ pub async fn snapshot_restore(
     path: String,
 ) -> CommandResult<()> {
     let (root, absolute) = with_project(&state, |project| {
-        Ok((project.root_dir.clone(), project.resolve(&path)?))
+        Ok((project.root_dir.clone(), project.resolve_for_write(&path)?))
     })?;
     tauri::async_runtime::spawn_blocking(move || {
         crate::snapshots::restore_file(&root, &absolute, &id, &path)
@@ -601,7 +601,7 @@ pub async fn paste_cite(
             // Read and write in one hold of the project lock, and without `remember_write`: see
             // `paste::append_new_entry` (review finding R4.4).
             let key = with_project(&state, |project| {
-                let absolute = project.resolve(&bib_file)?;
+                let absolute = project.resolve_for_write(&bib_file)?;
                 crate::paste::append_new_entry(&absolute, &fetched, &keys_in_use).map_err(anyhow::Error::msg)
             })?;
             emit_bibliography(&app);
@@ -665,7 +665,7 @@ pub async fn link_zotero_collection(
     collection_path: String,
     output_path: String,
 ) -> CommandResult<()> {
-    let absolute = with_project(&state, |project| project.resolve(&output_path))?;
+    let absolute = with_project(&state, |project| project.resolve_for_write(&output_path))?;
     let absolute_str = absolute.to_string_lossy().into_owned();
 
     tauri::async_runtime::spawn_blocking(move || {

@@ -999,9 +999,9 @@ fn strip_line_comments(source: &str) -> String {
 }
 
 /// A resource argument as a project-relative, forward-slash path, or `None` if it climbs out
-/// of the project or is absolute. `.bib` is appended when the argument has no extension at all
-/// (`\addbibresource{refs}` is wrong but common enough to mean `refs.bib`); an argument that
-/// already has one is kept as written.
+/// of the project or is absolute. `.bib` is appended unless the argument already ends in it
+/// (`\bibliography{refs}` and the wrong but common `\addbibresource{refs}` both mean `refs.bib`,
+/// and `refs.v2` means `refs.v2.bib`).
 fn resolve_bib_argument(base_dir: &Path, argument: &str) -> Option<String> {
     let joined = base_dir.join(argument.trim());
     let mut normal: Vec<Component> = Vec::new();
@@ -1020,11 +1020,14 @@ fn resolve_bib_argument(base_dir: &Path, argument: &str) -> Option<String> {
         }
     }
     let mut path: PathBuf = normal.into_iter().collect();
-    if path.extension().is_none() {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+    // `.bib` is appended unless the name already ends in it, as BibTeX does. Looking only for "an
+    // extension" read the dot in `refs.v2` as one and reported `refs.v2.bib` missing (review finding
+    // R4.11).
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if !name.to_ascii_lowercase().ends_with(".bib") {
         path.set_file_name(format!("{name}.bib"));
     }
     Some(path.to_string_lossy().replace('\\', "/"))
@@ -1570,6 +1573,28 @@ mod tests {
     }
 
     // ---- scanners ----
+
+    // Review finding R4.11. Any dot in a name was read as an extension, so `\bibliography{refs.v2}` was
+    // looked up as `refs.v2` and reported missing. BibTeX appends `.bib` to what it is given, unless
+    // it is already there.
+    #[test]
+    fn a_name_with_a_dot_in_it_still_gets_bib_appended() {
+        for (argument, expected) in [
+            ("refs.v2", "refs.v2.bib"),
+            ("smith.et.al", "smith.et.al.bib"),
+            ("bib/2024.final", "bib/2024.final.bib"),
+            ("refs", "refs.bib"),
+            ("refs.bib", "refs.bib"),
+            ("REFS.BIB", "REFS.BIB"),
+            ("My Refs.Bib", "My Refs.Bib"),
+        ] {
+            assert_eq!(
+                resolve_bib_argument(Path::new(""), argument),
+                Some(expected.to_string()),
+                "{argument}"
+            );
+        }
+    }
 
     #[test]
     fn scan_bib_resources_reads_both_syntaxes() {

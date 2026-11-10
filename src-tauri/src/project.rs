@@ -306,6 +306,46 @@ impl Project {
         Ok(self.root_dir.join(rel))
     }
 
+    /// [`Project::resolve`] for a path about to be *written* (a new file, a save, a restore): the
+    /// same lexical rules, plus a look at the disk. The folder the file would go into must really be
+    /// inside the project once links are followed, or the write is refused.
+    ///
+    /// Only the folder is checked, not the file name: a write is atomic (a temporary file renamed
+    /// over the name), so it replaces a link that is itself the file and never writes through it,
+    /// which keeps a `refs.bib` that is a link to a shared export working. A folder that is a link
+    /// to somewhere else is the case that mattered: `create_dir_all` and the write beneath it landed
+    /// in that other place (review finding R3.12), and a cloned repository can carry such a link.
+    pub fn resolve_for_write(&self, relative: &str) -> Result<PathBuf> {
+        let absolute = self.resolve(relative)?;
+        let root = self
+            .root_dir
+            .canonicalize()
+            .with_context(|| format!("could not resolve the project folder {}", self.root_dir.display()))?;
+
+        // The nearest ancestor that exists (the folders to be created do not yet), looked at without
+        // following a link at its last step, so a dangling link is seen as a link and not as "absent".
+        let mut folder = absolute.parent();
+        while let Some(candidate) = folder {
+            if fs::symlink_metadata(candidate).is_ok() {
+                let real = candidate.canonicalize().with_context(|| {
+                    format!(
+                        "{relative} is below a link that cannot be followed ({})",
+                        candidate.display()
+                    )
+                })?;
+                if !real.starts_with(&root) {
+                    bail!(
+                        "{relative} would be written outside the project, through a link at {}",
+                        candidate.display()
+                    );
+                }
+                return Ok(absolute);
+            }
+            folder = candidate.parent();
+        }
+        Ok(absolute)
+    }
+
     /// The inverse of `resolve`: an absolute path inside the project, as a forward-slash
     /// relative string. `None` if the path is outside the project.
     pub fn relative(&self, absolute: &Path) -> Option<String> {
@@ -782,6 +822,42 @@ mod tests {
         assert!(project.resolve("sections/../../x").is_err());
         assert!(project.resolve("C:/Windows/x").is_err() || !cfg!(windows));
         assert!(project.resolve("sections/intro.tex").is_ok());
+    }
+
+    // Review finding R3.12. `resolve` is lexical: it refuses `..` and absolute paths but never looks at
+    // the disk, so a symlinked folder inside a project (a cloned repository can carry one) led out of
+    // it, and `create_file`'s `create_dir_all` and a write beneath it landed in somebody else's
+    // folder. Writes now also check where the folder they would write into really is. Reads still
+    // follow links: a shared `refs.bib` or `figures/` that is a link to one folder up is ordinary.
+    #[cfg(unix)]
+    #[test]
+    fn a_write_beneath_a_link_that_leaves_the_project_is_refused() {
+        let outside = tempfile::tempdir().unwrap();
+        let dir = scaffold(&[("main.tex", "")]);
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("linked")).unwrap();
+        let project = Project::open(dir.path()).unwrap();
+
+        assert!(project.resolve_for_write("linked/new.tex").is_err());
+        assert!(project.resolve_for_write("linked/deeper/new.tex").is_err());
+        // Reading through it is still allowed.
+        assert!(project.resolve("linked/new.tex").is_ok());
+        // An ordinary write, a new folder inside the project, and a link that is the file itself.
+        assert!(project.resolve_for_write("main.tex").is_ok());
+        assert!(project.resolve_for_write("chapters/one.tex").is_ok());
+        std::os::unix::fs::symlink(outside.path().join("shared.bib"), dir.path().join("refs.bib")).unwrap();
+        assert!(
+            project.resolve_for_write("refs.bib").is_ok(),
+            "a write replaces the link itself (it is atomic), so a linked file is fine"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_folder_inside_the_project_is_fine_to_write_beneath() {
+        let dir = scaffold(&[("main.tex", ""), ("real/a.tex", "")]);
+        std::os::unix::fs::symlink(dir.path().join("real"), dir.path().join("alias")).unwrap();
+        let project = Project::open(dir.path()).unwrap();
+        assert!(project.resolve_for_write("alias/b.tex").is_ok());
     }
 
     #[test]
