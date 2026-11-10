@@ -25,6 +25,7 @@ use std::collections::BTreeMap;
 
 use git2::{Commit, Oid, Repository, Signature, Tree};
 use serde::{Deserialize, Serialize};
+use tracing::warn;
 
 use crate::anchor::{self, Anchor, OrphanReason, Reanchored};
 
@@ -141,31 +142,76 @@ fn write_blob_on_ref(
 ) -> Result<Oid, CommentsError> {
     let blob = repository.blob(bytes).map_err(CommentsError::Write)?;
     let filename = filename(blob);
-
-    let parent = current_commit(repository)?;
-    let base_tree = parent
-        .as_ref()
-        .map(Commit::tree)
-        .transpose()
-        .map_err(CommentsError::Read)?;
-    let mut builder = repository
-        .treebuilder(base_tree.as_ref())
-        .map_err(CommentsError::Write)?;
-    builder
-        .insert(&filename, blob, git2::FileMode::Blob.into())
-        .map_err(CommentsError::Write)?;
-    let tree_id = builder.write().map_err(CommentsError::Write)?;
-    let tree = repository.find_tree(tree_id).map_err(CommentsError::Write)?;
-
     let who = author(repository);
-    let parents: Vec<&Commit<'_>> = parent.iter().collect();
-    let commit_id = repository
-        .commit(None, &who, &who, message, &tree, &parents)
-        .map_err(CommentsError::Write)?;
-    repository
-        .reference(COMMENTS_REF, commit_id, true, message)
-        .map_err(CommentsError::Write)?;
-    Ok(blob)
+
+    // Build on the tip, then move the ref only if it still *is* that tip. Two writes at once (a
+    // double click, a resolve during a sync, two commands on two threads) used to read the same tip
+    // and the second overwrote the first's commit with `force`, which dropped a comment; now the
+    // loser notices, reads the new tip and builds again (review finding R3.10).
+    let mut last_contention = None;
+    for attempt in 0..WRITE_ATTEMPTS {
+        let parent = current_commit(repository)?;
+        let base_tree = parent
+            .as_ref()
+            .map(Commit::tree)
+            .transpose()
+            .map_err(CommentsError::Read)?;
+        let mut builder = repository
+            .treebuilder(base_tree.as_ref())
+            .map_err(CommentsError::Write)?;
+        builder
+            .insert(&filename, blob, git2::FileMode::Blob.into())
+            .map_err(CommentsError::Write)?;
+        let tree_id = builder.write().map_err(CommentsError::Write)?;
+        let tree = repository.find_tree(tree_id).map_err(CommentsError::Write)?;
+
+        let parents: Vec<&Commit<'_>> = parent.iter().collect();
+        let commit_id = repository
+            .commit(None, &who, &who, message, &tree, &parents)
+            .map_err(CommentsError::Write)?;
+        match move_ref(repository, commit_id, parent.as_ref().map(Commit::id), message) {
+            Ok(()) => return Ok(blob),
+            Err(error) if is_contention(&error) => {
+                last_contention = Some(error);
+                // A few milliseconds, longer each time, so two writers do not keep colliding.
+                std::thread::sleep(std::time::Duration::from_millis(2 * (attempt as u64 + 1)));
+            }
+            Err(error) => return Err(CommentsError::Write(error)),
+        }
+    }
+    Err(CommentsError::Write(last_contention.unwrap_or_else(|| {
+        git2::Error::from_str("the comments ref kept changing under this write")
+    })))
+}
+
+/// How many times a write rebuilds on a newer tip before giving up.
+const WRITE_ATTEMPTS: usize = 40;
+
+/// Point [`COMMENTS_REF`] at `new` only if it still holds `expected` (or does not exist yet when
+/// `expected` is `None`): a compare-and-swap, which libgit2 spells `reference_matching`.
+fn move_ref(
+    repository: &Repository,
+    new: Oid,
+    expected: Option<Oid>,
+    message: &str,
+) -> Result<(), git2::Error> {
+    match expected {
+        Some(current) => repository
+            .reference_matching(COMMENTS_REF, new, true, current, message)
+            .map(|_| ()),
+        None => repository
+            .reference(COMMENTS_REF, new, false, message)
+            .map(|_| ()),
+    }
+}
+
+/// Whether `error` means someone else moved (or is moving) the ref, which is a reason to look at
+/// the new tip and try again and not a failure.
+fn is_contention(error: &git2::Error) -> bool {
+    matches!(
+        error.code(),
+        git2::ErrorCode::Modified | git2::ErrorCode::Locked | git2::ErrorCode::Exists
+    )
 }
 
 /// Every comment currently on [`COMMENTS_REF`], with no attempt to reanchor them — see [`load`]
@@ -208,7 +254,17 @@ fn read_tree_entries<T: serde::de::DeserializeOwned>(
         };
         let object = entry.to_object(repository).map_err(CommentsError::Read)?;
         let Some(blob) = object.as_blob() else { continue };
-        let record: T = serde_json::from_slice(blob.content()).map_err(CommentsError::Malformed)?;
+        // An entry that does not parse is left out and the rest still load: a coauthor's newer
+        // version can write a shape this one does not know, and one damaged blob must not blank every
+        // comment at once (review finding R3.4). It stays in the tree, so a version that does
+        // understand it still sees it.
+        let Ok(record) = serde_json::from_slice::<T>(blob.content()) else {
+            warn!(
+                entry = name,
+                "a stored comment entry could not be read; skipping it"
+            );
+            continue;
+        };
         out.push((id.to_string(), record));
     }
     Ok(out)
@@ -376,20 +432,39 @@ pub enum MergeOutcome {
 
 /// Combine `remote_name`'s most recently [`fetch`]ed comments with [`COMMENTS_REF`] here.
 pub fn merge_from(repository: &Repository, remote_name: &str) -> Result<MergeOutcome, CommentsError> {
+    // The merge is built on the tip it read and moves the ref only if that is still the tip; if a
+    // comment was added meanwhile it starts again from the new one (review finding R3.10), so what
+    // was added during a merge is merged in and not overwritten.
+    let mut last = None;
+    for attempt in 0..WRITE_ATTEMPTS {
+        match merge_once(repository, remote_name) {
+            Err(CommentsError::Write(error)) if is_contention(&error) => {
+                last = Some(error);
+                std::thread::sleep(std::time::Duration::from_millis(2 * (attempt as u64 + 1)));
+            }
+            other => return other,
+        }
+    }
+    Err(CommentsError::Write(last.unwrap_or_else(|| {
+        git2::Error::from_str("the comments ref kept changing under this merge")
+    })))
+}
+
+fn merge_once(repository: &Repository, remote_name: &str) -> Result<MergeOutcome, CommentsError> {
     let Ok(tracking) = repository.find_reference(&tracking_ref(remote_name)) else {
         return Ok(MergeOutcome::NothingToMerge);
     };
     let theirs = tracking.peel_to_commit().map_err(CommentsError::Read)?;
 
     let Some(ours) = current_commit(repository)? else {
-        set_ref(repository, theirs.id())?;
+        set_ref(repository, theirs.id(), None)?;
         return Ok(MergeOutcome::FastForwarded);
     };
     if ours.id() == theirs.id() {
         return Ok(MergeOutcome::NothingToMerge);
     }
     if is_descendant(repository, theirs.id(), ours.id())? {
-        set_ref(repository, theirs.id())?;
+        set_ref(repository, theirs.id(), Some(ours.id()))?;
         return Ok(MergeOutcome::FastForwarded);
     }
     if is_descendant(repository, ours.id(), theirs.id())? {
@@ -442,7 +517,7 @@ fn merge_divergent(
     let commit_id = repository
         .commit(None, &who, &who, "Merge comments", &tree, &[ours, theirs])
         .map_err(CommentsError::Write)?;
-    set_ref(repository, commit_id)?;
+    set_ref(repository, commit_id, Some(ours.id()))?;
     Ok(MergeOutcome::Merged)
 }
 
@@ -470,11 +545,9 @@ fn empty_tree(repository: &Repository) -> Result<Tree<'_>, CommentsError> {
     repository.find_tree(oid).map_err(CommentsError::Read)
 }
 
-fn set_ref(repository: &Repository, target: Oid) -> Result<(), CommentsError> {
-    repository
-        .reference(COMMENTS_REF, target, true, "merge comments")
-        .map(|_| ())
-        .map_err(CommentsError::Write)
+/// Move [`COMMENTS_REF`] to `target` if it still holds `expected` (`None`: if it does not exist).
+fn set_ref(repository: &Repository, target: Oid, expected: Option<Oid>) -> Result<(), CommentsError> {
+    move_ref(repository, target, expected, "merge comments").map_err(CommentsError::Write)
 }
 
 fn current_commit(repository: &Repository) -> Result<Option<Commit<'_>>, CommentsError> {
@@ -742,5 +815,138 @@ mod tests {
             "the unrelated resolution did not create a phantom comment"
         );
         assert!(!loaded[0].resolved, "it was never about this comment");
+    }
+
+    // Review finding R3.4. One entry that does not parse (a coauthor's newer version wrote a shape
+    // this one does not know, or a blob was damaged) used to fail the whole load, so every comment
+    // vanished from the panel at once.
+    #[test]
+    fn one_unreadable_entry_does_not_hide_the_others() {
+        let (_tmp, repository) = repo();
+        let id = add(
+            &repository,
+            &record("main.tex", "the result stands", "ada", "keep me"),
+        )
+        .unwrap();
+
+        // Put garbage into the tree under a comment's own kind of name.
+        let junk = repository.blob(b"{ this is not a comment").unwrap();
+        let parent = current_commit(&repository).unwrap().unwrap();
+        let mut builder = repository.treebuilder(Some(&parent.tree().unwrap())).unwrap();
+        builder
+            .insert(format!("{junk}.json"), junk, git2::FileMode::Blob.into())
+            .unwrap();
+        builder
+            .insert(
+                format!("{junk}{RESOLUTION_SUFFIX}"),
+                junk,
+                git2::FileMode::Blob.into(),
+            )
+            .unwrap();
+        let tree = repository.find_tree(builder.write().unwrap()).unwrap();
+        let who = author(&repository);
+        let commit = repository
+            .commit(None, &who, &who, "damaged", &tree, &[&parent])
+            .unwrap();
+        set_ref(&repository, commit, Some(parent.id())).unwrap();
+
+        let loaded = load(&repository, |_| None).unwrap();
+        assert_eq!(loaded.len(), 1, "the readable comment is still listed");
+        assert_eq!(loaded[0].id, id);
+        assert!(!loaded[0].resolved);
+    }
+
+    // Review finding R3.10. `add` read the tip, built a commit on it and then overwrote the ref with
+    // force, so two writes at once could drop one. The ref is now moved only if it still holds the
+    // commit the write was built on, and a write that lost the race is built again.
+    #[test]
+    fn writes_made_at_the_same_time_all_survive() {
+        let tmp = tempfile::tempdir().unwrap();
+        Repository::init(tmp.path()).unwrap();
+        let path = tmp.path().to_path_buf();
+
+        let threads: Vec<_> = (0..8)
+            .map(|writer| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    // Each thread has its own handle, as each Tauri command does.
+                    let repository = Repository::open(&path).unwrap();
+                    for n in 0..6 {
+                        let body = format!("writer {writer} comment {n}");
+                        add(
+                            &repository,
+                            &record("main.tex", "the result stands", "ada", &body),
+                        )
+                        .unwrap();
+                    }
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        let repository = Repository::open(&path).unwrap();
+        assert_eq!(load_all(&repository).unwrap().len(), 8 * 6, "no comment was lost");
+    }
+
+    // The same finding on the merge side: `merge_from` read our tip, merged, and then wrote the ref
+    // with force, so a comment added during the merge was dropped.
+    #[test]
+    fn a_merge_running_while_comments_are_added_loses_none_of_them() {
+        // `theirs`: a remote with comments of its own, fetched into the tracking ref.
+        let remote = tempfile::tempdir().unwrap();
+        let theirs = Repository::init_bare(remote.path()).unwrap();
+        for n in 0..5 {
+            add(
+                &theirs,
+                &record("main.tex", "the result stands", "bea", &format!("bea {n}")),
+            )
+            .unwrap();
+        }
+        let local = tempfile::tempdir().unwrap();
+        let ours = Repository::init(local.path()).unwrap();
+        ours.remote("origin", remote.path().to_str().unwrap()).unwrap();
+        add(
+            &ours,
+            &record("main.tex", "the result stands", "ada", "ada first"),
+        )
+        .unwrap();
+        fetch(&ours, "origin").unwrap();
+
+        let path = local.path().to_path_buf();
+        let adder = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let repository = Repository::open(&path).unwrap();
+                for n in 0..25 {
+                    add(
+                        &repository,
+                        &record("main.tex", "the result stands", "ada", &format!("ada {n}")),
+                    )
+                    .unwrap();
+                }
+            })
+        };
+        let merger = std::thread::spawn(move || {
+            let repository = Repository::open(&path).unwrap();
+            for _ in 0..25 {
+                merge_from(&repository, "origin").unwrap();
+            }
+        });
+        adder.join().unwrap();
+        merger.join().unwrap();
+        merge_from(&ours, "origin").unwrap();
+
+        let bodies: Vec<String> = load_all(&ours)
+            .unwrap()
+            .into_iter()
+            .map(|(_, c)| c.body)
+            .collect();
+        assert_eq!(
+            bodies.len(),
+            1 + 25 + 5,
+            "every comment from both sides survived: {bodies:?}"
+        );
     }
 }

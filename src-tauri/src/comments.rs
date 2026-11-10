@@ -23,6 +23,8 @@ pub enum CommentError {
     NotARepository,
     #[error("Select some text first; a comment has to be about something.")]
     EmptySelection,
+    #[error("\"{0}\" is not a file inside this project, so a comment cannot be about it.")]
+    OutsideProject(String),
     #[error("{0}")]
     Store(#[from] abstract_tex_comments::CommentsError),
     /// The remote could not be reached or refused: the git crate's own sentence.
@@ -53,6 +55,18 @@ pub struct CommentRow {
     pub to: Option<usize>,
 }
 
+/// Whether `relative` is a project-relative path that stays inside the project: not empty, not
+/// absolute, no drive prefix, and no `..` anywhere. Comments are stored with forward slashes, so
+/// this reads the name the way a Git tree would.
+fn is_inside_project(relative: &str) -> bool {
+    use std::path::Component;
+    !relative.is_empty()
+        && Path::new(relative)
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir))
+        && !relative.contains('\\')
+}
+
 fn open(root: &Path) -> Result<abstract_tex_comments::Repository, CommentError> {
     abstract_tex_comments::open(root).map_err(|error| match error {
         abstract_tex_comments::CommentsError::NotARepository => CommentError::NotARepository,
@@ -79,10 +93,35 @@ fn byte_offset(text: &str, unit: usize) -> Option<usize> {
 
 /// Every comment in the project at `root`, reanchored against the files as they are on disk.
 pub fn list(root: &Path) -> Result<Vec<CommentRow>, CommentError> {
+    list_with(root, &|relative| {
+        std::fs::read_to_string(root.join(relative)).ok()
+    })
+}
+
+/// [`list`] with the file reader passed in, so a test can watch what is read and when.
+fn list_with(
+    root: &Path,
+    read_file: &dyn Fn(&str) -> Option<String>,
+) -> Result<Vec<CommentRow>, CommentError> {
     let repository = open(root)?;
-    // Each file is read from disk once per comment on it; comment counts are small and the
-    // alternative is a cache that can go stale when the watcher fires.
-    let read_file = |relative: &str| std::fs::read_to_string(root.join(relative)).ok();
+    // Each file is read once per listing, and every comment on it is placed against that one copy.
+    // Reading again to convert offsets meant the offsets (found in the first copy) were sliced out
+    // of a second one that could have changed in between, which panics (review finding R3.7). A name
+    // that leads outside the project is answered "no such file" without being read at all (R3.9).
+    let cache: std::cell::RefCell<std::collections::HashMap<String, Option<String>>> = Default::default();
+    let read_file = |relative: &str| -> Option<String> {
+        cache
+            .borrow_mut()
+            .entry(relative.to_string())
+            .or_insert_with(|| {
+                if is_inside_project(relative) {
+                    read_file(relative)
+                } else {
+                    None
+                }
+            })
+            .clone()
+    };
     let mut rows: Vec<CommentRow> = load(&repository, read_file)?
         .into_iter()
         .map(|loaded| {
@@ -128,6 +167,9 @@ pub fn add_comment(
     body: &str,
     now: i64,
 ) -> Result<String, CommentError> {
+    if !is_inside_project(file) {
+        return Err(CommentError::OutsideProject(file.to_string()));
+    }
     let repository = open(root)?;
     let (Some(start), Some(end)) = (byte_offset(text, from), byte_offset(text, to)) else {
         return Err(CommentError::EmptySelection);
@@ -244,6 +286,84 @@ mod tests {
         let row = &list(tmp.path()).unwrap()[0];
         assert_eq!((row.state, row.from), ("orphaned", None));
     }
+    // Review finding R3.7. `list` read each anchored file twice, once inside `load` and once more to
+    // turn byte offsets into UTF-16 ones, and sliced the second copy at offsets found in the
+    // first. A file that changed in between (an autosave, a branch switch) made `text[..byte]`
+    // panic. It is now read once per listing.
+    #[test]
+    fn a_listing_reads_each_file_once_so_a_change_in_between_cannot_misplace_an_offset() {
+        let text = "the result stands, and the result holds";
+        let tmp = project_with(text);
+        add_comment(tmp.path(), "main.tex", text, 4, 10, "first?", 1).unwrap();
+        add_comment(tmp.path(), "main.tex", text, 24, 30, "second?", 2).unwrap();
+
+        let reads = std::cell::Cell::new(0);
+        let rows = list_with(tmp.path(), &|relative| {
+            assert_eq!(relative, "main.tex");
+            reads.set(reads.get() + 1);
+            // The first read sees the whole file; any later one would see it cut short.
+            Some(if reads.get() == 1 {
+                text.to_string()
+            } else {
+                "the".to_string()
+            })
+        })
+        .unwrap();
+
+        assert_eq!(reads.get(), 1, "one read serves every comment on the file");
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row.state == "anchored"), "{rows:?}");
+        assert_eq!((rows[0].from, rows[0].to), (Some(4), Some(10)));
+    }
+
+    // Review finding R3.9. A comment's `file` comes from whoever wrote the record, a coauthor or a
+    // remote. It was joined onto the project folder as it stood, so an absolute path or `..` made the
+    // app read any file the user can and answer (anchored, orphaned, with offsets) about its contents.
+    #[test]
+    fn a_comment_that_names_a_file_outside_the_project_is_never_read() {
+        let text = "the result stands";
+        let tmp = project_with(text);
+        let repository = git2::Repository::open(tmp.path()).unwrap();
+        for file in ["../outside.txt", "/etc/hostname", "sub/../../outside.txt", ""] {
+            let record = CommentRecord {
+                file: file.to_string(),
+                anchor: abstract_tex_comments::Anchor::capture(text, 4, 10).unwrap(),
+                author: "mallory".to_string(),
+                body: "probe".to_string(),
+                created: 1,
+            };
+            add(&repository, &record).unwrap();
+        }
+
+        let asked = std::cell::RefCell::new(Vec::new());
+        let rows = list_with(tmp.path(), &|relative| {
+            asked.borrow_mut().push(relative.to_string());
+            Some(text.to_string())
+        })
+        .unwrap();
+
+        assert!(
+            asked.borrow().is_empty(),
+            "nothing outside the project was asked for: {asked:?}"
+        );
+        assert_eq!(rows.len(), 4);
+        assert!(rows.iter().all(|row| row.state == "fileMissing"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_comment_cannot_be_made_on_a_file_outside_the_project() {
+        let text = "the result stands";
+        let tmp = project_with(text);
+        for file in ["../x.tex", "/etc/passwd", "a/../../x.tex", ""] {
+            let error = add_comment(tmp.path(), file, text, 4, 10, "?", 1).unwrap_err();
+            assert!(
+                matches!(error, CommentError::OutsideProject(_)),
+                "{file:?}: {error:?}"
+            );
+        }
+        assert!(list(tmp.path()).unwrap().is_empty());
+    }
+
     /// A bare repository standing in for the shared GitHub repository, and a function to make a
     /// working copy of the project pointed at it.
     fn shared_remote() -> tempfile::TempDir {

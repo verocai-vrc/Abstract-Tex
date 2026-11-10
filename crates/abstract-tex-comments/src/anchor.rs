@@ -75,6 +75,11 @@ impl Anchor {
 
 /// Look for `anchor`'s quote in `text` as it is now.
 pub fn reanchor(text: &str, anchor: &Anchor) -> Reanchored {
+    // `capture` never makes an empty quote, but a record read back from a remote can carry one, and
+    // an empty string "occurs" at every position of every file.
+    if anchor.quote.is_empty() {
+        return Reanchored::Orphaned(OrphanReason::TextNotFound);
+    }
     let matches: Vec<(usize, usize)> = text
         .match_indices(anchor.quote.as_str())
         .map(|(start, matched)| (start, start + matched.len()))
@@ -114,9 +119,19 @@ fn context_matches(text: &str, start: usize, end: usize, anchor: &Anchor) -> boo
         && first_chars(&text[end..], after_len) == anchor.context_after
 }
 
+/// The last `n` characters of `text`, found by walking back from the end. The first version
+/// collected every character of `text` into a `Vec` to take the tail, which made a common word in
+/// a long chapter quadratic (review finding R3.8).
 fn last_chars(text: &str, n: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    chars[chars.len().saturating_sub(n)..].iter().collect()
+    if n == 0 {
+        return String::new();
+    }
+    let start = text
+        .char_indices()
+        .rev()
+        .nth(n - 1)
+        .map_or(0, |(byte, _character)| byte);
+    text[start..].to_string()
 }
 
 fn first_chars(text: &str, n: usize) -> String {
@@ -201,5 +216,65 @@ mod tests {
         let anchor = Anchor::capture(text, start, end).unwrap();
         assert_eq!(anchor.quote, "résumé");
         assert_eq!(reanchor(text, &anchor), Reanchored::Found { start, end });
+    }
+
+    // Review finding R3.8. `context_matches` collected the whole text before each occurrence into a
+    // `Vec<char>` to take the last forty, so a quote that is a common word did quadratic work on
+    // every list. 4 000 occurrences in 100 KB is about 5 s of that in a debug build.
+    #[test]
+    fn a_common_word_in_a_long_chapter_is_reanchored_quickly() {
+        let text = "the quick brown fox jumps over a lazy dog. ".repeat(4_000);
+        let start = text.len() / 2 + 4; // somewhere in the middle, on a word
+        let start = text[start..].find("quick").unwrap() + start;
+        let anchor = Anchor::capture(&text, start, start + "quick".len()).unwrap();
+
+        let started = std::time::Instant::now();
+        let found = reanchor(&text, &anchor);
+        let took = started.elapsed();
+
+        assert!(
+            took < std::time::Duration::from_secs(1),
+            "re-anchoring took {took:?}"
+        );
+        // The surroundings repeat too, so this is honestly ambiguous; what matters is the speed.
+        assert!(matches!(
+            found,
+            Reanchored::Orphaned(OrphanReason::Ambiguous { .. })
+        ));
+    }
+
+    #[test]
+    fn the_surrounding_text_is_still_compared_exactly_after_the_speed_up() {
+        let text = "alpha beta gamma. delta beta epsilon.";
+        let first = text.find("beta").unwrap();
+        let second = text.rfind("beta").unwrap();
+        let anchor = Anchor::capture(text, second, second + 4).unwrap();
+        assert_eq!(
+            reanchor(text, &anchor),
+            Reanchored::Found {
+                start: second,
+                end: second + 4
+            }
+        );
+        assert_ne!(first, second);
+        // Multi-byte characters around the quote are measured in characters, not bytes.
+        let text = "ééé résultat ééé";
+        let start = text.find("résultat").unwrap();
+        let anchor = Anchor::capture(text, start, start + "résultat".len()).unwrap();
+        assert!(matches!(reanchor(text, &anchor), Reanchored::Found { .. }));
+    }
+
+    // A record from outside can carry an empty quote, which `match_indices` finds at every position.
+    #[test]
+    fn an_empty_quote_is_orphaned_not_matched_everywhere() {
+        let anchor = Anchor {
+            quote: String::new(),
+            context_before: String::new(),
+            context_after: String::new(),
+        };
+        assert_eq!(
+            reanchor("any text at all", &anchor),
+            Reanchored::Orphaned(OrphanReason::TextNotFound)
+        );
     }
 }

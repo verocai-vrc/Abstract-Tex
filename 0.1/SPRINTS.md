@@ -7294,7 +7294,7 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 - [x] `R4.2` `diff_ops` has no deadline and runs on the UI thread; `R4.6` `applyExternal` gives up quietly. Done 10 November 2026.
 - [x] `R3.1`, `R3.5` `texwords` panics (a backslash before a non-ASCII character; an unclosed heading brace). Done 10 November 2026; 79 650 mutated documents, no panic.
 - [x] `R3.2`, `R3.3` the citation guard misses `\textcquote`, `\blockcquote`, `\bibentry`, and learns the author's wrappers from the root's preamble only. Done 10 November 2026; the editor's own undefined-citation scan still misses `\\textcquote`/`\\bibentry` (ledger).
-- [ ] `R3.4`, `R3.7`, `R3.8`, `R3.9`, `R3.10` comments: one bad record blanks the list, a double read can panic, re-anchoring is quadratic, `file` is read unchecked, writes can race.
+- [x] `R3.4`, `R3.7`, `R3.8`, `R3.9`, `R3.10` comments: one bad record blanks the list, a double read can panic, re-anchoring is quadratic, `file` is read unchecked, writes can race. Done 10 November 2026.
 - [ ] `R3.6` snapshots follow symlinks.
 - [ ] `R4.3`, `R4.9` git verbs act on unvalidated paths; sync shows libgit2's own sentence.
 - [ ] `R2.a`..`R2.c` crash reports: the issue URL can exceed its cap; caught panics are reported; the home-folder scrub is case-sensitive.

@@ -1725,6 +1725,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      (`abstract-tex-comments/src/store.rs`) returns on the first JSON error, so a blob a coauthor's
      newer version wrote, or a damaged one, turns the whole Comments view into an error. Skip the
      bad entry and say so.
+     **Fixed 10 Nov 2026.** `read_tree_entries` skips an entry that does not parse (a `tracing`
+     warning names it; it stays in the tree for a version that understands it). Test: a comment
+     plus two damaged blobs, one named like a comment and one like a resolution; the comment loads.
+     It says so only in the log, not in the panel: a visible "one comment could not be read" is
+     left for the Comments view's next pass.
 
   **Medium**
   5. **R. `texwords::headings` panics on a heading line whose `{` is never closed and which ends in
@@ -1740,19 +1745,35 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      offsets), then slices `text[..byte]`. If the file changes between the reads (autosave every
      700 ms, a branch switch), a byte offset can be out of range or inside a character and the
      command panics. Convert from the same text the offsets came from.
+     **Fixed 10 Nov 2026.** `list_with` reads each file once per listing through a cache and places
+     every comment against that copy; test: a reader that returns the whole file the first time
+     and a stub the second (it panicked at the slice before the change).
   8. **S. Re-anchoring is quadratic.** `context_matches` calls `last_chars(&text[..start], n)`, which
      collects the whole prefix into a `Vec<char>` for every occurrence of the quote. A comment on a
      common word in a long chapter does that thousands of times on every list. Take the last `n`
      characters from the end with `char_indices().rev()`. An empty quote from a hostile or damaged
      record matches at every position and makes it worse; refuse empty quotes on load.
+     **Fixed 10 Nov 2026.** `last_chars` walks back from the end; `reanchor` answers an empty quote
+     "not found". Tests: 4 000 occurrences of a word in 168 KB re-anchored in under a second (it
+     was the failing case), the exact-context comparison still behaves (including multi-byte
+     characters), and the empty quote.
   9. **S. A comment's `file` is trusted on read.** `list` does `root.join(relative)` on a string a
      coauthor wrote; an absolute path or `..` makes the app read any file the user can, and the
      answer (anchored, orphaned, ambiguous, and the offsets) is a yes/no oracle on its contents.
      Run it through `Project::resolve`'s rules before reading.
+     **Fixed 10 Nov 2026.** `is_inside_project` (empty, absolute, `..`, drive prefix and backslash
+     all refused) guards both `list`, which answers "file missing" without reading, and
+     `add_comment`, which refuses with a sentence. Three tests.
   10. **S. No lock around comment writes, and the ref is updated with force.** `write_blob_on_ref`
       reads the tip, builds a commit, then overwrites the ref. The commands run on blocking threads
       with no lock (unlike `AT_A_TIME` for snapshots), so two overlapping writes (a double click, a
       resolve during a sync) can drop one. Use a compare-and-set or a mutex.
+      **Fixed 10 Nov 2026.** Writes build on the tip they read and move the ref with
+      `reference_matching` (a compare-and-swap); a write or a merge that finds the ref moved or
+      locked rebuilds on the new tip, up to 40 times with a short growing pause. Tests: eight
+      threads times six comments (all 48 present; before the fix libgit2's lock errors failed the
+      writes), and a merge racing 25 adds (it lost exactly one comment, three runs of three, before
+      the fix).
   11. **S. The ISBN lookup builds follow-up URLs from the response.** `"https://openlibrary.org{key}.json"`
       with `key` taken from the JSON (`isbn.rs`): a key of `@evil.example/x` or `.evil.example`
       changes the host. Needs a hostile or intercepted response, but the fix is one `starts_with`
