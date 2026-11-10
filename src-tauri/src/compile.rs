@@ -406,6 +406,9 @@ fn read_diagnostics(log_path: &Path, project_dir: &Path, root_file: &Path) -> Ve
                 }
             }
             place_unlocated_errors(&mut diagnostics, root_file, project_dir);
+            // After the respelling above: it reads `file` from `project_dir`, so the name must be
+            // the project's own.
+            crate::fragile_command::offer_missing_fixes(&mut diagnostics, project_dir);
             diagnostics
         }
         Err(_) => Vec::new(),
@@ -593,6 +596,36 @@ mod tests {
             found[0].file.as_deref(),
             Some("/usr/share/texlive/pkg.sty"),
             "`file` is still the innermost entry, spelled the same way"
+        );
+    }
+
+    /// E7. TeX prints only the last 50 characters of the line it failed on, so for a realistic
+    /// section title `\footnote` is cut off, `texlog` names no command, and no fix is offered.
+    /// `read_diagnostics` is where the source is at hand to read it back off the line.
+    #[test]
+    fn a_fragile_command_cut_off_by_texs_context_is_still_offered_a_fix() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\
+             \\section{A long title for a real thesis chapter\\footnote{a note}}\n",
+        )
+        .unwrap();
+        let log_path = project.path().join("main.log");
+        std::fs::write(
+            &log_path,
+            "(main.tex\n! Argument of \\@sect has an extra }.\n<inserted text> \n                \\par \n\
+             l.3 ...a long title for a real thesis chapter{a note}}\n\nNo pages of output.\n",
+        )
+        .unwrap();
+
+        let found = read_diagnostics(&log_path, project.path(), Path::new("main.tex"));
+
+        assert_eq!(found.len(), 1, "{found:?}");
+        let fix = found[0].fix.as_ref().expect("the source line names the command");
+        assert_eq!(
+            (fix.find.as_str(), fix.replace.as_str()),
+            ("\\footnote", "\\protect\\footnote")
         );
     }
 

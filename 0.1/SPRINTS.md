@@ -7059,8 +7059,15 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   `.sty`/`.cls` file's own `\input`s stays out of scope, and the module doc says so.
 - **Wall-clock gate for system engines** (E6) — a ceiling in CI where a system TeX is installed,
   and the S9.5 doc comment narrowed to what it actually gates.
-- **Fragile-command source search** (E7) — when the fragile-command rule matched but TeX's
-  50-character context cut the command off, the frontend searches the diagnosed source line.
+- [x] **Fragile-command source search** (E7) — when the fragile-command rule matched but TeX's
+  50-character context cut the command off, the diagnosed source line is searched. **Done 10
+  November 2026**, at the app edge in Rust (`src-tauri/src/fragile_command.rs`, called from
+  `read_diagnostics`) rather than in the frontend: the line is read from disk, the text the build
+  compiled, so it is the line the log counts. One candidate, once, not already behind `\protect`, or
+  nothing is offered. Nine unit tests, two of them checked by breaking the code (the fix never
+  assigned; several candidates allowed) and watching the right test fail; one wiring test through
+  `read_diagnostics`. The ledger entry records what stays open (a cut-off context that still holds
+  some other backslash).
 - **A BibTeX `.blg` rule** (E3, low priority) — read only the root's `.blg`.
 
 ---

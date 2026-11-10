@@ -3,6 +3,7 @@
 //! Module map (each module's own doc comment says what it owns and must never do):
 //! - [`project`]  — a folder on disk: file tree, root `.tex` detection, `abstract-tex.toml`.
 //! - [`compile`]  — the orchestrator: one build in flight, cancel-and-restart, events.
+//! - [`fragile_command`] — finds the `\protect` fix `texlog` cannot, by reading the source line.
 //! - [`latexdiff`] — change review between two commits: the diff lane and its folder.
 //! - [`lsp`]      — the TexLab session: one per open project, its events forwarded to the window.
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
@@ -24,6 +25,7 @@ pub mod comments;
 pub mod compile;
 pub mod consent;
 pub mod crash;
+pub mod fragile_command;
 pub mod git;
 pub mod github;
 pub mod latexdiff;

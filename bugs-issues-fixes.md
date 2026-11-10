@@ -274,6 +274,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   named none — would be the honest place, and needs its own loop.
   **Decided (2 Oct 2026, design interview E7):** a frontend card — when the rule matched but named
   no command, search the diagnosed source line for one (*Unplaced cards*, `SPRINTS.md`).
+  **Fixed (10 Nov 2026):** `fragile_command::offer_missing_fixes` (`src-tauri/src/fragile_command.rs`)
+  reads the diagnosed line and offers the `\protect` fix when it holds exactly one of `\footnote`,
+  `\footnotemark`, `\footnotetext`, once, and not already behind a `\protect`. It lives at the app edge
+  in Rust rather than in the frontend as the card said: it reads the line from disk, which is the text
+  the build compiled and so the text the log's `l.NN` counts, and it needs no async read in the drawer.
+  With two candidates on one line it offers nothing, because `Fix.find` matches the first and a second
+  click would stack a second `\protect`. **Still open, narrower:** when the cut-off context happens to
+  contain some *other* backslash (`...\emph{words} and more text{a note}}`), `texlog` names that command
+  instead, and the fix it offers (`\protect\emph`) is harmless but does not cure the error. Only a
+  context with no backslash at all is completed here, as the card said.
 
 - **A diagnostic resolved inside a package file gets a file heading and a jump that cannot
   succeed.** (S6.3, builder, 17 Sep 2026) `babel-unknown-language`'s real fixture resolves to
