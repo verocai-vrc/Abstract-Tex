@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { EditorView } from '@codemirror/view';
+  import { untrack } from 'svelte';
   import { app } from '../lib/state.svelte';
   import { bibliography } from '../lib/bibliography.svelte';
   import {
@@ -76,8 +77,12 @@
       hoverRequest,
       definitionRequest,
       forwardSearchRequest,
-      app.focusModeEnabled,
-      app.typewriterModeEnabled,
+      // `untrack`: these two are only the *initial* values. Reading them as ordinary dependencies
+      // made this whole effect re-run, and rebuild the editor from scratch, every time either
+      // mode was toggled, which threw the cursor back to line 1. The two effects below push later
+      // changes into the live view's compartments without rebuilding anything.
+      untrack(() => app.focusModeEnabled),
+      untrack(() => app.typewriterModeEnabled),
       pasteCite,
       (line) => (placeholders.cursorLine = line),
       (from, to) => (assistant.selection = from === to ? null : { from, to }),

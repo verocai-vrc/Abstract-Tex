@@ -1470,6 +1470,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   first; the ignored real-engine suite (corpus, torture, timings) still passes; and a cold-cache
   build re-walked in the app, where the suffix changed file by file for the whole fetch.
 
+- **Toggling focus mode or typewriter mode from the palette throws the cursor back to the first line.**
+  (Found 10 Nov 2026 walking S4.5: cursor on line 28, *Toggle typewriter mode*, cursor on line 1.)
+  A mode switch is a display preference; the author's place in the document must not move. Cause:
+  the effect in `Editor.svelte` that builds the editor read both flags to pass them as initial
+  values, so toggling either re-ran it and rebuilt the whole editor. **Fixed** the same session by
+  reading them with `untrack` (the two effects below already push later changes into the live
+  view's compartments); re-walked in the app: the cursor stays and typewriter mode centres its line.
+  No unit test: it is a reactivity detail of a Svelte component and the repository has no component
+  test harness.
+
 - **A "runaway argument" error shows under "Not inside any file" with no line, so clicking it goes
   nowhere.** (Found 9 Nov 2026, same walk, `SMOKE.md` §3 step 2 expects a line number. **Fixed** 10 Nov 2026
   by `place_unlocated_errors`.) The card is honest — it explains that TeX reports the end of the file and the

@@ -847,8 +847,8 @@ before `set_root_file` is more prominently exposed in the UI.
 | [x] | S4.2 Document map panel: sections, figures, tables, labels, TODOs, from LSP symbols plus our own scan | M | S3.3 |
 | [x] | S4.3 Command palette `Ctrl K`: actions, files, sections, fuzzy matching, every action registered through one registry | L | S2.4 |
 | [x] | S4.4 `fixtures/thesis` six-file skeleton and its smoke script | S | — |
-| [~] | S4.5 Focus and typewriter modes | S | S1.9 |
-| [~] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
+| [x] | S4.5 Focus and typewriter modes | S | S1.9 |
+| [x] | S4.6 Maths preview on hover with KaTeX | S | S1.9 |
 | [ ] | S4.7 Linux and macOS smoke on CI artifacts; WebKitGTK issues logged as loops | M | S2.8 |
 
 **S4.1 (14 September 2026).** `[~]`: rungs 1–2 are green — `cargo test -p preamble-includes` 19
@@ -6991,6 +6991,14 @@ twenty-row `torture` walk with its six one-click fixes (S6.2, S6.3). S2.2's pack
 the one part that did *not* work when walked and is fixed above. **Not ticked:** S2.4 (`F5` and `Ctrl O`
 could not be driven), S4.5 and S4.6 (focus mode, typewriter mode and the maths popover were not
 walked), and the rest, which wait on other things (publishing, CI, Windows).
+
+**Owed walks, sixth pass (10 November 2026): focus mode, typewriter mode and the maths popover**
+(S4.5, S4.6, now `[x]`). Focus mode dims everything but the current paragraph and follows the cursor;
+typewriter mode centres the active line; hovering `$t_1, \dots, t_n$` shows the rendered formula in a
+dark popover, readable. **Found and fixed:** toggling either mode threw the cursor back to line 1,
+because the effect that builds the editor read both flags as dependencies and so rebuilt the whole
+editor on every toggle (`untrack`; no unit test, the repository has no component harness; walked).
+The palette also listed no way to see this from a test, which is why a walk found it.
 
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
