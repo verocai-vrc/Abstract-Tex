@@ -6884,6 +6884,26 @@ GitHub's private reporting is switched on; there is no code of conduct; user-fac
 beyond the README (a guide to each feature) does not exist, and the README's feature text is
 the only description of the live, assistant and Git features that a stranger will read.
 
+**Owed walks, first pass (9 November 2026, Linux, virtual display).** Rung 4 of `fixtures/paper/SMOKE.md`
+§1–§5, run against the real app for the first time since those loops were written. **Passed:** §1
+(tree and root badge, PDF on first build, `Compiling…` after about 0.7 s, the PDF stays on page 4
+through a rebuild); §2 (an external change arrives without moving the cursor, the red conflict bar
+appears when both sides changed, *Load from disk* and *Keep mine* each do what they say); §3
+(an error opens the drawer with a sentence and the last good PDF stays, *Raw log* and *Back to
+explanations*); §4 (`Ctrl S` clears the dirty dot, `Ctrl B` with the tree focused starts exactly
+one build, `Ctrl P` ranks and opens a file); §5 steps 1, 2 and 5 (the `_ used outside maths` card,
+the gutter marker moves with its line, *Escape as \_* applies and a single `Ctrl Z` undoes it).
+**Found:** one real bug — an outside change *back to* a version the app had saved was swallowed as
+"our own echo" and the buffer silently kept the intermediate text (fixed, with a regression test;
+`bugs-issues-fixes.md`) — and one low-priority gap (a runaway-argument error has no file or line).
+**The script itself was wrong in two places** and is corrected: §3 step 1 promised a line number
+the error does not have, and §5 step 5 promised a successful build from a fixture with three
+mistakes. **Not walked, so the `[~]` ticks stay:** §3 step 5 (package-fetch progress), §4's `F5`
+and `Ctrl O` (the harness cannot send function keys or drive the GTK picker) and `Ctrl Z` against
+an external change, §5 steps 3–4 and 6–10, §6 (tabs), and the other fixtures' scripts
+(`thesis`, `torture`, `bibliography-demo`). The exit demos (v0.1 on a machine with no TeX, the
+twenty-error torture document, the forty-reference paper) are still unperformed.
+
 S14.3 comments on relative positions · S15.1 reconnection and merge-on-rejoin · S15.2 session end
 commits · S15.3 two-author exit demo · decisions: code signing, by sprint 14 (`DESIGN.md` §10,
 still open — a maintainer budget call); relay hosting is settled (2 October 2026) — an invite

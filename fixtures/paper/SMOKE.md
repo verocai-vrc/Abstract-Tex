@@ -35,9 +35,11 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 ## §3 Compile feedback (S2.2)
 
 1. Delete the `\end{document}` line's closing brace. Within a second the drawer opens with
-   `1 error stopped the build`, a line number, and the message. The PDF pane still shows the
+   `1 error stopped the build` and the message, \end is missing its closing brace. TeX reports this
+   one at the end of the file, so the card sits under *Not inside any file* with no line number. The PDF pane still shows the
    last good PDF.
-2. Click the error: the cursor lands on that line.
+2. Click the error: the cursor lands on that line. (For the missing-brace error above there is no
+   line; the tooltip says *TeX did not say which line* and the click goes nowhere.)
 3. *Raw log* shows the log; *Hide raw output* hides it. The raw log is never shown by default.
 4. Restore the brace: the drawer closes on the next successful build.
 5. Delete `.abstract-tex/` (or use a document with a package not yet cached) so Tectonic fetches
@@ -72,7 +74,8 @@ Open `fixtures/broken` instead.
    `! Missing $ inserted.` with those words highlighted, not to the top of the file. *Back to
    explanations* returns to the card. Fix nothing, press `Ctrl B`, and while the raw view is still
    open watch it change to the new build's log (the date line at the top is the easiest tell).
-5. Click **Escape as `\_`** (S6.2): line 5 changes to `\_`, the build reruns and succeeds, and
+5. Click **Escape as `\_`** (S6.2): line 5 changes to `\_` and the build reruns. The fixture has
+   three mistakes, so it does not succeed: the card for `\textbold` (line 7) takes its place.
    `Ctrl Z` puts the `_` back as a single undo step.
 6. Back in `fixtures/paper`, add `\cite{nosuch}` and build: the PDF still appears, the drawer
    stays closed (the build succeeded), and the status bar shows `Built in N.Ns · 1 warning`.
