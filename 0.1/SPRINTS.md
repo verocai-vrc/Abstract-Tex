@@ -7280,6 +7280,44 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   line 4, the gutter dot, and — found there — the header and status bar undercounting a successful
   build that carries an error, fixed with `problemCounts`. Mutation-checked: the stale-file guard and
   the commented-out-line guard each fail their test when removed.
+### Agentic review, 10 November 2026: the fix batch and what it did not reach
+
+The maintainer asked for an agentic review once the card list was done. Four passes read the code
+and logged every finding in `bugs-issues-fixes.md` (the entries headed "Agentic review"); this
+section is the working list for fixing them, one commit per row, each test first. A row is ticked
+only when its test fails without the fix and passes with it. `R<pass>.<n>` is the finding's number
+in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
+
+**Fix batch** (order: reproduced first, then by what the author would lose):
+
+- [ ] `R4.1` latexmk runs the project's `.latexmkrc` (add `-norc`).
+- [ ] `R4.2` `diff_ops` has no deadline and runs on the UI thread; `R4.6` `applyExternal` gives up quietly.
+- [ ] `R3.1`, `R3.5` `texwords` panics (a backslash before a non-ASCII character; an unclosed heading brace).
+- [ ] `R3.2`, `R3.3` the citation guard misses `\textcquote`, `\blockcquote`, `\bibentry`, and learns the author's wrappers from the root's preamble only.
+- [ ] `R3.4`, `R3.7`, `R3.8`, `R3.9`, `R3.10` comments: one bad record blanks the list, a double read can panic, re-anchoring is quadratic, `file` is read unchecked, writes can race.
+- [ ] `R3.6` snapshots follow symlinks.
+- [ ] `R4.3`, `R4.9` git verbs act on unvalidated paths; sync shows libgit2's own sentence.
+- [ ] `R2.a`..`R2.c` crash reports: the issue URL can exceed its cap; caught panics are reported; the home-folder scrub is case-sensitive.
+- [ ] `R4.4`, `R4.5` `paste_cite` hides its write from the watcher; a failed autosave is silent.
+- [ ] `R4.8`, `R4.14` two dialogs miss the focus rules; no dialog sets `aria-modal`.
+- [ ] `R4.7` cancelling a build leaves latexmk's children running; no build time limit; unbounded output.
+- [ ] `R2.d`, `R2.e` the relay has no resource limits; invites default to plaintext `ws://`.
+- [ ] `R3.11`, `R3.12`, `R4.11` ISBN follow-up URLs from the response; paths are checked lexically only; a dotted `.bib` name.
+- [ ] `R1.1`..`R1.3` a branch switch during a live session; BibTeX warnings under `latexmk`; working-copy comparison (symlinks, size).
+- [ ] The low and design notes (`R3.13`..`R3.16`, `R4.10`, `R4.12`, `R4.13`): each is fixed or given a reason in the ledger.
+
+**Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
+silence in the ledger as a clean bill):
+
+- [ ] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`.
+- [ ] The SyncTeX frontend (`synctex.rs` glue and the click handlers).
+- [ ] `src-tauri/src/assistant.rs` and `assistant_explain.rs`.
+- [ ] The engine crate's `tectonic.rs`, `incremental.rs` and `draft.rs`.
+- [ ] The wording and the fixtures of the `texlog` rule catalog (the parsers were fuzzed, the explanations were not read).
+- [ ] The `texbib` parser beyond what the fuzzer reached, and `texbib`'s renderer's output against real BibTeX.
+- [ ] The frontend as a whole outside `document.ts`, `controller.svelte.ts`'s branch/tag/comparison code and `drawer.ts` (state modules, the Svelte components, the relay's live-session code).
+- [ ] `src-tauri/src/lib.rs` start-up, window and permission configuration (`capabilities/`), and the Tauri allowlist.
+
 ---
 
 ## 4. Decisions taken at sprint 1
