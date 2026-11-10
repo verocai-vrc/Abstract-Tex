@@ -1890,9 +1890,21 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      autosave from that tab then writes its stale buffer over the file and the pasted entry is
      gone, while the `\cite{key}` that was inserted stays. It also reads the file and writes it in
      two separate steps, so an edit saved in between is lost.
+     **Fixed 10 Nov 2026.** `paste::append_new_entry` reads, renders and writes in one call made
+     inside a single hold of the project lock (the editor's `write_file` takes the same lock), and
+     the command no longer calls `remember_write`, so the change reaches an open tab as any outside
+     edit does (applied if clean, asked about if dirty). Two unit tests (two pastes, distinct keys,
+     nothing lost; an unreadable file is an error and nothing is created). Not covered by a test:
+     that the watcher now reports the write, which is true by construction (nothing registers it)
+     and is the existing external-change path that the controller tests already exercise.
   5. **S. A failed autosave is silent.** `scheduleSave` runs `void this.save()`; when `writeFile`
      rejects (disk full, read-only file, folder gone) the rejection is unhandled, no notice is
      shown, and nothing retries until the next keystroke. `save` clears its timer before the write.
+     **Fixed 10 Nov 2026.** `OpenDocument.autosave` catches the failure, calls `onSaveError` once,
+     keeps the buffer dirty and retries every 5 s until a write lands, then calls `onSaveRecovered`;
+     it stops when the document is disposed. The controller turns these into a notice ("Could not
+     save main.tex: …") and takes it back on recovery. Three tests (document, retry-stops-on-dispose,
+     controller), the controller one checked by removing the wiring.
   6. **S. `applyExternal` gives up quietly.** After three attempts in which the author kept typing
      while Rust diffed, it falls through to `lastSavedText = diskText`, leaving the typed text in the
      buffer, so the next save overwrites the external change with no question asked (the conflict

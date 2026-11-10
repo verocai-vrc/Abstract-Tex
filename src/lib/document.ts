@@ -15,6 +15,8 @@ export const ORIGIN_EXTERNAL = 'abstract-tex:external';
 
 /** How long the keyboard must be idle before we write to disk (DESIGN.md §3). */
 export const SAVE_DELAY_MS = 700;
+/** How long to wait before trying again after a write failed. */
+const RETRY_AFTER_FAILED_SAVE_MS = 5000;
 
 export interface DocumentBackend {
   writeFile(path: string, contents: string): Promise<void>;
@@ -72,6 +74,12 @@ export class OpenDocument {
    * touches anything expensive, keeping it off the <16 ms keystroke path (DESIGN.md §2). */
   onTextChange?: () => void;
 
+  /** Called once when an autosave fails, not on every retry: the text is still in the buffer and
+   * still dirty, and the author should hear that it is not on disk (review finding R4.5). */
+  onSaveError?: (error: unknown) => void;
+  /** Called when a save works again after `onSaveError`, so the message can be taken back. */
+  onSaveRecovered?: () => void;
+
   /**
    * The text we believe is on disk, or `null` for "nothing on disk matches this buffer" — which
    * is the state after the file is deleted underneath us. `null` is not the same as the empty
@@ -79,6 +87,8 @@ export class OpenDocument {
    * one whose save we must not.
    */
   private lastSavedText: string | null;
+  /** Whether the last autosave failed and has not yet been followed by one that worked. */
+  private saveFailing = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private savesHeld = false;
@@ -121,13 +131,36 @@ export class OpenDocument {
     this.onDirtyChange?.(dirty);
   }
 
-  private scheduleSave() {
+  private scheduleSave(delayMs = this.saveDelayMs) {
     if (this.savesHeld) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      void this.save();
-    }, this.saveDelayMs);
+      void this.autosave();
+    }, delayMs);
+  }
+
+  /**
+   * The timer's save. A failed write used to be an unhandled rejection: nobody was told and nothing
+   * tried again until the next keystroke (review finding R4.5). Now the first failure is reported,
+   * the buffer stays dirty, and the save is tried again every few seconds until it lands.
+   */
+  private async autosave(): Promise<void> {
+    try {
+      await this.save();
+    } catch (error) {
+      if (this.disposed) return;
+      if (!this.saveFailing) {
+        this.saveFailing = true;
+        this.onSaveError?.(error);
+      }
+      this.scheduleSave(RETRY_AFTER_FAILED_SAVE_MS);
+      return;
+    }
+    if (this.saveFailing) {
+      this.saveFailing = false;
+      this.onSaveRecovered?.();
+    }
   }
 
   /**

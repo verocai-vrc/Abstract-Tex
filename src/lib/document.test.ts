@@ -124,6 +124,57 @@ describe('OpenDocument', () => {
     doc.dispose();
   });
 
+  // Review finding R4.5. `scheduleSave` ran `void this.save()`: when the write rejected (disk full, a
+  // read-only file, the folder gone) the rejection was unhandled, nobody was told, and nothing tried
+  // again until the next keystroke, so the author could close the window believing the text was saved.
+  it('tells the author when an autosave fails, keeps the text dirty, and tries again until it lands', async () => {
+    const { backend, writes } = fakeBackend();
+    let failures = 2;
+    const working = backend.writeFile;
+    backend.writeFile = async (path, contents) => {
+      if (failures-- > 0) throw new Error('No space left on device');
+      return working(path, contents);
+    };
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    const errors: string[] = [];
+    let recovered = 0;
+    doc.onSaveError = (error) => errors.push(String(error));
+    doc.onSaveRecovered = () => recovered++;
+
+    doc.ytext.insert(3, 'd');
+    await vi.advanceTimersByTimeAsync(700); // the debounce fires; the write fails
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('No space left on device');
+    expect(doc.dirty).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5000); // first retry fails too; the author is told once, not each time
+    expect(errors).toHaveLength(1);
+    expect(doc.dirty).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5000); // the second retry lands
+    expect(writes).toEqual([{ path: 'main.tex', contents: 'abcd' }]);
+    expect(doc.dirty).toBe(false);
+    expect(recovered).toBe(1);
+    doc.dispose();
+  });
+
+  it('stops retrying a failed save once the document is disposed', async () => {
+    const { backend } = fakeBackend();
+    let attempts = 0;
+    backend.writeFile = async () => {
+      attempts++;
+      throw new Error('read-only');
+    };
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    doc.onSaveError = () => {};
+    doc.ytext.insert(3, 'd');
+    await vi.advanceTimersByTimeAsync(700);
+    doc.dispose();
+    const before = attempts;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(attempts).toBe(before);
+  });
+
   it('external changes are not undoable, but the author\'s own edits still are', async () => {
     const { backend } = fakeBackend();
     const doc = new OpenDocument('main.tex', 'one', backend);

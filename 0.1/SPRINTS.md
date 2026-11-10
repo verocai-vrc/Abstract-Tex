@@ -7298,7 +7298,7 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 - [x] `R3.6` snapshots follow symlinks. Done 10 November 2026.
 - [x] `R4.3`, `R4.9` git verbs act on unvalidated paths; sync shows libgit2's own sentence. Done 10 November 2026 (the merge commit's title is left).
 - [x] `R2.a`..`R2.c` crash reports: the issue URL can exceed its cap; caught panics are reported; the home-folder scrub is case-sensitive. Done 10 November 2026.
-- [ ] `R4.4`, `R4.5` `paste_cite` hides its write from the watcher; a failed autosave is silent.
+- [x] `R4.4`, `R4.5` `paste_cite` hides its write from the watcher; a failed autosave is silent. Done 10 November 2026.
 - [ ] `R4.8`, `R4.14` two dialogs miss the focus rules; no dialog sets `aria-modal`.
 - [ ] `R4.7` cancelling a build leaves latexmk's children running; no build time limit; unbounded output.
 - [ ] `R2.d`, `R2.e` the relay has no resource limits; invites default to plaintext `ws://`.

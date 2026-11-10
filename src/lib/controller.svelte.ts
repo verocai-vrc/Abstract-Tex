@@ -2168,6 +2168,14 @@ export async function openFile(relativePath: string): Promise<void> {
       scheduleOutlineRefresh();
       schedulePlaceholderRefresh(relativePath);
     };
+    // A save that fails is said once, in words, and taken back when one works (R4.5).
+    const unsavedNotice = `Could not save ${relativePath}`;
+    doc.onSaveError = (error) => {
+      app.notice = `${unsavedNotice}: ${String(error)}. The text is still in the editor and will be saved as soon as it can be.`;
+    };
+    doc.onSaveRecovered = () => {
+      if (app.notice?.startsWith(unsavedNotice)) app.notice = null;
+    };
     syncTabs();
     app.activePath = relativePath;
     tellServer((absolute) => lsp.didOpen(absolute, text), relativePath);

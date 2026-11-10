@@ -598,15 +598,11 @@ pub async fn paste_cite(
             bib_file,
             keys_in_use,
         } => {
-            let absolute = with_project(&state, |project| project.resolve(&bib_file))?;
-            let current_text = std::fs::read_to_string(&absolute).map_err(to_message)?;
-            let (key, new_text) = crate::paste::render_new_entry(&fetched, &keys_in_use, &current_text);
-
-            with_project(&state, |project| {
+            // Read and write in one hold of the project lock, and without `remember_write`: see
+            // `paste::append_new_entry` (review finding R4.4).
+            let key = with_project(&state, |project| {
                 let absolute = project.resolve(&bib_file)?;
-                remember_write(&state.written, &absolute, new_text.as_bytes());
-                write_atomically(&absolute, &new_text)?;
-                Ok(())
+                crate::paste::append_new_entry(&absolute, &fetched, &keys_in_use).map_err(anyhow::Error::msg)
             })?;
             emit_bibliography(&app);
             Ok(PasteCiteResult { key, created: true })

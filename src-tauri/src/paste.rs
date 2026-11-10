@@ -82,6 +82,27 @@ pub fn render_new_entry(fetched: &Entry, keys_in_use: &[String], bib_file_text: 
     (key, texbib::append_entry(bib_file_text, &keyed))
 }
 
+/// Append `fetched` to the `.bib` file at `absolute`: read it, render the new entry against
+/// `keys_in_use`, and write it back atomically. Answers the key to cite.
+///
+/// One function for the read and the write, called inside a single hold of the project lock, so an
+/// edit the editor saves to the same file cannot land between the two and be overwritten by a copy
+/// read a moment before (review finding R4.4). It does **not** tell the watcher the write is its
+/// own: the write used to be registered as an echo, which made the watcher drop the change, so a
+/// tab holding that `.bib` was never reloaded and its next autosave wrote the stale buffer back,
+/// deleting the pasted entry while the `\cite{key}` stayed. Unreported, the change reaches the open
+/// tab the way any outside edit does: applied if the tab is clean, asked about if it is not.
+pub fn append_new_entry(
+    absolute: &std::path::Path,
+    fetched: &Entry,
+    keys_in_use: &[String],
+) -> Result<String, String> {
+    let current = std::fs::read_to_string(absolute).map_err(|error| error.to_string())?;
+    let (key, new_text) = render_new_entry(fetched, keys_in_use, &current);
+    crate::project::write_atomically(absolute, &new_text).map_err(|error| error.to_string())?;
+    Ok(key)
+}
+
 /// The first existing entry whose DOI, arXiv `eprint`, or ISBN matches the one field `fetched`
 /// itself carries — a DOI-sourced entry only ever has a `doi` to compare, an arXiv one only an
 /// `eprint`, an ISBN one only an `isbn`, since each source builds exactly one of the three
@@ -421,5 +442,40 @@ mod tests {
         let second = resolve_paste(&fetched, &index_after).unwrap();
         assert!(text_after_first.contains(&first_key));
         assert_eq!(second, PasteOutcome::Existing { key: first_key });
+    }
+
+    #[test]
+    fn appending_twice_keeps_both_entries_and_gives_them_different_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let bib = dir.path().join("refs.bib");
+        std::fs::write(&bib, "@book{existing,\n  title = {Already here},\n}\n").unwrap();
+        let entry = fetched_entry(vec![
+            braced_field("author", "Smith, Jane"),
+            braced_field("title", "A New Paper"),
+            braced_field("year", "2024"),
+        ]);
+
+        let first = append_new_entry(&bib, &entry, &["existing".to_string()]).unwrap();
+        let second = append_new_entry(&bib, &entry, &["existing".to_string(), first.clone()]).unwrap();
+
+        assert_ne!(
+            first, second,
+            "the second paste must not reuse the first one's key"
+        );
+        let text = std::fs::read_to_string(&bib).unwrap();
+        assert!(text.contains("@book{existing,"), "what was there is untouched");
+        assert!(
+            text.contains(&format!("{{{first},")) && text.contains(&format!("{{{second},")),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_bib_file_that_cannot_be_read_is_an_error_and_is_not_created() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nothing.bib");
+        let entry = fetched_entry(vec![braced_field("title", "T")]);
+        assert!(append_new_entry(&missing, &entry, &[]).is_err());
+        assert!(!missing.exists());
     }
 }

@@ -224,10 +224,7 @@ vi.mock('./ipc', () => ({
       if (text === undefined) throw new Error(`no such file: ${path}`);
       return text;
     },
-    writeFile: async (path: string, contents: string) => {
-      calls.writes.push({ path, contents });
-      disk.set(path, contents);
-    },
+    writeFile: async (path: string, contents: string) => ipcWriteFile(path, contents),
     compile: async (file: string | null) => {
       calls.compileFiles.push(file);
       return ++calls.compiles;
@@ -750,6 +747,12 @@ async function fileChanged(relative: string): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+/** What the mocked `writeFile` does; a test swaps it to make a save fail. */
+let ipcWriteFile: (path: string, contents: string) => Promise<void> = async (path, contents) => {
+  calls.writes.push({ path, contents });
+  disk.set(path, contents);
+};
+
 /** Called at the start of every `diffOps`, so a test can type while the diff is "running". */
 let diffHook: (() => void) | null = null;
 
@@ -992,6 +995,28 @@ describe('an external change to the open file', () => {
     await vi.advanceTimersByTimeAsync(5000);
     expect(calls.writes).toHaveLength(0);
     expect(disk.get('main.tex')).toBe('hello world');
+  });
+
+  // Review finding R4.5, through the controller: the notice appears, and goes when the disk works.
+  it('says so when a save fails and takes the message back once it works', async () => {
+    const working = ipcWriteFile;
+    let failing = true;
+    ipcWriteFile = async (path, contents) => {
+      if (failing) throw new Error('No space left on device');
+      return working(path, contents);
+    };
+    type(' there');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(app.notice).toContain('Could not save main.tex');
+    expect(app.notice).toContain('No space left on device');
+    expect(app.dirty).toBe(true);
+
+    failing = false;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(app.notice).toBeNull();
+    expect(app.dirty).toBe(false);
+    expect(disk.get('main.tex')).toBe('hello there');
+    ipcWriteFile = working;
   });
 
   it('does not lose the buffer when the file is deleted underneath it', async () => {
