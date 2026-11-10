@@ -135,9 +135,8 @@ pub fn headings(text: &str) -> Vec<Heading> {
             }
             if bytes.get(cursor) == Some(&b'{') {
                 let end = skip_group(bytes, cursor, b'{', b'}');
-                // `end` is one past the `}` when it was balanced, and the length when it was not.
-                let inner_end = if end > cursor + 1 { end - 1 } else { cursor + 1 };
-                let title = line[cursor + 1..inner_end.min(line.len())].trim();
+                let inner_end = group_inner_end(bytes, cursor, end, b'}');
+                let title = line[cursor + 1..inner_end.max(cursor + 1)].trim();
                 found.push(Heading {
                     line: index + 1,
                     level,
@@ -274,9 +273,15 @@ fn scan(text: &str, sink: &mut impl Sink) {
             _ => {
                 // The start of a multi-byte character. `chars().next()` cannot fail here: `at` is
                 // a character boundary, because every arm above advances by whole characters.
-                let character = text[at..].chars().next().unwrap_or(' ');
-                sink.keep(character);
-                at += character.len_utf8();
+                // `get`, not an index: a position inside a character is a bug elsewhere, and
+                // stepping over one byte is better than a panic in a word count.
+                match text.get(at..).and_then(|rest| rest.chars().next()) {
+                    Some(character) => {
+                        sink.keep(character);
+                        at += character.len_utf8();
+                    }
+                    None => at += 1,
+                }
             }
         }
     }
@@ -294,7 +299,14 @@ fn command(text: &str, at: usize, sink: &mut impl Sink) -> usize {
             Some(&symbol) if symbol < 0x80 => sink.keep(symbol as char),
             _ => sink.separate(),
         }
-        return at + 2;
+        // Past the backslash and the *whole* character it escapes. Two bytes was right only for an
+        // ASCII symbol; for `\é` it stopped inside the character and the scan then sliced there
+        // (review finding R3.1).
+        let escaped_len = text
+            .get(at + 1..)
+            .and_then(|rest| rest.chars().next())
+            .map_or(1, char::len_utf8);
+        return at + 1 + escaped_len;
     }
     match name {
         // `\(…\)` and `\[…\]`: inline and display maths in their modern spelling.
@@ -373,8 +385,8 @@ fn braced_name(text: &str, from: usize) -> (&str, usize) {
         return ("", at);
     }
     let end = skip_group(bytes, at, b'{', b'}');
-    let inner_end = if end > at + 1 { end - 1 } else { at + 1 };
-    (text[at + 1..inner_end.min(text.len())].trim(), end)
+    let inner_end = group_inner_end(bytes, at, end, b'}');
+    (text[at + 1..inner_end.max(at + 1)].trim(), end)
 }
 
 /// The control word starting at `from` (the byte after the backslash), and where it ends.
@@ -398,6 +410,20 @@ fn control_word(text: &str, from: usize) -> (&str, usize) {
         };
     }
     (&text[from..at], at)
+}
+
+/// Where the text inside the group that starts at `open_at` ends, given `end` from [`skip_group`].
+///
+/// `skip_group` answers one past the closing byte for a balanced group and the length of the text
+/// for an unbalanced one, so only in the first case is the last byte a `close` to leave out. The
+/// old rule, "always drop the last byte", cut a title that was still being typed (`\section{Méthodé`)
+/// in the middle of its last character and panicked on the slice (review finding R3.5).
+fn group_inner_end(bytes: &[u8], open_at: usize, end: usize, close: u8) -> usize {
+    if end > open_at + 1 && bytes.get(end - 1) == Some(&close) {
+        end - 1
+    } else {
+        end
+    }
 }
 
 /// Past a balanced group that starts at `from` (which must hold `open`). Answers one past the
@@ -619,5 +645,44 @@ We found that the effect held for all $n = 40$ participants
         // all(8) participants(9) as(10) shows(11). "Results" is a heading, not a sentence, but it
         // is words the author wrote, so 12.
         assert_eq!(count_prose(text), 12);
+    }
+
+    // Review findings R3.1 and R3.5, both found by mutating the repository's own documents and both
+    // panics ("byte index is not a char boundary") on input a writer produces by accident. They run
+    // on every compile (the snapshot's word count) and in Source Control's summary, so a panic here
+    // meant no snapshots for that project at all.
+    #[test]
+    fn a_backslash_before_a_non_ascii_character_is_a_separator_not_a_panic() {
+        assert_eq!(count_prose("one \\é two"), 2);
+        assert_eq!(count_prose("\\𝑥"), 0);
+        assert_eq!(count_prose("C:\\ção is a path"), 5); // `C:` | `\ç` separates | `ão` is a path
+        assert_eq!(
+            prose_of("a\\é b").split_whitespace().collect::<Vec<_>>(),
+            ["a", "b"]
+        );
+    }
+
+    #[test]
+    fn a_stray_backslash_at_the_very_end_is_harmless() {
+        assert_eq!(count_prose("end \\"), 1);
+        assert_eq!(count_prose("end \\é"), 1);
+    }
+
+    #[test]
+    fn an_unclosed_heading_brace_ending_in_a_non_ascii_character_keeps_the_whole_title() {
+        let found = headings("\\section{Introdução e ο");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].title, "Introdução e ο");
+        // The same shape for an environment name at the end of the text.
+        assert_eq!(count_prose("\\begin{é"), 0);
+    }
+
+    #[test]
+    fn a_balanced_heading_still_loses_only_its_closing_brace() {
+        assert_eq!(headings("\\section{Méthodes}")[0].title, "Méthodes");
+        assert_eq!(
+            headings("\\section{A {nested} title}")[0].title,
+            "A {nested} title"
+        );
     }
 }

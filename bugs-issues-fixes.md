@@ -1685,6 +1685,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      snapshots on every compile, which is the "never press commit" safety net, and panics the
      summary. Fix with a test per call shape; also make the snapshot treat a failed word count as
      "unknown", never as a failed snapshot.
+     **Fixed 10 Nov 2026.** `command()` now steps over the whole escaped character (it stepped two
+     bytes, which stopped inside a multi-byte one), the multi-byte arm of `scan` uses `get` rather
+     than an index, and `group_inner_end` drops a group's last byte only when it really is the
+     closing brace (`headings` and `braced_name` both had the "always drop it" rule, so
+     `\begin{é` at the end of a file panicked too). Four tests, all three of the first batch
+     failing with the original panic messages before the fix; the mutation fuzzer then ran 79 650
+     mutated documents (seeded with `\`, `{`, `é`, `𝑥`, `\é`, `\section{ο`) with no panic. Not
+     done: making the snapshot treat a failed word count as "unknown". With the panics gone there
+     is no known way to reach one, and catching a panic to hide a bug is not something to add
+     without a case.
   2. **R. The citation-fabrication guard misses `\textcquote`, `\blockcquote`, `\foreigntextcquote`
      and `\bibentry`.** All take a key, none has "cite" in its name, and `is_citation_command` is a
      substring test. `As shown \textcquote{fake2020}{quote}.` against a `.bib` without that key
@@ -1704,6 +1714,7 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   5. **R. `texwords::headings` panics on a heading line whose `{` is never closed and which ends in
      a non-ASCII character** (`"\\section{ο"`, `lib.rs:140`: `inner_end` is `end - 1`, a byte index
      inside the last character). Reached from Source Control's summary (`git/lib.rs:940`).
+     **Fixed 10 Nov 2026** together with item 1 (`group_inner_end`).
   6. **R. Snapshots follow symlinks**, against what their own comment says. `tree_for_folder` tests
      `path.is_dir()` and `is_file()`, which follow links, so a link inside the project copies
      whatever it points at into the snapshot (a link to `outside/secret.txt` and one to a folder
