@@ -4,6 +4,10 @@
     "file": "babel.sty",
     "fix": null,
     "line": 4260,
+    "openFiles": [
+      "main.tex",
+      "babel.sty"
+    ],
     "rawMessage": "Package babel Error: Unknown option 'nosuchlanguage'. Either you misspelled it",
     "rule": "babel-unknown-language",
     "severity": "error",

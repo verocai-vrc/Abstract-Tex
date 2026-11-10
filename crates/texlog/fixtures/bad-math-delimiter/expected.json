@@ -8,6 +8,9 @@
       "replace": "\\[ x = 1 \\]"
     },
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Display math should end with $$.",
     "rule": "display-math-wrong-delimiter",
     "severity": "error",

@@ -71,6 +71,17 @@ pub fn file_at(stacks: &[Vec<String>], index: usize) -> Option<&str> {
     stacks.get(index)?.last().map(String::as_str)
 }
 
+/// Every file open at logical line `index`, outermost first — [`file_at`]'s whole answer rather
+/// than its last entry. Empty when `index` is out of range or nothing was open (`file_at` returns
+/// `None` in exactly those cases).
+///
+/// Cloned out as an owned `Vec` because the caller stores it in a `Diagnostic` that outlives the
+/// `stacks` slice it was read from; `unwrap_or_default` turns the out-of-range `None` into an
+/// empty `Vec` rather than a panic.
+pub fn stack_at(stacks: &[Vec<String>], index: usize) -> Vec<String> {
+    stacks.get(index).cloned().unwrap_or_default()
+}
+
 fn files_only(stack: &[StackEntry]) -> Vec<String> {
     stack
         .iter()
@@ -365,6 +376,17 @@ mod tests {
                 "{:?}",
                 stacks[error_line]
             );
+        }
+
+        #[test]
+        fn stack_at_returns_the_whole_stack_and_an_empty_one_out_of_range() {
+            let lines = tokenize("(main.tex\n(a.tex\ntext\n");
+            let stacks = open_files(&lines);
+            assert_eq!(
+                stack_at(&stacks, 2),
+                vec!["main.tex".to_string(), "a.tex".to_string()]
+            );
+            assert_eq!(stack_at(&stacks, 99), Vec::<String>::new());
         }
 
         #[test]

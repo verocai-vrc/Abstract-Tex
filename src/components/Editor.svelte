@@ -120,7 +120,7 @@
   // S6.3 every dot was drawn on the root file's tab, the only honest place before `Diagnostic.file`
   // existed (S5.6).
   $effect(() => {
-    if (view) applyDiagnostics(view, diagnosticsForFile(app.compile.diagnostics, app.activePath, app.project?.rootFile ?? null, app.project?.documentFiles ?? []));
+    if (view) applyDiagnostics(view, diagnosticsForFile(app.compile.diagnostics, app.activePath, app.project?.rootFile ?? null, app.projectFiles));
   });
 
   // Gutter dots from the language server (S3.3b), in a second effect so a publish and a build

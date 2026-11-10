@@ -399,6 +399,11 @@ fn read_diagnostics(log_path: &Path, project_dir: &Path, root_file: &Path) -> Ve
                 if let Some(file) = diagnostic.file.as_mut() {
                     *file = as_the_project_spells_it(file, project_dir);
                 }
+                // The whole stack, for the same reason: the frontend matches every entry against
+                // the include graph, not only the innermost one.
+                for file in diagnostic.open_files.iter_mut() {
+                    *file = as_the_project_spells_it(file, project_dir);
+                }
             }
             place_unlocated_errors(&mut diagnostics, root_file, project_dir);
             diagnostics
@@ -560,6 +565,34 @@ mod tests {
         assert_eq!(
             as_the_project_spells_it("/home/ada/thesis-old/main.tex", project),
             "/home/ada/thesis-old/main.tex"
+        );
+    }
+
+    /// E1. The whole stack of open files travels with each diagnostic so the frontend can pick the
+    /// innermost one the project has — and it matches them against the include graph exactly as it
+    /// matches `file`, so a `./main.tex` or an absolute path in the stack would miss its tab just
+    /// as it did for `file` itself.
+    #[test]
+    fn every_file_in_a_diagnostics_stack_is_spelled_the_way_the_project_spells_it() {
+        let project = tempfile::tempdir().unwrap();
+        let log_path = project.path().join("main.log");
+        let log = format!(
+            "(./main.tex\n({}/sections/intro.tex\n(/usr/share/texlive/pkg.sty\n\
+             ! Undefined control sequence.\nl.1 \\x\n",
+            project.path().display()
+        );
+        std::fs::write(&log_path, log).unwrap();
+
+        let found = read_diagnostics(&log_path, project.path(), Path::new("main.tex"));
+
+        assert_eq!(
+            found[0].open_files,
+            vec!["main.tex", "sections/intro.tex", "/usr/share/texlive/pkg.sty"]
+        );
+        assert_eq!(
+            found[0].file.as_deref(),
+            Some("/usr/share/texlive/pkg.sty"),
+            "`file` is still the innermost entry, spelled the same way"
         );
     }
 

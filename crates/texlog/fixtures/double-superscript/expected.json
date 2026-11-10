@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Double superscript.",
     "rule": "double-superscript",
     "severity": "error",

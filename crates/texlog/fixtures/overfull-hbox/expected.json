@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Overfull \\hbox (48.75pt too wide) in paragraph at lines 3--4",
     "rule": "overfull-box",
     "severity": "warning",

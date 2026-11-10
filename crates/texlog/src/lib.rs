@@ -26,7 +26,7 @@ pub mod resolver;
 pub mod rules;
 pub mod tokenizer;
 
-pub use resolver::{file_at, open_files};
+pub use resolver::{file_at, open_files, stack_at};
 pub use rules::{diagnostics, Diagnostic, Fix, Severity};
 pub use tokenizer::{tokenize, LineKind, LogLine, ParenEvent};
 
@@ -44,6 +44,9 @@ pub struct QuickError {
     /// [`resolver::open_files`]. Always `None` here: this raw scan has no notion of files at
     /// all, unlike `rules.rs`'s own resolver-backed scan, which sets it for real.
     pub file: Option<String>,
+    /// Every file open at that point, outermost first, so the last entry is `file`. Always empty
+    /// here, for the same reason `file` is always `None`.
+    pub open_files: Vec<String>,
 }
 
 /// Scan a log for `! ...` errors.
@@ -60,6 +63,7 @@ pub fn quick_errors(log: &str) -> Vec<QuickError> {
             line: None,
             context: None,
             file: None,
+            open_files: Vec::new(),
         };
 
         // TeX prints the `l.NN` marker within the next few lines; stop looking at the next `!`

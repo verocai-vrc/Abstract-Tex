@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 5,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "LaTeX Error: Something's wrong--perhaps a missing \\item.",
     "rule": "missing-item",
     "severity": "error",

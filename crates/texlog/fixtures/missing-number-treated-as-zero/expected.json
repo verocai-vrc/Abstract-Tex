@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Missing number, treated as zero.",
     "rule": "missing-number",
     "severity": "error",

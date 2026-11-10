@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Package kvsetkeys Error: Undefined key `nosuchoption'.",
     "rule": "unknown-key-value-option",
     "severity": "error",

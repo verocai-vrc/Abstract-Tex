@@ -8,6 +8,9 @@
       "replace": "{1pt}"
     },
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Illegal unit of measure (pt inserted).",
     "rule": "illegal-unit-of-measure",
     "severity": "error",

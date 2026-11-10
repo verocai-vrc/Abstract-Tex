@@ -911,7 +911,7 @@ Not questions — a checklist to walk through at the end, with dates.
 - [ ] **At the start of S11.8: register the GitHub OAuth app (B1)** and put the client id in the
   release build environment (`ABSTRACT_TEX_GITHUB_CLIENT_ID`).
 - [ ] **At S11.8: the v0.6 exit demo (B9).** Choose the machines then.
-- [ ] **After E1, before v0.9:** `cargo publish -p texlog`, `cargo publish -p texbib` (C8).
+- [ ] **E1 has landed (10 Nov 2026); before v0.9:** `cargo publish -p texlog`, `cargo publish -p texbib` (C8).
 - [ ] **The forty-reference exit demo, S8.4** (needs Zotero and a network). No date set.
 
 ---

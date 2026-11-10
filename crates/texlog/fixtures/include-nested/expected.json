@@ -8,6 +8,10 @@
       "replace": "\\input"
     },
     "line": 1,
+    "openFiles": [
+      "main.tex",
+      "outer.tex"
+    ],
     "rawMessage": "LaTeX Error: \\include cannot be nested.",
     "rule": "include-cannot-be-nested",
     "severity": "error",

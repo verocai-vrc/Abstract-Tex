@@ -4,6 +4,7 @@
     "file": null,
     "fix": null,
     "line": null,
+    "openFiles": [],
     "rawMessage": "File ended while scanning use of \\emph .",
     "rule": "unbalanced-braces",
     "severity": "error",

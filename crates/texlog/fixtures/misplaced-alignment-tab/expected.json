@@ -8,6 +8,9 @@
       "replace": "\\&"
     },
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Misplaced alignment tab character &.",
     "rule": "misplaced-alignment-tab",
     "severity": "error",

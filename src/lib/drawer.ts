@@ -24,34 +24,89 @@ export interface DrawerFilter {
 
 export const DEFAULT_FILTER: DrawerFilter = { severity: 'all', activeFileOnly: false };
 
+/** Where a diagnostic lives in the author's project. */
+export interface DiagnosticPlace {
+  /** The tab it belongs to: see `diagnosticTarget`. */
+  file: string | null;
+  /** The line in `file` TeX meant, or `null` when it did not say or when what it said is a line of
+   * some other file (see `raisedIn`). */
+  line: number | null;
+  /** The file the error was really raised in, when that is not a file the project has and `file`
+   * is the author's file nearest to it on TeX's stack (`babel.sty` raising an error that began at
+   * a `\usepackage` in `main.tex`). `null` otherwise. The line TeX printed belongs to this file,
+   * which is why `line` is `null` whenever this is set. */
+  raisedIn: string | null;
+}
+
 /**
- * Which tab a diagnostic belongs to: its own resolved file when the log parser named one (S5.6's
- * `Diagnostic.file`), falling back to the root file for the diagnostics that have none — a log
- * with nothing open on the resolver's stack at all (`emergency-stop`'s own fixture), or no
- * project open yet. Shared by the drawer's click, the one-click fix (S6.2) and the gutter, so all
- * three agree on where a diagnostic lives.
+ * Which tab a diagnostic belongs to, and where in it.
  *
- * `Diagnostic.file` is spelled the way TeX printed it in the log, project-relative with no `./`
- * prefix for this project's bundled Tectonic — but only *with* an extension when the author wrote
- * one. `\include{sections/background}` opens `sections/background.tex` and the log says so
- * (S6.3's thesis capture); `\input{sections/background}`, the more common spelling, is echoed as
- * `sections/background`, and `texlog` cannot complete it because it never reads the file tree
- * (`resolver.rs`'s own module doc hands exactly this case to "a caller with access to the real
- * file tree"). That caller is here: `documentFiles` is S4.1's include graph, and a bare spelling
- * that is not in it but whose `.tex` sibling is becomes that sibling. Never a guess — a name is
- * only completed to one the graph actually holds. Found by the torture walk's first step (S6.4).
- * A package file (`babel.sty`) arrives as spelled, matches nothing, and stays as spelled; it is
- * not a tab and opening it fails with a notice, which is honest, if unhelpful.
+ * The tab is the innermost file on TeX's stack that the project has (E1, `Diagnostic.openFiles`):
+ * for most diagnostics that is `Diagnostic.file` itself, but a package raises its errors from its
+ * own file, which is not a tab, and the author's file that loaded it is the next one down. Falling
+ * back along the stack needs no guess about extensions — `projectFiles` is the project's own list,
+ * so `mystyle.sty` in the project is a tab and `babel.sty` is not. `texlog` cannot make that call
+ * (it never reads the file tree, `resolver.rs`); this is the caller with the file list that its
+ * module doc hands the case to.
+ *
+ * When the stack has no entry the project has — a package error with no project open, or a stack
+ * of package files only — the file is returned as spelled, as before: not a tab, and opening it
+ * fails with a notice, which is honest if unhelpful. A diagnostic with no file at all belongs to
+ * the root file.
+ *
+ * The line is TeX's `l.NN`, which belongs to the *innermost* file. If the tab is some other file,
+ * the number would point at the wrong text (`l.4260` of `babel.sty` is not line 4260 of `main.tex`)
+ * and the one-click fix would edit the wrong line, so it is dropped.
+ *
+ * A name is only completed to one `projectFiles` actually holds: `\input{sections/background}` is
+ * echoed by the bundled Tectonic without its `.tex`, and `texlog` cannot complete it (S6.4, found
+ * by the torture walk), so `sections/background` becomes `sections/background.tex` here, never to
+ * a name that is not in the list.
  */
+export function diagnosticPlace(
+  diagnostic: Diagnostic,
+  rootFile: string | null,
+  projectFiles: readonly string[] = [],
+): DiagnosticPlace {
+  if (diagnostic.file === null) return { file: rootFile, line: diagnostic.line, raisedIn: null };
+
+  // An app-placed error (`place_unlocated_errors`) names a file with no stack behind it.
+  const stack = diagnostic.openFiles.length > 0 ? diagnostic.openFiles : [diagnostic.file];
+  // Walk from the innermost file outwards and stop at the first one the project has. A plain
+  // backwards loop: `Array.findLastIndex` is ES2023, past this project's ES2022 target.
+  for (let depth = stack.length - 1; depth >= 0; depth--) {
+    const file = asProjectFile(stack[depth] ?? '', projectFiles);
+    if (file === null) continue;
+    if (depth === stack.length - 1) return { file, line: diagnostic.line, raisedIn: null };
+    // The stack's last entry is `diagnostic.file`: the file TeX printed `l.NN` for.
+    return { file, line: null, raisedIn: diagnostic.file };
+  }
+  return { file: diagnostic.file, line: diagnostic.line, raisedIn: null };
+}
+
+/** `name` as the project spells it, or `null` when the project has no such file. */
+function asProjectFile(name: string, projectFiles: readonly string[]): string | null {
+  if (projectFiles.includes(name)) return name;
+  const withExtension = `${name}.tex`;
+  return projectFiles.includes(withExtension) ? withExtension : null;
+}
+
+/** The tab a diagnostic belongs to; see `diagnosticPlace`. Shared by the drawer's click, the
+ * one-click fix (S6.2) and the gutter, so all three agree on where a diagnostic lives. */
 export function diagnosticTarget(
   diagnostic: Diagnostic,
   rootFile: string | null,
-  documentFiles: readonly string[] = [],
+  projectFiles: readonly string[] = [],
 ): string | null {
-  if (diagnostic.file === null) return rootFile;
-  if (documentFiles.includes(diagnostic.file)) return diagnostic.file;
-  const withExtension = `${diagnostic.file}.tex`;
-  return documentFiles.includes(withExtension) ? withExtension : diagnostic.file;
+  return diagnosticPlace(diagnostic, rootFile, projectFiles).file;
+}
+
+/** `diagnostic` with its line made true for its tab: the same object when TeX's line is the tab's
+ * own, a copy with no line when it is a package's. What the gutter and the cards read, so neither
+ * shows `line 4260` against a file that does not have one. */
+function inItsTab(diagnostic: Diagnostic, rootFile: string | null, projectFiles: readonly string[]): Diagnostic {
+  const { line } = diagnosticPlace(diagnostic, rootFile, projectFiles);
+  return line === diagnostic.line ? diagnostic : { ...diagnostic, line };
 }
 
 /** The diagnostics whose target is `path`: what the gutter draws on that tab (S2.7's dots,
@@ -60,10 +115,12 @@ export function diagnosticsForFile(
   diagnostics: readonly Diagnostic[],
   path: string | null,
   rootFile: string | null,
-  documentFiles: readonly string[] = [],
+  projectFiles: readonly string[] = [],
 ): Diagnostic[] {
   if (path === null) return [];
-  return diagnostics.filter((diagnostic) => diagnosticTarget(diagnostic, rootFile, documentFiles) === path);
+  return diagnostics
+    .filter((diagnostic) => diagnosticTarget(diagnostic, rootFile, projectFiles) === path)
+    .map((diagnostic) => inItsTab(diagnostic, rootFile, projectFiles));
 }
 
 /** One file's worth of cards. */
@@ -101,7 +158,7 @@ export function groupDiagnostics(
   filter: DrawerFilter,
   activePath: string | null,
   rootFile: string | null,
-  documentFiles: readonly string[] = [],
+  projectFiles: readonly string[] = [],
 ): DiagnosticGroup[] {
   // A `Map` keeps insertion order, which is exactly the "first appearance" order wanted. `null`
   // is a legal key, so the no-file diagnostics need no sentinel string that could collide with a
@@ -114,9 +171,11 @@ export function groupDiagnostics(
   // caught the sections trading places.) A group left empty by the filter is dropped at the end.
   const byFile = new Map<string | null, Diagnostic[]>();
   for (const diagnostic of diagnostics) {
-    const heading = diagnostic.file === null ? null : diagnosticTarget(diagnostic, rootFile, documentFiles);
+    const heading = diagnostic.file === null ? null : diagnosticTarget(diagnostic, rootFile, projectFiles);
     const list = byFile.get(heading) ?? [];
-    if (passesFilter(diagnostic, filter, activePath, rootFile, documentFiles)) list.push(diagnostic);
+    if (passesFilter(diagnostic, filter, activePath, rootFile, projectFiles)) {
+      list.push(inItsTab(diagnostic, rootFile, projectFiles));
+    }
     byFile.set(heading, list);
   }
 
@@ -138,11 +197,11 @@ function passesFilter(
   filter: DrawerFilter,
   activePath: string | null,
   rootFile: string | null,
-  documentFiles: readonly string[],
+  projectFiles: readonly string[],
 ): boolean {
   if (filter.severity === 'errors' && diagnostic.severity !== 'error') return false;
   if (filter.severity === 'warnings' && diagnostic.severity !== 'warning') return false;
-  if (filter.activeFileOnly && diagnosticTarget(diagnostic, rootFile, documentFiles) !== activePath) return false;
+  if (filter.activeFileOnly && diagnosticTarget(diagnostic, rootFile, projectFiles) !== activePath) return false;
   return true;
 }
 

@@ -36,7 +36,7 @@ import { lineAt, locateInBuffer } from './comments';
 import { ipc, type AssistantAction, type CommentRow, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
-import { diagnosticTarget as targetOf, type DrawerFilter } from './drawer';
+import { diagnosticPlace, type DrawerFilter } from './drawer';
 import { firstLocation } from './editor/definition';
 import { flattenSymbols, type FlatSymbol } from './editor/symbols';
 import { LspClient, uriToPath } from './lsp';
@@ -2589,22 +2589,28 @@ export async function syncTexInverse(page: number, x: number, y: number): Promis
   }
 }
 
-/** Which tab a diagnostic belongs to. The rule itself lives in `drawer.ts` (S6.3) so the gutter
- * and the drawer's grouping apply the same one; this only supplies the current project's root and
- * its include graph (which `drawer.ts` uses to complete an extensionless `\input`, S6.4). */
-function diagnosticTarget(diagnostic: Diagnostic): string | null {
-  return targetOf(diagnostic, app.project?.rootFile ?? null, app.project?.documentFiles ?? []);
+/** Which tab a diagnostic belongs to, and where in it. The rule itself lives in `drawer.ts` (S6.3)
+ * so the gutter and the drawer's grouping apply the same one; this only supplies the current
+ * project's root and the files it has (E1: its include graph and its file tree both, since a
+ * project's own `.sty` is a tab the author can open though no `\input` names it). */
+function placeOf(diagnostic: Diagnostic) {
+  return diagnosticPlace(diagnostic, app.project?.rootFile ?? null, app.projectFiles);
 }
 
 /**
  * Go to where a diagnostic points, in the file it actually happened in (S5.6's `Diagnostic.file`,
  * finally read by something — S2.7's own comment on the gutter has named this gap since sprint 2).
+ *
+ * When a package raised the error (E1) there is no line to go to — TeX's number is a line of the
+ * package — but the author's file that loaded it is known, so that file comes to the front and the
+ * cursor stays where it was. A diagnostic that simply has no line, in a file of its own, still
+ * goes nowhere.
  */
 export async function jumpToDiagnostic(diagnostic: Diagnostic): Promise<void> {
-  if (diagnostic.line === null) return;
-  const target = diagnosticTarget(diagnostic);
-  if (target && app.activePath !== target) await openFile(target);
-  jumpToLine(diagnostic.line);
+  const place = placeOf(diagnostic);
+  if (place.line === null && place.raisedIn === null) return;
+  if (place.file && app.activePath !== place.file) await openFile(place.file);
+  if (place.line !== null) jumpToLine(place.line);
 }
 
 /**
@@ -2642,17 +2648,19 @@ export async function jumpToFinding(finding: Finding): Promise<void> {
  */
 export async function applyDiagnosticFix(diagnostic: Diagnostic): Promise<boolean> {
   const fix = diagnostic.fix;
-  if (!fix || diagnostic.line === null) return false;
-  const target = diagnosticTarget(diagnostic);
+  // The place's line, not `diagnostic.line`: when a package raised the error the line is the
+  // package's and `placeOf` has already dropped it (E1), so no edit is aimed at the wrong text.
+  const { file: target, line } = placeOf(diagnostic);
+  if (!fix || line === null) return false;
   if (!target) return false;
   if (app.activePath !== target) await openFile(target);
   const doc = manager.get(target);
   if (!doc) return false;
-  const applied = doc.applyFix(diagnostic.line, fix);
+  const applied = doc.applyFix(line, fix);
   if (applied) {
-    jumpToLine(diagnostic.line);
+    jumpToLine(line);
   } else {
-    app.notice = `Could not find "${fix.find}" on line ${diagnostic.line} of ${target} — nothing was changed.`;
+    app.notice = `Could not find "${fix.find}" on line ${line} of ${target} — nothing was changed.`;
   }
   return applied;
 }

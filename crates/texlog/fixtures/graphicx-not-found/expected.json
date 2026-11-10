@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Unable to load picture or PDF file 'nosuchimage.png'.",
     "rule": "image-not-found",
     "severity": "error",

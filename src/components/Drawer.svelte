@@ -23,7 +23,7 @@
     showRawLogFor,
     toggleRawLog,
   } from '../lib/controller.svelte';
-  import { diagnosticsForFile, groupDiagnostics, locateInLog, type SeverityFilter } from '../lib/drawer';
+  import { diagnosticPlace, diagnosticsForFile, groupDiagnostics, locateInLog, type SeverityFilter } from '../lib/drawer';
   import type { Diagnostic } from '../lib/ipc';
 
   const summary = $derived.by(() => {
@@ -48,14 +48,14 @@
   let showComparisonOutput = $state(false);
 
   const rootFile = $derived(app.project?.rootFile ?? null);
-  const documentFiles = $derived(app.project?.documentFiles ?? []);
-  const groups = $derived(groupDiagnostics(app.compile.diagnostics, app.drawerFilter, app.activePath, rootFile, documentFiles));
+  const projectFiles = $derived(app.projectFiles);
+  const groups = $derived(groupDiagnostics(app.compile.diagnostics, app.drawerFilter, app.activePath, rootFile, projectFiles));
   const shownCount = $derived(groups.reduce((n, g) => n + g.diagnostics.length, 0));
   const total = $derived(app.compile.diagnostics.length);
   /** How many of the build's diagnostics are about the active tab at all, before the severity
    * filter — so "nothing in this file" is only said when it is true, not when the file has
    * warnings and the author asked for errors. */
-  const inActiveFile = $derived(diagnosticsForFile(app.compile.diagnostics, app.activePath, rootFile, documentFiles).length);
+  const inActiveFile = $derived(diagnosticsForFile(app.compile.diagnostics, app.activePath, rootFile, projectFiles).length);
 
   // The raw view, split around the words the last "Raw log" click asked for (S6.3), so a `<mark>`
   // can wrap them. Three plain strings rather than markup built by hand: the log is untrusted
@@ -211,13 +211,20 @@
           </h3>
           {#each group.diagnostics as diagnostic, i (i)}
             {@const answer = assistant.answers[diagnostic.rawMessage]}
+            <!-- E1: the group's cards already have the line made true for their tab; this is only
+                 for the words, which say so when a package, not the author's file, raised it. -->
+            {@const raisedIn = diagnosticPlace(diagnostic, rootFile, projectFiles).raisedIn}
             <div
               class="diag"
               class:warning={diagnostic.severity === 'warning'}
               class:unexplained={diagnostic.rule === null}
               role="button"
               tabindex="0"
-              title={diagnostic.line ? `Go to line ${diagnostic.line}` : 'TeX did not say which line'}
+              title={diagnostic.line
+                ? `Go to line ${diagnostic.line}`
+                : raisedIn
+                  ? `Raised inside ${raisedIn}, not one of your files. Opens ${group.file}.`
+                  : 'TeX did not say which line'}
               onclick={() => void jumpToDiagnostic(diagnostic)}
               onkeydown={(e) => onKeydown(e, diagnostic)}
             >

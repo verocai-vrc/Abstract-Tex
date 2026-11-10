@@ -8,6 +8,9 @@
       "replace": "\\protect\\footnote"
     },
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Argument of \\@sect has an extra }.",
     "rule": "fragile-command-in-moving-argument",
     "severity": "error",

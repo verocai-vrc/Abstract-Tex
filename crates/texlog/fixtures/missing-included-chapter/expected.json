@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "! LaTeX Error: File `chapters/intro.tex' not found..",
     "rule": "file-not-found",
     "severity": "error",

@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Undefined control sequence.",
     "rule": "undefined-control-sequence",
     "severity": "error",

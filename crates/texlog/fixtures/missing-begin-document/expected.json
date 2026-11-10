@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 2,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "LaTeX Error: Missing \\begin{document}.",
     "rule": "missing-begin-document",
     "severity": "error",

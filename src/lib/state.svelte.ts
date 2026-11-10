@@ -6,6 +6,7 @@ import type { Diagnostic, EngineInfo, ProjectInfo } from './ipc';
 import type { OpenDocument } from './document';
 import { DEFAULT_FILTER, type DrawerFilter } from './drawer';
 import type { OutlineItem } from './outline';
+import { listFiles } from './paths';
 
 export type CompilePhase = 'idle' | 'running' | 'ok' | 'error' | 'failed';
 
@@ -159,6 +160,17 @@ class AppState {
   /** A request for the PDF pane to scroll to and highlight a point (S3.4's forward search).
    * `nonce` makes repeat requests to the same spot distinct, matching `jumpRequest`. */
   syncTexScrollRequest = $state<{ page: number; x: number; y: number; nonce: number } | null>(null);
+
+  /**
+   * Every file the project has: the include graph's files plus everything in the file tree
+   * (E1). The drawer and the gutter use it to tell a file the author can open from one they
+   * cannot — `mystyle.sty` in the project from `babel.sty` in the TeX tree — without guessing
+   * from an extension. The graph is listed too because it can name a file the tree has not
+   * caught up with yet. Empty with no project open.
+   */
+  projectFiles = $derived(
+    this.project ? [...new Set([...this.project.documentFiles, ...listFiles(this.project.tree)])] : [],
+  );
 
   projectName = $derived(this.project ? (this.project.rootDir.split(/[\\/]/).filter(Boolean).pop() ?? '') : '');
 }

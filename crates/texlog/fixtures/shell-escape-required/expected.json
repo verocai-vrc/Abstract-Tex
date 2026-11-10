@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Package minted Error: You must invoke LaTeX with the -shell-escape flag.",
     "rule": "shell-escape-required",
     "severity": "error",

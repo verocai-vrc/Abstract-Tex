@@ -52,6 +52,10 @@ Three layers, each usable on its own:
   resolves to the *parent* file, because TeX echoes `(chapter` and a text-only parser cannot
   tell that from a package's incidental `(rerunfilecheck)`. A caller with the real file tree
   can complete the name; the resolver's doc says exactly where the limit is.
+- **It cannot tell your files from a package's.** A package raises its errors from its own file, so
+  `file` is `babel.sty`, not the `main.tex` that loaded it. `open_files` carries the whole stack,
+  outermost first, so a caller that knows the project's files can take the innermost one it has.
+  The `line` is the innermost file's: it is not a line of any file further out.
 - **It does not run `biber`,** so `biblatex`'s own errors have no rule yet.
 - **It is tested against one engine so far:** Tectonic 0.17.0 (XeTeX). The wrap width and the
   shapes it recognises are the classic ones shared by pdfTeX and LuaTeX, but every fixture in

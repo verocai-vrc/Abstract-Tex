@@ -50,6 +50,11 @@ export interface Diagnostic {
    * `null` only when nothing was open at that point. Project-relative in spelling only when the
    * log itself reported it that way; nothing here re-resolves it against the file tree yet. */
   file: string | null;
+  /** Every file that was open when this was printed, outermost first; `file` is the last entry
+   * (E1). Needed because a package that raises the error is the innermost file — `babel.sty` is
+   * not a tab — while the author's own file sits just beneath it. `drawer.ts` picks the innermost
+   * entry the project has. Empty when `file` is `null`. */
+  openFiles: string[];
   severity: 'error' | 'warning';
   /** The rule that matched, or `null` when the catalog has no explanation and `explanation`
    * is a fallback that quotes TeX. */

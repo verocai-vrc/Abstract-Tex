@@ -28,7 +28,7 @@
 //! rather than being dropped, because an unexplained error the author can see beats a silent
 //! one — but it is marked `rule: None` so the drawer can tell the two apart.
 
-use crate::resolver::{file_at, open_files};
+use crate::resolver::{file_at, open_files, stack_at};
 use crate::tokenizer::{tokenize, LineKind, LogLine};
 use crate::QuickError;
 
@@ -60,6 +60,16 @@ pub struct Diagnostic {
     /// *parent* file rather than itself; `resolver.rs`'s own module doc names this as a real,
     /// irreducible limit of text-only resolution, not a bug in this field.
     pub file: Option<String>,
+    /// Every file that was open when this diagnostic was printed, outermost first — the resolver's
+    /// whole stack, of which `file` is the last entry. Empty exactly when `file` is `None`.
+    ///
+    /// `file` alone is not enough when a package raises the error: `babel.sty` is the innermost
+    /// file open, but it is not one the author can open, and `main.tex`, which is, sits just
+    /// beneath it. This crate cannot tell the two apart (it never reads the file tree, and an
+    /// extension is a guess), so it hands over the stack and lets a caller that holds the project's
+    /// file list pick the innermost entry the project has. The line number in `line` belongs to the
+    /// innermost file, not to whichever entry the caller picks.
+    pub open_files: Vec<String>,
     /// Whether the build stopped here or merely noticed something.
     pub severity: Severity,
     /// The rule that recognised this, or `None` when nothing in the catalog matched and
@@ -512,6 +522,7 @@ fn located_errors(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError> 
             line: None,
             context: None,
             file: file_at(stacks, i).map(str::to_string),
+            open_files: stack_at(stacks, i),
         };
 
         // TeX prints the `l.NN` marker within the next few lines; stop looking at the next `!`
@@ -564,6 +575,7 @@ fn located_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError
                 line: input_line_number(message),
                 context: None,
                 file: file_at(stacks, i).map(str::to_string),
+                open_files: stack_at(stacks, i),
             })
         })
         .collect()
@@ -592,6 +604,7 @@ fn box_warnings(lines: &[LogLine], stacks: &[Vec<String>]) -> Vec<QuickError> {
                 line: box_line_number(&line.text),
                 context: None,
                 file: file_at(stacks, i).map(str::to_string),
+                open_files: stack_at(stacks, i),
             })
         })
         .collect()
@@ -622,6 +635,7 @@ pub fn explain(error: &QuickError) -> Diagnostic {
                 explanation,
                 line: error.line,
                 file: error.file.clone(),
+                open_files: error.open_files.clone(),
                 severity: rule.severity(),
                 rule: Some(rule.id()),
                 raw_message: error.message.clone(),
@@ -640,6 +654,7 @@ pub fn explain(error: &QuickError) -> Diagnostic {
         ),
         line: error.line,
         file: error.file.clone(),
+        open_files: error.open_files.clone(),
         severity: Severity::Error,
         rule: None,
         raw_message: error.message.clone(),
@@ -2173,5 +2188,52 @@ mod tests {
         let found = diagnostics(log);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].file, None);
+        assert_eq!(found[0].open_files, Vec::<String>::new());
+    }
+
+    /// E1 (design interview, 2 Oct 2026). `file` is only the innermost entry of the resolver's
+    /// stack, which is a package's own file whenever the package raised the error — and a package
+    /// file is not one the author can open. The whole stack goes out so that the caller, which
+    /// holds the include graph, can pick the innermost file the project actually has.
+    #[test]
+    fn a_diagnostic_carries_every_file_that_was_open_outermost_first() {
+        let log = "(main.tex\n(chapters/a.tex\n(pkg.sty\n! Undefined control sequence.\nl.1 \\x\n";
+        let d = diagnostic_from(log, "undefined-control-sequence");
+        assert_eq!(
+            d.open_files,
+            vec![
+                "main.tex".to_string(),
+                "chapters/a.tex".to_string(),
+                "pkg.sty".to_string()
+            ]
+        );
+        assert_eq!(
+            d.file.as_deref(),
+            Some("pkg.sty"),
+            "`file` stays the innermost entry"
+        );
+    }
+
+    /// The real capture that prompted E1: babel raises the error from inside `babel.sty`, so
+    /// `file` is the package, and `main.tex` is the only file in the stack the author owns.
+    #[test]
+    fn a_package_error_keeps_the_authors_file_underneath_the_package_in_the_stack() {
+        let log = include_str!("../fixtures/babel-unknown-language/main.log");
+        let d = diagnostic_from(log, "babel-unknown-language");
+        assert_eq!(d.file.as_deref(), Some("babel.sty"));
+        assert_eq!(d.open_files.first().map(String::as_str), Some("main.tex"));
+        assert_eq!(d.open_files.last().map(String::as_str), Some("babel.sty"));
+    }
+
+    /// A warning is placed by the same stack as an error, and its diagnostics carry it too.
+    #[test]
+    fn a_warning_carries_the_open_files_too() {
+        let log =
+            "(main.tex\n(chapters/a.tex\nLaTeX Warning: Citation `k' on page 1 undefined on input line 3.\n";
+        let found = diagnostics(log);
+        assert_eq!(
+            found[0].open_files,
+            vec!["main.tex".to_string(), "chapters/a.tex".to_string()]
+        );
     }
 }

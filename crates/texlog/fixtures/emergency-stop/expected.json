@@ -4,6 +4,7 @@
     "file": null,
     "fix": null,
     "line": null,
+    "openFiles": [],
     "rawMessage": "Emergency stop",
     "rule": null,
     "severity": "error",

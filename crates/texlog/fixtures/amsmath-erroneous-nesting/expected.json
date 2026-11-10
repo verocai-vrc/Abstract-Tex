@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 6,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Package amsmath Error: Erroneous nesting of equation structures;",
     "rule": "amsmath-erroneous-nesting",
     "severity": "error",

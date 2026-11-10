@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 5,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Undefined control sequence.",
     "rule": "undefined-control-sequence",
     "severity": "error",
@@ -14,6 +17,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Citation `knuth1984' on page 1 undefined on input line 4.",
     "rule": "undefined-citation",
     "severity": "warning",
@@ -24,6 +30,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Reference `tab:results' on page 1 undefined on input line 4.",
     "rule": "undefined-reference",
     "severity": "warning",

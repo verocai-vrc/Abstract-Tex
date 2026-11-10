@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Underfull \\hbox (badness 10000) detected at line 3",
     "rule": "underfull-box",
     "severity": "warning",
@@ -14,6 +17,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 3,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Overfull \\hbox (16.34999pt too wide) in paragraph at lines 3--4",
     "rule": "overfull-box",
     "severity": "warning",

@@ -7038,10 +7038,23 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   needs no export), and named versions ("Sent to supervisor, 3 Oct"), which need tag creation too.
 - **⇄ swap in the comparison toolbar** (A4) — only if anyone asks for a reversed diff.
 - **Branch create and switch** (B4) — out of v0.6; needed by "a branch against `main`".
-- **`texlog::Diagnostic` carries the whole open-file stack** (E1) — the frontend picks the first
+- [x] **`texlog::Diagnostic` carries the whole open-file stack** (E1) — the frontend picks the first
   file the project has, so an error inside `babel.sty` lands on the author's line. Changes
   texlog's public type, so it lands **before** `texlog` and `texbib` are published (C8: after E1,
-  before v0.9).
+  before v0.9). **Done 10 November 2026.** `Diagnostic.open_files` (JSON `openFiles`) is the
+  resolver's whole stack, outermost first, with `file` still its last entry; every `expected.json`
+  under `crates/texlog/fixtures/` gained the key and nothing else. The app edge respells each entry
+  the way it respells `file` (`compile.rs`), and `drawer.ts`'s `diagnosticPlace` takes the innermost
+  entry the project has. Two decisions the card did not make: (a) *"the project has"* is the include
+  graph **plus the file tree** (`app.projectFiles`), not the graph alone, so an error inside the
+  project's own `mystyle.sty`, which no `\input` names, still lands in that file with its line;
+  (b) when the tab is not the file TeX printed `l.NN` for, the line is dropped (`l.4260` is a line
+  of `babel.sty`), and with it the one-click fix, which would otherwise have edited the wrong text.
+  Such a card opens the author's file and goes to no line; its tooltip says where the error was
+  raised. Walked in the app on a `\usepackage[nosuchlanguage]{babel}` project: filed under
+  `main.tex`, line "—", no gutter dot, no "Could not open babel.sty". **Not done:** the card does
+  not find the `\usepackage` line itself (that is E7's shape, searching the source) — it stops at
+  the file.
 - **Include-graph sweep** (E4) — the five gaps from S4.1's review in one card; following a
   `.sty`/`.cls` file's own `\input`s stays out of scope, and the module doc says so.
 - **Wall-clock gate for system engines** (E6) — a ceiling in CI where a system TeX is installed,

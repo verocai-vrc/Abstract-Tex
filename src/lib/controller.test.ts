@@ -1212,6 +1212,7 @@ describe('diagnostics (S2.7)', () => {
     explanation: '`_` means "subscript" and only works inside maths mode.',
     line: 87,
     file: 'main.tex',
+    openFiles: ['main.tex'],
     severity: 'error' as const,
     rule: 'missing-dollar',
     rawMessage: 'Missing $ inserted.',
@@ -1222,6 +1223,7 @@ describe('diagnostics (S2.7)', () => {
     explanation: 'No entry with the key `knuth1984` was found.',
     line: 7,
     file: 'main.tex',
+    openFiles: ['main.tex'],
     severity: 'warning' as const,
     rule: 'undefined-citation',
     rawMessage: "Citation `knuth1984' on page 1 undefined on input line 7.",
@@ -1270,7 +1272,7 @@ describe('diagnostics (S2.7)', () => {
 
   it('jumping to a diagnostic in a different file opens that file, not the root (S5.6 wiring)', async () => {
     disk.set('chapters/intro.tex', 'text\n');
-    await jumpToDiagnostic({ ...underscore, file: 'chapters/intro.tex', line: 1 });
+    await jumpToDiagnostic({ ...underscore, file: 'chapters/intro.tex', openFiles: ['chapters/intro.tex'], line: 1 });
     expect(app.activePath).toBe('chapters/intro.tex');
     expect(app.jumpRequest?.line).toBe(1);
   });
@@ -1278,13 +1280,24 @@ describe('diagnostics (S2.7)', () => {
   it('a diagnostic with no file at all falls back to the root file', async () => {
     disk.set('notes.tex', 'notes');
     await openFile('notes.tex');
-    await jumpToDiagnostic({ ...underscore, file: null });
+    await jumpToDiagnostic({ ...underscore, file: null, openFiles: [] });
     expect(app.activePath).toBe('main.tex');
   });
 
   it('a diagnostic with no line goes nowhere', async () => {
     const before = app.jumpRequest;
     await jumpToDiagnostic({ ...underscore, line: null });
+    expect(app.jumpRequest).toBe(before);
+  });
+
+  // E1. `l.4260` is a line of `babel.sty`; the author's file is the next one down TeX's stack. The
+  // card opens that file, and does not jump anywhere in it, because no line of it is known.
+  it('a package error opens the author\'s file beneath it, and jumps to no line', async () => {
+    disk.set('notes.tex', 'notes');
+    await openFile('notes.tex');
+    const before = app.jumpRequest;
+    await jumpToDiagnostic({ ...underscore, file: 'babel.sty', openFiles: ['main.tex', 'babel.sty'], line: 4260 });
+    expect(app.activePath).toBe('main.tex');
     expect(app.jumpRequest).toBe(before);
   });
 });
@@ -1295,6 +1308,7 @@ describe('applying a diagnostic fix (S6.2)', () => {
     explanation: 'If you meant a literal ampersand, write `\\&` instead.',
     line: 3,
     file: 'main.tex',
+    openFiles: ['main.tex'],
     severity: 'error' as const,
     rule: 'misplaced-alignment-tab',
     rawMessage: 'Misplaced alignment tab character &.',
@@ -1327,7 +1341,12 @@ describe('applying a diagnostic fix (S6.2)', () => {
 
   it('opens the file first when the fix belongs to a tab that is not open yet', async () => {
     disk.set('chapters/intro.tex', 'Salt & pepper.\n');
-    const applied = await applyDiagnosticFix({ ...withAmpersand, file: 'chapters/intro.tex', line: 1 });
+    const applied = await applyDiagnosticFix({
+      ...withAmpersand,
+      file: 'chapters/intro.tex',
+      openFiles: ['chapters/intro.tex'],
+      line: 1,
+    });
     expect(applied).toBe(true);
     expect(app.activePath).toBe('chapters/intro.tex');
     await vi.advanceTimersByTimeAsync(700);
@@ -1346,9 +1365,23 @@ describe('applying a diagnostic fix (S6.2)', () => {
     expect(applied).toBe(false);
   });
 
+  // E1. A package's line number is not a line of the author's file, so a fix aimed at it would
+  // edit text the error is not about. Nothing is changed, and nothing is said: there was no edit.
+  it('does not apply a fix to a line that belongs to a package file', async () => {
+    const applied = await applyDiagnosticFix({
+      ...withAmpersand,
+      file: 'pkg.sty',
+      openFiles: ['main.tex', 'pkg.sty'],
+      line: 3,
+    });
+    expect(applied).toBe(false);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('main.tex')).not.toContain('\\&');
+  });
+
   it('does nothing for a diagnostic with no file and no project root to fall back to', async () => {
     app.project = null;
-    const applied = await applyDiagnosticFix({ ...withAmpersand, file: null });
+    const applied = await applyDiagnosticFix({ ...withAmpersand, file: null, openFiles: [] });
     expect(applied).toBe(false);
   });
 });
@@ -1401,6 +1434,7 @@ describe('the drawer v1 (S6.3)', () => {
     explanation: '`_` means "subscript" and only works inside maths mode.',
     line: 59,
     file: 'sections/background.tex',
+    openFiles: ['main.tex', 'sections/background.tex'],
     severity: 'error' as const,
     rule: 'missing-dollar',
     rawMessage: 'Missing $ inserted.',
@@ -3818,6 +3852,7 @@ describe('asking the assistant about a build error no rule explains (S13.2)', ()
     explanation: 'There is no explanation for this one yet.',
     line: 14,
     file: 'main.tex',
+    openFiles: ['main.tex'],
     severity: 'error',
     rule: null,
     rawMessage: 'Package pgfplots Error: Could not read the table.',

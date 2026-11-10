@@ -7,7 +7,14 @@
 
 import { describe, expect, it } from 'vitest';
 import type { Diagnostic } from './ipc';
-import { DEFAULT_FILTER, diagnosticTarget, diagnosticsForFile, groupDiagnostics, locateInLog } from './drawer';
+import {
+  DEFAULT_FILTER,
+  diagnosticPlace,
+  diagnosticTarget,
+  diagnosticsForFile,
+  groupDiagnostics,
+  locateInLog,
+} from './drawer';
 
 function undefinedReference(file: string, line: number, label: string, page: number): Diagnostic {
   return {
@@ -15,6 +22,7 @@ function undefinedReference(file: string, line: number, label: string, page: num
     explanation: `Nothing in this document calls \\label{${label}}.`,
     line,
     file,
+    openFiles: ['main.tex', file],
     severity: 'warning',
     rule: 'undefined-reference',
     rawMessage: `Reference \`${label}' on page ${page} undefined on input line ${line}.`,
@@ -27,6 +35,7 @@ const missingDollar: Diagnostic = {
   explanation: '`_` means "subscript" and only works inside maths mode.',
   line: 59,
   file: 'sections/background.tex',
+  openFiles: ['main.tex', 'sections/background.tex'],
   severity: 'error',
   rule: 'missing-dollar',
   rawMessage: 'Missing $ inserted.',
@@ -50,6 +59,7 @@ const emergencyStop: Diagnostic = {
   explanation: 'TeX reached the end of the input without seeing \\end{document}.',
   line: null,
   file: null,
+  openFiles: [],
   severity: 'error',
   rule: 'emergency-stop',
   rawMessage: 'Emergency stop',
@@ -75,7 +85,11 @@ describe('diagnosticTarget', () => {
   // this as the case only a caller with the file tree can settle; the include graph is that tree.
   it('completes an extensionless `\\input` to the `.tex` file the graph knows', () => {
     const graph = ['main.tex', 'preamble.tex', 'sections/01-undefined-control-sequence.tex'];
-    const bare: Diagnostic = { ...missingDollar, file: 'sections/01-undefined-control-sequence' };
+    const bare: Diagnostic = {
+      ...missingDollar,
+      file: 'sections/01-undefined-control-sequence',
+      openFiles: ['main.tex', 'sections/01-undefined-control-sequence'],
+    };
     expect(diagnosticTarget(bare, 'main.tex', graph)).toBe('sections/01-undefined-control-sequence.tex');
     // The same rule must route the gutter and the group heading, or the card and the dot disagree.
     expect(diagnosticsForFile([bare], 'sections/01-undefined-control-sequence.tex', 'main.tex', graph)).toEqual([bare]);
@@ -86,11 +100,85 @@ describe('diagnosticTarget', () => {
 
   it('never completes a name to one the graph does not hold — a package file stays as spelled', () => {
     const graph = ['main.tex', 'sections/background.tex'];
-    const packageFile: Diagnostic = { ...missingDollar, file: 'babel.sty' };
+    const packageFile: Diagnostic = { ...missingDollar, file: 'babel.sty', openFiles: ['babel.sty'] };
     expect(diagnosticTarget(packageFile, 'main.tex', graph)).toBe('babel.sty');
     // And a spelling the graph holds as-is is left alone, even when a `.tex` sibling also exists.
-    const exact: Diagnostic = { ...missingDollar, file: 'sections/background.tex' };
+    const exact: Diagnostic = { ...missingDollar, file: 'sections/background.tex', openFiles: ['sections/background.tex'] };
     expect(diagnosticTarget(exact, 'main.tex', [...graph, 'sections/background.tex.tex'])).toBe('sections/background.tex');
+  });
+});
+
+// E1 (design interview, 2 Oct 2026). A package raises the error from its own file, so `file` is
+// `babel.sty` — which is not a tab — while `main.tex`, which the author can open, sits just
+// beneath it on the stack. The line TeX printed (`l.4260`) is a line of `babel.sty`, so it must
+// not follow the diagnostic into `main.tex`.
+describe('a diagnostic raised inside a package file', () => {
+  const babel: Diagnostic = {
+    ...missingDollar,
+    title: '`nosuchlanguage` is not a language babel knows',
+    line: 4260,
+    file: 'babel.sty',
+    openFiles: ['main.tex', 'babel.sty'],
+    rule: 'babel-unknown-language',
+    rawMessage: "Package babel Error: Unknown option 'nosuchlanguage'.",
+    fix: null,
+  };
+  const project = ['main.tex', 'sections/intro.tex'];
+
+  it('is filed under the innermost file of the stack that the project has', () => {
+    expect(diagnosticTarget(babel, 'main.tex', project)).toBe('main.tex');
+    const nested: Diagnostic = { ...babel, openFiles: ['main.tex', 'sections/intro.tex', 'babel.sty'] };
+    expect(diagnosticTarget(nested, 'main.tex', project)).toBe('sections/intro.tex');
+  });
+
+  it('completes an extensionless `\\input` anywhere in the stack, not only at the top', () => {
+    const nested: Diagnostic = { ...babel, openFiles: ['main.tex', 'sections/intro', 'babel.sty'] };
+    expect(diagnosticTarget(nested, 'main.tex', project)).toBe('sections/intro.tex');
+  });
+
+  it('drops the package\'s line number, and says where the error was really raised', () => {
+    expect(diagnosticPlace(babel, 'main.tex', project)).toEqual({
+      file: 'main.tex',
+      line: null,
+      raisedIn: 'babel.sty',
+    });
+  });
+
+  it('keeps the line when the innermost file is the author\'s own', () => {
+    expect(diagnosticPlace(missingDollar, 'main.tex', ['main.tex', 'sections/background.tex'])).toEqual({
+      file: 'sections/background.tex',
+      line: 59,
+      raisedIn: null,
+    });
+  });
+
+  it('keeps an error inside the project\'s own style file where it was raised', () => {
+    // `mystyle.sty` is not in the include graph, but it is in the project: it is a tab the author
+    // can open, and its line number is true. Only the files the project has count, not only the
+    // `\\input` graph.
+    const local: Diagnostic = { ...babel, file: 'mystyle.sty', openFiles: ['main.tex', 'mystyle.sty'], line: 12 };
+    expect(diagnosticPlace(local, 'main.tex', [...project, 'mystyle.sty'])).toEqual({
+      file: 'mystyle.sty',
+      line: 12,
+      raisedIn: null,
+    });
+  });
+
+  it('falls back to the file as spelled when nothing in the stack is the project\'s', () => {
+    // No project open, or a stack of nothing but package files: the old behaviour, line kept.
+    expect(diagnosticPlace(babel, 'main.tex', [])).toEqual({ file: 'babel.sty', line: 4260, raisedIn: null });
+  });
+
+  it('uses `file` when the stack is empty, as for an error the app placed itself', () => {
+    const placed: Diagnostic = { ...missingDollar, file: 'main.tex', line: 30, openFiles: [] };
+    expect(diagnosticPlace(placed, 'main.tex', project)).toEqual({ file: 'main.tex', line: 30, raisedIn: null });
+  });
+
+  it('puts its card under the author\'s file and draws no gutter dot at the package\'s line', () => {
+    const groups = groupDiagnostics([babel], DEFAULT_FILTER, null, 'main.tex', project);
+    expect(groups.map((g) => g.file)).toEqual(['main.tex']);
+    expect(groups[0]?.diagnostics.map((d) => d.line)).toEqual([null]);
+    expect(diagnosticsForFile([babel], 'main.tex', 'main.tex', project).map((d) => d.line)).toEqual([null]);
   });
 });
 

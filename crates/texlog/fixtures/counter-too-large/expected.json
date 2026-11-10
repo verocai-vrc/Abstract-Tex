@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "LaTeX Error: Counter too large.",
     "rule": "counter-too-large",
     "severity": "error",

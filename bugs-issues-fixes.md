@@ -294,6 +294,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   IPC, and the frontend picks the first file the project has — it already holds the include graph,
   so no extension heuristic. This changes `texlog`'s public type, so it lands before `texlog` is
   published (C8). *Unplaced cards*, `SPRINTS.md`.
+  **Fixed (10 Nov 2026):** `Diagnostic.open_files` carries the stack; `drawer.ts`'s `diagnosticPlace`
+  files the card under the innermost entry the project has and drops the package's line number (and
+  with it the one-click fix, which would have edited the wrong text). Two corrections to the decision as
+  recorded: the project's files are the include graph **and** the file tree, because a local `mystyle.sty`
+  is in no `\input` graph yet is a tab with a true line; and a `./main.tex` or an absolute path in the
+  stack is respelled like `file` is (S9.12), or the stack would match no tab under a system `latexmk`.
+  Checked on the real `babel-unknown-language` capture and in the running app. The card opens the
+  author's file but does not find the `\usepackage` line (E7's shape).
 
 - **BibTeX's own error output never reaches `main.log`, so `texlog` cannot see it at all —
   corrects the "biblatex needs biber, not yet bundled" framing from the previous S6.1 commit.**

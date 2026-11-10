@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Extra alignment tab has been changed to \\cr.",
     "rule": "extra-alignment-tab",
     "severity": "error",

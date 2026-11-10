@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Package fontspec Error: The font \"ThisFontDoesNotExistAnywhere\" cannot be",
     "rule": "font-not-found",
     "severity": "error",

@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "LaTeX Error: There's no line here to end.",
     "rule": "line-end-with-nothing-before-it",
     "severity": "error",

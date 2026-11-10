@@ -4,6 +4,9 @@
     "file": "main.tex",
     "fix": null,
     "line": 4,
+    "openFiles": [
+      "main.tex"
+    ],
     "rawMessage": "Package xcolor Error: Undefined color `nosuchcolor'.",
     "rule": "undefined-color",
     "severity": "error",
