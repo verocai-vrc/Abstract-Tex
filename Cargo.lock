@@ -76,6 +76,7 @@ dependencies = [
  "abstract-tex-sidecar",
  "abstract-tex-templates",
  "async-trait",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

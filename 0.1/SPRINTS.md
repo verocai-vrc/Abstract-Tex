@@ -7300,7 +7300,7 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 - [x] `R2.a`..`R2.c` crash reports: the issue URL can exceed its cap; caught panics are reported; the home-folder scrub is case-sensitive. Done 10 November 2026.
 - [x] `R4.4`, `R4.5` `paste_cite` hides its write from the watcher; a failed autosave is silent. Done 10 November 2026.
 - [x] `R4.8`, `R4.14` two dialogs miss the focus rules; no dialog sets `aria-modal`. Done 10 November 2026; not yet walked in the app.
-- [ ] `R4.7` cancelling a build leaves latexmk's children running; no build time limit; unbounded output.
+- [x] `R4.7` cancelling a build leaves latexmk's children running; no build time limit; unbounded output. Done 10 November 2026 (Windows branch untested).
 - [ ] `R2.d`, `R2.e` the relay has no resource limits; invites default to plaintext `ws://`.
 - [ ] `R3.11`, `R3.12`, `R4.11` ISBN follow-up URLs from the response; paths are checked lexically only; a dotted `.bib` name.
 - [ ] `R1.1`..`R1.3` a branch switch during a live session; BibTeX warnings under `latexmk`; working-copy comparison (symlinks, size).

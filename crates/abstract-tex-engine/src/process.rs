@@ -17,9 +17,23 @@ use tracing::debug;
 
 use crate::{EngineError, ProgressSink};
 
+/// How long one build may run before it is stopped. Generous: a cold first build that downloads a
+/// large package set takes a few minutes, and the point of the limit is a document that never
+/// finishes, which used to hold the build lane until somebody cancelled it.
+pub const BUILD_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// How much of an engine's output is kept: the last megabyte. A runaway `\loop` that prints used to
+/// be collected whole, and the process grew until the build was cancelled.
+pub(crate) const OUTPUT_KEPT_BYTES: usize = 1024 * 1024;
+
+/// The longest single line kept; a longer one is split here, so a stream with no newline in it
+/// cannot grow the read buffer without bound either.
+const LINE_KEPT_BYTES: usize = 64 * 1024;
+
 /// Run `binary` with `args` in `working_dir` and wait for it, or kill it if `cancel` fires
-/// first. Returns the exit status and everything it printed to stderr. Its stdout is read only
-/// for progress (see below) and is not returned.
+/// first or [`BUILD_TIME_LIMIT`] passes. Returns the exit status and what it printed to stderr
+/// (the last [`OUTPUT_KEPT_BYTES`] of it). Its stdout is read only for progress (see below) and is
+/// not returned.
 ///
 /// `env` is added to this process's own environment rather than replacing it: a TeX engine needs
 /// `PATH`, `HOME` and the distribution's own variables to work at all, so an engine only ever
@@ -32,6 +46,19 @@ pub async fn run(
     cancel: &CancellationToken,
     progress: Option<ProgressSink>,
 ) -> Result<(ExitStatus, String), EngineError> {
+    run_with_limit(binary, working_dir, args, env, cancel, progress, BUILD_TIME_LIMIT).await
+}
+
+/// [`run`] with the time limit passed in, so a test does not have to wait fifteen minutes.
+pub async fn run_with_limit(
+    binary: &Path,
+    working_dir: &Path,
+    args: &[String],
+    env: &[(&str, OsString)],
+    cancel: &CancellationToken,
+    progress: Option<ProgressSink>,
+    limit: std::time::Duration,
+) -> Result<(ExitStatus, String), EngineError> {
     debug!(?binary, ?args, ?working_dir, ?env, "spawning engine");
     let mut cmd = Command::new(binary);
     cmd.args(args)
@@ -42,9 +69,16 @@ pub async fn run(
         .stderr(Stdio::piped())
         // If our process dies, take the child with it. Never leave a stray engine running.
         .kill_on_drop(true);
+    // Its own process group, so that the whole tree can be ended at once: `latexmk` starts pdflatex
+    // and bibtex, and killing only `latexmk` left them running (review finding R4.7).
+    #[cfg(unix)]
+    cmd.process_group(0);
     hide_console_window(&mut cmd);
 
     let mut child = cmd.spawn().map_err(EngineError::Spawn)?;
+    // Ends the whole tree if this future is dropped before the engine finishes (a task aborted by
+    // a newer request), which `kill_on_drop` alone would do for the first process only.
+    let mut tree = ProcessTree::of(&child);
 
     // Read stderr concurrently with waiting, otherwise a chatty engine fills the pipe and
     // blocks forever. `take()` moves the handle out of `child` so we own it separately.
@@ -58,19 +92,83 @@ pub async fn run(
     let stdout_task = tokio::spawn(pump_stderr(stdout_pipe, progress.clone()));
     let stderr_task = tokio::spawn(pump_stderr(stderr_pipe, progress));
 
-    // `select!` waits on two futures at once and runs the branch of whichever finishes
-    // first. Here: either the engine exits, or the orchestrator cancels us. This is the
-    // whole reason for choosing a subprocess: cancellation is one `kill()`.
+    // `select!` waits on several futures at once and runs the branch of whichever finishes
+    // first. Here: the engine exits, or the orchestrator cancels us, or the time limit passes.
+    // This is the whole reason for choosing a subprocess: cancellation is a kill.
     let status = tokio::select! {
         status = child.wait() => status?,
         _ = cancel.cancelled() => {
             debug!("build cancelled; killing the engine");
+            tree.kill();
             let _ = child.kill().await;
+            stdout_task.abort();
+            stderr_task.abort();
             return Err(EngineError::Cancelled);
         }
+        _ = tokio::time::sleep(limit) => {
+            debug!(?limit, "build ran past its time limit; killing the engine");
+            tree.kill();
+            let _ = child.kill().await;
+            stdout_task.abort();
+            stderr_task.abort();
+            return Err(EngineError::TimedOut(limit));
+        }
     };
+    tree.finished();
     let _ = stdout_task.await; // let the last of its lines reach the status bar before returning
     Ok((status, stderr_task.await.unwrap_or_default()))
+}
+
+/// The engine's process group, killed as a whole when asked to or when dropped unfinished.
+struct ProcessTree {
+    /// The group's id (the process id of the first process), or `None` once it is over or where
+    /// there is no group to kill.
+    group: Option<u32>,
+}
+
+impl ProcessTree {
+    fn of(child: &tokio::process::Child) -> Self {
+        Self { group: child.id() }
+    }
+
+    /// Kill every process in the group. Harmless if they are already gone.
+    fn kill(&mut self) {
+        if let Some(group) = self.group.take() {
+            kill_group(group);
+        }
+    }
+
+    /// The engine exited by itself: whatever it started is its own business again.
+    fn finished(&mut self) {
+        self.group = None;
+    }
+}
+
+impl Drop for ProcessTree {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+
+#[cfg(unix)]
+fn kill_group(group: u32) {
+    // A negative pid names the process group. `unsafe` only because `kill` is a C function; it
+    // takes two integers and touches no memory of ours.
+    unsafe {
+        libc::kill(-(group as i32), libc::SIGKILL);
+    }
+}
+
+/// On Windows there are no process groups to signal; `taskkill /T` ends a process and its children.
+#[cfg(windows)]
+fn kill_group(group: u32) {
+    let mut taskkill = std::process::Command::new("taskkill");
+    taskkill.args(["/PID", &group.to_string(), "/T", "/F"]);
+    {
+        use std::os::windows::process::CommandExt;
+        taskkill.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let _ = taskkill.output();
 }
 
 /// What the status bar should say for one line of an engine's stderr, if anything. Tectonic
@@ -106,20 +204,19 @@ where
 {
     let mut chunk = [0u8; 4096];
     let mut pending = Vec::new();
-    let mut collected = String::new();
+    let mut kept = TailOfOutput::default();
 
-    // `emit` closes over `progress` and `collected` so both branches below (a complete line,
+    // `emit` closes over `progress` and `kept` so both branches below (a complete line,
     // and whatever is left when the pipe closes) share exactly one place that decodes and
     // records a line.
-    let emit = |line_bytes: &[u8], progress: &Option<ProgressSink>, collected: &mut String| {
+    let emit = |line_bytes: &[u8], progress: &Option<ProgressSink>, kept: &mut TailOfOutput| {
         let line = String::from_utf8_lossy(line_bytes).into_owned();
         if let (Some(sink), Some(message)) = (progress, progress_from_line(&line)) {
             // A send error only means the orchestrator dropped the receiver (the build was
             // superseded, the window closed). Nothing to do about it here.
             let _ = sink.send(message);
         }
-        collected.push_str(&line);
-        collected.push('\n');
+        kept.push(line);
     };
 
     loop {
@@ -131,15 +228,58 @@ where
         pending.extend_from_slice(&chunk[..read]);
         while let Some(newline_at) = pending.iter().position(|&b| b == b'\n') {
             let line_bytes: Vec<u8> = pending.drain(..=newline_at).collect();
-            emit(&line_bytes[..line_bytes.len() - 1], &progress, &mut collected);
+            emit(&line_bytes[..line_bytes.len() - 1], &progress, &mut kept);
+        }
+        // No newline in sight and already a long line: take what there is as a line of its own.
+        while pending.len() >= LINE_KEPT_BYTES {
+            let line_bytes: Vec<u8> = pending.drain(..LINE_KEPT_BYTES).collect();
+            emit(&line_bytes, &progress, &mut kept);
         }
     }
     // A final line with no trailing `\n` (Tectonic always ends with one, but nothing enforces
     // that in general) still deserves to be shown and collected.
     if !pending.is_empty() {
-        emit(&pending, &progress, &mut collected);
+        emit(&pending, &progress, &mut kept);
     }
-    collected
+    kept.finish()
+}
+
+/// The last [`OUTPUT_KEPT_BYTES`] of an engine's output, a line at a time. The *end* is kept
+/// because that is where TeX says what went wrong; when earlier lines were dropped the text begins
+/// with a line saying how many, so the cut is never silent.
+#[derive(Default)]
+struct TailOfOutput {
+    lines: std::collections::VecDeque<String>,
+    bytes: usize,
+    dropped: usize,
+}
+
+impl TailOfOutput {
+    fn push(&mut self, mut line: String) {
+        line.push('\n');
+        self.bytes += line.len();
+        self.lines.push_back(line);
+        while self.bytes > OUTPUT_KEPT_BYTES {
+            match self.lines.pop_front() {
+                Some(oldest) => {
+                    self.bytes -= oldest.len();
+                    self.dropped += 1;
+                }
+                None => break,
+            }
+        }
+    }
+
+    fn finish(self) -> String {
+        let mut text = String::with_capacity(self.bytes + 64);
+        if self.dropped > 0 {
+            text.push_str(&format!("… {} earlier lines left out …\n", self.dropped));
+        }
+        for line in self.lines {
+            text.push_str(&line);
+        }
+        text
+    }
 }
 
 /// On Windows a console-less GUI app that spawns a console program gets a black window flashing
@@ -228,5 +368,128 @@ mod tests {
     async fn pump_stderr_without_a_sink_still_collects_the_text() {
         let input: &[u8] = b"a single line\n";
         assert_eq!(pump_stderr(input, None).await, "a single line\n");
+    }
+
+    // Review finding R4.7. `child.kill()` ends only the process that was started. `latexmk` starts
+    // pdflatex and bibtex, which are not in its place: cancelled, they kept running and writing into
+    // the build folder, and their open pipes kept the two output readers alive. The engine now runs
+    // in a process group of its own and the whole group is killed.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancelling_ends_the_engines_children_as_well() {
+        let directory = tempfile::tempdir().unwrap();
+        let pid_file = directory.path().join("grandchild.pid");
+        let script = format!("sleep 60 & echo $! > '{}'; wait", pid_file.display());
+        let cancel = CancellationToken::new();
+
+        let running = {
+            let (directory, cancel) = (directory.path().to_path_buf(), cancel.clone());
+            tokio::spawn(async move {
+                run(
+                    Path::new("/bin/sh"),
+                    &directory,
+                    &["-c".to_string(), script],
+                    &[],
+                    &cancel,
+                    None,
+                )
+                .await
+            })
+        };
+        let grandchild: i32 = loop {
+            if let Ok(text) = std::fs::read_to_string(&pid_file) {
+                if let Ok(pid) = text.trim().parse() {
+                    break pid;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
+        cancel.cancel();
+        assert!(matches!(running.await.unwrap(), Err(EngineError::Cancelled)));
+
+        // The kernel needs a moment to reap it; poll rather than sleep a fixed time.
+        let mut alive = true;
+        for _ in 0..100 {
+            alive = std::process::Command::new("kill")
+                .args(["-0", &grandchild.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            if !alive {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(!alive, "the engine's child process {grandchild} is still running");
+    }
+
+    // The same finding: nothing limited how long a build could run, so a document that loops for ever
+    // held the build lane until someone cancelled.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_build_that_runs_past_its_time_limit_is_stopped_and_says_so() {
+        let directory = tempfile::tempdir().unwrap();
+        let started = std::time::Instant::now();
+
+        let result = run_with_limit(
+            Path::new("/bin/sh"),
+            directory.path(),
+            &["-c".to_string(), "sleep 60".to_string()],
+            &[],
+            &CancellationToken::new(),
+            None,
+            std::time::Duration::from_millis(300),
+        )
+        .await;
+
+        assert!(matches!(result, Err(EngineError::TimedOut(_))), "{result:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        let sentence = result.unwrap_err().to_string();
+        assert!(sentence.contains("stopped"), "{sentence}");
+    }
+
+    // And the output: all of it was kept in memory, so a runaway `\loop` that prints grew the process
+    // until the build was cancelled. The text kept is the *end* of the output, which is where the
+    // error is.
+    #[tokio::test]
+    async fn an_engine_that_prints_without_end_keeps_only_the_last_of_it() {
+        let mut lots = Vec::new();
+        for n in 0..200_000 {
+            lots.extend_from_slice(
+                format!("line number {n} with some padding to make it longer\n").as_bytes(),
+            );
+        }
+        let collected = pump_stderr(&lots[..], None).await;
+
+        assert!(
+            collected.len() <= OUTPUT_KEPT_BYTES + 200,
+            "{} bytes kept",
+            collected.len()
+        );
+        assert!(collected.ends_with("line number 199999 with some padding to make it longer\n"));
+        assert!(
+            collected.starts_with("… "),
+            "it says that earlier lines were left out: {:?}",
+            &collected[..60]
+        );
+    }
+
+    #[tokio::test]
+    async fn one_endless_line_does_not_grow_without_bound() {
+        let endless = vec![b'x'; 3 * OUTPUT_KEPT_BYTES];
+        let collected = pump_stderr(&endless[..], None).await;
+        assert!(
+            collected.len() <= OUTPUT_KEPT_BYTES + 200,
+            "{} bytes kept",
+            collected.len()
+        );
+        assert!(collected.contains('x'));
+    }
+
+    #[tokio::test]
+    async fn short_output_is_kept_whole_and_unmarked() {
+        let collected = pump_stderr(&b"one\ntwo\n"[..], None).await;
+        assert_eq!(collected, "one\ntwo\n");
     }
 }

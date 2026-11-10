@@ -112,6 +112,9 @@ pub enum EngineError {
     #[error("the build was cancelled")]
     Cancelled,
 
+    #[error("the build ran for more than {} minutes and was stopped. A document that loops for ever on a page does this; look for a macro that calls itself.", .0.as_secs() / 60)]
+    TimedOut(std::time::Duration),
+
     #[error("i/o error while building: {0}")]
     Io(#[from] std::io::Error),
 }

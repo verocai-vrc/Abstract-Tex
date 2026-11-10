@@ -1929,6 +1929,16 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      pump tasks alive. There is also no wall-clock limit on a build, and both pumps collect all
      output in memory (and a line with no newline grows `pending` for ever), so a runaway
      `\loop` that prints grows memory until someone cancels.
+     **Fixed 10 Nov 2026** (`process.rs`). The engine runs in its own process group on Unix
+     (`process_group(0)`) and `libc::kill(-group, SIGKILL)` ends the whole tree on cancel, on the
+     time limit, and if the future is dropped (a `ProcessTree` guard); on Windows `taskkill /T /F`,
+     **written but not run, there is no Windows machine here**. `BUILD_TIME_LIMIT` is 15 minutes and
+     ends in `EngineError::TimedOut` with a sentence of its own; the two output readers are aborted
+     on those paths. Output is kept as its last megabyte (`TailOfOutput`, first line says how many
+     earlier lines were left out) and a line with no newline is split at 64 KiB. Four new tests,
+     each red on its own behaviour first (the grandchild `sleep` survived the old kill); the real
+     Tectonic and latexmk ignored tests still pass. The 15-minute figure is a judgement, not a
+     measurement: the longest build on record here is the 90 s cold first build.
   8. **S. Two modal dialogs miss the focus rules.** `BibliographyHealth.svelte` and
      `ZoteroLink.svelte` are `role="dialog"` over a backdrop but neither uses `use:modalFocus`
      (`lib/dialog.ts`) and neither handles Escape, which is the bug `dialog.ts` says it was written
