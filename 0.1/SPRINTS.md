@@ -7055,8 +7055,15 @@ is placed; the letter-number is its question in `0.1/design-interview.md`.
   `main.tex`, line "—", no gutter dot, no "Could not open babel.sty". **Not done:** the card does
   not find the `\usepackage` line itself (that is E7's shape, searching the source) — it stops at
   the file.
-- **Include-graph sweep** (E4) — the five gaps from S4.1's review in one card; following a
-  `.sty`/`.cls` file's own `\input`s stays out of scope, and the module doc says so.
+- [x] **Include-graph sweep** (E4) — the five gaps from S4.1's review in one card; following a
+  `.sty`/`.cls` file's own `\input`s stays out of scope, and the module doc says so. **Done 10
+  November 2026.** `detect_root` ignores an include from a deeper file and falls back when the rule
+  would exclude everyone; the depth cap reports `Unresolved::DepthLimit`; the root is normalised;
+  a directive's casing becomes the disk's where the filesystem agrees the file exists;
+  `\subimport` and `\InputIfFileExists` are reported as unparsed. Each gap's test was run against an
+  inert stub first and failed on behaviour, not on a missing name. **Not run here:** the case-folding
+  branch needs a case-insensitive filesystem; the wiring test takes whichever branch the host takes,
+  so the Windows and macOS legs of CI are its first real run (ledger entry says so).
 - **Wall-clock gate for system engines** (E6) — a ceiling in CI where a system TeX is installed,
   and the S9.5 doc comment narrowed to what it actually gates.
 - [x] **Fragile-command source search** (E7) — when the fragile-command rule matched but TeX's

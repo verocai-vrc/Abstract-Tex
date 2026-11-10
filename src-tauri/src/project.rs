@@ -10,7 +10,7 @@
 //! moved to the new name the first time the config is saved; the second is disposable build
 //! output, so it is only kept out of the file tree and the watcher, never read or deleted.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -413,6 +413,12 @@ fn load_config(root_dir: &Path) -> Result<ProjectConfig> {
 /// "No other file includes it" is what stops a chapter that happens to carry its own
 /// `\documentclass` (a `\subfile`-style chapter, meant to compile standalone for a quick preview)
 /// from outranking the real root just because it was found first.
+///
+/// Two limits on that rule (E4), both found by S4.1's review. An include only counts against a
+/// candidate when the including file is no deeper than the candidate: a draft in `old/` that
+/// `\input`s `paper.tex` is not a reason to drop `paper.tex` in favour of the draft. And when the
+/// rule would exclude every candidate (two files that `\input` each other), it is ignored rather
+/// than leaving the project with no root, which would mean nothing compiles at all.
 pub fn detect_root(dir: &Path) -> Option<PathBuf> {
     let main = dir.join("main.tex");
     if main.is_file() {
@@ -420,16 +426,26 @@ pub fn detect_root(dir: &Path) -> Option<PathBuf> {
     }
 
     let mut candidates: Vec<PathBuf> = Vec::new();
-    // Every include target seen anywhere in the walk, kept as forward-slash strings rather than
-    // `PathBuf`s so comparing them against `candidates` below can never fall over a separator
-    // mismatch (`to_forward_slashes` exists for exactly this reason; S3.4/S3.6 both hit it).
-    let mut included: HashSet<String> = HashSet::new();
+    // Every include target seen anywhere in the walk, with the depth of the shallowest file that
+    // includes it. Keyed by forward-slash strings rather than `PathBuf`s so comparing against
+    // `candidates` below can never fall over a separator mismatch (`to_forward_slashes` exists
+    // for exactly this reason; S3.4/S3.6 both hit it).
+    let mut included: HashMap<String, usize> = HashMap::new();
     collect_documentclass_files(dir, dir, 0, &mut candidates, &mut included);
-    candidates.retain(|candidate| !included.contains(&to_forward_slashes(candidate)));
-    candidates.sort_by(|a, b| {
-        let depth = |p: &PathBuf| p.components().count();
-        depth(a).cmp(&depth(b)).then_with(|| a.cmp(b))
-    });
+
+    let depth = |path: &PathBuf| path.components().count();
+    let not_included_from_above: Vec<PathBuf> = candidates
+        .iter()
+        .filter(|candidate| {
+            let shallowest_includer = included.get(&to_forward_slashes(candidate));
+            !shallowest_includer.is_some_and(|includer_depth| *includer_depth <= depth(candidate))
+        })
+        .cloned()
+        .collect();
+    if !not_included_from_above.is_empty() {
+        candidates = not_included_from_above;
+    }
+    candidates.sort_by(|a, b| depth(a).cmp(&depth(b)).then_with(|| a.cmp(b)));
     candidates.into_iter().next()
 }
 
@@ -438,7 +454,7 @@ fn collect_documentclass_files(
     dir: &Path,
     depth: usize,
     candidates: &mut Vec<PathBuf>,
-    included: &mut HashSet<String>,
+    included: &mut HashMap<String, usize>,
 ) {
     const MAX_DEPTH: usize = 3;
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -465,12 +481,19 @@ fn collect_documentclass_files(
         // a document's root is overwhelmingly at the top level in practice — the `main.tex` fast
         // path above already covers the common case where it is not this file doing the
         // including. `build_graph` re-resolves properly once a root is actually chosen.
+        // How deep this file sits, so a target can remember its shallowest includer.
+        let includer_depth = path
+            .strip_prefix(root)
+            .map_or(0, |relative| relative.components().count());
         for directive in abstract_tex_includes::scan_includes(&text) {
             if let abstract_tex_includes::Directive::Include { argument, .. } = directive {
                 if let Some(target) =
                     abstract_tex_includes::resolve_include_argument(root, Path::new(""), &argument)
                 {
-                    included.insert(target);
+                    included
+                        .entry(target)
+                        .and_modify(|shallowest| *shallowest = (*shallowest).min(includer_depth))
+                        .or_insert(includer_depth);
                 }
             }
         }
@@ -614,6 +637,36 @@ mod tests {
         // because outer.tex includes it — a chapter that can also compile alone is still a
         // chapter, not the document (S4.1).
         assert_eq!(detect_root(dir.path()), Some(PathBuf::from("outer.tex")));
+    }
+
+    // E4. Two files that each `\input` the other exclude each other, and detection used to return
+    // nothing at all, so nothing compiled.
+    #[test]
+    fn two_files_that_include_each_other_still_yield_a_root() {
+        let dir = scaffold(&[
+            ("a.tex", "\\documentclass{article}\n\\input{b}\n"),
+            ("b.tex", "\\documentclass{article}\n\\input{a}\n"),
+        ]);
+        assert_eq!(detect_root(dir.path()), Some(PathBuf::from("a.tex")));
+    }
+
+    // E4. A draft in a subfolder that `\input`s the real root is not a reason to drop the root.
+    #[test]
+    fn a_deeper_file_including_a_shallower_one_does_not_exclude_it() {
+        let dir = scaffold(&[
+            ("paper.tex", "\\documentclass{article}\n"),
+            ("old/submission.tex", "\\documentclass{article}\n\\input{paper}\n"),
+        ]);
+        assert_eq!(detect_root(dir.path()), Some(PathBuf::from("paper.tex")));
+    }
+
+    #[test]
+    fn a_chapter_in_a_subfolder_included_from_above_is_still_not_a_root() {
+        let dir = scaffold(&[
+            ("thesis.tex", "\\documentclass{book}\n\\input{chapters/one}\n"),
+            ("chapters/one.tex", "\\documentclass{standalone}\n"),
+        ]);
+        assert_eq!(detect_root(dir.path()), Some(PathBuf::from("thesis.tex")));
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! Finds `\input`, `\include`, `\subfile` (and recognises `\import` only so its two-argument
-//! form is not silently ignored) directives in raw LaTeX source.
+//! Finds `\input`, `\include`, `\subfile` directives in raw LaTeX source, and recognises
+//! `\import`, `\subimport` and `\InputIfFileExists` only so they are not silently ignored.
 //!
 //! Text in, structured data out, nothing else: no filesystem access, so every case here is a
 //! plain unit test with a string literal rather than a temp directory. `graph.rs` is the module
@@ -20,7 +20,8 @@ pub enum Directive {
     /// Something that reads like an include directive but whose argument this scanner cannot
     /// resolve by itself: no braces at all (`\input foo`), a macro inside the braces
     /// (`\input{\chapdir/intro}`), or a command shape this crate does not model
-    /// (`\import{..}{..}`, which takes a base directory and a file rather than one path).
+    /// (`\import{..}{..}` and `\subimport{..}{..}`, which take a base directory and a file rather
+    /// than one path, and `\InputIfFileExists{..}{..}{..}`, whose last two arguments are code).
     ///
     /// Carrying the raw text, rather than dropping the line, is what lets `IncludeGraph` say
     /// honestly that it does not know the whole document (see `IncludeGraph::is_complete`).
@@ -37,9 +38,32 @@ impl Directive {
     }
 }
 
-/// Command names this scanner watches for. `\import` is here only so it is caught and reported
-/// as `Unparsed` rather than never being noticed at all.
-const COMMANDS: &[&str] = &["input", "include", "subfile", "import"];
+/// Command names this scanner watches for. The last three are here only so they are caught and
+/// reported as `Unparsed` rather than never being noticed at all (see [`unparsed_group_count`]).
+const COMMANDS: &[&str] = &[
+    "input",
+    "include",
+    "subfile",
+    "import",
+    "subimport",
+    "InputIfFileExists",
+];
+
+/// How many `{...}` groups an always-unparsed command takes, or `None` for a command this crate
+/// does model. Counting them is what keeps the scan from reading an `\input` that sits inside
+/// one of the arguments a second time.
+fn unparsed_group_count(command: &str) -> Option<usize> {
+    match command {
+        // `\import{base dir}{file}`: a directory, then a file inside it. A different resolution
+        // rule from `\input`'s, which this crate does not implement.
+        "import" | "subimport" => Some(2),
+        // `\InputIfFileExists{file}{if it exists}{if it does not}`: one path and two pieces of
+        // code. The path is plain, but what runs around it is not, and the graph claiming to know
+        // the document while a conditional load is invisible to it is the lie this crate refuses.
+        "InputIfFileExists" => Some(3),
+        _ => None,
+    }
+}
 
 /// Scan LaTeX source for include-like directives, each carrying its 1-based line number.
 ///
@@ -105,11 +129,9 @@ fn read_directive(
 ) -> (Directive, usize) {
     let after_ws = skip_spaces_and_tabs(text, after_command);
 
-    if command == "import" {
-        // `\import{base dir}{file}`: two arguments and a different resolution rule (the first
-        // names a directory, the second a file inside it) that this crate does not implement.
-        // Reporting it as unparsed is honest; guessing which of the two names a path is not.
-        return unparsed_through_argument_groups(text, command_start, after_ws, 2, line);
+    if let Some(groups) = unparsed_group_count(command) {
+        // Reporting it as unparsed is honest; guessing which argument names a path is not.
+        return unparsed_through_argument_groups(text, command_start, after_ws, groups, line);
     }
 
     if !text[after_ws..].starts_with('{') {
@@ -151,8 +173,9 @@ fn read_directive(
 }
 
 /// Reads `groups` consecutive `{...}` arguments (skipping whitespace between them) and reports
-/// the whole span, braces included, as one `Unparsed` directive. Used for `\import`, which this
-/// crate recognises only well enough to avoid silently dropping it.
+/// the whole span, braces included, as one `Unparsed` directive. Used for the commands
+/// [`unparsed_group_count`] lists, which this crate recognises only well enough to avoid silently
+/// dropping them.
 fn unparsed_through_argument_groups(
     text: &str,
     command_start: usize,
@@ -387,6 +410,47 @@ mod tests {
                 raw: "\\import{sections/}{intro}".into(),
                 line: 1
             }]
+        );
+    }
+
+    // E4: both read files, so a graph that cannot see them must say it does not know.
+    #[test]
+    fn subimport_is_always_unparsed_like_import() {
+        let directives = scan_includes("\\subimport{sections/}{intro}\n\\input{after}\n");
+        assert_eq!(
+            directives,
+            vec![
+                Directive::Unparsed {
+                    raw: "\\subimport{sections/}{intro}".into(),
+                    line: 1
+                },
+                Directive::Include {
+                    command: "input",
+                    argument: "after".into(),
+                    line: 2
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn input_if_file_exists_is_unparsed_through_all_three_of_its_arguments() {
+        // `\InputIfFileExists{file}{if it does}{if it does not}`: the two code arguments are not
+        // paths, and an `\input` inside one must not be reported a second time.
+        let directives = scan_includes("\\InputIfFileExists{local}{\\input{x}}{}\n\\input{after}\n");
+        assert_eq!(
+            directives,
+            vec![
+                Directive::Unparsed {
+                    raw: "\\InputIfFileExists{local}{\\input{x}}{}".into(),
+                    line: 1
+                },
+                Directive::Include {
+                    command: "input",
+                    argument: "after".into(),
+                    line: 2
+                },
+            ]
         );
     }
 

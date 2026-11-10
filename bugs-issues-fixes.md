@@ -377,6 +377,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   never-excluded candidates today.
   **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
   S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
+  **Fixed (10 Nov 2026):** an include only excludes a candidate when the including file is no deeper
+  than the candidate (so `old/submission.tex` including `paper.tex` no longer demotes it), and when the
+  rule would exclude every candidate it is ignored (two files that include each other now yield `a.tex`,
+  not nothing). Three tests in `project.rs`, one of them a guard that a subfolder chapter included from
+  above is still not a root.
 
 - **The include graph's depth cap drops nodes without recording anything.**
   (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs`'s `if depth >= MAX_DEPTH
@@ -389,6 +394,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   stops a branch, or the module doc's promise narrowed to say what it actually covers.
   **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
   S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
+  **Fixed (10 Nov 2026):** a new `Unresolved::DepthLimit { path }` is pushed for the file the walk
+  stopped expanding, so `is_complete()` is false. Tested with a forty-file chain.
 
 - **`build_graph`'s `root_relative` is not normalised before becoming the root node's path.**
   (S4.1, reviewer, 14 Sep 2026) `crates/preamble-includes/src/graph.rs:78-82` calls
@@ -404,6 +411,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   before they are ever stored.
   **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
   S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
+  **Fixed (10 Nov 2026):** `build_graph` normalises the root the way it normalises every argument, so
+  `./main.tex` and `main.tex` are one node and `graph.root` is `main.tex`. A root that climbs out of the
+  project cannot be normalised and is left as written.
 
 - **Includes reached only through a `.sty`/`.cls`, `\InputIfFileExists`, or `\subimport` are
   invisible *and* leave `is_complete() == true`.** (S4.1, reviewer, 14 Sep 2026) Verified:
@@ -423,6 +433,10 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   **Decided (2 Oct 2026, design interview E4):** `\InputIfFileExists` and `\subimport` are in the
   include-graph sweep card; following a `.sty`/`.cls` file's own `\input`s stays out of scope, as
   `\usepackage` already is, and the module doc is narrowed to say so.
+  **Fixed (10 Nov 2026):** `\subimport` (two groups) and `\InputIfFileExists` (three) are recognised and
+  reported as `Unparsed`, like `\import`, consuming their arguments so an `\input` inside one is not
+  reported twice. The graph therefore says it is incomplete instead of saying nothing. Following a
+  `.sty`/`.cls` stays out of scope and `graph.rs`'s module doc now says so.
 
 - **`documentFiles.includes(relative)` is a case-exact string match.**
   (S4.1, reviewer, 14 Sep 2026) `src/lib/paths.ts:40`'s `shouldCompileFor` compares `relative`
@@ -439,6 +453,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   listing `list_tree` already produces) rather than trusting the argument's spelling.
   **Decided (2 Oct 2026, design interview E4):** one sweep card fixes this together with the other
   S4.1 include-graph gaps (*Unplaced cards*, `SPRINTS.md`).
+  **Fixed (10 Nov 2026):** once a candidate is confirmed to exist, `on_disk_spelling` reads each
+  component's real name back from the directory listing. Only when the filesystem itself says the file
+  exists: on Linux `Sections/Intro` finds nothing, TeX would not find it either, and the graph must not
+  claim it did. The unit tests of the spelling run everywhere; the wiring test takes the branch the
+  host's filesystem takes, so **the case-insensitive branch has not run on this Linux machine** and will
+  first run on the Windows and macOS legs of CI.
 
 - **No test covers the S4.1 swap from `isTexSource` to `shouldCompileFor` in the controller.**
   (S4.1, reviewer, 14 Sep 2026) `src/lib/controller.svelte.ts:589`'s `handleFsEvent` now gates

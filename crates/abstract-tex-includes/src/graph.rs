@@ -8,7 +8,11 @@
 //! (`IncludeGraph::is_complete`).
 //!
 //! Out of scope on purpose (S4.1's card): `\includeonly` pruning, `\graphicspath`, macro
-//! expansion. A file `\includeonly` excludes from one build is still part of the document. The
+//! expansion, and reading a `.sty` or `.cls` file's own `\input`s — `\usepackage` is not
+//! followed, and neither is the file it names, so an `\input` inside a project's own style file
+//! is not in the graph and nothing says it might be (E4, 2 October 2026: the file is the
+//! package's business, not the document's). `\import`, `\subimport` and `\InputIfFileExists`
+//! are recognised and reported as unresolved rather than ignored. A file `\includeonly` excludes from one build is still part of the document. The
 //! graph does record which files are `\include`d ([`Chapter`], S9.7), because that is a fact
 //! about the document; choosing what a build leaves out is the engine's business.
 
@@ -51,6 +55,10 @@ pub enum Unresolved {
     /// The target is inside the project and was reached, but its content could not be read
     /// (permissions, or bytes that are not valid text), so the graph cannot see what it includes.
     Unreadable { path: String },
+    /// The walk reached [`MAX_DEPTH`] and stopped expanding this file, so whatever it includes is
+    /// not in the graph. Reported rather than dropped: a graph that silently ends is a graph that
+    /// says it is complete when it is not.
+    DepthLimit { path: String },
 }
 
 /// One `\include` in the document: a chapter in LaTeX's sense, the unit `\includeonly` selects.
@@ -117,6 +125,12 @@ impl IncludeGraph {
 /// for us is always the root file's directory), and it is why `sections/intro.tex`'s own
 /// `\input{sections/fig}` still means `sections/fig.tex`, not `sections/sections/fig.tex`.
 pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
+    // `./main.tex` and `main.tex` name one file, and a hand-edited `abstract-tex.toml` can carry
+    // either. The node's path is the key everything downstream compares against, so it is
+    // spelled one way. A root that climbs out of the project (`..`) cannot be normalised and is
+    // left as written; every file under it then resolves outside the project and is reported.
+    let root_relative = normalize_relative(root_relative).unwrap_or_else(|| root_relative.to_path_buf());
+    let root_relative = root_relative.as_path();
     let base_dir = root_relative.parent().map(Path::to_path_buf).unwrap_or_default();
     let root_path = to_forward_slashes(root_relative);
     let root_exists = project_dir.join(&root_path).is_file();
@@ -142,6 +156,7 @@ pub fn build_graph(project_dir: &Path, root_relative: &Path) -> IncludeGraph {
 
     while let Some((current_path, depth)) = queue.pop_front() {
         if depth >= MAX_DEPTH {
+            unresolved.push(Unresolved::DepthLimit { path: current_path });
             continue;
         }
         let Ok(text) = fs::read_to_string(project_dir.join(&current_path)) else {
@@ -247,7 +262,61 @@ pub fn resolve_include_argument(project_dir: &Path, base_dir: &Path, argument: &
         append_tex_extension(&literal)
     };
 
+    // Only when the filesystem itself says the file exists: on Windows and default macOS
+    // `Sections/Intro.tex` finds `sections/intro.tex` and the graph then records the disk's
+    // spelling, which is what the file watcher and the tree use. On Linux the same argument
+    // finds nothing — TeX would not find it either — and must stay as written, not be "corrected"
+    // into a file the build cannot open.
+    let candidate = if project_dir.join(&candidate).is_file() {
+        on_disk_spelling(project_dir, &candidate)
+    } else {
+        candidate
+    };
+
     Some(to_forward_slashes(&candidate))
+}
+
+/// `relative` spelled the way the directories on disk spell it: each component replaced by the
+/// real entry's name when one matches it ignoring case. A component with no match, and every
+/// component after it, is left as written — the part of the path that does not exist cannot be
+/// corrected, and guessing at it is how a graph starts lying.
+///
+/// An entry spelled exactly as written wins over one that differs only by case, because on a
+/// case-sensitive filesystem both can exist and the exact one is the one TeX would open.
+fn on_disk_spelling(project_dir: &Path, relative: &Path) -> PathBuf {
+    let mut spelled = PathBuf::new();
+    let mut directory = project_dir.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(written) = component else {
+            spelled.push(component);
+            continue;
+        };
+        let name = real_name_in(&directory, written).unwrap_or_else(|| written.to_os_string());
+        directory.push(&name);
+        spelled.push(&name);
+    }
+    spelled
+}
+
+/// The entry of `directory` whose name is `written`, or failing an exact match the first one that
+/// differs only by case. `None` when the directory cannot be listed or holds neither.
+///
+/// `OsStr`/`OsString` rather than `str`/`String`: a file name on disk is not always valid UTF-8,
+/// and these are only compared and handed back, never inspected.
+fn real_name_in(directory: &Path, written: &std::ffi::OsStr) -> Option<std::ffi::OsString> {
+    let entries = fs::read_dir(directory).ok()?;
+    let written_lowercase = written.to_string_lossy().to_lowercase();
+    let mut differs_only_by_case = None;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name == written {
+            return Some(name);
+        }
+        if differs_only_by_case.is_none() && name.to_string_lossy().to_lowercase() == written_lowercase {
+            differs_only_by_case = Some(name);
+        }
+    }
+    differs_only_by_case
 }
 
 /// Appends `.tex` to a path's file name — `data.2024` becomes `data.2024.tex`.
@@ -454,6 +523,117 @@ mod tests {
             resolve_include_argument(dir.path(), Path::new("sections"), "../main"),
             Some("main.tex".to_string())
         );
+    }
+
+    // ---- E4: the gaps S4.1's review found ----
+
+    #[test]
+    fn a_chain_deeper_than_the_cap_is_reported_not_silently_dropped() {
+        // f0 inputs f1, f1 inputs f2, ... f39 is the last: forty levels, past `MAX_DEPTH`.
+        let files: Vec<(String, String)> = (0..40)
+            .map(|i| (format!("f{i}.tex"), format!("\\input{{f{}}}\n", i + 1)))
+            .collect();
+        let borrowed: Vec<(&str, &str)> = files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let dir = scaffold(&borrowed);
+
+        let graph = build_graph(dir.path(), Path::new("f0.tex"));
+
+        assert!(
+            !graph.is_complete(),
+            "the graph does not know what is below the cap"
+        );
+        assert_eq!(
+            graph.unresolved,
+            vec![Unresolved::DepthLimit {
+                path: format!("f{MAX_DEPTH}.tex")
+            }]
+        );
+    }
+
+    #[test]
+    fn a_root_spelled_with_a_leading_dot_slash_is_the_same_node_as_without() {
+        let dir = scaffold(&[("main.tex", "\\input{a}\n"), ("a.tex", "\\input{main}\n")]);
+        let graph = build_graph(dir.path(), Path::new("./main.tex"));
+
+        assert_eq!(graph.root, "main.tex");
+        let paths: Vec<&str> = graph.nodes.iter().map(|n| n.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["main.tex", "a.tex"],
+            "a.tex's \\input{{main}} closes the cycle"
+        );
+    }
+
+    #[test]
+    fn a_root_in_a_folder_keeps_its_folder_as_the_base_of_its_includes_when_dot_slash_spelled() {
+        let dir = scaffold(&[("paper/main.tex", "\\input{body}\n"), ("paper/body.tex", "")]);
+        let graph = build_graph(dir.path(), Path::new("./paper/main.tex"));
+        assert_eq!(graph.root, "paper/main.tex");
+        assert_eq!(graph.nodes[1].path, "paper/body.tex");
+    }
+
+    mod on_disk_spelling_tests {
+        use super::*;
+
+        #[test]
+        fn a_wrong_case_directive_is_read_back_as_the_disk_spells_it() {
+            let dir = scaffold(&[("sections/intro.tex", "")]);
+            assert_eq!(
+                on_disk_spelling(dir.path(), Path::new("Sections/Intro.tex")),
+                PathBuf::from("sections/intro.tex")
+            );
+        }
+
+        #[test]
+        fn an_exact_spelling_is_returned_unchanged() {
+            let dir = scaffold(&[("sections/intro.tex", "")]);
+            assert_eq!(
+                on_disk_spelling(dir.path(), Path::new("sections/intro.tex")),
+                PathBuf::from("sections/intro.tex")
+            );
+        }
+
+        #[test]
+        fn the_part_of_the_path_that_does_not_exist_is_left_as_written() {
+            let dir = scaffold(&[("sections/intro.tex", "")]);
+            assert_eq!(
+                on_disk_spelling(dir.path(), Path::new("Sections/Missing.tex")),
+                PathBuf::from("sections/Missing.tex")
+            );
+        }
+
+        #[test]
+        fn an_exact_match_beats_a_case_insensitive_one() {
+            // Two entries differing only by case can exist on a case-sensitive filesystem; the
+            // one spelled exactly as written is the one TeX would open there.
+            let dir = scaffold(&[("a.tex", ""), ("A.tex", "")]);
+            assert_eq!(
+                on_disk_spelling(dir.path(), Path::new("A.tex")),
+                PathBuf::from("A.tex")
+            );
+        }
+    }
+
+    #[test]
+    fn a_directives_casing_becomes_the_disks_where_the_filesystem_agrees_the_file_exists() {
+        let dir = scaffold(&[
+            ("main.tex", "\\input{Sections/Intro}\n"),
+            ("sections/intro.tex", ""),
+        ]);
+        // Whether `Sections/Intro.tex` names the file is the filesystem's answer, not ours: yes
+        // on Windows and default macOS, no on Linux. The graph must follow that answer.
+        let filesystem_ignores_case = dir.path().join("SECTIONS/INTRO.TEX").is_file();
+
+        let graph = build_graph(dir.path(), Path::new("main.tex"));
+
+        if filesystem_ignores_case {
+            assert_eq!(graph.nodes[1].path, "sections/intro.tex");
+            assert!(graph.nodes[1].exists);
+        } else {
+            // TeX would not find it here either, so the graph must not claim it did.
+            assert_eq!(graph.nodes[1].path, "Sections/Intro.tex");
+            assert!(!graph.nodes[1].exists);
+        }
     }
 
     // ---- chapters (S9.7) ----
