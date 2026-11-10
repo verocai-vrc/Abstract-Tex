@@ -1786,6 +1786,13 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      the repository the same way. Fix: pass `-norc` (and test that a rc file in the project is
      ignored), and say in the design that a project may name a system engine but never its
      configuration.
+     **Fixed 10 Nov 2026.** `-norc` is the second argument of every `latexmk` run
+     (`latexmk.rs`, unit test over all three programs and both shell-escape modes), plus an
+     `#[ignore]`d test against the real program (`tests/latexmk.rs`,
+     `a_project_rc_file_is_never_run`) whose rc file plants a marker: it failed with the flag
+     removed (marker created) and passes with it. DESIGN.md §5.1 now says a project may name an
+     engine but never configure it. Side effect to know about: the user's own `~/.latexmkrc` is
+     skipped too, so a custom engine flag set there no longer applies.
   2. **R. `diff_ops` is slow on a large change, and runs on the UI thread.** The Myers character
      diff in `abstract-tex-reconcile` has no deadline. In release builds, a text of 81 KB with a
      third of its lines rewritten took 4.7 s, with every line rewritten 35 s, and a 244 KB case

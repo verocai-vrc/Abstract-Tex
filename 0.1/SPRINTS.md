@@ -7290,7 +7290,7 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 
 **Fix batch** (order: reproduced first, then by what the author would lose):
 
-- [ ] `R4.1` latexmk runs the project's `.latexmkrc` (add `-norc`).
+- [x] `R4.1` latexmk runs the project's `.latexmkrc` (add `-norc`). Done 10 November 2026; mutation-checked against the real program.
 - [ ] `R4.2` `diff_ops` has no deadline and runs on the UI thread; `R4.6` `applyExternal` gives up quietly.
 - [ ] `R3.1`, `R3.5` `texwords` panics (a backslash before a non-ASCII character; an unclosed heading brace).
 - [ ] `R3.2`, `R3.3` the citation guard misses `\textcquote`, `\blockcquote`, `\bibentry`, and learns the author's wrappers from the root's preamble only.
