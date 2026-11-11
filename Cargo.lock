@@ -23,6 +23,7 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "git2",
+ "glob",
  "notify",
  "notify-debouncer-full",
  "serde",

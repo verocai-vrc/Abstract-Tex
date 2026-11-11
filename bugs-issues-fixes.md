@@ -2050,3 +2050,29 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   frontend, `assistant.rs` and `assistant_explain.rs`, `tectonic.rs`, `incremental.rs` and `draft.rs`
   inside the engine crate, the correctness of the `texlog` rule catalog's wording, and the
   `texbib` parser beyond what the fuzzer reached.
+
+- **Agentic review, fifth pass (11 Nov 2026): the areas the fourth pass listed as unreviewed,
+  continued. Findings are logged as they are found; the fix batch follows the list.** Method as
+  before: read the code, then reproduce on the virtual display (`scripts/xvfb-app.sh`, a planted
+  crash report, a shim for `xdg-open`) where a screen can show it. R = reproduced, S = by reading.
+  Area 8 of 8 first: `lib.rs` start-up, `capabilities/default.json`, `tauri.conf.json`, the assets
+  scope, and `assistant.rs` / `assistant_explain.rs`.
+
+  1. **R. The app can never open the person's browser.** `capabilities/default.json` grants
+     `opener:allow-open-url`, which the plugin describes as "the open_url command *without any
+     pre-configured scope*", and with no scope every URL is refused (`ForbiddenUrl`). `opener:default`
+     (which adds `allow-default-urls`) was never granted. Both callers are affected: the GitHub
+     sign-in page (`openVerificationPage` swallows the error on purpose, because the code is on
+     screen, so the button just does nothing) and *Report on GitHub…* on the crash dialog. Reproduced
+     on the virtual display with a planted report: the dialog shows "Could not open your browser: Not
+     allowed to open url https://github.com/…/issues/new?title=…" and the `xdg-open` shim was never
+     called. S16.3's note said the opener was "not walked … the same call `openInBrowser` already
+     makes for the GitHub sign-in page"; neither call had ever been walked.
+     **Fixed 11 Nov 2026.** `capabilities/default.json` now grants `opener:allow-open-url` *with* an
+     address list: GitHub's device page and this project's new-issue page, nothing else (the opener's
+     own `default` would have allowed every web address and "reveal in folder"). New
+     `src-tauri/tests/capabilities.rs` reads the real file and matches the real addresses
+     (`crash::issue_url`'s output; the device page) with the plugin's own `glob` matching; two tests
+     were red first, and a third pins that other addresses (another repository, `http:`, `file:`,
+     a look-alike host) stay refused. Walked again on the virtual display: *Report on GitHub…* now
+     calls `xdg-open` with the full address and the report moves to `handled/`.

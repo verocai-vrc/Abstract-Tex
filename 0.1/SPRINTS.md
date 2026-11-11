@@ -7306,17 +7306,23 @@ in that pass's ledger entry (pass 1 and 2 have letters: `R1.a`...).
 - [x] `R1.1`..`R1.3` a branch switch during a live session; BibTeX warnings under `latexmk`; working-copy comparison (symlinks, size). Done 10 November 2026 (size: left, with a reason).
 - [~] The low and design notes: fixed `R3.16`, `R4.10`, `R4.12`, `R4.13`; `R3.13` (comments need the repository root, the new `project` module is unused: **needs a decision**), `R3.14` (comment identity is unauthenticated: a design note) and `R3.15` (the guard's plain-text rule misses `[12]`: a stated heuristic) are open, each with its reason in the ledger.
 
+**Fifth pass (11 November 2026)** reads the "not yet reviewed" areas below, one at a time; a ticked
+row there means the area was read and what it found is in the ledger's fifth-pass entry.
+`R5.<n>` is the finding's number in that entry.
+
+- [x] `R5.1` the app can never open the person's browser (the opener permission had no address list). Done 11 November 2026; walked on the virtual display.
+
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 
 - [ ] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`.
 - [ ] The SyncTeX frontend (`synctex.rs` glue and the click handlers).
-- [ ] `src-tauri/src/assistant.rs` and `assistant_explain.rs`.
+- [~] `src-tauri/src/assistant.rs` and `assistant_explain.rs`. Read 11 November 2026 (fifth pass); findings in the ledger.
 - [ ] The engine crate's `tectonic.rs`, `incremental.rs` and `draft.rs`.
 - [ ] The wording and the fixtures of the `texlog` rule catalog (the parsers were fuzzed, the explanations were not read).
 - [ ] The `texbib` parser beyond what the fuzzer reached, and `texbib`'s renderer's output against real BibTeX.
 - [ ] The frontend as a whole outside `document.ts`, `controller.svelte.ts`'s branch/tag/comparison code and `drawer.ts` (state modules, the Svelte components, the relay's live-session code).
-- [ ] `src-tauri/src/lib.rs` start-up, window and permission configuration (`capabilities/`), and the Tauri allowlist.
+- [~] `src-tauri/src/lib.rs` start-up, window and permission configuration (`capabilities/`), and the Tauri allowlist. Read 11 November 2026 (fifth pass); findings in the ledger, not all fixed.
 
 ---
 
