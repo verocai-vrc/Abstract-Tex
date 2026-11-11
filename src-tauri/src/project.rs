@@ -556,13 +556,24 @@ fn file_declares_documentclass(text: &str) -> bool {
 
 /// The file tree, folders first, case-insensitive order, ignoring what we never show.
 pub fn list_tree(dir: &Path) -> Vec<TreeNode> {
-    list_tree_inner(dir, dir)
+    list_tree_inner(dir, dir, &mut Vec::new())
 }
 
-fn list_tree_inner(root: &Path, dir: &Path) -> Vec<TreeNode> {
+/// `ancestors` holds the real (link-free) path of every folder above `dir` that is being listed, so a
+/// folder link that leads back to one of them is listed but not walked (review finding R5.23): a
+/// link back up the tree gives a walk with no end, and a repository can carry one. A link to a
+/// folder that is *not* an ancestor — a `chapters` link to a shared folder — is walked as before.
+fn list_tree_inner(root: &Path, dir: &Path, ancestors: &mut Vec<PathBuf>) -> Vec<TreeNode> {
+    // A folder that cannot be resolved is walked under its own spelling: that can only lose the
+    // protection for that one folder, never a file.
+    let real = fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if ancestors.contains(&real) {
+        return Vec::new();
+    }
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
     };
+    ancestors.push(real);
     let mut nodes: Vec<TreeNode> = entries
         .flatten()
         .filter_map(|entry| {
@@ -576,7 +587,7 @@ fn list_tree_inner(root: &Path, dir: &Path) -> Vec<TreeNode> {
             Some(TreeNode {
                 path: to_forward_slashes(rel),
                 children: if is_dir {
-                    list_tree_inner(root, &path)
+                    list_tree_inner(root, &path, ancestors)
                 } else {
                     Vec::new()
                 },
@@ -585,6 +596,7 @@ fn list_tree_inner(root: &Path, dir: &Path) -> Vec<TreeNode> {
             })
         })
         .collect();
+    ancestors.pop();
     nodes.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
@@ -735,6 +747,71 @@ mod tests {
         let inner: Vec<&str> = sections.children.iter().map(|n| n.name.as_str()).collect();
         assert_eq!(inner, vec!["A.tex", "b.tex"]);
         assert_eq!(sections.children[1].path, "sections/b.tex");
+    }
+
+    // Review finding R5.23. `list_tree` followed every folder link and recursed into it, and the
+    // kernel only stops a path after 40 links: one link back to its own folder gave an 82-node tree,
+    // two gave a tree of about 2^40 nodes, and opening such a project (a cloned repository can carry
+    // the links) hung the window for good, because opening builds the tree on the main thread.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_link_that_leads_back_up_the_tree_is_listed_once_and_not_followed() {
+        let dir = scaffold(&[("main.tex", ""), ("sections/a.tex", "")]);
+        std::os::unix::fs::symlink(".", dir.path().join("loop")).unwrap();
+        std::os::unix::fs::symlink("..", dir.path().join("sections/up")).unwrap();
+
+        let tree = list_tree(dir.path());
+
+        let looped = tree
+            .iter()
+            .find(|node| node.name == "loop")
+            .expect("the link is still listed");
+        assert!(
+            looped.children.is_empty(),
+            "a link back to an ancestor must not be walked"
+        );
+        let sections = tree.iter().find(|node| node.name == "sections").unwrap();
+        let up = sections
+            .children
+            .iter()
+            .find(|node| node.name == "up")
+            .expect("listed too");
+        assert!(up.children.is_empty());
+        let names: Vec<&str> = sections.children.iter().map(|node| node.name.as_str()).collect();
+        assert!(names.contains(&"a.tex"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn several_links_back_to_the_same_folder_still_finish() {
+        let dir = scaffold(&[("main.tex", "")]);
+        for index in 0..3 {
+            std::os::unix::fs::symlink(".", dir.path().join(format!("loop{index}"))).unwrap();
+        }
+        let path = dir.path().to_path_buf();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        // A thread and a deadline, so that if the walk ever blows up again this fails in seconds
+        // instead of hanging the test run.
+        std::thread::spawn(move || {
+            let _ = sender.send(list_tree(&path).len());
+        });
+        let top_level = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("list_tree did not finish: it is walking folder links in circles");
+        assert_eq!(top_level, 4, "main.tex and the three links");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_folder_elsewhere_in_the_project_is_still_shown_with_its_files() {
+        // The legitimate use: a chapters folder that is a link to a shared one. It is not an
+        // ancestor, so it is walked as before.
+        let dir = scaffold(&[("main.tex", ""), ("shared/chapter.tex", "")]);
+        std::os::unix::fs::symlink("shared", dir.path().join("chapters")).unwrap();
+        let tree = list_tree(dir.path());
+        let chapters = tree.iter().find(|node| node.name == "chapters").unwrap();
+        assert_eq!(chapters.children.len(), 1);
+        assert_eq!(chapters.children[0].name, "chapter.tex");
     }
 
     #[test]

@@ -2255,4 +2255,20 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       own `open` or `error`; an address that accepts nothing and answers nothing leaves *Share* and
       *Join* on "connecting…" for as long as the webview's own timeout, with no way to cancel. The
       server side has a handshake timeout since the second review pass. **Open.**
+  23. **R. Two folder links back to the project's own folder hang the app for good.** Opening a
+      project builds the file tree on the main thread, and `list_tree` recursed into every folder
+      link (`is_dir()` follows links); the kernel stops a path after 40 links, so one link back to
+      its own folder gives an 82-node tree and two give about 2^40 nodes. Measured with a probe: no
+      link 1 node in 20 µs, one link 82 nodes in 0.9 ms, two links did not finish in 150 s. A cloned
+      repository can carry such links (same door as R3.12 and R5.2); a freshly opened project that
+      hangs the window is the worst way to meet it. **Fixed 11 Nov 2026.** `list_tree_inner` keeps
+      the real path of every folder above the one it is listing and lists, without walking, a folder
+      link that leads back to one of them; a link to a folder that is not an ancestor (a `chapters`
+      link to a shared folder) is walked as before, and a test says so. Tests, behind a ten-second
+      deadline so a regression fails instead of hanging the run, red first. Walked in the real app on a project with two links to its own folder: it opens, lists `loopa` and `loopb` as empty folders, and builds.
+  24. **S (low). The tree is built whole, eagerly, for whatever folder is opened.** `list_tree`
+      reads every folder to the bottom and sends it as one JSON value, so opening a folder with a
+      very large data directory (hundreds of thousands of files; not `node_modules`, which is
+      skipped) costs seconds on the main thread and memory in the webview. The `.gitignore` is not
+      consulted. Not measured. **Open.**
 

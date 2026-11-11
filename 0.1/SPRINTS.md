@@ -7313,6 +7313,7 @@ row there means the area was read and what it found is in the ledger's fifth-pas
 - [x] `R5.1` the app can never open the person's browser (the opener permission had no address list). Done 11 November 2026; walked on the virtual display.
 - [x] `R5.10` a root file named `-shell-escape` turned shell escape on with no consent (reproduced in the real app). Done 11 November 2026; mutation-checked against the real `latexmk`; walked again.
 - [x] `R5.20`, `R5.21` a failed Join empties the document; a peer's colour is written into CSS unchecked. Done 11 November 2026 (the Join window's missing warning is open).
+- [x] `R5.23` folder links back to the project folder hang the app (the file tree walked them in circles). Done 11 November 2026; walked in the app.
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
