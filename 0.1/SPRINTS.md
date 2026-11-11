@@ -7318,7 +7318,7 @@ row there means the area was read and what it found is in the ledger's fifth-pas
 Open from the fifth pass (reasons and reproductions in the ledger; none is fixed yet):
 
 - [x] `R5.16` pasted entries break the build when a field holds `&`, `%`, `#` or `_`. Done 11 November 2026; built with real BibTeX and pdflatex, mutation-checked. Capital protection is not done.
-- [ ] `R5.14` a one-click fix edits the first occurrence on the line, not where TeX stopped (reproduced for `_`; the same shape in five more fixes).
+- [x] `R5.14` a one-click fix edited the first occurrence on the line, not where TeX stopped. Done 11 November 2026; anchored on the context's tail, and `locateFix` declines a `find` that appears twice.
 - [ ] `R5.6` SyncTeX does nothing when the project is opened through a symlink (reproduced at the crate boundary).
 - [ ] `R5.2` a project whose `.abstract-tex` is a link is written through; `R5.3` `read_file` reads any target, whole, on the main thread.
 - [ ] `R5.20` (decision) say in the Join window that the tab's text is replaced, and keep a copy; a join into an empty room leaves the tab empty and autosaved empty.

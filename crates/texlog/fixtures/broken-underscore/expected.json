@@ -4,8 +4,8 @@
     "file": "main.tex",
     "fix": {
       "description": "Escape as \\_",
-      "find": "_",
-      "replace": "\\_"
+      "find": "e is: the sample size n_",
+      "replace": "e is: the sample size n\\_"
     },
     "line": 5,
     "openFiles": [

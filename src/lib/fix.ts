@@ -28,6 +28,9 @@ export function locateFix(text: string, line: number, fix: Fix): LineEdit | null
   const lineText = lines[index]!;
   const column = lineText.indexOf(fix.find);
   if (column === -1) return null;
+  // Twice on the line: which one is the mistake is not known, and editing the first has rewritten the
+  // wrong place before (review finding R5.14). Silently doing nothing is the safe outcome.
+  if (lineText.indexOf(fix.find, column + 1) !== -1) return null;
   let lineStart = 0;
   for (let i = 0; i < index; i++) lineStart += lines[i]!.length + 1;
   return { from: lineStart + column, to: lineStart + column + fix.find.length, insert: fix.replace };

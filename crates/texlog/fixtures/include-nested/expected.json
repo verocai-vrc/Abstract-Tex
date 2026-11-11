@@ -4,8 +4,8 @@
     "file": "outer.tex",
     "fix": {
       "description": "Change to \\input",
-      "find": "\\include",
-      "replace": "\\input"
+      "find": "\\include{",
+      "replace": "\\input{"
     },
     "line": 1,
     "openFiles": [

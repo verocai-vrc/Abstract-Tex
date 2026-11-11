@@ -4,8 +4,8 @@
     "file": "main.tex",
     "fix": {
       "description": "Escape as \\&",
-      "find": "&",
-      "replace": "\\&"
+      "find": "Salt &",
+      "replace": "Salt \\&"
     },
     "line": 3,
     "openFiles": [

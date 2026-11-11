@@ -732,6 +732,24 @@ fn intact_tail(context: &str) -> &str {
     context.strip_prefix("...").unwrap_or(context)
 }
 
+/// How many characters at the end of the context a fix anchors on.
+const ANCHOR_CHARACTERS: usize = 24;
+
+/// The last [`ANCHOR_CHARACTERS`] characters of what TeX had read on the line, trailing blanks
+/// removed. TeX's context ends exactly where it stopped, so this is the culprit *and the words just
+/// before it*, which is what lets the caller find that spot on the source line rather than the
+/// first place the same symbol happens to appear (review finding R5.14). Cut on a character
+/// boundary, never inside one.
+fn anchor_tail(context: &str) -> &str {
+    let context = intact_tail(context).trim_end();
+    let start = context
+        .char_indices()
+        .rev()
+        .nth(ANCHOR_CHARACTERS - 1)
+        .map_or(0, |(index, _)| index);
+    &context[start..]
+}
+
 /// The command TeX choked on. It prints the source up to the offending token on the `l.NN`
 /// line, so the *last* control sequence on that line is the one it could not digest.
 fn trailing_command(context: Option<&String>) -> Option<String> {
@@ -771,12 +789,12 @@ fn explain_undefined_control_sequence(error: &QuickError) -> (String, String) {
 /// ([`fix_missing_dollar`]) so the two can never end up naming different symbols for the same
 /// error.
 fn detect_math_symbol(context: &str) -> Option<(&'static str, &'static str)> {
-    if context.ends_with('_') || context.contains('_') {
-        Some(("_", "subscript"))
-    } else if context.ends_with('^') || context.contains('^') {
-        Some(("^", "superscript"))
-    } else {
-        None
+    // The context ends at the token TeX could not take, so the symbol is the *last* character. A
+    // `_` somewhere earlier on the line (inside `\ref{sec_intro}`, say) is not the culprit.
+    match anchor_tail(context).chars().last() {
+        Some('_') => Some(("_", "subscript")),
+        Some('^') => Some(("^", "superscript")),
+        _ => None,
     }
 }
 
@@ -810,11 +828,14 @@ fn explain_missing_dollar(error: &QuickError) -> (String, String) {
 /// §5.2's own design rule is exactly this: a fix may only be automatic when it cannot be wrong,
 /// and escaping one known character always qualifies where guessing a span does not.
 fn fix_missing_dollar(error: &QuickError) -> Option<Fix> {
-    let (symbol, _name) = detect_math_symbol(error.context.as_deref().unwrap_or(""))?;
+    let context = error.context.as_deref().unwrap_or("");
+    let (symbol, _name) = detect_math_symbol(context)?;
+    // The anchor ends in the symbol; the replacement is the same words with that one symbol escaped.
+    let anchor = anchor_tail(context);
     Some(Fix {
         description: format!("Escape as \\{symbol}"),
-        find: symbol.to_string(),
-        replace: format!("\\{symbol}"),
+        find: anchor.to_string(),
+        replace: format!("{}\\{symbol}", &anchor[..anchor.len() - symbol.len()]),
     })
 }
 
@@ -908,11 +929,14 @@ fn explain_misplaced_alignment_tab(_error: &QuickError) -> (String, String) {
 /// escaping the one character TeX choked on. The explanation above already promises exactly
 /// this edit ("write `\&` instead"), so offering it as a button rather than only prose is no
 /// more of a guess than the sentence already was.
-fn fix_misplaced_alignment_tab(_error: &QuickError) -> Option<Fix> {
+fn fix_misplaced_alignment_tab(error: &QuickError) -> Option<Fix> {
+    // The context ends at the `&` TeX stopped on; an escaped `\&` earlier on the line is not it.
+    let anchor = anchor_tail(error.context.as_deref()?);
+    let before = anchor.strip_suffix('&')?;
     Some(Fix {
         description: "Escape as \\&".to_string(),
-        find: "&".to_string(),
-        replace: "\\&".to_string(),
+        find: anchor.to_string(),
+        replace: format!("{before}\\&"),
     })
 }
 
@@ -1006,9 +1030,9 @@ fn fix_illegal_unit_of_measure(error: &QuickError) -> Option<Fix> {
         return None;
     }
     let context = error.context.as_deref()?;
-    let start = context.rfind('{')? + 1;
-    let end = start + context[start..].find('}')?;
-    let value = &context[start..end];
+    let open = context.rfind('{')?;
+    let close = open + context[open..].find('}')?;
+    let value = &context[open + 1..close];
     if value.is_empty()
         || !value
             .chars()
@@ -1016,10 +1040,13 @@ fn fix_illegal_unit_of_measure(error: &QuickError) -> Option<Fix> {
     {
         return None;
     }
+    // Anchored on the command and its argument (`\vspace{1}`), through the closing brace.
+    let anchor = anchor_tail(&context[..=close]);
+    let before_brace = anchor.strip_suffix('}')?;
     Some(Fix {
         description: "Add pt".to_string(),
-        find: format!("{{{value}}}"),
-        replace: format!("{{{value}pt}}"),
+        find: anchor.to_string(),
+        replace: format!("{before_brace}pt}}"),
     })
 }
 
@@ -1253,10 +1280,13 @@ fn explain_fragile_command_in_moving_argument(error: &QuickError) -> (String, St
 /// nothing is honest there, since there is no command name to insert `\protect` before.
 fn fix_fragile_command_in_moving_argument(error: &QuickError) -> Option<Fix> {
     let command = trailing_command(error.context.as_ref())?;
+    // From the command to where TeX stopped, so it is *that* occurrence, not an earlier one.
+    let context = intact_tail(error.context.as_deref()?).trim_end();
+    let from_command = &context[context.rfind('\\')?..];
     Some(Fix {
         description: format!("Add \\protect before {command}"),
-        find: command.clone(),
-        replace: format!("\\protect{command}"),
+        find: from_command.to_string(),
+        replace: format!("\\protect{from_command}"),
     })
 }
 
@@ -1355,10 +1385,12 @@ fn explain_include_cannot_be_nested(_error: &QuickError) -> (String, String) {
 /// which file is being included, unlike [`fix_fragile_command_in_moving_argument`], which needs
 /// `context` to know *which* command to protect.
 fn fix_include_cannot_be_nested(_error: &QuickError) -> Option<Fix> {
+    // With the brace, so it cannot be read as the start of `\includegraphics`, `\includeonly` or
+    // `\includepdf`, which also begin with `\include` (review finding R5.14).
     Some(Fix {
         description: "Change to \\input".to_string(),
-        find: "\\include".to_string(),
-        replace: "\\input".to_string(),
+        find: "\\include{".to_string(),
+        replace: "\\input{".to_string(),
     })
 }
 
@@ -1434,18 +1466,17 @@ fn explain_duplicate_documentclass(_error: &QuickError) -> (String, String) {
 /// comment names for a different message shape). Handles `\documentstyle` too, since the
 /// message names both as the same mistake.
 fn fix_duplicate_documentclass(error: &QuickError) -> Option<Fix> {
-    let context = error.context.as_deref()?;
-    let command = if context.contains("\\documentclass") {
-        "\\documentclass"
-    } else if context.contains("\\documentstyle") {
-        "\\documentstyle"
-    } else {
-        return None;
-    };
+    let context = intact_tail(error.context.as_deref()?).trim_end();
+    // The last one on the line is the second class TeX objected to.
+    let at = ["\\documentclass", "\\documentstyle"]
+        .iter()
+        .filter_map(|command| context.rfind(command))
+        .max()?;
+    let from_command = &context[at..];
     Some(Fix {
         description: "Comment out this line".to_string(),
-        find: command.to_string(),
-        replace: format!("% {command}"),
+        find: from_command.to_string(),
+        replace: format!("% {from_command}"),
     })
 }
 
@@ -1541,6 +1572,78 @@ mod tests {
         );
     }
 
+    // Review finding R5.14. A fix's `find` is looked for on the diagnosed line, so one that is a bare
+    // symbol or command is applied to the first one on the line, not to the one TeX stopped at. TeX's
+    // context ends exactly at the culprit, so every fix anchors on the end of the context.
+    #[test]
+    fn the_underscore_fix_is_anchored_where_tex_stopped() {
+        let log = "! Missing $ inserted.\n<inserted text> \n                $\nl.4 ...wn in Section~\\ref{sec_intro}, the value a_\n                                                  n grows.\n";
+        let d = diagnostic_from(log, "missing-dollar");
+        let fix = d.fix.expect("an underscore at the end of the context has a fix");
+        let line = "As shown in Section~\\ref{sec_intro}, the value a_n grows.";
+        assert_eq!(
+            line.replacen(&fix.find, &fix.replace, 1),
+            "As shown in Section~\\ref{sec_intro}, the value a\\_n grows.",
+            "{fix:?}"
+        );
+        assert!(
+            line.matches(&fix.find).count() == 1,
+            "the anchor must be unique on the line: {fix:?}"
+        );
+    }
+
+    #[test]
+    fn the_symbol_named_is_the_one_tex_stopped_on_not_any_in_the_context() {
+        // An underscore earlier on the line, and a caret as the culprit.
+        let log = "! Missing $ inserted.\n<inserted text> \n                $\nl.4 See \\ref{sec_intro} then x^\n                       2 grows.\n";
+        let d = diagnostic_from(log, "missing-dollar");
+        assert_eq!(d.title, "^ used outside maths");
+        assert!(d.fix.expect("a fix").replace.ends_with("\\^"));
+    }
+
+    #[test]
+    fn a_missing_dollar_that_stops_on_something_else_names_no_symbol_and_offers_no_fix() {
+        let log = "! Missing $ inserted.\n<inserted text> \n                $\nl.4 See \\ref{sec_intro} and \\alpha\n                  more.\n";
+        let d = diagnostic_from(log, "missing-dollar");
+        assert_eq!(d.title, "A maths symbol used outside maths");
+        assert!(d.fix.is_none());
+    }
+
+    #[test]
+    fn the_ampersand_fix_escapes_the_bare_one_not_an_escaped_one_earlier() {
+        let log = "! Misplaced alignment tab character &.\nl.7 Tom \\& Jerry &\n                  Co.\n";
+        let d = diagnostic_from(log, "misplaced-alignment-tab");
+        let fix = d.fix.expect("a fix");
+        let line = "Tom \\& Jerry & Co.";
+        assert_eq!(
+            line.replacen(&fix.find, &fix.replace, 1),
+            "Tom \\& Jerry \\& Co.",
+            "{fix:?}"
+        );
+    }
+
+    #[test]
+    fn the_unit_fix_adds_pt_to_the_argument_tex_stopped_at() {
+        let log = "! Illegal unit of measure (pt inserted).\n<to be read again> \n                   \\relax \nl.9 \\textbf{1} then \\vspace{1}\n              \n";
+        let d = diagnostic_from(log, "illegal-unit-of-measure");
+        let fix = d.fix.expect("a fix");
+        let line = "\\textbf{1} then \\vspace{1}";
+        assert_eq!(
+            line.replacen(&fix.find, &fix.replace, 1),
+            "\\textbf{1} then \\vspace{1pt}",
+            "{fix:?}"
+        );
+    }
+
+    #[test]
+    fn the_nested_include_fix_cannot_match_includegraphics() {
+        let log = "! LaTeX Error: \\include cannot be nested.\n\nSee the LaTeX manual or LaTeX Companion for explanation.\nType  H <return>  for immediate help.\n ...                                              \nl.3 \\include{b}\n";
+        let d = diagnostic_from(log, "include-cannot-be-nested");
+        let fix = d.fix.expect("a fix");
+        assert!(!"\\includegraphics{a}".contains(&fix.find), "{fix:?}");
+        assert!("\\include{b}".contains(&fix.find), "{fix:?}");
+    }
+
     #[test]
     fn rule_1_undefined_control_sequence_names_the_command() {
         let log = "! Undefined control sequence.\nl.12 \\textbold\n              {Introduction}\n";
@@ -1592,8 +1695,9 @@ mod tests {
         let d = diagnostic_from(log, "missing-dollar");
         let fix = d.fix.expect("an underscore has an unambiguous escape fix");
         assert_eq!(fix.description, "Escape as \\_");
-        assert_eq!(fix.find, "_");
-        assert_eq!(fix.replace, "\\_");
+        // Anchored on the words before it, so it finds *this* underscore on the line (R5.14).
+        assert_eq!(fix.find, "The sample size n_");
+        assert_eq!(fix.replace, "The sample size n\\_");
     }
 
     #[test]
@@ -1601,8 +1705,8 @@ mod tests {
         let log = "! Missing $ inserted.\nl.9 the 3^\n";
         let d = diagnostic_from(log, "missing-dollar");
         let fix = d.fix.expect("a superscript has an unambiguous escape fix too");
-        assert_eq!(fix.find, "^");
-        assert_eq!(fix.replace, "\\^");
+        assert_eq!(fix.find, "the 3^");
+        assert_eq!(fix.replace, "the 3\\^");
     }
 
     #[test]
@@ -1777,8 +1881,8 @@ mod tests {
                 d.fix,
                 Some(Fix {
                     description: "Escape as \\&".to_string(),
-                    find: "&".to_string(),
-                    replace: "\\&".to_string(),
+                    find: "Salt &".to_string(),
+                    replace: "Salt \\&".to_string(),
                 })
             );
             assert_reads_like_a_sentence(&d);
@@ -1827,8 +1931,8 @@ mod tests {
                 d.fix,
                 Some(Fix {
                     description: "Add pt".to_string(),
-                    find: "{1}".to_string(),
-                    replace: "{1pt}".to_string(),
+                    find: "\\vspace{1}".to_string(),
+                    replace: "\\vspace{1pt}".to_string(),
                 })
             );
             assert_reads_like_a_sentence(&d);
@@ -1978,8 +2082,8 @@ mod tests {
                 d.fix,
                 Some(Fix {
                     description: "Add \\protect before \\footnote".to_string(),
-                    find: "\\footnote".to_string(),
-                    replace: "\\protect\\footnote".to_string(),
+                    find: "\\footnote{a note}}".to_string(),
+                    replace: "\\protect\\footnote{a note}}".to_string(),
                 })
             );
             assert_reads_like_a_sentence(&d);
@@ -2004,8 +2108,8 @@ mod tests {
                 d.fix,
                 Some(Fix {
                     description: "Change to \\input".to_string(),
-                    find: "\\include".to_string(),
-                    replace: "\\input".to_string(),
+                    find: "\\include{".to_string(),
+                    replace: "\\input{".to_string(),
                 })
             );
             assert_reads_like_a_sentence(&d);
@@ -2100,8 +2204,8 @@ mod tests {
                 d.fix,
                 Some(Fix {
                     description: "Comment out this line".to_string(),
-                    find: "\\documentclass".to_string(),
-                    replace: "% \\documentclass".to_string(),
+                    find: "\\documentclass{".to_string(),
+                    replace: "% \\documentclass{".to_string(),
                 })
             );
             assert_reads_like_a_sentence(&d);

@@ -4,8 +4,8 @@
     "file": "main.tex",
     "fix": {
       "description": "Add pt",
-      "find": "{1}",
-      "replace": "{1pt}"
+      "find": "\\vspace{1}",
+      "replace": "\\vspace{1pt}"
     },
     "line": 3,
     "openFiles": [

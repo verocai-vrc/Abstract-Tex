@@ -2184,7 +2184,18 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       underscore. DESIGN §5.2's rule is "a fix may only be offered when it cannot be wrong"; as built it
       can be. TeX's context ends exactly at the culprit, so the fix should anchor on the context's
       tail (a few characters ending at the symbol) and `locateFix` should decline when the anchor is
-      not found or not unique. **Open.**
+      not found or not unique.
+      **Fixed 11 Nov 2026.** `anchor_tail` in `texlog`: the last 24 characters of the context, which
+      ends where TeX stopped. `fix_missing_dollar`, `fix_misplaced_alignment_tab`,
+      `fix_illegal_unit_of_measure`, `fix_fragile_command_in_moving_argument` and
+      `fix_duplicate_documentclass` now find and replace *that* text (`e value a_` → `e value a\_`);
+      `fix_include_cannot_be_nested` finds `\include{`, which `\includegraphics{` cannot match. The
+      symbol the missing-dollar explanation names is the last character of the context, not any `_`
+      in it; with none it names no symbol and offers no fix. `locateFix` also declines when the
+      `find` appears twice on the line, the contract `texlog` always claimed. Tests, red first: six
+      in `rules.rs` (the reproduction among them), two in `fix.test.ts`; the six fixtures'
+      expected `fix` entries were rewritten (nothing else in them changed), and the older unit
+      tests that pinned the bare symbols now pin the anchors.
   15. **S (low). Wording that depends on the engine does not know it.** `explain_file_not_found` says
       the engine "downloads packages on demand … fetched the next time you build with a network
       connection" (true for the bundled Tectonic, false for a system `latexmk`, which needs the

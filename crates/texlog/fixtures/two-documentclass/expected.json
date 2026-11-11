@@ -4,8 +4,8 @@
     "file": "main.tex",
     "fix": {
       "description": "Comment out this line",
-      "find": "\\documentclass",
-      "replace": "% \\documentclass"
+      "find": "\\documentclass{",
+      "replace": "% \\documentclass{"
     },
     "line": 2,
     "openFiles": [

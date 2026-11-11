@@ -4,8 +4,8 @@
     "file": "main.tex",
     "fix": {
       "description": "Add \\protect before \\footnote",
-      "find": "\\footnote",
-      "replace": "\\protect\\footnote"
+      "find": "\\footnote{a note}}",
+      "replace": "\\protect\\footnote{a note}}"
     },
     "line": 3,
     "openFiles": [
