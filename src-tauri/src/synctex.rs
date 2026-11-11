@@ -96,15 +96,42 @@ fn synctex_path(build_dir: &Path, root_file: &Path) -> PathBuf {
     build_dir.join(format!("{stem}.synctex.gz"))
 }
 
+/// Forward search for `relative` (a project-relative path) in `table`.
+///
+/// Tried as the project spells its folder first, then with every link resolved: the engine records
+/// the folder it really ran in, while the project keeps the folder as the person opened it (on
+/// purpose not canonicalised, `Project::open`), and the two differ whenever the folder is reached
+/// through a link (review finding R5.6).
+pub fn forward_in_project(
+    table: &SyncTex,
+    project_root: &Path,
+    relative: &str,
+    line: u32,
+) -> Option<PdfPosition> {
+    let as_opened = project_root.join(relative);
+    if let Some(found) = table.forward_search(&as_opened, line) {
+        return Some(found);
+    }
+    // `canonicalize` fails for a file that is not there; then there is nothing more to try.
+    let resolved = as_opened.canonicalize().ok()?;
+    table.forward_search(&resolved, line)
+}
+
 /// Turn an inverse-search hit's absolute file back into a project-relative path, the shape the
 /// frontend's `DocumentManager` opens tabs by. `None` — not an error — when SyncTeX points
 /// outside the project folder (a package's own `.sty`, say): there is no tab to open for that,
 /// and the frontend's `InverseResult::file` being `None` says exactly that.
 pub fn to_relative(project_root: &Path, hit: SourceLocation) -> InverseResult {
+    // The engine's path may spell the project folder with its links resolved (R5.6, above), so the
+    // root is tried as opened and then resolved.
     let relative = hit
         .file
         .strip_prefix(project_root)
         .ok()
+        .or_else(|| {
+            let resolved_root = project_root.canonicalize().ok()?;
+            hit.file.strip_prefix(&resolved_root).ok()
+        })
         .map(|p| p.to_string_lossy().replace('\\', "/"));
     InverseResult {
         file: relative,
@@ -153,6 +180,37 @@ mod tests {
         };
         let result = to_relative(Path::new("/proj"), hit);
         assert_eq!(result.file, None);
+    }
+
+    // Review finding R5.6. The engine records the folder it really ran in (`getcwd`, links resolved)
+    // in the `.synctex.gz`; the project's `root_dir` is deliberately not canonicalised, so a project
+    // opened through a link (a mounted data disk, `~/thesis` pointing elsewhere, macOS `/tmp`) never
+    // matched, in either direction, and both searches silently did nothing.
+    #[cfg(unix)]
+    #[test]
+    fn both_searches_work_when_the_project_is_opened_through_a_link() {
+        let real = tempfile::tempdir().unwrap();
+        relocate_fixture_into(real.path());
+        // The searched file exists, as the document being edited does; resolving links needs the file.
+        std::fs::write(real.path().join("multi.tex"), "text\n").unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let through_link = elsewhere.path().join("thesis");
+        std::os::unix::fs::symlink(real.path(), &through_link).unwrap();
+        let table = open(real.path(), Path::new("multi.tex")).expect("the relocated fixture should open");
+
+        let position = forward_in_project(&table, &through_link, "multi.tex", 3)
+            .expect("forward search through the link finds the line the engine typeset");
+        let hit = table
+            .inverse_search(abstract_tex_synctex::PdfPosition {
+                page: position.page,
+                x: position.x,
+                y: position.y,
+            })
+            .expect("and the same point clicks back");
+
+        let result = to_relative(&through_link, hit);
+        assert_eq!(result.file.as_deref(), Some("multi.tex"));
+        assert_eq!(result.line, 3);
     }
 
     /// The whole S3.5 chain against `abstract-tex-synctex`'s own real fixture: `open` finds the

@@ -2114,7 +2114,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      path answers `None`; the inverse hit's file does not `strip_prefix` the linked root, so
      `to_relative` returns `file: None`. Both callers swallow it on purpose ("nothing typeset for this
      line"), so the feature just never works for that author. Fix: compare canonical forms on both
-     sides. **Open.**
+     sides.
+     **Fixed 11 Nov 2026.** `synctex::forward_in_project` tries the path as the project spells it
+     and then with every link resolved; `to_relative` tries the root as opened and then resolved;
+     `synctex_forward` uses the first. One test with a real fixture relocated into a folder reached
+     through a link, red first for the forward half, and the inverse half mutation-checked.
   7. **S. The explain request's scrub removes the project folder only**, although the comment on
      `without_project_path` says it is so "a path to the author's home folder or user name does not
      leave". Any other absolute path the log holds (a figure from `~/Pictures`, a package under

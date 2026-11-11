@@ -743,11 +743,11 @@ pub fn synctex_forward(state: State<'_, AppState>, query: ForwardQuery) -> Comma
         let root_file = project
             .root_file()
             .ok_or_else(|| anyhow::anyhow!("No root .tex file found."))?;
-        let source = project.resolve(&query.file)?;
+        // Checked as a path in the project (and not only joined): `resolve` refuses anything outside.
+        project.resolve(&query.file)?;
         let table =
             synctex::open(&synctex_dir(project, query.draft), &root_file).map_err(|e| anyhow::anyhow!(e))?;
-        table
-            .forward_search(&source, query.line)
+        synctex::forward_in_project(&table, &project.root_dir, &query.file, query.line)
             .map(ForwardResult::from)
             .ok_or_else(|| {
                 anyhow::anyhow!(
