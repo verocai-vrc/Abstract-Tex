@@ -7315,6 +7315,17 @@ row there means the area was read and what it found is in the ledger's fifth-pas
 - [x] `R5.20`, `R5.21` a failed Join empties the document; a peer's colour is written into CSS unchecked. Done 11 November 2026 (the Join window's missing warning is open).
 - [x] `R5.23` folder links back to the project folder hang the app (the file tree walked them in circles). Done 11 November 2026; walked in the app.
 
+Open from the fifth pass (reasons and reproductions in the ledger; none is fixed yet):
+
+- [ ] `R5.16` pasted entries break the build when a field holds `&`, `%`, `#` or `_` (reproduced with real BibTeX and pdflatex; "John Wiley & Sons" is the common case). Highest of these.
+- [ ] `R5.14` a one-click fix edits the first occurrence on the line, not where TeX stopped (reproduced for `_`; the same shape in five more fixes).
+- [ ] `R5.6` SyncTeX does nothing when the project is opened through a symlink (reproduced at the crate boundary).
+- [ ] `R5.2` a project whose `.abstract-tex` is a link is written through; `R5.3` `read_file` reads any target, whole, on the main thread.
+- [ ] `R5.20` (decision) say in the Join window that the tab's text is replaced, and keep a copy; a join into an empty room leaves the tab empty and autosaved empty.
+- [ ] `R5.4` the PDF pane has no text or link layer, against `DESIGN.md` §4; `R5.5` every page is rendered eagerly and the new PDF appears only when the last is done.
+- [ ] `R5.7`..`R5.9` the explain scrub removes the project folder only; a remembered explanation is trusted from a copied folder; opening a project reads the keychain.
+- [ ] Low: `R5.11` (`git lfs track` option names), `R5.12` (time limit per process), `R5.13` (a busy-file test flake), `R5.15` (engine-blind wording), `R5.18` (case-sensitive undefined citation), `R5.19` (empty or accent-stripped keys), `R5.22` (no client connect timeout), `R5.24` (eager tree).
+
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 
