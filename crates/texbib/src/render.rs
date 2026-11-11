@@ -8,6 +8,7 @@
 //! `abstract-tex-reconcile::diff_ops` uses so a caller can turn the result into a normal buffer edit
 //! rather than a raw filesystem write.
 
+use crate::tex_text::balance_braces;
 use crate::{Entry, Value, ValuePart};
 
 /// One field per line, aligned so every `=` lines up under the longest field name — the shape
@@ -48,7 +49,7 @@ pub fn render_entry(entry: &Entry) -> String {
 /// concatenated, which for the single-part case every real caller produces is just that part's
 /// text.
 fn render_value(value: &Value) -> String {
-    value
+    let joined: String = value
         .parts
         .iter()
         .map(|part| match part {
@@ -56,7 +57,11 @@ fn render_value(value: &Value) -> String {
             ValuePart::Number(digits) => digits.as_str(),
             ValuePart::Macro(name) => name.as_str(),
         })
-        .collect()
+        .collect();
+    // The value goes between braces, so a brace with no partner would end the field early or never
+    // (and take every later entry with it). Escaping the unpaired ones is the floor under whatever a
+    // caller already did to its text (review finding R5.16).
+    balance_braces(&joined)
 }
 
 /// `source` with `entry` appended after its last item, touching no other byte — the property
@@ -140,6 +145,26 @@ mod tests {
             "Attention Is All You Need"
         );
         assert_eq!(bib.resolve(&parsed.field("year").unwrap().value), "2017");
+    }
+
+    // Review finding R5.16: a value with a brace that has no partner would end the field early, or
+    // never, and lose every entry after it in the file.
+    #[test]
+    fn a_value_with_unpaired_braces_still_renders_a_file_that_parses() {
+        let mut entry = sample_entry();
+        entry.fields[0] = braced_field("title", "A } b { c");
+        let rendered = append_entry("@article{first, title = {One}}\n", &entry);
+        let bib = crate::parse(&rendered);
+        assert_eq!(bib.errors().count(), 0, "{rendered}");
+        assert_eq!(bib.entries().count(), 2, "{rendered}");
+        let title = bib.resolve(
+            &bib.entry("vaswani2017attention")
+                .unwrap()
+                .field("title")
+                .unwrap()
+                .value,
+        );
+        assert_eq!(title, r"A \textbraceright{} b \textbraceleft{} c");
     }
 
     #[test]

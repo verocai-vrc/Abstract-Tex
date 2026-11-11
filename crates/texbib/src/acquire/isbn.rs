@@ -13,6 +13,7 @@
 //! authors costs `2 + N` requests; this module accepts that cost for real names over one request
 //! for a jacket blurb, per the maintainer's own call when this trade-off surfaced.
 
+use crate::tex_text::escape_plain_text;
 use crate::{Entry, Field, Span, Value, ValuePart};
 
 /// Why an ISBN lookup failed.
@@ -103,14 +104,16 @@ fn fetch_isbn_with(isbn: &str, transport: &impl Transport) -> Result<Entry, Isbn
 
     let key = super::arxiv::generated_key(&authors, &year, &title);
 
+    // Open Library's text is plain text, not TeX, so everything TeX gives a meaning to is escaped;
+    // the key above is made from the text as the catalogue wrote it (review finding R5.16).
     let mut fields = vec![
-        field("title", &title),
-        field("author", &author_field),
+        field("title", &escape_plain_text(&title)),
+        field("author", &escape_plain_text(&author_field)),
         field("year", &year),
         field("isbn", &normalized),
     ];
     if let Some(publisher) = publisher {
-        fields.push(field("publisher", &publisher));
+        fields.push(field("publisher", &escape_plain_text(&publisher)));
     }
 
     Ok(Entry {
@@ -470,6 +473,97 @@ mod tests {
             entry.field("publisher").unwrap().value.parts,
             vec![ValuePart::Braced("The MIT Press".into())]
         );
+    }
+
+    // Review finding R5.16. Open Library's text is plain text, and BibTeX hands a field to TeX as
+    // it is: "John Wiley & Sons" in a `publisher` field is an alignment tab in the bibliography.
+    #[test]
+    fn plain_text_from_the_catalogue_is_escaped_for_tex() {
+        let edition = EDITION_REPLY
+            .replace("The MIT Press", "John Wiley & Sons")
+            .replace("Introduction to Algorithms", "Q&A: 100% of C# and a_b");
+        let transport = RoutedReplies(vec![
+            ("/isbn/9780262033848.json", Ok((200, edition))),
+            ("/works/OL4781294W.json", Ok((200, WORK_REPLY.to_string()))),
+            (
+                "/authors/OL1004780A.json",
+                Ok((200, AUTHOR_CORMEN_REPLY.to_string())),
+            ),
+        ]);
+        let entry = fetch_isbn_with("978-0-262-03384-8", &transport).expect("the recorded chain resolves");
+        assert_eq!(
+            entry.field("publisher").unwrap().value.parts,
+            vec![ValuePart::Braced(r"John Wiley \& Sons".into())]
+        );
+        assert_eq!(
+            entry.field("title").unwrap().value.parts,
+            vec![ValuePart::Braced(r"Q\&A: 100\% of C\# and a\_b".into())]
+        );
+        // The key is made from the text as the catalogue wrote it, not from the escapes.
+        assert!(entry.key.starts_with("cormen2009"), "{}", entry.key);
+        assert!(!entry.key.contains('\\'), "{}", entry.key);
+    }
+
+    /// The claim of finding R5.16 against the real tools: an entry made from text with `&`, `%`, `#`
+    /// and `_` in it builds (`pdflatex`, `bibtex`, `pdflatex`) with no error, and the bibliography
+    /// prints the characters. Before the escaping, the same entry stopped the second `pdflatex` with
+    /// "Misplaced alignment tab character &". Run with `cargo test -p texbib --features acquire --
+    /// --ignored`; skips with a printed line when `pdflatex` or `bibtex` is not installed.
+    #[test]
+    #[ignore]
+    fn an_entry_made_from_awkward_catalogue_text_builds_with_real_bibtex() {
+        use std::process::Command;
+        let installed = |program: &str| Command::new(program).arg("--version").output().is_ok();
+        if !installed("pdflatex") || !installed("bibtex") {
+            println!("SKIPPED: pdflatex or bibtex is not on PATH");
+            return;
+        }
+        let edition = EDITION_REPLY
+            .replace("The MIT Press", "John Wiley & Sons")
+            .replace("Introduction to Algorithms", "Q&A: 100% of C# and a_b");
+        let transport = RoutedReplies(vec![
+            ("/isbn/9780262033848.json", Ok((200, edition))),
+            ("/works/OL4781294W.json", Ok((200, WORK_REPLY.to_string()))),
+            (
+                "/authors/OL1004780A.json",
+                Ok((200, AUTHOR_CORMEN_REPLY.to_string())),
+            ),
+        ]);
+        let entry = fetch_isbn_with("978-0-262-03384-8", &transport).unwrap();
+        let folder = std::env::temp_dir().join(format!("texbib-real-bibtex-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("refs.bib"), crate::render_entry(&entry)).unwrap();
+        std::fs::write(
+            folder.join("t.tex"),
+            format!(
+                "\\documentclass{{article}}\n\\begin{{document}}\n\\cite{{{}}}\n\\bibliographystyle{{plain}}\n\\bibliography{{refs}}\n\\end{{document}}\n",
+                entry.key
+            ),
+        )
+        .unwrap();
+        let run = |program: &str, argument: &str| {
+            Command::new(program)
+                .args(if program == "pdflatex" {
+                    vec!["-interaction=nonstopmode", argument]
+                } else {
+                    vec![argument]
+                })
+                .current_dir(&folder)
+                .output()
+                .unwrap()
+        };
+        run("pdflatex", "t.tex");
+        run("bibtex", "t");
+        run("pdflatex", "t.tex");
+        let last = run("pdflatex", "t.tex");
+        let log = std::fs::read_to_string(folder.join("t.log")).unwrap_or_default();
+        let bbl = std::fs::read_to_string(folder.join("t.bbl")).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&folder);
+        assert!(
+            last.status.success() && !log.contains("\n! "),
+            "pdflatex stopped:\n{log}"
+        );
+        assert!(bbl.contains("John Wiley \\& Sons"), "{bbl}");
     }
 
     #[test]

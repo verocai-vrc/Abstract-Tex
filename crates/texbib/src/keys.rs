@@ -104,16 +104,65 @@ fn surname_of(author_field: &str) -> String {
     ascii_fold_lower(words.last().unwrap_or(&first))
 }
 
-fn ascii_fold_lower(text: &str) -> String {
-    text.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_lowercase())
-        .collect()
+/// Lower-case ASCII letters and digits only, with the common accented Latin letters folded to their
+/// plain ones (`Gonçalves` → `goncalves`) and anything else — punctuation, other scripts — dropped.
+/// A key must be something every BibTeX and Biber accepts, and a person must still be able to type
+/// it, which is why this folds rather than transliterates (`Müller` is `muller`, not `mueller`).
+pub(crate) fn ascii_fold_lower(text: &str) -> String {
+    let mut folded = String::with_capacity(text.len());
+    for character in text.chars().flat_map(char::to_lowercase) {
+        if character.is_ascii_alphanumeric() {
+            folded.push(character);
+        } else if let Some(plain) = plain_letter(character) {
+            folded.push_str(plain);
+        }
+    }
+    folded
+}
+
+/// The plain letters for one accented lower-case Latin letter, or `None` for any other character.
+/// The letters of Latin-1 and Latin Extended-A that names in Portuguese, Spanish, French, German,
+/// Polish, Czech and Turkish use; not a transliteration table for the world.
+fn plain_letter(character: char) -> Option<&'static str> {
+    Some(match character {
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
+        'ç' | 'ć' | 'č' => "c",
+        'ď' | 'đ' => "d",
+        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ę' | 'ě' => "e",
+        'ğ' => "g",
+        'ì' | 'í' | 'î' | 'ï' | 'ī' | 'ı' => "i",
+        'ł' => "l",
+        'ñ' | 'ń' | 'ň' => "n",
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' => "o",
+        'ř' => "r",
+        'ś' | 'š' | 'ş' => "s",
+        'ť' => "t",
+        'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' => "u",
+        'ý' | 'ÿ' => "y",
+        'ź' | 'ż' | 'ž' => "z",
+        'ß' => "ss",
+        'æ' => "ae",
+        'œ' => "oe",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Review finding R5.19: accented letters were dropped, so `Gonçalves` became `gonalves`.
+    #[test]
+    fn accented_letters_are_folded_to_their_plain_ones_and_other_scripts_are_dropped() {
+        assert_eq!(ascii_fold_lower("Gonçalves"), "goncalves");
+        assert_eq!(ascii_fold_lower("João"), "joao");
+        assert_eq!(ascii_fold_lower("Müller"), "muller");
+        assert_eq!(ascii_fold_lower("Łukasiewicz"), "lukasiewicz");
+        assert_eq!(ascii_fold_lower("Straße"), "strasse");
+        assert_eq!(ascii_fold_lower("Œuvres"), "oeuvres");
+        assert_eq!(ascii_fold_lower("O'Brien-Smith 2"), "obriensmith2");
+        assert_eq!(ascii_fold_lower("李明"), "");
+    }
     use crate::{Field, Span, Value, ValuePart};
 
     fn zero_span() -> Span {

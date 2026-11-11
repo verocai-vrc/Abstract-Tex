@@ -9,6 +9,7 @@
 //! (`src/lib/lsp-protocol.ts`), and safe here because arXiv's own feed is a fixed, documented
 //! shape this module does not need to parse in general.
 
+use crate::tex_text::repair_tex_text;
 use crate::{Entry, Field, Span, Value, ValuePart};
 
 /// Why an arXiv lookup failed. Each variant is the one sentence a caller should show the author.
@@ -131,16 +132,18 @@ fn entry_from_feed(body: &str) -> Option<Entry> {
     let id_with_version = entry_id.rsplit('/').next().unwrap_or(entry_id);
     let bare_id = strip_version_suffix(id_with_version);
 
+    // arXiv's text is written as TeX (`$\Lambda$CDM` is maths), so only its mistakes are escaped; the
+    // key above and below is made from the text as it came (review finding R5.16).
     let mut fields = vec![
-        field("title", &title),
-        field("author", &authors.join(" and ")),
+        field("title", &repair_tex_text(&title)),
+        field("author", &repair_tex_text(&authors.join(" and "))),
         field("year", year),
         field("eprint", bare_id),
         field("eprinttype", "arxiv"),
         field("url", &format!("https://arxiv.org/abs/{bare_id}")),
     ];
     if let Some(summary) = summary {
-        fields.push(field("abstract", &summary));
+        fields.push(field("abstract", &repair_tex_text(&summary)));
     }
 
     let key = generated_key(&authors, year, &title);
@@ -251,26 +254,14 @@ pub(super) fn generated_key(authors: &[String], year: &str, title: &str) -> Stri
         .split_whitespace()
         .find(|word| word.chars().any(char::is_alphanumeric))
         .unwrap_or("");
-    format!("{surname}{year}{}", ascii_fold_lower(first_word))
+    format!("{surname}{year}{}", crate::keys::ascii_fold_lower(first_word))
 }
 
 /// The last space-separated word of a full name (`"Ashish Vaswani"` -> `"vaswani"`), which is
 /// the common case arXiv's `<name>` and OpenLibrary's author records both use; a single-word
 /// corporate or mononymous name passes through as itself.
 fn surname_of(full_name: &str) -> String {
-    ascii_fold_lower(full_name.split_whitespace().last().unwrap_or(full_name))
-}
-
-/// Lower-cases and keeps only ASCII letters and digits — good enough for a key a BibTeX/Biber
-/// engine will accept everywhere, not an attempt at real transliteration (`Müller` becomes
-/// `mller`, not `mueller`); a health check or the author's own eye is the backstop, the same
-/// division of labour `texbib`'s own module doc already draws between this crate and its
-/// callers.
-fn ascii_fold_lower(text: &str) -> String {
-    text.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .map(|c| c.to_ascii_lowercase())
-        .collect()
+    crate::keys::ascii_fold_lower(full_name.split_whitespace().last().unwrap_or(full_name))
 }
 
 struct HttpTransport;
@@ -472,7 +463,23 @@ mod tests {
         let ValuePart::Braced(title) = &entry.field("title").unwrap().value.parts[0] else {
             panic!("expected a braced value")
         };
-        assert!(title.contains("l'art & plus"), "{title}");
+        // Decoded (`&amp;` is an ampersand), and then escaped, because the field is TeX: a bare `&`
+        // in a `.bib` title is an alignment tab in the `.bbl` (review finding R5.16).
+        assert!(title.contains(r"l'art \& plus"), "{title}");
+    }
+
+    #[test]
+    fn text_that_would_break_the_build_is_escaped_and_valid_tex_is_kept() {
+        let reply = ONE_AUTHOR_REPLY.replace("l'art", "Q&amp;A at 50% for $x_i$ with a_b {");
+        let transport = FixedReply(Ok((200, reply)));
+        let entry = fetch_arxiv_with("2101.00001", &transport).expect("the recorded reply parses");
+        let ValuePart::Braced(title) = &entry.field("title").unwrap().value.parts[0] else {
+            panic!("expected a braced value")
+        };
+        assert!(
+            title.contains(r"Q\&A at 50\% for $x_i$ with a\_b \textbraceleft{}"),
+            "{title}"
+        );
     }
 
     /// The one test in this file that reaches the real network. Run by hand with

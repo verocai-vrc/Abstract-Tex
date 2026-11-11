@@ -2203,7 +2203,20 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       fallback puts "Thomas H. Cormen ... [et al.]." in `author`, which BibTeX reads as one name.
       Fix: escape per source (Open Library is plain text: escape `& % # _ $ { } ~ ^ \`; arXiv is TeX:
       escape only an unescaped `& % #` outside `$…$` and balance braces), at acquisition, with tests
-      that build the result with real BibTeX. **Open.**
+      that build the result with real BibTeX.
+      **Fixed 11 Nov 2026.** New `texbib::tex_text`: `escape_plain_text` (Open Library: every TeX
+      special escaped; `{`, `}`, `\`, `~`, `^` become `\textbraceleft{}` and friends), `repair_tex_text`
+      (arXiv: valid TeX such as `$\Lambda$CDM` and `Q\&A` is left alone, a bare `& % #` or an `_`
+      outside maths is escaped, an odd number of `$` is read as text, and the function is idempotent),
+      and `balance_braces`, which `render_entry` applies to every value as the floor. Found while
+      writing it: BibTeX counts every brace and ignores a backslash before it, so `\{` does *not*
+      protect a lone brace; unpaired ones are replaced by the `\textbrace…{}` commands, not escaped.
+      The titles, authors, publishers and abstracts are escaped; the generated key is made from the
+      text as it came. Tests, red first: nine for the helpers, one each for arXiv, Open Library and
+      the renderer, and an ignored one that builds the result with real `pdflatex` and `bibtex`
+      (mutation-checked: with the escaping off it stops with "Misplaced alignment tab character &").
+      Not done: protecting capitals (`plain` still prints "q&a" for "Q&A") and the `by_statement`
+      author fallback.
   17. **Checked against real BibTeX (nine files, a field-dump `.bst`, the same input read by
       `texbib::parse`): no parser defect.** Strings, `#` concatenation, month macros, parenthesis
       delimiters, stray text, whitespace and newlines inside values, nested braces, odd keys and a
@@ -2224,7 +2237,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       documented simplification); a record whose author, year and first title word are all non-Latin
       (an Open Library entry with no `publish_date`) gives the key `""`, and `unique_key` does not
       treat an empty base as a collision, so `@book{,` is written. Fix: fold the common Latin
-      accents, and fall back to a fixed word (`ref`) when the base is empty. **Open.**
+      accents, and fall back to a fixed word (`ref`) when the base is empty.
+      **Fixed 11 Nov 2026 (the accent half); the empty-key half was a mistake in this entry.**
+      `ascii_fold_lower` (now shared by the arXiv and Open Library keys) folds the accented Latin
+      letters of Latin-1 and Latin Extended-A, so `Gonçalves` is `goncalves`; one test, mutation-
+      checked. An empty key cannot come out: `unique_key` recomputes from the fields when the key is
+      empty and falls back to `unknown`.
   20. **R. A failed *Join* empties the document it was meant to join.** `joinSession` cleared the open
       document (so the host's copy can arrive as ordinary remote updates) *before* it connected, and
       its `catch` only set the error sentence. With a relay that cannot be reached, a mistyped

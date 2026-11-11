@@ -41,6 +41,7 @@ pub mod health;
 pub mod keys;
 pub mod parse;
 pub mod render;
+mod tex_text;
 pub mod value;
 
 pub use keys::unique_key;
