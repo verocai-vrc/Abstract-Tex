@@ -2168,3 +2168,91 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       other tests in the same process fork: a child that inherits the write handle keeps the file
       busy. Fix when touched: retry the spawn on that error in the test helper, or write the script
       before any test thread starts. **Open.**
+  14. **R. A one-click fix can edit the wrong place, and leave the error where it was.** `locateFix`
+      (`src/lib/fix.ts`) replaces the *first* occurrence of the fix's `find` on the diagnosed line, and
+      several catalog fixes carry a `find` that is a bare symbol or command, not anchored to where TeX
+      stopped. Reproduced with a real `pdflatex` log for `As shown in Section~\ref{sec_intro}, the
+      value a_n grows.`: the rule is right (`missing-dollar`, "`_` used outside maths") and the fix is
+      `find "_"` → `\_`, so the button rewrites the `_` inside `\ref{sec_intro}` to `\ref{sec\_intro}`
+      — a new undefined-reference warning — and `a_n` is still broken. The same shape in the rest of
+      the catalog, by reading: `fix_misplaced_alignment_tab` (`find "&"`; on `Tom \& Jerry & Co` the
+      first `&` is the escaped one, giving `\\&`), `fix_illegal_unit_of_measure` (`find "{1}"` meets an
+      earlier `{1}` first), `fix_include_cannot_be_nested` (`\include` is also the start of
+      `\includegraphics`), `fix_duplicate_documentclass`. The same blindness in the *explanation*:
+      `detect_math_symbol` looks at the whole context (`contains('_')`) rather than at the character
+      TeX stopped on, so a line holding `\ref{sec_intro}` and a `^` error is explained as an
+      underscore. DESIGN §5.2's rule is "a fix may only be offered when it cannot be wrong"; as built it
+      can be. TeX's context ends exactly at the culprit, so the fix should anchor on the context's
+      tail (a few characters ending at the symbol) and `locateFix` should decline when the anchor is
+      not found or not unique. **Open.**
+  15. **S (low). Wording that depends on the engine does not know it.** `explain_file_not_found` says
+      the engine "downloads packages on demand … fetched the next time you build with a network
+      connection" (true for the bundled Tectonic, false for a system `latexmk`, which needs the
+      package installed), and sends a missing `.cls` or `.bst` through the "document includes" branch
+      ("resolved relative to the folder holding the main file"). **Open.**
+  16. **R. Entries made by paste-to-cite break the build when a field holds `&`, `%`, `#` or `_`, and
+      unbalanced braces are not checked.** `render_entry` writes every value as `{…}` verbatim, and
+      the acquirers copy their sources' text unchanged (arXiv: XML entities decoded, so `Q&amp;A`
+      becomes a bare `&`; Open Library: `publisher` as catalogued, and "John Wiley & Sons" is among the
+      commonest). BibTeX passes field text to the `.bbl` as TeX. Reproduced with real tools:
+      `render_entry` of `title = {Learning from Q&A: a 50% faster approach to x_i models}`, then
+      `pdflatex`, `bibtex`, `pdflatex` on a document citing it, fails with `! Misplaced alignment tab
+      character &` (and a bare `%` would swallow the rest of the line, a bare `_` is "Missing $
+      inserted"). The acquirers' own tests use titles with none of these. Also seen: `plain` lowercases
+      the title ("q&a"), because nothing protects a capital, which Better BibTeX does. The `by_statement`
+      fallback puts "Thomas H. Cormen ... [et al.]." in `author`, which BibTeX reads as one name.
+      Fix: escape per source (Open Library is plain text: escape `& % # _ $ { } ~ ^ \`; arXiv is TeX:
+      escape only an unescaped `& % #` outside `$…$` and balance braces), at acquisition, with tests
+      that build the result with real BibTeX. **Open.**
+  17. **Checked against real BibTeX (nine files, a field-dump `.bst`, the same input read by
+      `texbib::parse`): no parser defect.** Strings, `#` concatenation, month macros, parenthesis
+      delimiters, stray text, whitespace and newlines inside values, nested braces, odd keys and a
+      missing last comma all read the same. Differences, none a defect in the parser: (a) `@comment{…
+      @article{ghost,…} }` — BibTeX reads `ghost` as an entry, texbib treats the comment as one unit
+      (as Biber does); (b) a malformed entry (`\"` inside a quoted value, an unbalanced `\{`) is
+      dropped whole with a `ParseError`, where BibTeX salvages the key and the fields before the
+      error; (c) a field set to an undefined macro is present-but-empty for texbib and missing for
+      BibTeX; (d) two keys that differ only in case are both listed, where BibTeX skips the second as
+      a repeated entry (the E3 `.blg` rule reports it after a build; there is no health check for it).
+  18. **S (low). "Undefined citation" is an error when the key differs from the entry's only in case,
+      although BibTeX builds it.** `BibliographyIndex::entry` compares exactly ("the comparison that
+      is never wrong about an existing entry"), which is true for Biber and false for BibTeX, which
+      resolves `\cite{Smith2020}` to `@article{smith2020`. The app does not know which backend the
+      document uses. **Open.**
+  19. **S (low). Generated keys drop non-ASCII letters instead of folding them, and can come out
+      empty.** `ascii_fold_lower` keeps ASCII only (`Gonçalves` → `gonalves`, `João` → `jo`, a
+      documented simplification); a record whose author, year and first title word are all non-Latin
+      (an Open Library entry with no `publish_date`) gives the key `""`, and `unique_key` does not
+      treat an empty base as a collision, so `@book{,` is written. Fix: fold the common Latin
+      accents, and fall back to a fixed word (`ref`) when the base is empty. **Open.**
+  20. **R. A failed *Join* empties the document it was meant to join.** `joinSession` cleared the open
+      document (so the host's copy can arrive as ordinary remote updates) *before* it connected, and
+      its `catch` only set the error sentence. With a relay that cannot be reached, a mistyped
+      address, or a bad key, the tab ends up empty, and autosave writes the empty file to disk.
+      Reproduced with a controller test (`connect` rejecting; the document read `''` instead of
+      `'hello'`). Also found: `connect` left its socket open when the key import failed while the
+      socket opened. **Fixed 11 Nov 2026.** `LiveSession.connect` takes a `beforeSync` callback that
+      runs once the socket is open and the key is in hand, before the first message; `joinSession`
+      clears the document there; a failed connection closes its socket. Tests, red first: the
+      controller test above (and its twin, that a successful join still empties the document only at
+      that point), and two in `live-session.test.ts`. **Still open (a decision):** the Join window
+      does not say that the tab's text is replaced by the host's copy, and a join that connects but
+      finds nobody in the room (the host left, a wrong invite on a working relay) also leaves the tab
+      empty and autosaved empty. Either a confirmation naming the file, or a copy kept beside it.
+  21. **S, confirmed in the library. A peer's presence is drawn without being checked.**
+      y-codemirror.next writes a peer's `color` into `style="background-color: ${color}; border-color:
+      ${color}"` (and `colorLight` into the selection's `style`), and `RelayAwareness` applied the
+      peer's awareness update as it came. Anyone holding the invite is a peer, so `color: "red;
+      position: fixed; inset: 0; …"` turns the remote caret into an overlay over the whole window
+      (a `data:` image is allowed by the page's CSP, so it can show a picture). Reproduced across the
+      encrypted channel in a test: the receiving side's awareness state held `red; inset: 0`.
+      **Fixed 11 Nov 2026.** `sanitisePeerUpdate` decodes the update, keeps each `user` to a clean
+      name (control characters removed, 40 characters, `Anonymous` when empty) and two hex colours
+      (the default pair otherwise), skips a state that is not JSON, passes a `null` (a departure)
+      through, and applies nothing from an unreadable update. Six tests, red first; the colour check
+      is mutation-checked (a pattern that accepts everything fails two of them).
+  22. **S (low). The relay client has no connection timeout.** `waitForOpen` waits for the socket's
+      own `open` or `error`; an address that accepts nothing and answers nothing leaves *Share* and
+      *Join* on "connecting…" for as long as the webview's own timeout, with no way to cancel. The
+      server side has a handshake timeout since the second review pass. **Open.**
+

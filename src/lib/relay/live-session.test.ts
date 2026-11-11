@@ -17,6 +17,10 @@ class FakeWebSocket {
   static readonly OPEN = 1;
   static readonly CLOSED = 3;
   static created = 0;
+  /** Make the next sockets error instead of opening: a relay that cannot be reached. */
+  static failToOpen = false;
+  /** Messages sent so far, over every socket. */
+  static sent = 0;
 
   static rooms = new Map<string, FakeWebSocket[]>();
   binaryType = '';
@@ -35,6 +39,10 @@ class FakeWebSocket {
     // listener, and a microtask here would fire before any of that — unlike a real WebSocket's
     // handshake, which never resolves that fast regardless.
     setTimeout(() => {
+      if (FakeWebSocket.failToOpen) {
+        this.dispatch('error', {});
+        return;
+      }
       this.readyState = FakeWebSocket.OPEN;
       this.dispatch('open', {});
     }, 0);
@@ -53,6 +61,7 @@ class FakeWebSocket {
     if (this.readyState !== FakeWebSocket.OPEN) {
       throw new DOMException('WebSocket is not open', 'InvalidStateError');
     }
+    FakeWebSocket.sent += 1;
     for (const peer of FakeWebSocket.rooms.get(this.room) ?? []) {
       if (peer !== this) peer.dispatch('message', { data });
     }
@@ -94,7 +103,48 @@ describe('LiveSession', () => {
   afterEach(() => {
     FakeWebSocket.rooms.clear();
     FakeWebSocket.created = 0;
+    FakeWebSocket.failToOpen = false;
+    FakeWebSocket.sent = 0;
     vi.unstubAllGlobals();
+  });
+
+  // Review finding R5.20. *Join* used to empty the document before it knew a session would exist,
+  // so a relay that could not be reached left the author's file empty (and autosave wrote it). The
+  // document may only be touched once the socket is open — and before the first message goes out,
+  // which is the whole reason it is touched at all (`controller.joinSession`).
+  it('runs beforeSync once the socket is open and before anything is sent', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    const seen: Array<{ open: boolean; sent: number }> = [];
+    const session = await LiveSession.connect(
+      new Y.Doc(),
+      createInvite('fake-relay.example:1234'),
+      { name: 'Ada', color: '#30bced', colorLight: '#30bced33' },
+      undefined,
+      () => {
+        const [socket] = [...FakeWebSocket.rooms.values()].flat();
+        seen.push({ open: socket?.readyState === FakeWebSocket.OPEN, sent: FakeWebSocket.sent });
+      },
+    );
+    expect(seen).toEqual([{ open: true, sent: 0 }]);
+    await session.destroy();
+  });
+
+  it('never runs beforeSync when the relay cannot be reached', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    FakeWebSocket.failToOpen = true;
+    let called = false;
+    await expect(
+      LiveSession.connect(
+        new Y.Doc(),
+        createInvite('fake-relay.example:1234'),
+        { name: 'Ada', color: '#30bced', colorLight: '#30bced33' },
+        undefined,
+        () => {
+          called = true;
+        },
+      ),
+    ).rejects.toThrow('Could not reach the relay.');
+    expect(called).toBe(false);
   });
 
   it('two sessions on the same invite converge, see each other in awareness, and tear down cleanly', async () => {

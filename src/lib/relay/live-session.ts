@@ -163,14 +163,30 @@ export class LiveSession {
     this.setStatus('connected', null);
   }
 
+  /**
+   * `beforeSync`, when given, runs once the socket is open and the key is in hand, and before the
+   * first message goes out: the one moment a caller may still change the document knowing a session
+   * now exists (*Join* empties it here, so the host's copy arrives as ordinary remote updates). It
+   * never runs when the relay cannot be reached, so a failed attempt leaves the document untouched.
+   */
   static async connect(
     ydoc: Y.Doc,
     invite: Invite,
     presence: LocalPresence,
     retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+    beforeSync?: () => void,
   ): Promise<LiveSession> {
     const socket = new WebSocket(invite.relayUrl);
-    const [key] = await Promise.all([EncryptedChannel.importKey(invite.key), waitForOpen(socket)]);
+    let key: CryptoKey;
+    try {
+      [key] = await Promise.all([EncryptedChannel.importKey(invite.key), waitForOpen(socket)]);
+    } catch (error) {
+      // One of the two failed while the other may have succeeded: a socket that opened must not be
+      // left open with nobody holding it.
+      socket.close();
+      throw error;
+    }
+    beforeSync?.();
     const channel = new EncryptedChannel(socketChannel(socket), key);
     const session = new LiveSession(ydoc, invite, key, presence, channel, socket, retryDelaysMs);
     session.status = 'connected';

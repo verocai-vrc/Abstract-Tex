@@ -7312,17 +7312,18 @@ row there means the area was read and what it found is in the ledger's fifth-pas
 
 - [x] `R5.1` the app can never open the person's browser (the opener permission had no address list). Done 11 November 2026; walked on the virtual display.
 - [x] `R5.10` a root file named `-shell-escape` turned shell escape on with no consent (reproduced in the real app). Done 11 November 2026; mutation-checked against the real `latexmk`; walked again.
+- [x] `R5.20`, `R5.21` a failed Join empties the document; a peer's colour is written into CSS unchecked. Done 11 November 2026 (the Join window's missing warning is open).
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 
-- [ ] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`.
-- [ ] The SyncTeX frontend (`synctex.rs` glue and the click handlers).
+- [~] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`. The PDF viewer and pane were read 11 November 2026 (`R5.4`, `R5.5`); the editor extensions were not, apart from `math-preview.ts` (KaTeX with `trust` off: fine).
+- [x] The SyncTeX frontend (`synctex.rs` glue and the click handlers). Read 11 November 2026 (`R5.6`: nothing works through a symlinked project path).
 - [~] `src-tauri/src/assistant.rs` and `assistant_explain.rs`. Read 11 November 2026 (fifth pass); findings in the ledger.
 - [~] The engine crate's `tectonic.rs`, `incremental.rs` and `draft.rs`. Read 11 November 2026 (fifth pass); `R5.10` fixed, `R5.11`..`R5.13` open.
-- [ ] The wording and the fixtures of the `texlog` rule catalog (the parsers were fuzzed, the explanations were not read).
-- [ ] The `texbib` parser beyond what the fuzzer reached, and `texbib`'s renderer's output against real BibTeX.
-- [ ] The frontend as a whole outside `document.ts`, `controller.svelte.ts`'s branch/tag/comparison code and `drawer.ts` (state modules, the Svelte components, the relay's live-session code).
+- [~] The wording and the fixtures of the `texlog` rule catalog. The explanation and fix functions were read 11 November 2026 (`R5.14`, `R5.15`); the 51 fixtures were not read one by one.
+- [x] The `texbib` parser beyond what the fuzzer reached, and `texbib`'s renderer's output against real BibTeX. Done 11 November 2026: nine files against real BibTeX (no parser defect, `R5.17`); the renderer's output breaks the build for `&`, `%`, `#`, `_` (`R5.16`).
+- [~] The frontend as a whole outside `document.ts`, `controller.svelte.ts`'s branch/tag/comparison code and `drawer.ts`. Read so far (fifth pass): the relay's live-session code (`live-session.ts`, `provider.ts`, `channel.ts`, `awareness.ts`), the Join and Share flows, `fix.ts`, the PDF pane. **Not yet read:** the other state modules, the remaining components (`SourceControl.svelte`, `CloneWindow`, `NewProjectWindow`, `Drawer`, `ConflictResolver`, …), the editor extensions other than `math-preview`.
 - [~] `src-tauri/src/lib.rs` start-up, window and permission configuration (`capabilities/`), and the Tauri allowlist. Read 11 November 2026 (fifth pass); findings in the ledger, not all fixed.
 
 ---

@@ -1255,8 +1255,13 @@ export async function joinSession(): Promise<void> {
     // concatenates them instead of converging. Clearing first means this buffer's entire content
     // arrives as ordinary remote updates once the session answers back, the same path any later
     // edit takes, so there is exactly one way content gets into a joined document, not two.
-    doc.ytext.delete(0, doc.ytext.length);
-    const session = await LiveSession.connect(doc.ydoc, invite, currentPresence());
+    //
+    // "First" means after the socket is open and before the first message, not before connecting
+    // (review finding R5.20): clearing before knew a session would exist left the author's file
+    // empty — and autosaved empty — whenever the relay could not be reached.
+    const session = await LiveSession.connect(doc.ydoc, invite, currentPresence(), undefined, () =>
+      doc.ytext.delete(0, doc.ytext.length),
+    );
     attachLiveSession(path, session);
     live.joinVisible = false;
     live.joinInviteText = '';

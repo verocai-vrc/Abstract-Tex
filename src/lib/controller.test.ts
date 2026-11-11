@@ -683,6 +683,7 @@ const {
   startBranch,
   switchToBranch,
   startShare,
+  joinSession,
   leaveLiveSession,
   toggleBranchMenu,
   comparisonTitle,
@@ -4227,6 +4228,49 @@ describe('switching and starting branches (B4)', () => {
     leaveLiveSession('main.tex');
     connect.mockRestore();
     expect(await switchToBranch('second-draft')).toBe(true);
+  });
+
+  // Review finding R5.20. *Join* empties the open document so the host's copy can arrive as ordinary
+  // remote updates; it used to do so before connecting, so a relay that could not be reached left
+  // the author's file empty (and autosave wrote it).
+  it('leaves the document as it was when a join cannot reach the relay', async () => {
+    const { createInvite, inviteToText } = await import('./relay/invite');
+    const connect = vi.spyOn(LiveSession, 'connect').mockRejectedValue(new Error('Could not reach the relay.'));
+    const doc = app.docs.get('main.tex')!;
+    const before = doc.ytext.toString();
+    expect(before.length).toBeGreaterThan(0);
+    live.joinInviteText = inviteToText(createInvite('localhost:4444'));
+
+    await joinSession();
+
+    expect(live.joinError).toContain('Could not reach');
+    expect(doc.ytext.toString()).toBe(before);
+    connect.mockRestore();
+  });
+
+  it('empties the document for the host\'s copy only once the session is connected', async () => {
+    const { createInvite, inviteToText } = await import('./relay/invite');
+    const doc = app.docs.get('main.tex')!;
+    const seenAtConnection: string[] = [];
+    const connect = vi.spyOn(LiveSession, 'connect').mockImplementation(async (_ydoc, _invite, _presence, _delays, beforeSync) => {
+      seenAtConnection.push(doc.ytext.toString());
+      beforeSync?.();
+      return {
+        status: 'connected',
+        awareness: { awareness: null },
+        destroy: async () => {},
+        onStatusChange: undefined,
+        onPeersChange: undefined,
+      } as unknown as Awaited<ReturnType<typeof LiveSession.connect>>;
+    });
+    live.joinInviteText = inviteToText(createInvite('localhost:4444'));
+
+    await joinSession();
+
+    expect(seenAtConnection).toEqual(['hello']);
+    expect(doc.ytext.toString()).toBe('');
+    leaveLiveSession('main.tex');
+    connect.mockRestore();
   });
 
   it('does nothing for the branch that is already checked out', async () => {
