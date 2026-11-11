@@ -93,7 +93,7 @@ impl Tectonic {
             args.push("-Z".to_string());
             args.push(format!("search-path={}", job.out_dir.to_string_lossy()));
         }
-        args.push(job.root_file.to_string_lossy().into_owned());
+        args.push(crate::file_argument(&job.root_file));
         args
     }
 
@@ -339,6 +339,24 @@ mod tests {
         );
         let outdir_pos = args.iter().position(|a| a == "--outdir").unwrap();
         assert!(args[outdir_pos + 1].ends_with("build"));
+    }
+
+    /// Review finding R5.10. A root file named `-Zshell-escape` is, to Tectonic's argument parser,
+    /// the `-Z` option with the value `shell-escape`. It happens to leave no input and fail, but the
+    /// project must not get to choose what the last argument means.
+    #[test]
+    fn a_root_file_named_like_an_option_is_never_read_as_one() {
+        let dir = PathBuf::from("proj");
+        let mut hostile = job(&dir);
+        hostile.root_file = PathBuf::from("-Zshell-escape");
+        for single_pass in [false, true] {
+            let args = Tectonic::arguments(&hostile, single_pass);
+            assert_eq!(
+                args.last().map(String::as_str),
+                Some("./-Zshell-escape"),
+                "single_pass={single_pass}: {args:?}"
+            );
+        }
     }
 
     #[test]

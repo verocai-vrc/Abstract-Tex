@@ -7311,6 +7311,7 @@ row there means the area was read and what it found is in the ledger's fifth-pas
 `R5.<n>` is the finding's number in that entry.
 
 - [x] `R5.1` the app can never open the person's browser (the opener permission had no address list). Done 11 November 2026; walked on the virtual display.
+- [x] `R5.10` a root file named `-shell-escape` turned shell escape on with no consent (reproduced in the real app). Done 11 November 2026; mutation-checked against the real `latexmk`; walked again.
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
@@ -7318,7 +7319,7 @@ silence in the ledger as a clean bill):
 - [ ] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`.
 - [ ] The SyncTeX frontend (`synctex.rs` glue and the click handlers).
 - [~] `src-tauri/src/assistant.rs` and `assistant_explain.rs`. Read 11 November 2026 (fifth pass); findings in the ledger.
-- [ ] The engine crate's `tectonic.rs`, `incremental.rs` and `draft.rs`.
+- [~] The engine crate's `tectonic.rs`, `incremental.rs` and `draft.rs`. Read 11 November 2026 (fifth pass); `R5.10` fixed, `R5.11`..`R5.13` open.
 - [ ] The wording and the fixtures of the `texlog` rule catalog (the parsers were fuzzed, the explanations were not read).
 - [ ] The `texbib` parser beyond what the fuzzer reached, and `texbib`'s renderer's output against real BibTeX.
 - [ ] The frontend as a whole outside `document.ts`, `controller.svelte.ts`'s branch/tag/comparison code and `drawer.ts` (state modules, the Svelte components, the relay's live-session code).

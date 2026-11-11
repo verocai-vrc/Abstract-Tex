@@ -138,7 +138,7 @@ impl Latexmk {
             args.push("-synctex=1".to_string());
         }
         if !job.shell_escape {
-            args.push(job.root_file.to_string_lossy().into_owned());
+            args.push(crate::file_argument(&job.root_file));
             return Invocation {
                 working_dir: job.project_dir.clone(),
                 args,
@@ -366,6 +366,27 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a.starts_with("-outdir=") && a.ends_with("build")));
+    }
+
+    /// Review finding R5.10. The root file is the last argument and comes from the project's own
+    /// `abstract-tex.toml`, so a file named `-shell-escape` arrived as `latexmk`'s option: shell
+    /// escape on, with no consent, and (no file being named) every `.tex` in the folder built with it.
+    /// A name that starts with a dash must reach the program as a path.
+    #[test]
+    fn a_root_file_named_like_an_option_is_never_read_as_one() {
+        let mut hostile = job(false);
+        hostile.root_file = PathBuf::from("-shell-escape");
+        let args = args_for(&hostile);
+        assert!(
+            !args.iter().any(|argument| argument == "-shell-escape"),
+            "the root file is on the command line as an option: {args:?}"
+        );
+        assert_eq!(args.last().map(String::as_str), Some("./-shell-escape"));
+        // An ordinary name is passed exactly as before.
+        assert_eq!(
+            args_for(&job(false)).last().map(String::as_str),
+            Some("thesis.tex")
+        );
     }
 
     /// Review finding R4.1. `latexmk` reads `latexmkrc` and `.latexmkrc` from its working folder and

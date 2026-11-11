@@ -39,6 +39,23 @@ use tokio_util::sync::CancellationToken;
 /// `.clone()` it into a spawned task while `build()` keeps its own copy.
 pub type ProgressSink = UnboundedSender<String>;
 
+/// A file's path as one command-line argument that a program will read as a *file*, never as an
+/// option of its own.
+///
+/// A project chooses its root file's name (`abstract-tex.toml`, or a clone's own file names), and the
+/// root file goes last on the command line. A relative name that starts with a dash — `-shell-escape`
+/// — would then be an option to `latexmk`, which turns shell escape on with no consent (review finding
+/// R5.10, reproduced). A leading `./` makes the same name unambiguous and leaves every other path as
+/// it was. An absolute path already starts with a separator, so it needs nothing.
+pub(crate) fn file_argument(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy().into_owned();
+    if text.starts_with('-') {
+        format!("./{text}")
+    } else {
+        text
+    }
+}
+
 /// What `probe()` learns about an installed engine.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct EngineInfo {

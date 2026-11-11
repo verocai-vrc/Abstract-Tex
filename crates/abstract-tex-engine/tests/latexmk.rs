@@ -242,3 +242,44 @@ async fn a_project_rc_file_is_never_run() {
         );
     }
 }
+
+/// Review finding R5.10, against the real program. A root file named `-shell-escape` (the project
+/// chooses the name) used to reach `latexmk` as its own option: shell escape on, no consent given,
+/// and every `.tex` in the folder built with it. The sibling `main.tex` here would run a shell
+/// command if that happened; the build may fail (the "root" is not LaTeX) but the marker must not
+/// appear.
+///
+/// Reproduced before the fix, in this test and in the app.
+#[tokio::test]
+#[ignore]
+async fn a_root_file_named_like_an_option_does_not_turn_shell_escape_on() {
+    let engine = match Latexmk::locate(TexProgram::PdfLatex) {
+        Ok(engine) => engine,
+        Err(_) => {
+            println!("SKIPPED: latexmk or pdflatex is not on PATH");
+            return;
+        }
+    };
+    let outer = tempfile::tempdir().unwrap();
+    let project = outer.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let marker = outer.path().join("SHELL_ESCAPE_RAN");
+    fs::write(
+        project.join("main.tex"),
+        format!(
+            "\\documentclass{{article}}\n\\begin{{document}}\n\\immediate\\write18{{touch '{}'}}\nHello.\n\\end{{document}}\n",
+            marker.display()
+        ),
+    )
+    .unwrap();
+    fs::write(project.join("-shell-escape"), "not a document\n").unwrap();
+
+    let mut hostile = job(&project, false);
+    hostile.root_file = PathBuf::from("-shell-escape");
+    // The outcome is not the point (there is nothing sensible to build); the marker is.
+    let _ = engine.build(&hostile, CancellationToken::new(), None).await;
+    assert!(
+        !marker.exists(),
+        "a root file's name was read as latexmk's -shell-escape option"
+    );
+}

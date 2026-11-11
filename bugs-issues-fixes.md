@@ -2076,3 +2076,95 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      were red first, and a third pins that other addresses (another repository, `http:`, `file:`,
      a look-alike host) stay refused. Walked again on the virtual display: *Report on GitHub…* now
      calls `xdg-open` with the full address and the report moves to `handled/`.
+
+  2. **S. A project can make `.abstract-tex` a link, and the app then writes through it.**
+     `Project::open` does `create_dir_all(.abstract-tex/build)` and writes `.abstract-tex/.gitignore`
+     through whatever the name points at; `latexdiff` clears `.abstract-tex/latexdiff` before each
+     comparison; `open_project` widens the asset-protocol scope to that folder, and Tauri also
+     allows the link's *target*. A cloned repository can carry such a link (same door as R3.12). Not
+     reproduced; the symlink behaviour of `create_dir_all` is the whole of it. Fix: refuse, with a
+     sentence, a project whose `.abstract-tex` is a link. **Open.**
+  3. **S. `read_file` reads whatever the name points at, whole, on the UI thread.** `std::fs::read`
+     with no size ceiling and no check that the target is a regular file: a project file that is a
+     link to a FIFO or `/dev/zero`, or a 2 GB data file clicked in the tree, blocks or exhausts the
+     app (sync `#[tauri::command]` runs on the main thread). Whether the tree offers non-text files
+     to open is a frontend question (area 7 below). **Open.**
+  4. **S (design gap). The PDF pane has no text layer and no link layer.** `DESIGN.md` §4 chose
+     pdf.js because its "text layer gives us search, selection and copy for free"; `viewer.ts`
+     renders canvases only (no `TextLayer`, no annotation layer, no find controller anywhere in
+     `src/`). So text in the preview cannot be selected, copied or searched, and `\href`, `\url`,
+     `\ref`, `\cite` and table-of-contents links in the PDF do nothing. The comment on
+     `onInverseSearch` ("a single click inside the text layer is how pdf.js's own selection … already
+     work") describes something that is not there. Not a crash; a promise in the design that is not
+     kept and not recorded as deferred. **Open.**
+  5. **S. Every page is rendered eagerly, and the new PDF appears only when the last page is done.**
+     `viewer.ts` says so in its header ("a later loop, noted in SPRINTS.md") but SPRINTS.md has no
+     such note. Memory is a canvas per page at the screen's pixel ratio (about 5 MB a page at a ratio
+     of 2 in a 560-pixel pane, 22 MB at 4× zoom); the swap is at the end, so a long thesis shows the
+     old pages until the whole new set exists, which counts against the "<2 s warm recompile"
+     commitment as the author sees it. Ctrl+wheel re-fetches and re-renders everything on every
+     tick (older renders are cancelled by the token, so it is wasteful, not wrong). Also: a PDF that
+     fails halfway through rendering leaves its `PDFDocumentProxy` undestroyed. Not measured.
+     **Open.**
+  6. **R (at the crate boundary). SyncTeX forward and inverse search do nothing when the project is
+     opened through a symlink** (a mounted data disk, `~/thesis` → elsewhere, macOS `/tmp` and
+     `/var`). The engines record the folder TeX saw (`getcwd`, physical) in `Input:`; the app's
+     `root_dir` is `std::path::absolute` (logical, deliberately not canonicalised). Probe with a real
+     `latexmk` `.synctex.gz`: `forward_search` through the physical path answers, through the linked
+     path answers `None`; the inverse hit's file does not `strip_prefix` the linked root, so
+     `to_relative` returns `file: None`. Both callers swallow it on purpose ("nothing typeset for this
+     line"), so the feature just never works for that author. Fix: compare canonical forms on both
+     sides. **Open.**
+  7. **S. The explain request's scrub removes the project folder only**, although the comment on
+     `without_project_path` says it is so "a path to the author's home folder or user name does not
+     leave". Any other absolute path the log holds (a figure from `~/Pictures`, a package under
+     `~/.texlive`, a font cache) goes out with the user name in it. The payload dialog is always shown
+     for this request, so the author can see it, which is why this is low. `crash.rs` already has the
+     right tool (`scrub_home`). **Open.**
+  8. **S. A remembered explanation is trusted although the folder it lives in can come from someone
+     else.** `.abstract-tex/cache/explain/<hash>.json` is read back as "an answer to this same
+     problem from earlier on this computer" with no request made. The folder is self-ignoring in Git,
+     but a zipped project carries it, and the hash is computable. The effect is a planted sentence
+     shown as the assistant's. **Open (low).**
+  9. **S. Opening any project reads the OS keychain once a provider has ever been chosen**, on the UI
+     thread, whether or not the assistant is on for that project: `refreshAssistant` runs from
+     `openProject` and `assistant_status` computes `has_key` unconditionally. Where the keychain asks
+     for a password (macOS, a locked Secret Service) the prompt appears on every project open, for a
+     feature the author did not switch on, and a slow keychain stalls the window. The key is needed
+     only when the settings view is open or a request is about to be built. **Open.**
+  10. **R. A project's root file named `-shell-escape` turns shell escape on, with no consent.**
+      High. The engine builds the command line as `latexmk … <root file>`; the root comes from
+      `abstract-tex.toml` (`root = "…"`), checked only with `is_file()`, and it is passed bare. A file
+      named `-shell-escape` in a cloned repository, with `engine = "pdflatex"`, makes latexmk read the
+      last argument as its own option (and, with no file named, build every `.tex` in the folder with
+      `-shell-escape` on). Reproduced in the real app on the virtual display: the project's
+      `main.tex` carried `\immediate\write18{touch …}`, the app's own log shows
+      `args=["-pdf","-norc",…,"-synctex=1","-shell-escape"]` for a job whose consent was never given,
+      and the marker file existed after the project opened (the build runs on open). Same class as
+      R4.1 and the same door: the setting that selects the program arrives with the folder. Tectonic
+      is not exploitable this way (the lone positional is consumed as the option's value and the build
+      fails with a clap usage error), but a root file whose name starts with `-` also breaks it.
+      Fix at the engine boundary (a path that starts with `-` goes as `./<path>`), and refuse such a
+      root in the project model.
+      **Fixed 11 Nov 2026.** `file_argument` in the engine crate: a path that starts with `-` goes to
+      the program as `./<path>`; used for the root file by both engines (the draft wrapper and the
+      shell-escape-on path are already absolute or start with `.`). Three tests, each red first:
+      one per engine's argument list, and an ignored one against the real `latexmk` that fails when
+      the helper is switched off (mutation-checked) and passes with it. Walked in the real app on the
+      same hostile project: the spawn line now ends `./-shell-escape` and no marker appears. The
+      project model is left as it was (a root named `-x` still *builds*, and fails as a document):
+      the boundary is where a name becomes an argument, which is where the fix is.
+  11. **S (low). `git lfs track` gets project file names bare** (`lfs.rs`: `["lfs", "track", paths…]`),
+      so a large file whose name starts with a dash is read as an option (`--dry-run` would make the
+      call do nothing, `--lockable` changes the attributes written). Not reproduced (no `git-lfs` on
+      this machine); a `--` before the paths, if `git lfs track` accepts it, or `./` as above.
+      **Open.**
+  12. **S (low). The build time limit is per engine process, not per build.** A warm build runs up to
+      three single passes and then a full build, each with its own 15 minutes, so the longest build
+      the limit allows is an hour, not 15 minutes as the constant's comment says. **Open.**
+  13. **Test flake, seen once. `tectonic::tests::a_cancelled_cold_build_still_leaves_the_next_one_full`
+      failed with `ExecutableFileBusy` ("Text file busy")** in a full `cargo test -p
+      abstract-tex-engine --lib`, passed on three reruns. The test writes a script and runs it while
+      other tests in the same process fork: a child that inherits the write handle keeps the file
+      busy. Fix when touched: retry the spawn on that error in the test helper, or write the script
+      before any test thread starts. **Open.**
