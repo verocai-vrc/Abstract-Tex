@@ -712,7 +712,9 @@ export const ipc = {
   /** S10.4b: whose GitHub account this machine is signed in to, or `null`. A token GitHub no
    * longer accepts is forgotten rather than reported, so this answers `null` for it too. */
   /** S12.1b: the assistant's settings for this machine and the open project. Never the key. */
-  assistantStatus: () => invoke<AssistantStatus>('assistant_status'),
+  /** `includeKey`: whether to ask the OS keychain if a key is saved even for a project the assistant is
+   * off for. Only the settings view needs that; opening a project must not (it can prompt for a password). */
+  assistantStatus: (includeKey: boolean) => invoke<AssistantStatus>('assistant_status', { includeKey }),
   /** Choose a provider and, if `key` is given, keep it in the OS keychain. Rejects with a sentence
    * for an address the assistant cannot use. The key goes in and never comes back out. */
   assistantSaveProvider: (provider: AssistantProvider, key: string | null) =>

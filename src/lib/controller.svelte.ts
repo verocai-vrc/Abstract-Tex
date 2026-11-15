@@ -506,13 +506,15 @@ function say(message: string | null, isError = false): void {
 
 /** Read the settings for the open project. With no project there is nothing to switch on, so the
  * status is dropped and no entry point anywhere can appear. */
-export async function refreshAssistant(): Promise<void> {
+export async function refreshAssistant(includeKey = false): Promise<void> {
   if (!app.project) {
     assistant.status = null;
     return;
   }
   try {
-    assistant.status = await ipc.assistantStatus();
+    // `includeKey` only from the settings view: the OS keychain can ask for a password, so opening a
+    // project the assistant is off for must not touch it (review finding R5.9).
+    assistant.status = await ipc.assistantStatus(includeKey);
   } catch (error) {
     assistant.status = null;
     say(String(error), true);
@@ -522,7 +524,7 @@ export async function refreshAssistant(): Promise<void> {
 /** The view just opened, or the project changed: form back to what is saved, last message gone. */
 export async function openAssistantSettings(): Promise<void> {
   say(null);
-  await refreshAssistant();
+  await refreshAssistant(true);
   resetForm();
 }
 
@@ -537,7 +539,7 @@ export async function saveAssistantSettings(): Promise<void> {
     await ipc.assistantSaveProvider(provider, assistant.keyInput.trim() || null);
     assistant.keyInput = ''; // sent; nothing here keeps it
     say('Saved.');
-    await refreshAssistant();
+    await refreshAssistant(true);
   } catch (error) {
     say(String(error), true);
   } finally {
@@ -549,7 +551,7 @@ export async function forgetAssistantKey(): Promise<void> {
   try {
     await ipc.assistantClearKey();
     say('The key was removed from this computer’s keychain.');
-    await refreshAssistant();
+    await refreshAssistant(true);
   } catch (error) {
     say(String(error), true);
   }
@@ -559,7 +561,7 @@ export async function setAssistantEnabled(enabled: boolean): Promise<void> {
   try {
     await ipc.assistantSetEnabled(enabled);
     say(null);
-    await refreshAssistant();
+    await refreshAssistant(true);
   } catch (error) {
     say(String(error), true);
   }
@@ -718,7 +720,7 @@ export async function setAssistantInspectFirst(inspectFirst: boolean): Promise<v
   try {
     await ipc.assistantSetInspectFirst(inspectFirst);
     say(null);
-    await refreshAssistant();
+    await refreshAssistant(true);
   } catch (error) {
     say(String(error), true);
   }

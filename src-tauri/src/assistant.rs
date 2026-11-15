@@ -103,6 +103,12 @@ impl AssistantSettings {
             .map_err(|error| format!("Could not save the assistant's settings: {error}"))
     }
 
+    /// The settings file's own path: what the app folder's other files for the assistant are placed
+    /// beside (the explanations' memory, `assistant_explain.rs`).
+    pub fn file(&self) -> &Path {
+        &self.file
+    }
+
     pub fn provider(&self) -> Option<Provider> {
         self.read().provider
     }
@@ -134,18 +140,26 @@ fn probe_prompt() -> Prompt {
     }
 }
 
-/// The settings as the window sees them, for the open project (or none).
+/// The settings as the window sees them, for the open project (or none). `include_key` says the
+/// caller needs to know whether a key is saved even when the assistant is off for the project.
 pub fn status(
     settings: &AssistantSettings,
     keys: &dyn KeyStore,
     project_dir: Option<&Path>,
+    include_key: bool,
 ) -> Result<AssistantStatus, String> {
     let provider = settings.provider();
-    let has_key = match &provider {
-        Some(provider) => keys.read(&provider.key_slot()).map_err(sentence)?.is_some(),
-        None => false,
-    };
     let enabled = project_dir.is_some_and(|dir| settings.is_enabled_for(dir));
+    // The keychain may ask the person for a password, and this runs on the main thread. So it is read
+    // only when the answer is used: the settings view says whether a key is saved (`include_key`), and
+    // a project the assistant is on for needs it to know whether the assistant is ready. Opening any
+    // other project does not touch it (review finding R5.9); `has_key` is then `false`, not "known".
+    let has_key = match &provider {
+        Some(provider) if include_key || enabled => {
+            keys.read(&provider.key_slot()).map_err(sentence)?.is_some()
+        }
+        _ => false,
+    };
     Ok(AssistantStatus {
         provider,
         has_key,
@@ -243,8 +257,14 @@ pub fn assistant_status(
     state: State<'_, AppState>,
     settings: State<'_, AssistantSettings>,
     keys: State<'_, AssistantKeys>,
+    include_key: bool,
 ) -> CommandResult<AssistantStatus> {
-    status(&settings, keys.0.as_ref(), open_project_dir(&state).as_deref())
+    status(
+        &settings,
+        keys.0.as_ref(),
+        open_project_dir(&state).as_deref(),
+        include_key,
+    )
 }
 
 #[tauri::command]
@@ -314,11 +334,70 @@ mod tests {
         Provider::openai_compatible("http://localhost:11434/v1", "llama3")
     }
 
+    /// A key store that counts how often it is asked: the OS keychain can prompt for a password.
+    #[derive(Default)]
+    struct CountingKeys {
+        inner: MemoryKeyStore,
+        reads: std::sync::atomic::AtomicUsize,
+    }
+
+    impl KeyStore for CountingKeys {
+        fn save(&self, slot: &str, key: &str) -> Result<(), AssistantError> {
+            self.inner.save(slot, key)
+        }
+        fn read(&self, slot: &str) -> Result<Option<String>, AssistantError> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.inner.read(slot)
+        }
+        fn clear(&self, slot: &str) -> Result<(), AssistantError> {
+            self.inner.clear(slot)
+        }
+    }
+
+    // Review finding R5.9. Opening any project asked the keychain (on the main thread) once a provider
+    // had ever been chosen, for a feature that is off for that project. Where the keychain asks for a
+    // password, that prompt came with every project the author opened.
+    #[test]
+    fn the_keychain_is_asked_only_when_the_answer_is_needed() {
+        let (_config, settings) = settings();
+        let keys = CountingKeys::default();
+        save_provider(
+            &settings,
+            &keys,
+            Provider::anthropic("claude-x"),
+            Some("sk-one".into()),
+        )
+        .unwrap();
+        let reads = || keys.reads.load(std::sync::atomic::Ordering::SeqCst);
+        let project = Path::new("/work/thesis");
+
+        // Opening a project the assistant is off for: no read.
+        let before = reads();
+        let shown = status(&settings, &keys, Some(project), false).unwrap();
+        assert_eq!(
+            reads(),
+            before,
+            "a project the assistant is off for must not cost a keychain read"
+        );
+        assert!(!shown.has_key, "unread, so not claimed");
+
+        // The settings view asks for it.
+        let shown = status(&settings, &keys, Some(project), true).unwrap();
+        assert!(shown.has_key);
+        assert_eq!(reads(), before + 1);
+
+        // A project it is on for needs the key to say whether the assistant is ready.
+        set_enabled(&settings, project, true).unwrap();
+        let shown = status(&settings, &keys, Some(project), false).unwrap();
+        assert!(shown.has_key);
+        assert_eq!(reads(), before + 2);
+    }
+
     #[test]
     fn nothing_is_chosen_and_nothing_is_on_until_someone_says_so() {
         let (_config, settings) = settings();
         let keys = MemoryKeyStore::default();
-        let status = status(&settings, &keys, Some(Path::new("/work/thesis"))).unwrap();
+        let status = status(&settings, &keys, Some(Path::new("/work/thesis")), true).unwrap();
         assert_eq!(
             status,
             AssistantStatus {
@@ -343,7 +422,7 @@ mod tests {
         )
         .unwrap();
 
-        let shown = status(&settings, &keys, None).unwrap();
+        let shown = status(&settings, &keys, None, true).unwrap();
         assert_eq!(shown.provider, Some(provider.clone()));
         assert!(shown.has_key);
         assert_eq!(
@@ -414,7 +493,7 @@ mod tests {
         let (_config, settings) = settings();
         let keys = MemoryKeyStore::default();
         save_provider(&settings, &keys, local_model(), None).unwrap();
-        assert!(!status(&settings, &keys, None).unwrap().has_key);
+        assert!(!status(&settings, &keys, None, true).unwrap().has_key);
 
         save_provider(
             &settings,
@@ -423,17 +502,17 @@ mod tests {
             Some("sk-one".into()),
         )
         .unwrap();
-        assert!(status(&settings, &keys, None).unwrap().has_key);
+        assert!(status(&settings, &keys, None, true).unwrap().has_key);
         clear_key(&settings, &keys).unwrap();
         clear_key(&settings, &keys).unwrap();
-        assert!(!status(&settings, &keys, None).unwrap().has_key);
+        assert!(!status(&settings, &keys, None, true).unwrap().has_key);
     }
 
     #[test]
     fn requests_are_shown_first_until_the_person_says_otherwise_and_an_old_file_means_yes() {
         let (_config, settings) = settings();
         let keys = MemoryKeyStore::default();
-        assert!(status(&settings, &keys, None).unwrap().inspect_first);
+        assert!(status(&settings, &keys, None, true).unwrap().inspect_first);
 
         // A settings file written before this option existed.
         fs::create_dir_all(settings.file.parent().unwrap()).unwrap();
@@ -444,7 +523,7 @@ mod tests {
         );
 
         set_inspect_first(&settings, false).unwrap();
-        assert!(!status(&settings, &keys, None).unwrap().inspect_first);
+        assert!(!status(&settings, &keys, None, true).unwrap().inspect_first);
         assert!(
             settings.is_enabled_for(Path::new("/work/thesis")),
             "the other choices are kept"
@@ -461,19 +540,19 @@ mod tests {
         set_enabled(&settings, thesis, true).unwrap();
         set_enabled(&settings, thesis, true).unwrap();
 
-        assert!(status(&settings, &keys, Some(thesis)).unwrap().enabled);
+        assert!(status(&settings, &keys, Some(thesis), true).unwrap().enabled);
         assert!(
-            !status(&settings, &keys, Some(Path::new("/work/thesis-clone")))
+            !status(&settings, &keys, Some(Path::new("/work/thesis-clone")), true)
                 .unwrap()
                 .enabled,
             "a copy elsewhere starts off"
         );
         assert!(
-            !status(&settings, &keys, Some(Path::new("/work")))
+            !status(&settings, &keys, Some(Path::new("/work")), true)
                 .unwrap()
                 .enabled
         );
-        assert!(!status(&settings, &keys, None).unwrap().enabled);
+        assert!(!status(&settings, &keys, None, true).unwrap().enabled);
         assert_eq!(
             fs::read_to_string(&settings.file)
                 .unwrap()
@@ -484,7 +563,7 @@ mod tests {
         );
 
         set_enabled(&settings, thesis, false).unwrap();
-        assert!(!status(&settings, &keys, Some(thesis)).unwrap().enabled);
+        assert!(!status(&settings, &keys, Some(thesis), true).unwrap().enabled);
     }
 
     #[test]
@@ -493,7 +572,7 @@ mod tests {
         let keys = MemoryKeyStore::default();
         save_provider(&settings, &keys, local_model(), None).unwrap();
         assert!(
-            !status(&settings, &keys, Some(Path::new("/work/thesis")))
+            !status(&settings, &keys, Some(Path::new("/work/thesis")), true)
                 .unwrap()
                 .enabled
         );
@@ -506,7 +585,9 @@ mod tests {
         fs::create_dir_all(settings.file.parent().unwrap()).unwrap();
         fs::write(&settings.file, "{ this is not json").unwrap();
         assert_eq!(
-            status(&settings, &keys, Some(Path::new("/w"))).unwrap().provider,
+            status(&settings, &keys, Some(Path::new("/w")), true)
+                .unwrap()
+                .provider,
             None
         );
         save_provider(&settings, &keys, local_model(), None).unwrap();
@@ -551,7 +632,7 @@ mod tests {
         save_provider(&settings, &keys, provider.clone(), Some("sk-x".into())).unwrap();
         set_enabled(&settings, project, true).unwrap();
         set_inspect_first(&settings, false).unwrap();
-        let _ = status(&settings, &keys, Some(project)).unwrap();
+        let _ = status(&settings, &keys, Some(project), true).unwrap();
         clear_key(&settings, &keys).unwrap();
 
         // And the Test button with no key: refused before a socket exists.

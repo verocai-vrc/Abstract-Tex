@@ -313,7 +313,7 @@ pub(crate) fn ready_to_send(
     keys: &dyn KeyStore,
     project_dir: &Path,
 ) -> Result<(), String> {
-    let status = crate::assistant::status(settings, keys, Some(project_dir))?;
+    let status = crate::assistant::status(settings, keys, Some(project_dir), true)?;
     let provider = status
         .provider
         .ok_or_else(|| "Choose a provider in the Assistant view first.".to_string())?;

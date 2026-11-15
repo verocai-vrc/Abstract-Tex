@@ -133,7 +133,14 @@ let explainSendAnswer: string | Error = 'The data file is missing.';
 let proposalAnswer: AssistantProposal | Error = { id: 1, original: '', hunks: [], unknownKeys: [] };
 let applyAnswer: string | Error = '';
 const reviewCalls = { explainPrepared: [] as string[], explainSent: [] as number[], prepared: [] as Array<[AssistantAction, string]>, proposed: [] as number[], dialogUpAtSend: [] as boolean[], cancelled: [] as number[], applied: [] as Array<[number, boolean[]]>, discarded: [] as number[] };
-const assistantCalls = { saved: [] as Array<[AssistantProvider, string | null]>, enabled: [] as boolean[], tests: 0, clears: 0 };
+const assistantCalls = {
+  saved: [] as Array<[AssistantProvider, string | null]>,
+  enabled: [] as boolean[],
+  tests: 0,
+  clears: 0,
+  /** The `includeKey` of every status request, in order. */
+  statusRequests: [] as boolean[],
+};
 let signInError: string | null = null;
 let signInHandler: (event: SignInEvent) => void = () => {};
 /** S10.5b: what the author answers to the public-repository confirmation, what the fake project's
@@ -481,7 +488,8 @@ vi.mock('./ipc', () => ({
       largeFilesOnDisk = largeFilesOnDisk.filter((file) => !paths.includes(file.path));
       gitStatusHandler();
     },
-    assistantStatus: async () => {
+    assistantStatus: async (includeKey: boolean) => {
+      assistantCalls.statusRequests.push(includeKey);
       if (assistantError) throw new Error(assistantError);
       return assistantStatusOnDisk;
     },
@@ -3712,6 +3720,19 @@ describe('the assistant settings (S12.1b)', () => {
     expect(assistantCalls.tests).toBe(0);
     expect(assistantCalls.saved).toEqual([]);
     expect(assistant.ready).toBe(false);
+  });
+
+  // Review finding R5.9. Opening a project asked the OS keychain whether a key was saved, whether or not
+  // the assistant was on for it; where the keychain asks for a password that was a prompt per project.
+  it('does not ask whether a key is saved when a project opens, only when the settings view does', async () => {
+    assistantCalls.statusRequests.length = 0;
+    await openFolder('/proj');
+    expect(assistantCalls.statusRequests.length).toBeGreaterThan(0);
+    expect(assistantCalls.statusRequests.every((includeKey) => includeKey === false)).toBe(true);
+
+    assistantCalls.statusRequests.length = 0;
+    await openAssistantSettings();
+    expect(assistantCalls.statusRequests).toEqual([true]);
   });
 
   it('shows nothing set up, and no entry point is ready, until a provider, a key and the project switch are all there', async () => {

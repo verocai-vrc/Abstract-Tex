@@ -2133,18 +2133,34 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      leave". Any other absolute path the log holds (a figure from `~/Pictures`, a package under
      `~/.texlive`, a font cache) goes out with the user name in it. The payload dialog is always shown
      for this request, so the author can see it, which is why this is low. `crash.rs` already has the
-     right tool (`scrub_home`). **Open.**
+     right tool (`scrub_home`).
+     **Fixed 11 Nov 2026.** The excerpt goes through `crash::scrub_home` after the project folder is
+     removed (`crash::home_folder()` names the home; the project stays `<project>`). One test, red
+     first.
   8. **S. A remembered explanation is trusted although the folder it lives in can come from someone
      else.** `.abstract-tex/cache/explain/<hash>.json` is read back as "an answer to this same
      problem from earlier on this computer" with no request made. The folder is self-ignoring in Git,
      but a zipped project carries it, and the hash is computable. The effect is a planted sentence
-     shown as the assistant's. **Open (low).**
+     shown as the assistant's.
+     **Fixed 11 Nov 2026.** The memory moved out of the project: `<app config>/explain-cache`, beside
+     `assistant.json`, one folder for every project (an answer is about the problem, and its signature
+     already has the project's folder taken out). A project can no longer carry an entry that is
+     read. The module's "must never" rule says so. One test (the exact location, and a planted
+     entry in the project's old place is not found). Answers remembered in old projects are simply
+     never read again, which is harmless.
   9. **S. Opening any project reads the OS keychain once a provider has ever been chosen**, on the UI
      thread, whether or not the assistant is on for that project: `refreshAssistant` runs from
      `openProject` and `assistant_status` computes `has_key` unconditionally. Where the keychain asks
      for a password (macOS, a locked Secret Service) the prompt appears on every project open, for a
      feature the author did not switch on, and a slow keychain stalls the window. The key is needed
-     only when the settings view is open or a request is about to be built. **Open.**
+     only when the settings view is open or a request is about to be built.
+     **Fixed 11 Nov 2026.** `assistant::status` takes `include_key`: the keychain is read only when
+     the settings view asks, or when the assistant is on for the open project (it needs the answer to
+     say whether it is ready). `refreshAssistant` passes `false` on project open and `true` from the
+     settings view and its saves. Tests, red first: a counting key store in Rust (no read for a
+     project it is off for, one read each for the other two cases) and one in the controller tests
+     (what `openFolder` and `openAssistantSettings` ask for). Not done: the remaining reads still run
+     on the main thread.
   10. **R. A project's root file named `-shell-escape` turns shell escape on, with no consent.**
       High. The engine builds the command line as `latexmk … <root file>`; the root comes from
       `abstract-tex.toml` (`root = "…"`), checked only with `is_file()`, and it is passed bare. A file

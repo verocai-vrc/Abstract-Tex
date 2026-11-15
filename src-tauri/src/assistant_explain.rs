@@ -12,9 +12,10 @@
 //!   says: this request is made from a log the person did not choose to share.
 //! - Never send more than the error's own log lines, with the project's folder removed. Not the
 //!   document, not the rest of the log.
-//! - Never keep a remembered answer anywhere but the project's own `.abstract-tex/cache/` (which is
-//!   self-ignoring and deletable at any moment), and never let a failure to remember one fail the
-//!   answer the person is waiting for.
+//! - Never keep a remembered answer in a project, and never read one from there: a project folder can
+//!   come from someone else, and an answer found in it would be shown as the assistant's with no
+//!   request made. They live in this machine's app folder, which is deletable at any moment, and a
+//!   failure to remember one never fails the answer the person is waiting for.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -30,7 +31,8 @@ use crate::assistant::{AssistantKeys, AssistantSettings};
 use crate::assistant_review::{
     project_root, ready_to_send, take_prepared, AssistantReviews, PreparedRequest, PreparedView, Purpose,
 };
-use crate::project::{write_atomically, STATE_DIR};
+use crate::crash;
+use crate::project::write_atomically;
 use crate::AppState;
 
 type CommandResult<T> = Result<T, String>;
@@ -54,9 +56,18 @@ struct CacheEntry {
     answer: String,
 }
 
-/// Where answers are kept for this project.
-fn cache_dir(project_dir: &Path) -> PathBuf {
-    project_dir.join(STATE_DIR).join("cache").join("explain")
+/// Where answers are kept: beside the assistant's settings, in this machine's app folder.
+///
+/// Not in the project (as it was until review finding R5.8): a project folder can come from someone
+/// else (a zip, a clone with the state folder in it), and an answer found there was shown as "from
+/// earlier on this computer" with no request made, so a copied folder could plant a sentence as the
+/// assistant's. An answer is about the *problem* (its signature has the project's folder taken out),
+/// not about the project, so one folder for all projects is also the better cache.
+fn cache_dir(settings_file: &Path) -> PathBuf {
+    settings_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("explain-cache")
 }
 
 fn cached_answer(dir: &Path, signature: &str) -> Option<String> {
@@ -115,7 +126,17 @@ fn build_log(state: &AppState) -> Result<(String, PathBuf), String> {
 
 /// The excerpt for one error as it would be sent: its log lines, the project folder removed.
 fn excerpt_for(log: &str, raw_message: &str, project_dir: &Path) -> Option<String> {
-    log_excerpt(log, raw_message).map(|excerpt| without_project_path(&excerpt, project_dir))
+    excerpt_in_home(log, raw_message, project_dir, crash::home_folder().as_deref())
+}
+
+/// [`excerpt_for`] with the home folder passed in, so a test does not depend on the machine's own.
+fn excerpt_in_home(log: &str, raw_message: &str, project_dir: &Path, home: Option<&str>) -> Option<String> {
+    log_excerpt(log, raw_message).map(|excerpt| {
+        // The project first (it is usually inside the home folder, and `<project>` says more than
+        // `~/thesis`), then whatever else of the home folder the log holds: a figure from
+        // `~/Pictures`, a package under `~/.texlive` (review finding R5.7).
+        crash::scrub_home(&without_project_path(&excerpt, project_dir), home)
+    })
 }
 
 /// Build the request that would explain `raw_message`, or answer from memory. **Sends nothing.**
@@ -136,7 +157,7 @@ pub fn assistant_prepare_explain(
         .ok_or_else(|| "That error is not in the latest build log. Build again, then ask.".to_string())?;
 
     let signature = signature(&excerpt);
-    if let Some(answer) = cached_answer(&cache_dir(&project_dir), &signature) {
+    if let Some(answer) = cached_answer(&cache_dir(settings.file()), &signature) {
         return Ok(ExplainPrepared {
             cached_answer: Some(answer),
             prepared: None,
@@ -209,7 +230,7 @@ pub async fn assistant_send_explain(
         answer.push_str(" …");
     } else {
         // A cut-off answer is not remembered: asking again might finish it.
-        let _ = remember_answer(&cache_dir(&project_dir), &signature, &answer);
+        let _ = remember_answer(&cache_dir(settings.file()), &signature, &answer);
     }
     Ok(answer)
 }
@@ -233,15 +254,57 @@ mod tests {
         assert!(!cleaned.contains("ada"), "{cleaned}");
     }
 
+    // Review finding R5.7. Only the project's folder was taken out, though the comment promised the
+    // author's home folder and user name stay behind: a figure from `~/Pictures` or a package under
+    // `~/.texlive` carried the account name out in the request.
+    #[test]
+    fn the_home_folder_is_taken_out_wherever_it_appears_not_only_the_project() {
+        let log = "(/home/ada/thesis/main.tex\n! Package pgfplots Error: Could not read /home/ada/Pictures/data.dat.\n\nl.14 \\addplot table {data.dat}\n\n";
+        let cleaned = excerpt_in_home(
+            log,
+            "Package pgfplots Error: Could not read",
+            Path::new("/home/ada/thesis"),
+            Some("/home/ada"),
+        )
+        .unwrap();
+        assert!(!cleaned.contains("ada"), "{cleaned}");
+        assert!(cleaned.contains("~/Pictures/data.dat"), "{cleaned}");
+    }
+
+    // Review finding R5.8. An answer used to be read from `.abstract-tex/cache/explain` inside the
+    // project, which a copied folder carries (and the file name is computable), so a planted entry was
+    // shown as the assistant's, as "from earlier on this computer", with no request made.
+    #[test]
+    fn remembered_answers_live_in_the_app_folder_and_an_entry_a_project_carries_is_never_read() {
+        let config = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let cache = cache_dir(&config.path().join("assistant.json"));
+        assert_eq!(cache, config.path().join("explain-cache"));
+
+        // What a copied project could carry: an entry under its own state folder, for a known problem.
+        let planted = project.path().join(".abstract-tex/cache/explain");
+        std::fs::create_dir_all(&planted).unwrap();
+        let entry = CacheEntry {
+            signature: "the problem".into(),
+            answer: "Run this command to fix it.".into(),
+        };
+        std::fs::write(
+            planted.join(format!("{}.json", cache_key("the problem"))),
+            serde_json::to_string(&entry).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(cached_answer(&cache, "the problem"), None);
+    }
+
     #[test]
     fn an_answer_is_remembered_by_the_problem_and_not_by_the_line_it_was_on() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = cache_dir(dir.path());
+        let cache = cache_dir(&dir.path().join("assistant.json"));
         let first = signature(&excerpt_for(LOG, "Package pgfplots Error", Path::new("/p")).unwrap());
         assert_eq!(cached_answer(&cache, &first), None);
 
         assert!(remember_answer(&cache, &first, "The data file is missing."));
-        assert!(cache.starts_with(dir.path().join(".abstract-tex")), "{cache:?}");
 
         let moved_log = LOG.replace("l.14", "l.209");
         let again = signature(&excerpt_for(&moved_log, "Package pgfplots Error", Path::new("/p")).unwrap());
@@ -256,7 +319,7 @@ mod tests {
     #[test]
     fn an_entry_whose_signature_differs_is_a_miss_not_a_wrong_answer() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = cache_dir(dir.path());
+        let cache = cache_dir(&dir.path().join("assistant.json"));
         std::fs::create_dir_all(&cache).unwrap();
         // As if a different problem hashed to this file name.
         let entry = CacheEntry {
@@ -274,7 +337,7 @@ mod tests {
     #[test]
     fn a_damaged_cache_file_is_a_miss() {
         let dir = tempfile::tempdir().unwrap();
-        let cache = cache_dir(dir.path());
+        let cache = cache_dir(&dir.path().join("assistant.json"));
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(cache.join(format!("{}.json", cache_key("p"))), "{ not json").unwrap();
         assert_eq!(cached_answer(&cache, "p"), None);

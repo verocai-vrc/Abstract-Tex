@@ -7323,7 +7323,7 @@ Open from the fifth pass (reasons and reproductions in the ledger; none is fixed
 - [x] `R5.2` a project whose `.abstract-tex` is a link was written through; `R5.3` `read_file` read any target, whole. Done 11 November 2026.
 - [x] `R5.20` the Join window says the tab's text is replaced, and a copy is kept in `.abstract-tex/join-backups` first (my recommendation; override it if you prefer a confirmation). Done 11 November 2026.
 - [ ] `R5.4` the PDF pane has no text or link layer, against `DESIGN.md` §4; `R5.5` every page is rendered eagerly and the new PDF appears only when the last is done.
-- [ ] `R5.7`..`R5.9` the explain scrub removes the project folder only; a remembered explanation is trusted from a copied folder; opening a project reads the keychain.
+- [x] `R5.7`..`R5.9` the explain scrub removed the project folder only; a remembered explanation was trusted from a copied folder; opening a project read the keychain. Done 11 November 2026 (the keychain reads that remain still run on the main thread).
 - [ ] Low: `R5.11` (`git lfs track` option names), `R5.12` (time limit per process), `R5.13` (a busy-file test flake), `R5.15` (engine-blind wording), `R5.18` (case-sensitive undefined citation), `R5.19` (accents now folded; the empty-key half was a mistake), `R5.22` (no client connect timeout), `R5.24` (eager tree).
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a

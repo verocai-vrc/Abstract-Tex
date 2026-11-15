@@ -53,6 +53,13 @@ pub fn build_report(
     scrub_home(&text, home)
 }
 
+/// The person's home folder as the environment names it (`HOME`, or `USERPROFILE` on Windows).
+pub fn home_folder() -> Option<String> {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .ok()
+}
+
 /// Replace the home folder with `~` wherever it appears, so a report does not carry the person's
 /// account name. An empty or missing home changes nothing (replacing "" would insert `~` between
 /// every character).
@@ -185,9 +192,7 @@ pub fn install(directory: PathBuf) {
             .or_else(|| info.payload().downcast_ref::<String>().cloned())
             .unwrap_or_else(|| "(no message)".to_string());
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .ok();
+        let home = home_folder();
         let report = build_report(
             env!("CARGO_PKG_VERSION"),
             &format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
