@@ -2281,6 +2281,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       does not say that the tab's text is replaced by the host's copy, and a join that connects but
       finds nobody in the room (the host left, a wrong invite on a working relay) also leaves the tab
       empty and autosaved empty. Either a confirmation naming the file, or a copy kept beside it.
+      **The open half done 11 Nov 2026, as a recommendation the maintainer can overrule:** before a
+      join, `keepCopyBeforeJoin` writes what the tab holds to
+      `.abstract-tex/join-backups/<file>.<timestamp>` (invisible in the tree, ignored by Git), the
+      Join window says so, the notice after a successful join gives the path, and a copy that cannot
+      be written stops the join with nothing changed. A join into an empty room still leaves the tab
+      empty, but the author's text is no longer only in the buffer. Two tests, red first.
   21. **S, confirmed in the library. A peer's presence is drawn without being checked.**
       y-codemirror.next writes a peer's `color` into `style="background-color: ${color}; border-color:
       ${color}"` (and `colorLight` into the selection's `style`), and `RelayAwareness` applied the

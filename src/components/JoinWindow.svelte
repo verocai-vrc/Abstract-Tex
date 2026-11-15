@@ -31,6 +31,10 @@
           spellcheck="false"
           autocomplete="off"
         />
+        <p class="note">
+          Joining replaces the text of this tab with the host's copy. What the tab holds now is saved first, in
+          <code>.abstract-tex/join-backups</code>.
+        </p>
         <label for="join-name">Your name</label>
         <input
           id="join-name"
@@ -91,6 +95,11 @@
     padding: 10px 12px;
     font-size: 12px;
     color: var(--fg-muted);
+  }
+  .note {
+    margin: 4px 0;
+    font-size: 12px;
+    line-height: 1.4;
   }
   input {
     font: inherit;

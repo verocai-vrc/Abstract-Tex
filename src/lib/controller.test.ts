@@ -225,6 +225,10 @@ vi.mock('./ipc', () => ({
       return text;
     },
     writeFile: async (path: string, contents: string) => ipcWriteFile(path, contents),
+    createFile: async (path: string) => {
+      disk.set(path, '');
+      return project;
+    },
     compile: async (file: string | null) => {
       calls.compileFiles.push(file);
       return ++calls.compiles;
@@ -4245,6 +4249,53 @@ describe('switching and starting branches (B4)', () => {
 
     expect(live.joinError).toContain('Could not reach');
     expect(doc.ytext.toString()).toBe(before);
+    connect.mockRestore();
+  });
+
+  // Review finding R5.20, the part that is a decision rather than a bug: joining replaces the tab's text
+  // with the host's copy, and autosave then writes that over the file. Nothing in the window said so.
+  // A copy of what the tab held is kept first, and a copy that cannot be kept stops the join.
+  it('keeps a copy of the tab\'s text before a join replaces it, and says where', async () => {
+    const { createInvite, inviteToText } = await import('./relay/invite');
+    const connect = vi.spyOn(LiveSession, 'connect').mockImplementation(async (_ydoc, _invite, _presence, _delays, beforeSync) => {
+      beforeSync?.();
+      return {
+        status: 'connected',
+        awareness: { awareness: null },
+        destroy: async () => {},
+        onStatusChange: undefined,
+        onPeersChange: undefined,
+      } as unknown as Awaited<ReturnType<typeof LiveSession.connect>>;
+    });
+    live.joinInviteText = inviteToText(createInvite('localhost:4444'));
+    const before = calls.writes.length;
+
+    await joinSession();
+
+    const copy = calls.writes.slice(before).find((write) => write.path.startsWith('.abstract-tex/join-backups/main.tex.'));
+    expect(copy?.contents).toBe('hello');
+    expect(app.notice).toContain('.abstract-tex/join-backups/main.tex.');
+    leaveLiveSession('main.tex');
+    connect.mockRestore();
+  });
+
+  it('does not join when a copy of the tab\'s text cannot be kept, and leaves the document alone', async () => {
+    const { createInvite, inviteToText } = await import('./relay/invite');
+    const connect = vi.spyOn(LiveSession, 'connect');
+    const working = ipcWriteFile;
+    ipcWriteFile = async () => {
+      throw new Error('disk full');
+    };
+    const doc = app.docs.get('main.tex')!;
+    live.joinInviteText = inviteToText(createInvite('localhost:4444'));
+
+    await joinSession();
+    ipcWriteFile = working;
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(live.joinError).toContain('copy');
+    expect(live.joinError).toContain('disk full');
+    expect(doc.ytext.toString()).toBe('hello');
     connect.mockRestore();
   });
 

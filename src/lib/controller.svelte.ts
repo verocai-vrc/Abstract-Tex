@@ -1248,6 +1248,9 @@ export async function joinSession(): Promise<void> {
   live.joining = true;
   live.joinError = null;
   try {
+    // What this tab holds is about to be replaced by the host's copy, and autosave will write that
+    // over the file. Keep what is here first; if it cannot be kept, do not join (review finding R5.20).
+    const copyPath = await keepCopyBeforeJoin(path, doc.ytext.toString());
     leaveLiveSession(path);
     // Both sides loaded this file from disk independently, so their two `Y.Doc`s share no common
     // history even when the text happens to match byte for byte — Yjs has no way to know "this
@@ -1265,11 +1268,28 @@ export async function joinSession(): Promise<void> {
     attachLiveSession(path, session);
     live.joinVisible = false;
     live.joinInviteText = '';
+    if (copyPath) app.notice = `Joined. What ${path} held before is kept in ${copyPath}.`;
   } catch (error) {
     live.joinError = String(error);
   } finally {
     live.joining = false;
   }
+}
+
+/** Write what `path` holds to a file of its own in the project's state folder (invisible in the
+ * tree, ignored by Git) and answer where, or `null` for an empty document, which has nothing to
+ * lose. A failure is a sentence that says nothing was changed, because the caller stops on it. */
+async function keepCopyBeforeJoin(path: string, text: string): Promise<string | null> {
+  if (text === '') return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const copyPath = `.abstract-tex/join-backups/${path.replace(/\//g, '-')}.${stamp}`;
+  try {
+    await ipc.createFile(copyPath);
+    await ipc.writeFile(copyPath, text);
+  } catch (error) {
+    throw new Error(`Could not keep a copy of ${path} before joining (${String(error)}), so nothing was changed.`);
+  }
+  return copyPath;
 }
 
 // ---- Starting from a template (S11.11, DESIGN.md §6 "Start a document") -----------------------
