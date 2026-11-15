@@ -7320,7 +7320,7 @@ Open from the fifth pass (reasons and reproductions in the ledger; none is fixed
 - [x] `R5.16` pasted entries break the build when a field holds `&`, `%`, `#` or `_`. Done 11 November 2026; built with real BibTeX and pdflatex, mutation-checked. Capital protection is not done.
 - [x] `R5.14` a one-click fix edited the first occurrence on the line, not where TeX stopped. Done 11 November 2026; anchored on the context's tail, and `locateFix` declines a `find` that appears twice.
 - [x] `R5.6` SyncTeX did nothing when the project was opened through a symlink. Done 11 November 2026.
-- [ ] `R5.2` a project whose `.abstract-tex` is a link is written through; `R5.3` `read_file` reads any target, whole, on the main thread.
+- [x] `R5.2` a project whose `.abstract-tex` is a link was written through; `R5.3` `read_file` read any target, whole. Done 11 November 2026.
 - [ ] `R5.20` (decision) say in the Join window that the tab's text is replaced, and keep a copy; a join into an empty room leaves the tab empty and autosaved empty.
 - [ ] `R5.4` the PDF pane has no text or link layer, against `DESIGN.md` §4; `R5.5` every page is rendered eagerly and the new PDF appears only when the last is done.
 - [ ] `R5.7`..`R5.9` the explain scrub removes the project folder only; a remembered explanation is trusted from a copied folder; opening a project reads the keychain.

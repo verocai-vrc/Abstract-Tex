@@ -149,10 +149,9 @@ pub fn refresh_tree(state: State<'_, AppState>) -> CommandResult<ProjectInfo> {
 pub fn read_file(state: State<'_, AppState>, path: String) -> CommandResult<String> {
     with_project(&state, |project| {
         let absolute = project.resolve(&path)?;
-        let bytes = std::fs::read(&absolute)?;
         // `.tex` files from other tools are occasionally Latin-1; lossy decoding keeps them
-        // openable. A later loop can offer re-encoding; silently failing to open is worse.
-        Ok(String::from_utf8_lossy(&bytes).into_owned())
+        // openable (`project::read_text`), which also refuses what is not a text file.
+        crate::project::read_text(&absolute)
     })
 }
 

@@ -2083,12 +2083,21 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      comparison; `open_project` widens the asset-protocol scope to that folder, and Tauri also
      allows the link's *target*. A cloned repository can carry such a link (same door as R3.12). Not
      reproduced; the symlink behaviour of `create_dir_all` is the whole of it. Fix: refuse, with a
-     sentence, a project whose `.abstract-tex` is a link. **Open.**
+     sentence, a project whose `.abstract-tex` is a link.
+     **Fixed 11 Nov 2026.** `Project::open` refuses a state folder that is a link (`symlink_metadata`),
+     before anything is created, with a sentence that says to remove or rename it. One test (nothing
+     is written into the target), mutation-checked.
   3. **S. `read_file` reads whatever the name points at, whole, on the UI thread.** `std::fs::read`
      with no size ceiling and no check that the target is a regular file: a project file that is a
      link to a FIFO or `/dev/zero`, or a 2 GB data file clicked in the tree, blocks or exhausts the
      app (sync `#[tauri::command]` runs on the main thread). Whether the tree offers non-text files
-     to open is a frontend question (area 7 below). **Open.**
+     to open is a frontend question (area 7 below).
+     **Fixed 11 Nov 2026.** `project::read_text`, used by `read_file`: it asks `metadata` first
+     (a regular file only; at most 32 MB; no NUL byte, so an image, a PDF or UTF-16 text is refused
+     with a sentence instead of opening as garbage that a save would write back) and only then reads.
+     The red run of its test was killed by the OS: the unfixed code read `/dev/zero` into memory
+     until none was left, which is the finding itself. Three tests (a device and a folder, a sparse
+     file one byte over the limit, a PNG header and a Latin-1 file that still opens).
   4. **S (design gap). The PDF pane has no text layer and no link layer.** `DESIGN.md` §4 chose
      pdf.js because its "text layer gives us search, selection and copy for free"; `viewer.ts`
      renders canvases only (no `TextLayer`, no annotation layer, no find controller anywhere in

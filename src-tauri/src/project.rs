@@ -176,6 +176,16 @@ impl Project {
         let config = load_config(&root_dir)?;
 
         let state_dir = root_dir.join(STATE_DIR);
+        // `.abstract-tex` must be a folder of ours. A cloned repository can carry it as a link, and
+        // everything below (the build folder, the `.gitignore`, the comparison folders cleared before
+        // each comparison, the PDF pane's read access) would then happen at the link's target
+        // (review finding R5.2). `symlink_metadata` looks at the name itself, not what it points at.
+        if fs::symlink_metadata(&state_dir).is_ok_and(|found| found.file_type().is_symlink()) {
+            bail!(
+                "{} is a link, and Abstract-Tex keeps its build files there. Remove the link (or rename it) and open the project again.",
+                state_dir.display()
+            );
+        }
         fs::create_dir_all(state_dir.join(BUILD_SUBDIR))
             .with_context(|| format!("could not create {}", state_dir.display()))?;
         // Belt and braces: even before the project is a Git repository with our .gitignore,
@@ -618,6 +628,40 @@ fn is_junk_file(name: &str) -> bool {
         .is_some_and(|ext| JUNK_EXTENSIONS.contains(&ext.to_string_lossy().as_ref()))
 }
 
+/// The largest file the editor will open. LaTeX sources are kilobytes; a 100 MB data file or a PDF
+/// clicked in the tree would otherwise be read whole, on the main thread, and sent through IPC.
+pub const MAX_TEXT_FILE_BYTES: u64 = 32 * 1024 * 1024;
+
+/// Read a project file as text for the editor, or say why it is not one: not a regular file (a
+/// device, a pipe, a folder), too large, or binary. Decoded leniently (`Latin-1` files open).
+pub fn read_text(path: &Path) -> Result<String> {
+    let name = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    // `metadata` follows a link, so this is about what the name points at. Asked before anything is
+    // read: reading a device such as `/dev/zero` never ends, and a pipe never answers (review
+    // finding R5.3).
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() {
+        bail!("{name} is not a regular file, so it cannot be opened in the editor.");
+    }
+    if metadata.len() > MAX_TEXT_FILE_BYTES {
+        bail!(
+            "{name} is {} MB, too large to open in the editor (the limit is {} MB).",
+            metadata.len() / (1024 * 1024),
+            MAX_TEXT_FILE_BYTES / (1024 * 1024)
+        );
+    }
+    let bytes = fs::read(path)?;
+    // LaTeX source has no NUL byte. A file that does is an image, a PDF, or UTF-16 text, and opening
+    // it would show garbage that saving then writes back over the original.
+    if bytes.contains(&0) {
+        bail!("{name} does not look like a text file (UTF-8 or Latin-1), so it is not opened in the editor.");
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// Windows paths use `\`; the frontend and `abstract-tex.toml` always use `/`.
 pub fn to_forward_slashes(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
@@ -812,6 +856,73 @@ mod tests {
         let chapters = tree.iter().find(|node| node.name == "chapters").unwrap();
         assert_eq!(chapters.children.len(), 1);
         assert_eq!(chapters.children[0].name, "chapter.tex");
+    }
+
+    // Review finding R5.2. `open` creates `.abstract-tex/build` and a `.gitignore` inside it, and the
+    // app later clears folders under it and lets the PDF pane read from it; a cloned repository can
+    // carry `.abstract-tex` as a link to anywhere, and every one of those then happens there.
+    #[cfg(unix)]
+    #[test]
+    fn a_project_whose_state_folder_is_a_link_is_refused_and_nothing_is_written_through_it() {
+        let dir = scaffold(&[("main.tex", "")]);
+        let elsewhere = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(elsewhere.path(), dir.path().join(STATE_DIR)).unwrap();
+
+        let Err(error) = Project::open(dir.path()) else {
+            panic!("a linked state folder is refused");
+        };
+
+        assert!(error.to_string().contains(".abstract-tex"), "{error}");
+        assert_eq!(
+            fs::read_dir(elsewhere.path()).unwrap().count(),
+            0,
+            "nothing may be written into the link's target"
+        );
+    }
+
+    // Review finding R5.3. `read_file` read whatever the name pointed at, whole, on the main thread.
+    #[cfg(unix)]
+    #[test]
+    fn read_text_refuses_what_is_not_a_regular_file() {
+        let dir = scaffold(&[("main.tex", "hello")]);
+        std::os::unix::fs::symlink("/dev/zero", dir.path().join("zero.tex")).unwrap();
+        let error = read_text(&dir.path().join("zero.tex")).unwrap_err();
+        assert!(error.to_string().contains("not a regular file"), "{error}");
+        let folder_error = read_text(dir.path()).unwrap_err();
+        assert!(
+            folder_error.to_string().contains("not a regular file"),
+            "{folder_error}"
+        );
+    }
+
+    #[test]
+    fn read_text_refuses_a_file_too_large_to_open_without_reading_it() {
+        let dir = scaffold(&[]);
+        let big = dir.path().join("data.csv");
+        // A sparse file: it claims the length without the disk or the memory for it.
+        fs::File::create(&big)
+            .unwrap()
+            .set_len(MAX_TEXT_FILE_BYTES + 1)
+            .unwrap();
+        let error = read_text(&big).unwrap_err();
+        assert!(error.to_string().contains("too large"), "{error}");
+    }
+
+    #[test]
+    fn read_text_refuses_a_binary_file_but_opens_latin_1_text() {
+        let dir = scaffold(&[]);
+        fs::write(dir.path().join("figure.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+        let error = read_text(&dir.path().join("figure.png")).unwrap_err();
+        assert!(error.to_string().contains("text file"), "{error}");
+
+        // `caf\xe9` is Latin-1, not UTF-8: it opens, with the bad byte replaced, as before.
+        fs::write(dir.path().join("old.tex"), b"caf\xe9 au lait").unwrap();
+        assert_eq!(
+            read_text(&dir.path().join("old.tex")).unwrap(),
+            "caf\u{fffd} au lait"
+        );
+        fs::write(dir.path().join("main.tex"), "plain").unwrap();
+        assert_eq!(read_text(&dir.path().join("main.tex")).unwrap(), "plain");
     }
 
     #[test]
