@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
@@ -23,6 +23,8 @@ pub const ENV_OVERRIDE: &str = "ABSTRACT_TEX_TECTONIC";
 #[derive(Debug, Clone)]
 pub struct Tectonic {
     binary: PathBuf,
+    /// How long one build may take, passes and all.
+    build_limit: Duration,
 }
 
 impl Tectonic {
@@ -31,7 +33,10 @@ impl Tectonic {
     /// `abstract-tex-sidecar`, shared with the language server (S3.1).
     pub fn locate() -> Result<Self, EngineError> {
         match abstract_tex_sidecar::locate("tectonic", ENV_OVERRIDE) {
-            Some(found) => Ok(Self { binary: found.path }),
+            Some(found) => Ok(Self {
+                binary: found.path,
+                build_limit: process::BUILD_TIME_LIMIT,
+            }),
             None => Err(EngineError::NotFound),
         }
     }
@@ -40,7 +45,15 @@ impl Tectonic {
     pub fn at(binary: impl Into<PathBuf>) -> Self {
         Self {
             binary: binary.into(),
+            build_limit: process::BUILD_TIME_LIMIT,
         }
+    }
+
+    /// The same engine with a different limit on how long a build may take. For tests, which cannot
+    /// wait fifteen minutes.
+    pub fn with_build_limit(mut self, limit: Duration) -> Self {
+        self.build_limit = limit;
+        self
     }
 
     pub fn binary(&self) -> &Path {
@@ -130,6 +143,7 @@ impl Tectonic {
         &self,
         job: &BuildJob,
         warm: bool,
+        deadline: Instant,
         cancel: &CancellationToken,
         progress: Option<ProgressSink>,
     ) -> Result<(ExitStatus, BuildSteps, String), EngineError> {
@@ -139,7 +153,9 @@ impl Tectonic {
             let mut before = AuxSnapshot::read(&job.out_dir);
             loop {
                 let args = Self::arguments(job, true);
-                let (status, pass_stderr) = self.run_once(job, &args, cancel, progress.clone()).await?;
+                let (status, pass_stderr) = self
+                    .run_once(job, &args, deadline, cancel, progress.clone())
+                    .await?;
                 steps.single_passes += 1;
                 stderr.push_str(&pass_stderr);
                 // A failed pass goes to the full build rather than being reported: the pass read
@@ -164,7 +180,7 @@ impl Tectonic {
         }
         steps.full = true;
         let args = Self::arguments(job, false);
-        let (status, full_stderr) = self.run_once(job, &args, cancel, progress).await?;
+        let (status, full_stderr) = self.run_once(job, &args, deadline, cancel, progress).await?;
         stderr.push_str(&full_stderr);
         Ok((status, steps, stderr))
     }
@@ -175,12 +191,33 @@ impl Tectonic {
         &self,
         job: &BuildJob,
         args: &[String],
+        deadline: Instant,
         cancel: &CancellationToken,
         progress: Option<ProgressSink>,
     ) -> Result<(ExitStatus, String), EngineError> {
+        // What is left of the build's time, not a fresh limit: a warm build runs up to three single
+        // passes and then a full build, and each used to be given the whole limit (review finding R5.12).
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(EngineError::TimedOut(self.build_limit));
+        }
         // Tectonic always runs in the project folder: its `-Z shell-escape-cwd` (S9.8) moves the
         // shell commands' folder on its own, so nothing here ever has to move (S9.12).
-        process::run(&self.binary, &job.project_dir, args, &[], cancel, progress).await
+        process::run_with_limit(
+            &self.binary,
+            &job.project_dir,
+            args,
+            &[],
+            cancel,
+            progress,
+            remaining,
+        )
+        .await
+        // Say the build's limit, not the few seconds that happened to be left.
+        .map_err(|error| match error {
+            EngineError::TimedOut(_) => EngineError::TimedOut(self.build_limit),
+            other => other,
+        })
     }
 }
 
@@ -230,7 +267,9 @@ impl Engine for Tectonic {
         };
         let _ = tokio::fs::remove_file(&marker).await;
 
-        let passes = self.run_passes(job, warm, &cancel, progress).await;
+        let passes = self
+            .run_passes(job, warm, started + self.build_limit, &cancel, progress)
+            .await;
         if let (Err(EngineError::Cancelled), Some(checkpoint)) = (&passes, &checkpoint) {
             // The engine is dead by now (`process::run` waits for the kill), and the next build
             // has not started (the orchestrator waits for this one), so nothing else is writing.
@@ -277,7 +316,9 @@ impl Engine for Tectonic {
         let started = Instant::now();
         let args = Self::draft_arguments(job, layout);
         // No progress sink: the full build beside this one is the build the status bar follows.
-        let (status, stderr) = self.run_once(job, &args, &cancel, None).await?;
+        let (status, stderr) = self
+            .run_once(job, &args, started + self.build_limit, &cancel, None)
+            .await?;
 
         let stem = job
             .root_file
@@ -617,11 +658,109 @@ mod tests {
     fn corrupting_engine(dir: &Path) -> Tectonic {
         // `PermissionsExt` is the Unix-only half of `std::fs::Permissions`: it is what can set
         // the executable bit a script needs.
-        use std::os::unix::fs::PermissionsExt;
         let script = dir.join("fake-tectonic.sh");
-        std::fs::write(&script, "#!/bin/sh\nprintf '\\\\relax' > .abstract-tex/build/main.aux\n: > .abstract-tex/build/new.aux\nexec sleep 30\n").unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_runnable_script(&script, "printf '\\\\relax' > .abstract-tex/build/main.aux\n: > .abstract-tex/build/new.aux\nexec sleep 30\n");
         Tectonic::at(script)
+    }
+
+    /// Write `body` as an executable `sh` script at `path`, and return only once it can be run.
+    ///
+    /// The plain version of this (write, `chmod`, run) fails now and then with "Text file busy": while
+    /// the file is open for writing in this thread, another test's `fork` can copy that open handle,
+    /// and until the copy's `exec` the kernel refuses to run the file. Measured: about 7 runs in 100
+    /// with eight threads spawning at once. The fix is to wait it out, which is what
+    /// `wait_until_runnable` does (review finding R5.13).
+    #[cfg(unix)]
+    fn write_runnable_script(path: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        // The script answers a probe argument by exiting at once, so running it to find out whether it
+        // can be run costs nothing and starts nothing else.
+        std::fs::write(
+            path,
+            format!("#!/bin/sh\n[ \"$1\" = \"--runnable-probe\" ] && exit 0\n{body}"),
+        )
+        .unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..500 {
+            match std::process::Command::new(path).arg("--runnable-probe").status() {
+                Ok(_) => return,
+                // ETXTBSY is 26 on Linux and macOS; `ErrorKind::ExecutableFileBusy` needs a newer Rust
+                // than this workspace's minimum.
+                Err(error) if error.raw_os_error() == Some(26) => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(error) => panic!("{} cannot be run: {error}", path.display()),
+            }
+        }
+        panic!("{} stayed busy", path.display());
+    }
+
+    // Review finding R5.13. `a_cancelled_cold_build_still_leaves_the_next_one_full` failed once with
+    // `ExecutableFileBusy` in a full run: its script was written while other tests were spawning.
+    #[cfg(unix)]
+    #[test]
+    fn a_script_written_while_other_threads_spawn_processes_can_always_be_run() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let stop = Arc::new(AtomicBool::new(false));
+        let spawners: Vec<_> = (0..8)
+            .map(|_| {
+                let stop = Arc::clone(&stop);
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        let _ = std::process::Command::new("true").status();
+                    }
+                })
+            })
+            .collect();
+
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..150 {
+            let script = dir.path().join(format!("script-{index}.sh"));
+            write_runnable_script(&script, "exit 0\n");
+            let status = std::process::Command::new(&script)
+                .status()
+                .unwrap_or_else(|error| panic!("script {index} could not be run: {error}"));
+            assert!(status.success());
+        }
+
+        stop.store(true, Ordering::Relaxed);
+        for spawner in spawners {
+            spawner.join().unwrap();
+        }
+    }
+
+    // Review finding R5.12. The time limit was per engine *process*, and a warm build runs up to three
+    // single passes and then a full build, so the longest build the limit allowed was four times it.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_time_limit_covers_the_whole_build_not_each_pass() {
+        let project = tempfile::tempdir().unwrap();
+        let j = job(project.path());
+        std::fs::create_dir_all(&j.out_dir).unwrap();
+        std::fs::write(j.out_dir.join("main.aux"), "\\relax\n").unwrap();
+        std::fs::write(j.out_dir.join(incremental::WARM_MARKER), "").unwrap();
+        // Each run takes 0.4 s and leaves a different `.aux`, so the warm build never settles and goes
+        // on to its next pass, and then to a full build: five runs, two seconds, in all.
+        let script = project.path().join("slow-passes.sh");
+        write_runnable_script(
+            &script,
+            "n=$(cat .abstract-tex/build/count 2>/dev/null || echo 0)\n\
+             echo $((n+1)) > .abstract-tex/build/count\n\
+             echo \"\\\\relax $n\" > .abstract-tex/build/main.aux\n\
+             sleep 0.4\n",
+        );
+        let engine = Tectonic::at(script).with_build_limit(Duration::from_millis(1000));
+
+        let started = Instant::now();
+        let result = engine.build(&j, CancellationToken::new(), None).await;
+
+        assert!(matches!(result, Err(EngineError::TimedOut(_))), "{result:?}");
+        assert!(
+            started.elapsed() < Duration::from_millis(1700),
+            "stopped after {:?}: each pass was given the whole limit",
+            started.elapsed()
+        );
     }
 
     #[cfg(unix)]

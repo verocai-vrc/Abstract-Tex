@@ -2190,13 +2190,22 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       **Open.**
   12. **S (low). The build time limit is per engine process, not per build.** A warm build runs up to
       three single passes and then a full build, each with its own 15 minutes, so the longest build
-      the limit allows is an hour, not 15 minutes as the constant's comment says. **Open.**
+      the limit allows is an hour, not 15 minutes as the constant's comment says.
+      **Fixed 11 Nov 2026.** `Tectonic::build` fixes one deadline (`started + build_limit`) and every
+      pass is run with what is left of it; the error names the build's limit. `with_build_limit` lets
+      a test use a small one. One test (five 0.4 s runs against a 1 s limit: before, the build ran
+      1.65 s and succeeded; now it times out), red first.
   13. **Test flake, seen once. `tectonic::tests::a_cancelled_cold_build_still_leaves_the_next_one_full`
       failed with `ExecutableFileBusy` ("Text file busy")** in a full `cargo test -p
       abstract-tex-engine --lib`, passed on three reruns. The test writes a script and runs it while
       other tests in the same process fork: a child that inherits the write handle keeps the file
       busy. Fix when touched: retry the spawn on that error in the test helper, or write the script
-      before any test thread starts. **Open.**
+      before any test thread starts.
+      **Fixed 11 Nov 2026.** Reproduced first outside the repo: with eight threads spawning, 30 of 400
+      freshly written scripts failed their first run with `ETXTBSY`. `write_runnable_script` (in the
+      tectonic tests) now runs the script once with a probe argument it answers by exiting, retrying
+      on error 26 until it can be run; a stress test (150 scripts under eight spawning threads) failed
+      on script 0 before, and the engine's tests passed three runs in a row after.
   14. **R. A one-click fix can edit the wrong place, and leave the error where it was.** `locateFix`
       (`src/lib/fix.ts`) replaces the *first* occurrence of the fix's `find` on the diagnosed line, and
       several catalog fixes carry a `find` that is a bare symbol or command, not anchored to where TeX
