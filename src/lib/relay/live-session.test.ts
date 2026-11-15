@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { createInvite } from './invite';
-import { LiveSession } from './live-session';
+import { CONNECT_TIMEOUT_MS, LiveSession } from './live-session';
 
 /**
  * A `WebSocket` that broadcasts to every other instance constructed against the same room —
@@ -19,6 +19,8 @@ class FakeWebSocket {
   static created = 0;
   /** Make the next sockets error instead of opening: a relay that cannot be reached. */
   static failToOpen = false;
+  /** Neither open nor error, ever: a relay address that swallows packets. */
+  static silent = false;
   /** Messages sent so far, over every socket. */
   static sent = 0;
 
@@ -38,6 +40,7 @@ class FakeWebSocket {
     // room key) and a constructor call to run after this before it registers its own 'open'
     // listener, and a microtask here would fire before any of that — unlike a real WebSocket's
     // handshake, which never resolves that fast regardless.
+    if (FakeWebSocket.silent) return;
     setTimeout(() => {
       if (FakeWebSocket.failToOpen) {
         this.dispatch('error', {});
@@ -104,7 +107,9 @@ describe('LiveSession', () => {
     FakeWebSocket.rooms.clear();
     FakeWebSocket.created = 0;
     FakeWebSocket.failToOpen = false;
+    FakeWebSocket.silent = false;
     FakeWebSocket.sent = 0;
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -127,6 +132,35 @@ describe('LiveSession', () => {
     );
     expect(seen).toEqual([{ open: true, sent: 0 }]);
     await session.destroy();
+  });
+
+  // Review finding R5.22. An address that accepts nothing and answers nothing left *Share* and *Join* on
+  // "connecting…" for as long as the webview's own timeout, with no way out.
+  it('gives up on a relay that never answers, closes the socket, and says so', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+    FakeWebSocket.silent = true;
+    let called = false;
+    const attempt = LiveSession.connect(
+      new Y.Doc(),
+      createInvite('fake-relay.example:1234'),
+      { name: 'Ada', color: '#30bced', colorLight: '#30bced33' },
+      undefined,
+      () => {
+        called = true;
+      },
+    );
+    const outcome = attempt.then(
+      () => 'connected',
+      (error: Error) => error.message,
+    );
+
+    await vi.advanceTimersByTimeAsync(CONNECT_TIMEOUT_MS + 1);
+
+    expect(await outcome).toContain('did not answer');
+    expect(called).toBe(false);
+    const [socket] = [...FakeWebSocket.rooms.values()].flat();
+    expect(socket === undefined || socket.readyState === FakeWebSocket.CLOSED).toBe(true);
   });
 
   it('never runs beforeSync when the relay cannot be reached', async () => {

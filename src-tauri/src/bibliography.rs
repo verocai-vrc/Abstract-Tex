@@ -72,7 +72,15 @@ impl BibliographyIndex {
         self.entries.iter().find(|entry| entry.key == key)
     }
 
-    /// All six health checks, in a fixed order: missing `.bib` files first (S8.6: the cause of
+    /// The first entry whose key matches `key` ignoring ASCII case, for a citation that does not match
+    /// exactly: BibTeX would resolve it, Biber would not (review finding R5.18).
+    pub fn entry_ignoring_case(&self, key: &str) -> Option<&EntrySummary> {
+        self.entries
+            .iter()
+            .find(|entry| entry.key.eq_ignore_ascii_case(key))
+    }
+
+    /// All the health checks, in a fixed order: missing `.bib` files first (S8.6: the cause of
     /// any undefined citations that follow), then DESIGN.md §5.4's five — undefined citations,
     /// never cited, duplicate DOIs, the three that need this whole index — then this module
     /// reparses each existing file to run `texbib::health::check` on it (missing field,
@@ -83,6 +91,7 @@ impl BibliographyIndex {
         findings.extend(missing_bib_files(self));
         findings.extend(linked_but_not_named(self, project_dir));
         findings.extend(undefined_citations(self));
+        findings.extend(citation_case(self));
         findings.extend(never_cited(self));
         findings.extend(duplicate_dois(self));
         findings.extend(entry_level_findings(self, project_dir));
@@ -97,7 +106,7 @@ impl BibliographyIndex {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
-    /// Which check found this: `"missing-bib-file"`, `"undefined-citation"`, `"never-cited"`,
+    /// Which check found this: `"missing-bib-file"`, `"undefined-citation"`, `"citation-case"`, `"never-cited"`,
     /// `"duplicate-doi"`, or one of `texbib::health`'s two rule ids.
     pub rule: &'static str,
     pub severity: HealthSeverity,
@@ -373,7 +382,8 @@ fn relative_to(base: &Path, path: &str) -> String {
 fn undefined_citations(index: &BibliographyIndex) -> Vec<Finding> {
     let mut by_key: HashMap<&str, Vec<&Citation>> = HashMap::new();
     for citation in &index.citations {
-        if index.entry(&citation.key).is_none() {
+        // A key that matches an entry only ignoring case is not undefined: it is `citation_case`'s.
+        if index.entry(&citation.key).is_none() && index.entry_ignoring_case(&citation.key).is_none() {
             by_key.entry(citation.key.as_str()).or_default().push(citation);
         }
     }
@@ -405,6 +415,39 @@ fn undefined_citations(index: &BibliographyIndex) -> Vec<Finding> {
         .collect()
 }
 
+/// A key cited with other capitals than the entry that defines it (`\cite{Smith2020}` against
+/// `@article{smith2020`). BibTeX compares keys ignoring case and builds this; Biber compares exactly
+/// and does not. The app does not know which the document uses, so this is a warning that names both
+/// spellings, not the error "undefined citation" for a build that may work (review finding R5.18).
+fn citation_case(index: &BibliographyIndex) -> Vec<Finding> {
+    let mut by_key: HashMap<&str, Vec<&Citation>> = HashMap::new();
+    for citation in &index.citations {
+        if index.entry(&citation.key).is_none() && index.entry_ignoring_case(&citation.key).is_some() {
+            by_key.entry(citation.key.as_str()).or_default().push(citation);
+        }
+    }
+    let mut keys: Vec<&str> = by_key.keys().copied().collect();
+    keys.sort_unstable();
+    keys.into_iter()
+        .filter_map(|key| {
+            let first = by_key[key][0];
+            let defined = &index.entry_ignoring_case(key)?.key;
+            Some(Finding {
+                rule: "citation-case",
+                severity: HealthSeverity::Warning,
+                message: format!(
+                    "'{key}' is cited, but the entry is '{defined}': they differ only in capitals. BibTeX accepts that; Biber does not."
+                ),
+                jump: Jump::TexLine {
+                    file: first.file.clone(),
+                    line: first.line,
+                },
+                fix: None,
+            })
+        })
+        .collect()
+}
+
 /// An entry nobody cites. `\nocite{*}` (cite every entry) is already dropped by `scan_citations`
 /// before it ever becomes a [`Citation`], which would make every bibliography using it report
 /// every entry as never cited — so this check treats that command as an explicit "everything in
@@ -414,11 +457,16 @@ fn never_cited(index: &BibliographyIndex) -> Vec<Finding> {
     if index.has_nocite_star {
         return Vec::new();
     }
-    let cited: std::collections::HashSet<&str> = index.citations.iter().map(|c| c.key.as_str()).collect();
+    // Ignoring case, so an entry cited as `Smith2020` is not also reported as never cited (R5.18).
+    let cited: std::collections::HashSet<String> = index
+        .citations
+        .iter()
+        .map(|c| c.key.to_ascii_lowercase())
+        .collect();
     index
         .entries
         .iter()
-        .filter(|entry| !cited.contains(entry.key.as_str()))
+        .filter(|entry| !cited.contains(&entry.key.to_ascii_lowercase()))
         .map(|entry| Finding {
             rule: "never-cited",
             severity: HealthSeverity::Warning,
@@ -1314,6 +1362,59 @@ mod tests {
                 line: 2
             }
         );
+    }
+
+    // Review finding R5.18. `\cite{Smith2020}` builds under BibTeX against `@article{smith2020`, which
+    // compares keys ignoring case; Biber compares exactly. The index does not know which the document
+    // uses, so it called this an error ("cited but no entry defines it") for a build that works, and
+    // then also called the entry never cited. It is now one warning that says what differs.
+    #[test]
+    fn a_citation_that_differs_from_an_entry_only_in_case_is_a_warning_not_an_undefined_citation() {
+        let dir = scaffold(&[
+            ("main.tex", "\\cite{Smith2020}\n\\bibliography{refs}\n"),
+            (
+                "refs.bib",
+                "@article{smith2020, author = {A}, title = {T}, journal = {J}, year = {2020}}\n",
+            ),
+        ]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let findings = index.health(dir.path());
+        let rules: Vec<&str> = findings.iter().map(|finding| finding.rule).collect();
+        assert_eq!(rules, vec!["citation-case"], "{findings:#?}");
+        assert_eq!(findings[0].severity, HealthSeverity::Warning);
+        assert!(
+            findings[0].message.contains("Smith2020") && findings[0].message.contains("smith2020"),
+            "{}",
+            findings[0].message
+        );
+        assert!(findings[0].message.contains("BibTeX"), "{}", findings[0].message);
+        assert_eq!(
+            findings[0].jump,
+            Jump::TexLine {
+                file: "main.tex".to_string(),
+                line: 1
+            }
+        );
+    }
+
+    #[test]
+    fn a_case_differing_citation_still_counts_as_citing_the_entry() {
+        let dir = scaffold(&[
+            ("main.tex", "\\cite{Smith2020}\n\\bibliography{refs}\n"),
+            (
+                "refs.bib",
+                "@article{smith2020, title = {T}}\n@article{other, title = {O}}\n",
+            ),
+        ]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        let never: Vec<String> = index
+            .health(dir.path())
+            .into_iter()
+            .filter(|finding| finding.rule == "never-cited")
+            .map(|finding| finding.message)
+            .collect();
+        assert_eq!(never.len(), 1, "only `other` is uncited: {never:?}");
+        assert!(never[0].contains("other"), "{never:?}");
     }
 
     #[test]

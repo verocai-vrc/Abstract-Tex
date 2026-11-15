@@ -304,8 +304,8 @@ export type Jump =
 
 /** One bibliography health-check result (S8.3, DESIGN.md §5.4): a sentence, a severity, and a
  * place to click, never a raw anything (DESIGN.md §2 rule 3). `rule` is one of
- * `'missing-bib-file' | 'linked-not-named' | 'undefined-citation' | 'never-cited' | 'duplicate-doi' |
- * 'missing-field' | 'page-range-dash'`,
+ * `'missing-bib-file' | 'linked-not-named' | 'undefined-citation' | 'citation-case' | 'never-cited' |
+ * 'duplicate-doi' | 'missing-field' | 'page-range-dash'`,
  * left as `string` here since nothing on this side branches on it beyond display. */
 export interface Finding {
   rule: string;

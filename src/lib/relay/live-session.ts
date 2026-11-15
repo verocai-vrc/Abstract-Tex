@@ -36,13 +36,37 @@ export function randomPresenceColor(): { color: string; light: string } {
   return choice ?? PRESENCE_COLORS[0]!;
 }
 
-/** Resolves once `socket` reaches `OPEN`, or rejects if it errors first — `connect` cannot
- * construct `RelayProvider`/`RelayAwareness` (which each send immediately) until this settles. */
+/** How long to wait for a relay to accept the connection before giving up. A relay that is down or
+ * unreachable usually says so at once; one that swallows packets says nothing, and the webview's own
+ * timeout for that is long and not ours to choose. */
+export const CONNECT_TIMEOUT_MS = 10_000;
+
+/** Resolves once `socket` reaches `OPEN`, or rejects if it errors first or [`CONNECT_TIMEOUT_MS`]
+ * passes — `connect` cannot construct `RelayProvider`/`RelayAwareness` (which each send immediately)
+ * until this settles. A socket that timed out is closed here, so it cannot open later unseen. */
 function waitForOpen(socket: WebSocket): Promise<void> {
   if (socket.readyState === WebSocket.OPEN) return Promise.resolve();
   return new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve(), { once: true });
-    socket.addEventListener('error', () => reject(new Error('Could not reach the relay.')), { once: true });
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error('The relay did not answer. Check the address, and that the relay is running.'));
+    }, CONNECT_TIMEOUT_MS);
+    socket.addEventListener(
+      'open',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+    socket.addEventListener(
+      'error',
+      () => {
+        clearTimeout(timer);
+        reject(new Error('Could not reach the relay.'));
+      },
+      { once: true },
+    );
   });
 }
 

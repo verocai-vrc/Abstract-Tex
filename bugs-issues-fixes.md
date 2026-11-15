@@ -2280,7 +2280,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       although BibTeX builds it.** `BibliographyIndex::entry` compares exactly ("the comparison that
       is never wrong about an existing entry"), which is true for Biber and false for BibTeX, which
       resolves `\cite{Smith2020}` to `@article{smith2020`. The app does not know which backend the
-      document uses. **Open.**
+      document uses.
+      **Fixed 11 Nov 2026.** A citation that matches an entry only ignoring case is now one warning,
+      `citation-case` ("'Smith2020' is cited, but the entry is 'smith2020': they differ only in
+      capitals. BibTeX accepts that; Biber does not."), not the error `undefined-citation`; and the
+      never-cited check compares ignoring case, so the entry is not also reported as uncited. Two
+      tests, red first.
   19. **S (low). Generated keys drop non-ASCII letters instead of folding them, and can come out
       empty.** `ascii_fold_lower` keeps ASCII only (`Gonçalves` → `gonalves`, `João` → `jo`, a
       documented simplification); a record whose author, year and first title word are all non-Latin
@@ -2327,7 +2332,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   22. **S (low). The relay client has no connection timeout.** `waitForOpen` waits for the socket's
       own `open` or `error`; an address that accepts nothing and answers nothing leaves *Share* and
       *Join* on "connecting…" for as long as the webview's own timeout, with no way to cancel. The
-      server side has a handshake timeout since the second review pass. **Open.**
+      server side has a handshake timeout since the second review pass.
+      **Fixed 11 Nov 2026.** `waitForOpen` gives up after `CONNECT_TIMEOUT_MS` (10 s), closes the
+      socket so it cannot open later unseen, and rejects with "The relay did not answer. Check the
+      address, and that the relay is running." The reconnect path shares it. One test with fake timers
+      and a socket that never answers, red first.
   23. **R. Two folder links back to the project's own folder hang the app for good.** Opening a
       project builds the file tree on the main thread, and `list_tree` recursed into every folder
       link (`is_dir()` follows links); the kernel stops a path after 40 links, so one link back to
