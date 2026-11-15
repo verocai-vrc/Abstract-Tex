@@ -7322,17 +7322,17 @@ Open from the fifth pass (reasons and reproductions in the ledger; none is fixed
 - [x] `R5.6` SyncTeX did nothing when the project was opened through a symlink. Done 11 November 2026.
 - [x] `R5.2` a project whose `.abstract-tex` is a link was written through; `R5.3` `read_file` read any target, whole. Done 11 November 2026.
 - [x] `R5.20` the Join window says the tab's text is replaced, and a copy is kept in `.abstract-tex/join-backups` first (my recommendation; override it if you prefer a confirmation). Done 11 November 2026.
-- [ ] `R5.4` the PDF pane has no text or link layer, against `DESIGN.md` §4; `R5.5` every page is rendered eagerly and the new PDF appears only when the last is done.
+- [x] `R5.4` the PDF pane had no text or link layer, against `DESIGN.md` §4; `R5.5` every page was rendered eagerly and the new PDF appeared only when the last was done. Done 11 November 2026: pdf.js's own `PDFViewer`; 5.5 s → 0.65 s on 308 pages; walked on the virtual display. Searching the PDF's text is not done.
 - [x] `R5.7`..`R5.9` the explain scrub removed the project folder only; a remembered explanation was trusted from a copied folder; opening a project read the keychain. Done 11 November 2026 (the keychain reads that remain still run on the main thread).
 - [x] `R5.12` the build time limit was per process (now one deadline for the build); `R5.13` the busy-file test flake. Done 11 November 2026.
 - [x] `R5.18` a case-only citation mismatch was an error (now a warning); `R5.22` the relay client had no connect timeout. Done 11 November 2026.
 - [x] `R5.11` `git lfs track` read file names as options (a `--` now ends them; not run against the real `git-lfs`); `R5.15` engine-blind wording. Done 11 November 2026.
-- [ ] Low: `R5.24` (eager tree).
+- [x] `R5.24` the eager tree: measured (200,000 files, 0.72 s), not fixed.
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 
-- [~] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`. The PDF viewer and pane were read 11 November 2026 (`R5.4`, `R5.5`); the editor extensions were not, apart from `math-preview.ts` (KaTeX with `trust` off: fine).
+- [~] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`. The PDF viewer and pane were read, and then rewritten, on 11 November 2026 (`R5.4`, `R5.5`); the editor extensions were not, apart from `math-preview.ts` (KaTeX with `trust` off: fine).
 - [x] The SyncTeX frontend (`synctex.rs` glue and the click handlers). Read 11 November 2026 (`R5.6`: nothing works through a symlinked project path).
 - [~] `src-tauri/src/assistant.rs` and `assistant_explain.rs`. Read 11 November 2026 (fifth pass); findings in the ledger.
 - [~] The engine crate's `tectonic.rs`, `incremental.rs` and `draft.rs`. Read 11 November 2026 (fifth pass); `R5.10` fixed, `R5.11`..`R5.13` open.

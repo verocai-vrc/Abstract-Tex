@@ -76,14 +76,21 @@ fn the_prefilled_crash_report_can_be_opened() {
 }
 
 #[test]
-fn nothing_else_can_be_opened() {
+fn a_link_in_a_pdf_can_open_a_web_page_in_the_browser() {
+    // The PDF pane hands a clicked https or http link to the person's browser (`openPdfLink`).
+    assert!(allowed("https://example.org/paper?x=1#y"));
+    assert!(allowed("http://example.org/"));
+}
+
+#[test]
+fn nothing_but_web_pages_can_be_opened() {
     for url in [
-        "https://example.com/",
-        "https://github.com.evil.example/login/device",
-        "http://github.com/login/device",
         "file:///etc/passwd",
         "mailto:someone@example.com",
-        "https://github.com/someone-else/their-repo/issues/new",
+        "javascript:alert(1)",
+        "ftp://example.org/x",
+        "data:text/html,<script>1</script>",
+        "asset://localhost/x",
     ] {
         assert!(!allowed(url), "the opener would open {url}");
     }

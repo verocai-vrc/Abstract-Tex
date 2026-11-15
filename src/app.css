@@ -318,19 +318,22 @@ kbd {
 
 .pdf-pane {
   position: relative;
-  overflow: auto;
+  /* The scrolling is the viewer's (`.pdf-scroll`, below); this is only the place it sits in. */
+  overflow: hidden;
   background: var(--bg-panel);
   min-width: 0;
 }
-.pdf-pane .pages {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
+/* pdf.js's `PDFViewer` needs a container it can measure that is absolutely positioned. */
+.pdf-pane .pdf-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
 }
-.pdf-pane canvas {
-  display: block;
+.pdf-pane .pdfViewer {
+  padding: 8px 0;
+}
+.pdf-pane .pdfViewer .page {
+  margin: 0 auto 16px;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
   background: white;
 }

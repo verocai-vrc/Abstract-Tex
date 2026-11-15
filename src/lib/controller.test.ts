@@ -672,6 +672,7 @@ const {
   ignoreOurFolder,
   initialiseRepository,
   openVerificationPage,
+  openPdfLink,
   refreshGitStatus,
   setDrawerFilter,
   signInToGitHub,
@@ -2738,6 +2739,18 @@ describe('signing in to GitHub (S10.4b)', () => {
     await openVerificationPage();
     expect(calls.openedUrls).toEqual(['https://github.com/login/device']);
     expect(github.code?.verificationUri).toBe('https://github.com/login/device');
+  });
+
+  // Review finding R5.4. The PDF pane now draws the PDF's own links; a click on one reaches the controller.
+  // A web address goes to the person's browser; nothing else may, and the window itself never navigates.
+  it('opens a link clicked in the PDF in the browser, and only if it is a web address', async () => {
+    calls.openedUrls.length = 0;
+    await openPdfLink('https://example.org/paper');
+    await openPdfLink('http://example.org/');
+    await openPdfLink('file:///etc/passwd');
+    await openPdfLink('javascript:alert(1)');
+    await openPdfLink('mailto:someone@example.org');
+    expect(calls.openedUrls).toEqual(['https://example.org/paper', 'http://example.org/']);
   });
 
   it('cancelling stops the polling and shows no failure', async () => {

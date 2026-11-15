@@ -2105,7 +2105,21 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      `\ref`, `\cite` and table-of-contents links in the PDF do nothing. The comment on
      `onInverseSearch` ("a single click inside the text layer is how pdf.js's own selection … already
      work") describes something that is not there. Not a crash; a promise in the design that is not
-     kept and not recorded as deferred. **Open.**
+     kept and not recorded as deferred.
+     **Fixed 11 Nov 2026 (find-in-PDF not done).** The pane is now pdf.js's own `PDFViewer`
+     (`src/lib/pdf/viewer.ts`, rewritten), which keeps a text layer and a link layer on every page.
+     Walked on the virtual display with a 308-page document: dragging selects text (the blue
+     highlight is the browser's), a table-of-contents link scrolls to its page, and a link to a web
+     page calls `xdg-open` with its address while the window stays where it is. A click on a link is
+     decided by `geometry.linkAction` (http and https go to the browser through `openPdfLink`;
+     `#…` is pdf.js's own; `file:`, `javascript:`, `mailto:` and the rest are dropped, and nothing
+     can navigate the window). The opener's capability grew from two addresses to every `http:` and
+     `https:` address (a click is the trigger, and `file:`/`mailto:`/`javascript:` stay refused; the
+     capability test says both), and `no_silent_network.rs` now reads permission identifiers as
+     JSON instead of searching the file for `"http:`, which the new scope entry matched as data.
+     Six geometry tests and one controller test, red first; the DOM half of `viewer.ts` has no
+     automated test (the test environment has no DOM) and is covered by the walk. **Not done:**
+     searching the PDF's text (`PDFFindController` and a find bar).
   5. **S. Every page is rendered eagerly, and the new PDF appears only when the last page is done.**
      `viewer.ts` says so in its header ("a later loop, noted in SPRINTS.md") but SPRINTS.md has no
      such note. Memory is a canvas per page at the screen's pixel ratio (about 5 MB a page at a ratio
@@ -2114,7 +2128,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      commitment as the author sees it. Ctrl+wheel re-fetches and re-renders everything on every
      tick (older renders are cancelled by the token, so it is wasteful, not wrong). Also: a PDF that
      fails halfway through rendering leaves its `PDFDocumentProxy` undestroyed. Not measured.
-     **Open.**
+     **Fixed 11 Nov 2026**, with item 4: `PDFViewer` draws only the pages near the window and keeps a
+     few; a new PDF is opened in a second, hidden viewer in the same place and takes over once the
+     pages in view are drawn (4 s at most), so the pane still never flashes; zoom is applied at once
+     with no re-fetch; a failed load destroys what it made. Measured before and after with the same
+     script on a 308-page document (a screenshot poll from the build-finished log line to the new
+     page on screen): 5.49 s, 5.49 s, 5.49 s with the old viewer; 0.62 s, 0.65 s, 0.69 s with the
+     new. Walked: scroll, Ctrl+wheel zoom, forward search (the page and the highlight) and inverse
+     search (a double-click on the second paragraph put the editor on line 10).
   6. **R (at the crate boundary). SyncTeX forward and inverse search do nothing when the project is
      opened through a symlink** (a mounted data disk, `~/thesis` → elsewhere, macOS `/tmp` and
      `/var`). The engines record the folder TeX saw (`getcwd`, physical) in `Input:`; the app's
@@ -2361,5 +2382,9 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       reads every folder to the bottom and sends it as one JSON value, so opening a folder with a
       very large data directory (hundreds of thousands of files; not `node_modules`, which is
       skipped) costs seconds on the main thread and memory in the webview. The `.gitignore` is not
-      consulted. Not measured. **Open.**
+      consulted.
+      **Measured 11 Nov 2026, not fixed** (a probe, since removed): 200,000 files in 700 folders take
+      0.72 s to walk on this machine and make 15 MB of JSON. That is a pause, not a hang, for a folder
+      far bigger than any project; it is not worth a cap and a truncation notice until a real folder
+      shows otherwise.
 

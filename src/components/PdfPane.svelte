@@ -1,7 +1,14 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
   import { compare } from '../lib/compare.svelte';
-  import { clearComparison, comparisonTitle, retryComparisonWithSimplerMarkup, saveComparisonAs, syncTexInverse } from '../lib/controller.svelte';
+  import {
+    clearComparison,
+    comparisonTitle,
+    openPdfLink,
+    retryComparisonWithSimplerMarkup,
+    saveComparisonAs,
+    syncTexInverse,
+  } from '../lib/controller.svelte';
   import { PdfViewer } from '../lib/pdf/viewer';
 
   let container: HTMLElement | undefined = $state();
@@ -10,7 +17,8 @@
 
   $effect(() => {
     if (!container) return;
-    const created = new PdfViewer(container);
+    // A link in the PDF that goes to a web page opens in the person's browser, never in this window.
+    const created = new PdfViewer(container, { onExternalLink: (url) => void openPdfLink(url) });
     // Not in diff mode: no line of the marked-up document is one the author can edit (A6).
     created.onInverseSearch((page, x, y) => {
       if (!compare.mode) void syncTexInverse(page, x, y);
@@ -56,7 +64,6 @@
     if (!event.ctrlKey || !viewer || !shownUrl) return;
     event.preventDefault();
     viewer.setZoom(viewer.getZoom() * (event.deltaY < 0 ? 1.1 : 0.9));
-    void viewer.load(shownUrl);
   }
 </script>
 

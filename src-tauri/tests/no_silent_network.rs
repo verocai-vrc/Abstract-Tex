@@ -210,12 +210,53 @@ fn the_window_has_no_updater_and_may_call_no_network_plugin() {
     );
 
     let capabilities = read(&workspace().join("src-tauri/capabilities/default.json"));
+    let identifiers = permission_identifiers(&capabilities);
     for forbidden in ["http:", "updater:", "websocket:", "upload:", "shell:"] {
         assert!(
-            !capabilities.contains(&format!("\"{forbidden}")),
-            "the main window is granted a `{forbidden}` permission"
+            !identifiers
+                .iter()
+                .any(|identifier| identifier.starts_with(forbidden)),
+            "the main window is granted a `{forbidden}` permission: {identifiers:?}"
         );
     }
+}
+
+/// The permission identifiers a capability file grants: a permission is either a bare string or an
+/// object with an `identifier` (the opener's scoped one). Read as JSON, not searched as text: the
+/// opener's address list holds `"http://*"` as *data*, which a substring search for `"http:` took for
+/// the `http:` plugin's permissions.
+fn permission_identifiers(capability_json: &str) -> Vec<String> {
+    let capability: serde_json::Value =
+        serde_json::from_str(capability_json).expect("the capability file is JSON");
+    capability["permissions"]
+        .as_array()
+        .expect("a permissions list")
+        .iter()
+        .filter_map(|permission| match permission {
+            serde_json::Value::String(identifier) => Some(identifier.clone()),
+            other => other["identifier"].as_str().map(str::to_string),
+        })
+        .collect()
+}
+
+#[test]
+fn the_permission_guard_still_sees_a_network_plugin_whichever_way_it_is_written() {
+    let identifiers = permission_identifiers(
+        r#"{"permissions": ["core:default", "http:default", {"identifier": "websocket:allow-connect", "allow": [{"url": "http://*"}]}]}"#,
+    );
+    assert!(
+        identifiers.contains(&"http:default".to_string()),
+        "{identifiers:?}"
+    );
+    assert!(
+        identifiers.contains(&"websocket:allow-connect".to_string()),
+        "{identifiers:?}"
+    );
+    // A URL in an opener scope is data, not a permission.
+    assert!(
+        !identifiers.iter().any(|identifier| identifier.contains("://")),
+        "{identifiers:?}"
+    );
 }
 
 /// Every `.ts`, `.svelte` and `.html` source of the frontend that is not a test.

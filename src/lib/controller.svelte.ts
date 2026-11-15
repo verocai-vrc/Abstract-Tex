@@ -2,6 +2,7 @@
 // build finishing, react to a file changing on disk. Components call these; nothing else
 // mutates `app`.
 
+import { linkAction } from './pdf/geometry';
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
@@ -1918,6 +1919,18 @@ export async function cancelGitHubSignIn(): Promise<void> {
   github.code = null;
   github.error = null;
   await ipc.githubCancelSignIn().catch(() => {});
+}
+
+/** A link clicked inside the PDF. A web address opens in the person's own browser; anything else is
+ * dropped (`linkAction` says what counts), so a PDF cannot make this window go anywhere (R5.4). */
+export async function openPdfLink(href: string): Promise<void> {
+  const action = linkAction(href);
+  if (action.kind !== 'browser') return;
+  try {
+    await ipc.openInBrowser(action.url);
+  } catch (error) {
+    app.notice = `Could not open your browser: ${String(error)}`;
+  }
 }
 
 /** Open the verification page in the person's own browser. The URL is on screen as text too, so
