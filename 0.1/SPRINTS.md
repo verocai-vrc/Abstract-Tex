@@ -7326,7 +7326,8 @@ Open from the fifth pass (reasons and reproductions in the ledger; none is fixed
 - [x] `R5.7`..`R5.9` the explain scrub removed the project folder only; a remembered explanation was trusted from a copied folder; opening a project read the keychain. Done 11 November 2026 (the keychain reads that remain still run on the main thread).
 - [x] `R5.12` the build time limit was per process (now one deadline for the build); `R5.13` the busy-file test flake. Done 11 November 2026.
 - [x] `R5.18` a case-only citation mismatch was an error (now a warning); `R5.22` the relay client had no connect timeout. Done 11 November 2026.
-- [ ] Low: `R5.11` (`git lfs track` option names), `R5.15` (engine-blind wording), `R5.19` (accents now folded; the empty-key half was a mistake), `R5.24` (eager tree).
+- [x] `R5.11` `git lfs track` read file names as options (a `--` now ends them; not run against the real `git-lfs`); `R5.15` engine-blind wording. Done 11 November 2026.
+- [ ] Low: `R5.24` (eager tree).
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):

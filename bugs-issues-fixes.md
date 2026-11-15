@@ -2187,7 +2187,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       so a large file whose name starts with a dash is read as an option (`--dry-run` would make the
       call do nothing, `--lockable` changes the attributes written). Not reproduced (no `git-lfs` on
       this machine); a `--` before the paths, if `git lfs track` accepts it, or `./` as above.
-      **Open.**
+      **Fixed 11 Nov 2026, not verified against the real program.** `track_with` passes `--` before
+      the paths (git-lfs is a cobra program, where `--` ends the options). The test stand-in now
+      treats a leading dash as an option until `--`, like the real command, and a test tracks a file
+      named `--dry-run` (red first: nothing was written). `git-lfs` is still not installed here, so
+      the `--` is the one thing worth running once on a machine that has it.
   12. **S (low). The build time limit is per engine process, not per build.** A warm build runs up to
       three single passes and then a full build, each with its own 15 minutes, so the longest build
       the limit allows is an hour, not 15 minutes as the constant's comment says.
@@ -2238,7 +2242,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       the engine "downloads packages on demand … fetched the next time you build with a network
       connection" (true for the bundled Tectonic, false for a system `latexmk`, which needs the
       package installed), and sends a missing `.cls` or `.bst` through the "document includes" branch
-      ("resolved relative to the folder holding the main file"). **Open.**
+      ("resolved relative to the folder holding the main file").
+      **Fixed 11 Nov 2026.** A missing package now says what happens with each kind of engine (the
+      bundled one downloads on demand; a TeX on the computer needs `tlmgr install` and the name), and
+      a missing `.cls` has its own wording (check `\documentclass`, and a supplied class belongs next
+      to the main file) instead of "the document includes". Two tests, red first; the one fixture
+      that pinned the old sentence was rewritten.
   16. **R. Entries made by paste-to-cite break the build when a field holds `&`, `%`, `#` or `_`, and
       unbalanced braces are not checked.** `render_entry` writes every value as `{…}` verbatim, and
       the acquirers copy their sources' text unchanged (arXiv: XML entities decoded, so `Q&amp;A`

@@ -62,6 +62,24 @@ async fn tracking_stages_gitattributes_and_the_file_once_git_lfs_succeeds() {
 
 /// Git LFS installed but refusing the file for its own reason — the `run` helper's stderr must
 /// reach the author, not just a "command failed" with no content.
+// Review finding R5.11. The file names went to `git lfs track` bare, so a large file whose name starts
+// with a dash was read as an option (`--dry-run` would make the call do nothing). The stand-in treats
+// a leading dash as an option the way the real command does, until a `--` ends the options.
+#[tokio::test]
+async fn a_file_named_like_an_option_is_tracked_as_a_file() {
+    let project = tempfile::tempdir().unwrap();
+    let repository = git2::Repository::init(project.path()).unwrap();
+    std::fs::write(project.path().join("--dry-run"), b"big").unwrap();
+    drop(repository);
+
+    track_with(installed(), project.path(), &["--dry-run".to_string()])
+        .await
+        .expect("the stand-in tracks it once the options have ended");
+
+    let attributes = std::fs::read_to_string(project.path().join(".gitattributes")).unwrap();
+    assert!(attributes.contains("--dry-run filter=lfs"), "{attributes}");
+}
+
 #[tokio::test]
 async fn git_lfss_own_refusal_reaches_the_error_message() {
     let tmp = tempfile::tempdir().unwrap();

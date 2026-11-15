@@ -57,7 +57,9 @@ pub async fn track_with(git: &Path, project_dir: &Path, paths: &[String]) -> Res
         "setting up Git LFS for this repository",
     )
     .await?;
-    let mut track_args: Vec<&str> = vec!["lfs", "track"];
+    // `--` ends the options: a file whose name starts with a dash (`--dry-run`, `--lockable`) is a
+    // file to track, not a flag of the command (review finding R5.11).
+    let mut track_args: Vec<&str> = vec!["lfs", "track", "--"];
     track_args.extend(paths.iter().map(String::as_str));
     run(git, project_dir, &track_args, "tracking the file with Git LFS").await?;
 

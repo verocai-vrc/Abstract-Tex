@@ -873,13 +873,21 @@ fn explain_unbalanced_braces(error: &QuickError) -> (String, String) {
 
 fn explain_file_not_found(error: &QuickError) -> (String, String) {
     let name = quoted_name(&error.message).unwrap_or("that file");
-    let is_package = name.ends_with(".sty") || !name.contains('.');
-    let explanation = if is_package {
+    // What the rule cannot see is which engine built this, so a package's advice says what happens
+    // with each kind (review finding R5.15).
+    let explanation = if name.ends_with(".cls") {
+        format!(
+            "This document asks for the class `{name}`, and the engine could not find it. Check the \
+             name in `\\documentclass{{...}}` for a typo; a class a journal or a university supplied \
+             has to be a file next to your main file, because it is not part of a TeX installation."
+        )
+    } else if name.ends_with(".sty") || !name.contains('.') {
         format!(
             "This document asks for `{name}`, and the engine could not find it. If it is a \
-             package, check the name for a typo; an engine like Tectonic downloads packages \
-             on demand, so a correctly spelled one will be fetched the next time you build with \
-             a network connection."
+             package, check the name for a typo. The bundled engine downloads packages on demand, so \
+             a correctly spelled one is fetched the next time you build with a network connection; a \
+             TeX installed on this computer needs the package installed first (with TeX Live, \
+             `tlmgr install` and the package's name)."
         )
     } else {
         format!(
@@ -2262,6 +2270,42 @@ mod tests {
             assert!(d.title.contains("\\usepackage"), "{}", d.title);
             assert_reads_like_a_sentence(&d);
         }
+    }
+
+    // Review finding R5.15. The advice depended on an engine the rule cannot see: "downloads packages on
+    // demand" is true of the bundled Tectonic and false of a system TeX, and a missing class was sent
+    // through the "document includes" branch.
+    #[test]
+    fn rule_4_a_missing_package_says_what_happens_with_each_kind_of_engine() {
+        let log = "! LaTeX Error: File `nosuch.sty' not found.\n";
+        let d = diagnostic_from(log, "file-not-found");
+        assert!(
+            d.explanation
+                .contains("bundled engine downloads packages on demand"),
+            "{}",
+            d.explanation
+        );
+        assert!(d.explanation.contains("tlmgr install"), "{}", d.explanation);
+        assert!(
+            !d.explanation.contains("an engine like Tectonic"),
+            "{}",
+            d.explanation
+        );
+    }
+
+    #[test]
+    fn rule_4_a_missing_class_is_a_class_not_an_included_file() {
+        let log = "! LaTeX Error: File `journal.cls' not found.\n";
+        let d = diagnostic_from(log, "file-not-found");
+        assert_eq!(d.title, "`journal.cls` could not be found");
+        assert!(d.explanation.contains("\\documentclass"), "{}", d.explanation);
+        assert!(
+            d.explanation.contains("next to your main file"),
+            "{}",
+            d.explanation
+        );
+        assert!(!d.explanation.contains("includes"), "{}", d.explanation);
+        assert_reads_like_a_sentence(&d);
     }
 
     #[test]
