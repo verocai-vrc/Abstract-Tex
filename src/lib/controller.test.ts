@@ -684,6 +684,7 @@ const {
   unstageChange,
   syncTexForward,
   syncTexInverse,
+  openPdfFind,
   toggleDrawer,
   toggleQuickOpen,
   toggleRawLog,
@@ -2030,6 +2031,27 @@ describe('publishDiagnostics reaching the gutter (S3.3b)', () => {
   it('answers with nothing for a path when no project is open', () => {
     app.project = null;
     expect(lspDiagnosticsFor('main.tex')).toEqual([]);
+  });
+});
+
+describe('find in the PDF', () => {
+  it('asks the PDF pane to open its search bar', () => {
+    app.pdfFindRequest = null;
+    openPdfFind();
+    expect(app.pdfFindRequest).not.toBeNull();
+  });
+
+  it('asks again each time, so a bar that was closed opens again', () => {
+    openPdfFind();
+    const first = app.pdfFindRequest!.nonce;
+    openPdfFind();
+    expect(app.pdfFindRequest!.nonce).not.toBe(first);
+  });
+
+  it('is in the command palette, beside its chord', () => {
+    const command = allCommands().find((candidate) => candidate.id === 'find-in-pdf');
+    expect(command?.title).toBe('Find in the PDF');
+    expect(command?.shortcut).toBe('Ctrl Shift F');
   });
 });
 

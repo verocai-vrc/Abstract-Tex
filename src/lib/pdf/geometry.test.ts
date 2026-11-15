@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampZoom, linkAction, pointsFromClick, ZOOM_MAX, ZOOM_MIN } from './geometry';
+import { clampZoom, linkAction, pointsFromClick, scrollToReveal, ZOOM_MAX, ZOOM_MIN } from './geometry';
 
 describe('pointsFromClick', () => {
   it('turns a click on a page into PDF points from the page\'s top-left corner', () => {
@@ -46,5 +46,42 @@ describe('clampZoom', () => {
     expect(clampZoom(0.01)).toBe(ZOOM_MIN);
     expect(clampZoom(99)).toBe(ZOOM_MAX);
     expect(clampZoom(1.25)).toBe(1.25);
+  });
+});
+
+describe('scrollToReveal', () => {
+  // The pane on screen: 600 wide, 900 tall, its top-left corner at (200, 100); scrolled 1000 down, 0 across.
+  const pane = { left: 200, top: 100, width: 600, height: 900 };
+  const scrolled = { left: 0, top: 1000 };
+
+  it('leaves the view alone when the match is already well inside it', () => {
+    const match = { left: 300, top: 500, width: 80, height: 14 };
+    expect(scrollToReveal(match, pane, scrolled)).toBeNull();
+  });
+
+  it('brings a match from below the window up to a third of the way down', () => {
+    // 1200 px below the pane's top edge: 600 further down than the window shows.
+    const match = { left: 300, top: 100 + 1200, width: 80, height: 14 };
+    // After scrolling, the match sits at pane top + 300 (a third of 900).
+    expect(scrollToReveal(match, pane, scrolled)).toEqual({ left: 0, top: 1000 + 1200 - 300 });
+  });
+
+  it('brings a match from above the window down to a third of the way down', () => {
+    const match = { left: 300, top: 100 - 400, width: 80, height: 14 };
+    expect(scrollToReveal(match, pane, scrolled)).toEqual({ left: 0, top: 1000 - 400 - 300 });
+  });
+
+  it('does not leave a match half cut off by the edge', () => {
+    // 5 px from the bottom edge: inside the window, but a line that close to the edge is hard to see.
+    const match = { left: 300, top: 100 + 900 - 19, width: 80, height: 14 };
+    expect(scrollToReveal(match, pane, scrolled)).not.toBeNull();
+  });
+
+  it('also centres the match across when a zoomed page has put it out to the side', () => {
+    // Off the right edge of the pane by 300 px: a zoomed page is wider than the pane. It is in view
+    // up and down, so the page is not scrolled that way.
+    const match = { left: 200 + 600 + 300, top: 500, width: 100, height: 14 };
+    // Its middle is at 1150 and the pane's middle at 500, so the view moves 650 to the right.
+    expect(scrollToReveal(match, pane, scrolled)).toEqual({ left: 650, top: 1000 });
   });
 });

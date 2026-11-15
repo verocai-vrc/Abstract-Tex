@@ -46,3 +46,39 @@ export function linkAction(href: string): LinkAction {
   if (url.protocol === 'https:' || url.protocol === 'http:') return { kind: 'browser', url: url.href };
   return { kind: 'refused' };
 }
+
+/** A rectangle on screen, in CSS pixels. */
+export interface ScreenBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** How close to an edge of the pane a match may be and still count as in view: a line that near the
+ * edge is half hidden by it. */
+const REVEAL_MARGIN = 24;
+
+/**
+ * Where to scroll the pane so the reader can see `match` (a search result), or null when they already can.
+ * Both boxes are on screen; `scroll` is where the pane is scrolled now. A match out of view goes a third
+ * of the way down the pane, which leaves room above it for the line before — pdf.js's own choice, to the
+ * top edge, hides the context. One that is merely out to the side (a zoomed page) is centred across.
+ */
+export function scrollToReveal(
+  match: ScreenBox,
+  pane: ScreenBox,
+  scroll: { left: number; top: number },
+): { left: number; top: number } | null {
+  const outUpOrDown =
+    match.top < pane.top + REVEAL_MARGIN || match.top + match.height > pane.top + pane.height - REVEAL_MARGIN;
+  const outToTheSide =
+    match.left < pane.left + REVEAL_MARGIN || match.left + match.width > pane.left + pane.width - REVEAL_MARGIN;
+  if (!outUpOrDown && !outToTheSide) return null;
+
+  const top = outUpOrDown ? scroll.top + (match.top - pane.top) - pane.height / 3 : scroll.top;
+  const left = outToTheSide
+    ? scroll.left + (match.left + match.width / 2) - (pane.left + pane.width / 2)
+    : scroll.left;
+  return { left, top };
+}

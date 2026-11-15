@@ -2118,8 +2118,23 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      capability test says both), and `no_silent_network.rs` now reads permission identifiers as
      JSON instead of searching the file for `"http:`, which the new scope entry matched as data.
      Six geometry tests and one controller test, red first; the DOM half of `viewer.ts` has no
-     automated test (the test environment has no DOM) and is covered by the walk. **Not done:**
-     searching the PDF's text (`PDFFindController` and a find bar).
+     automated test (the test environment has no DOM) and is covered by the walk.
+     **Find in the PDF, done 15 Nov 2026.** `Ctrl F` with focus in the PDF pane, `Ctrl Shift F`
+     from anywhere, or "Find in the PDF" in the palette, opens a bar over the pane's top corner (it
+     does not shift the pages): every match is highlighted (yellow, the current one orange), the bar
+     says "3 of 12" or "No matches", Enter / Shift Enter move on and back and wrap, and there are
+     Match case and Whole words switches. Words selected in the PDF start the search. It is pdf.js's
+     own `PDFFindController`; `src/lib/pdf/find.ts` (`FindSession`) speaks its event protocol and
+     `find-controller.ts` takes over where the view goes: a match out of view is put a third of the
+     way down the pane (pdf.js's own default is flush against the top edge, with the sentence around
+     it out of sight), and a search re-run by a rebuild moves the view nowhere, so a reader on
+     page 25 stays on page 25 and the count follows the new document (walked: "4 of 7", rebuild,
+     "4 of 8", same page). Tested against pdf.js's real controller on a real PDF built in the test
+     (37 new tests, mutation-checked: whole-word, previous, close, wrapping, both holds on the view, the
+     reveal rule). Known limits: searching is by text as pdf.js extracts it, so a word broken by a
+     hyphen at the end of a line is two pieces; no regular expressions; no "highlight all" switch
+     (all are always highlighted); after a rebuild the current match is the first one at or after the
+     page being read, not the one that was current.
   5. **S. Every page is rendered eagerly, and the new PDF appears only when the last page is done.**
      `viewer.ts` says so in its header ("a later loop, noted in SPRINTS.md") but SPRINTS.md has no
      such note. Memory is a canvas per page at the screen's pixel ratio (about 5 MB a page at a ratio

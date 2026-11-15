@@ -347,6 +347,13 @@ kbd {
   line-height: 1.8;
 }
 
+/* Search matches in the PDF (pdf.js draws them; only the colours are ours). The page is white whatever the
+   theme, so these are fixed: every match a soft yellow, the one the reader is on a stronger orange. */
+.pdf-pane .textLayer .highlight {
+  --highlight-bg-color: rgb(255 214 0 / 0.45);
+  --highlight-selected-bg-color: rgb(255 120 0 / 0.55);
+}
+
 /* SyncTeX forward search (S3.4): a brief marker at the target point, not drawn into the canvas
    itself so a reload never has to know to erase it (`viewer.ts`'s own note on why). Sized and
    positioned in `viewer.ts`; only the look lives here. */

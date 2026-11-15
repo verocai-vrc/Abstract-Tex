@@ -42,6 +42,12 @@ describe('shortcutFor', () => {
     expect(shortcutFor(press('F8', { ctrlKey: true }))).toBeNull();
   });
 
+  it('opens the search of the PDF with Ctrl Shift F', () => {
+    expect(shortcutFor(press('F', { ctrlKey: true, shiftKey: true }))).toBe('find-in-pdf');
+    // Plain Ctrl F belongs to whatever has focus: the editor's own search, and the PDF pane's.
+    expect(shortcutFor(press('f', { ctrlKey: true }))).toBeNull();
+  });
+
   it('does not steal a chord that carries Shift or Alt and is not in the table', () => {
     // `Ctrl Shift S` is the platform's, and `Ctrl E` is not "Files" — Shift is matched exactly,
     // not ignored, so neither the chord with it nor the one without it reaches the other's action.

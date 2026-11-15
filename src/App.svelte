@@ -7,6 +7,7 @@
     showCloneWindow,
     goToNextPlaceholder,
     showNewProjectWindow,
+    openPdfFind,
     showActivityView,
     start,
     toggleCommandPalette,
@@ -77,6 +78,9 @@
         break;
       case 'view-source-control':
         showActivityView('source-control');
+        break;
+      case 'find-in-pdf':
+        openPdfFind();
         break;
     }
   }

@@ -16,7 +16,8 @@ export type Action =
   | 'quick-open'
   | 'command-palette'
   | 'view-files'
-  | 'view-source-control';
+  | 'view-source-control'
+  | 'find-in-pdf';
 
 export interface Shortcut {
   action: Action;
@@ -42,6 +43,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // first chords here with Shift in them, which is why `shortcutFor` below had to grow.
   { action: 'view-files', keys: 'Mod-Shift-E', label: 'Files' },
   { action: 'view-source-control', keys: 'Mod-Shift-G', label: 'Source Control' },
+  // Searching the text of the PDF. Plain Ctrl F is not here on purpose: it belongs to whatever has
+  // focus (the editor's search, or the PDF pane's own bar). This one works from anywhere.
+  { action: 'find-in-pdf', keys: 'Mod-Shift-F', label: 'Find in the PDF' },
 ];
 
 /** The fields of a `KeyboardEvent` the table cares about, so tests need not build a real one. */

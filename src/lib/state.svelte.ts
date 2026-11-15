@@ -161,6 +161,10 @@ class AppState {
    * `nonce` makes repeat requests to the same spot distinct, matching `jumpRequest`. */
   syncTexScrollRequest = $state<{ page: number; x: number; y: number; nonce: number } | null>(null);
 
+  /** A request for the PDF pane to open its search bar and put the cursor in it. `nonce` makes a
+   * second request distinct from the first, so asking again opens a bar that was closed. */
+  pdfFindRequest = $state<{ nonce: number } | null>(null);
+
   /**
    * Every file the project has: the include graph's files plus everything in the file tree
    * (E1). The drawer and the gutter use it to tell a file the author can open from one they

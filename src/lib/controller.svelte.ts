@@ -2439,6 +2439,13 @@ registerCommand({
   shortcut: 'Ctrl Shift G',
   run: () => showActivityView('source-control'),
 });
+registerCommand({
+  id: 'find-in-pdf',
+  title: 'Find in the PDF',
+  category: 'action',
+  shortcut: 'Ctrl Shift F',
+  run: () => openPdfFind(),
+});
 // ---------------------------------------------------------------------------------------------
 // S14.3c: comments. Kept in the project's Git history by Rust; nothing here sends them anywhere.
 // ---------------------------------------------------------------------------------------------
@@ -2720,6 +2727,13 @@ export function jumpToLine(line: number): void {
 }
 
 let syncTexNonce = 0;
+let pdfFindNonce = 0;
+
+/** Ask the PDF pane to open its search bar. The pane does the rest (`PdfPane.svelte`); this is the part
+ * the shortcut and the palette share. */
+export function openPdfFind(): void {
+  app.pdfFindRequest = { nonce: ++pdfFindNonce };
+}
 
 /**
  * SyncTeX forward search (S3.4): the cursor's line in the active file to a spot in the PDF.

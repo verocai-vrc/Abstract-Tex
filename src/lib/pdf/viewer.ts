@@ -11,7 +11,8 @@
 // The pane must never flash or lose its place when a new PDF arrives (DESIGN.md §6). So a new PDF is
 // opened in a second, hidden viewer in the same place; once the pages the reader is looking at are drawn
 // there, it takes over and the old one is thrown away. If a newer PDF arrives meanwhile, the older one is
-// dropped.
+// dropped. A search the reader has open carries over: the new PDF is searched for the same words, with
+// the highlights back and the view where it was.
 
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -19,7 +20,9 @@ import { AnnotationMode } from 'pdfjs-dist';
 import { EventBus, PDFLinkService, PDFViewer, RenderingStates } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import 'pdfjs-dist/web/pdf_viewer.css';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?worker&url';
-import { clampZoom, linkAction, pointsFromClick } from './geometry';
+import { FindSession, type FindOptions, type FindRequest, type FindStatus } from './find';
+import { PaneFindController } from './find-controller';
+import { clampZoom, linkAction, pointsFromClick, scrollToReveal } from './geometry';
 
 // The worker is handed to pdf.js as a live Worker object rather than as a URL, and which
 // spelling we use to build it matters more than it looks.
@@ -69,6 +72,12 @@ class Surface {
   private document: PDFDocumentProxy | null = null;
   /** The size that fits the pane's width, as a pdf.js scale; what a zoom is a multiple of. */
   private fitScale = 1;
+  /** Searches the text of this surface's document; the controller does the finding, the session talks to it. */
+  readonly findController: PaneFindController;
+  readonly find: FindSession;
+  /** Who hears how this surface's search is going. Set while this is the surface on show: a hidden one
+   * that is still drawing must not report to the find bar. */
+  findStatusListener: ((status: FindStatus) => void) | null = null;
 
   constructor(host: HTMLElement, callbacks: PdfViewerCallbacks, hidden: boolean) {
     this.container = window.document.createElement('div');
@@ -80,11 +89,17 @@ class Surface {
     host.appendChild(this.container);
 
     this.linkService = new PDFLinkService({ eventBus: this.eventBus });
+    this.findController = new PaneFindController(
+      { eventBus: this.eventBus, linkService: this.linkService },
+      (match) => this.revealMatch(match),
+    );
+    this.find = new FindSession(this.eventBus, (status) => this.findStatusListener?.(status));
     this.pdfViewer = new PDFViewer({
       container: this.container,
       viewer: viewerElement,
       eventBus: this.eventBus,
       linkService: this.linkService,
+      findController: this.findController,
       // Links drawn and clickable, forms not: a LaTeX document has links and no forms.
       annotationMode: AnnotationMode.ENABLE,
       // The pane has its own Ctrl+wheel zoom (`PdfPane.svelte`).
@@ -125,6 +140,20 @@ class Surface {
       );
       callbacks.onInverseSearch?.(pageNumber, x, y);
     });
+  }
+
+  /** Scroll so a search match can be seen, with the line before it above it (see `scrollToReveal`). */
+  private revealMatch(match: HTMLElement): void {
+    const box = match.getBoundingClientRect();
+    const pane = this.container.getBoundingClientRect();
+    const target = scrollToReveal(
+      { left: box.left, top: box.top, width: box.width, height: box.height },
+      { left: pane.left, top: pane.top, width: this.container.clientWidth, height: this.container.clientHeight },
+      { left: this.container.scrollLeft, top: this.container.scrollTop },
+    );
+    // At once, not smoothly: a match can be a hundred pages away, and a smooth scroll across them would
+    // draw every page on the way.
+    if (target) this.container.scrollTo({ ...target, behavior: 'instant' });
   }
 
   /** Hidden but still laid out, so pdf.js measures and draws it as it will look once it is shown. */
@@ -198,6 +227,9 @@ export class PdfViewer {
   private active: Surface | null = null;
   private renderToken = 0;
   private zoom = 1;
+  /** What the reader is searching for, kept here so a new PDF can be searched for the same thing. */
+  private findRequest: FindRequest | null = null;
+  private findStatusHandler: ((status: FindStatus) => void) | null = null;
   private readonly resizeObserver: ResizeObserver;
 
   constructor(
@@ -220,6 +252,37 @@ export class PdfViewer {
 
   get pageCount(): number {
     return this.active?.pageCount ?? 0;
+  }
+
+  /** Call `handler` whenever what the find bar should say about the search changes. */
+  onFindStatus(handler: (status: FindStatus) => void): void {
+    this.findStatusHandler = handler;
+  }
+
+  /** Search the PDF for `query`: every match highlighted, the first one shown. Called as the reader types. */
+  find(query: string, options: FindOptions): void {
+    this.findRequest = query === '' ? null : { query, options };
+    // The reader asked: show them, even if a rebuild had been holding the view still.
+    this.active?.findController.holdStill(false);
+    this.active?.find.search(query, options);
+    if (query === '') this.findStatusHandler?.({ kind: 'idle' });
+  }
+
+  findNext(): void {
+    this.active?.findController.holdStill(false);
+    this.active?.find.next();
+  }
+
+  findPrevious(): void {
+    this.active?.findController.holdStill(false);
+    this.active?.find.previous();
+  }
+
+  /** End the search: highlights off, and a new PDF is no longer searched. */
+  closeFind(): void {
+    this.findRequest = null;
+    this.active?.find.close();
+    this.findStatusHandler?.({ kind: 'idle' });
   }
 
   /** Load and show a PDF from a URL the webview may fetch. Safe to call repeatedly: a newer call
@@ -263,6 +326,14 @@ export class PdfViewer {
 
     next.setHidden(false);
     this.active = next;
+    if (previous) previous.findStatusListener = null;
+    next.findStatusListener = (status) => this.findStatusHandler?.(status);
+    // The reader's search carries over to the new PDF. The view is held still: they are reading wherever
+    // they are, and a rebuild must not take them to the first match.
+    if (this.findRequest) {
+      next.findController.holdStill(true);
+      next.find.search(this.findRequest.query, this.findRequest.options);
+    }
     await previous?.destroy();
   }
 
@@ -314,6 +385,8 @@ export class PdfViewer {
     this.renderToken++;
     const previous = this.active;
     this.active = null;
+    // The search stays asked for, and runs again when a PDF arrives; until then there is nothing to count.
+    if (this.findRequest) this.findStatusHandler?.({ kind: 'idle' });
     await previous?.destroy();
   }
 
