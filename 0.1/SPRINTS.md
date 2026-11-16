@@ -7329,6 +7329,23 @@ Open from the fifth pass (reasons and reproductions in the ledger; none is fixed
 - [x] `R5.11` `git lfs track` read file names as options (a `--` now ends them; not run against the real `git-lfs`); `R5.15` engine-blind wording. Done 11 November 2026.
 - [x] `R5.24` the eager tree: measured (200,000 files, 0.72 s), not fixed.
 
+**Sixth pass (15 November 2026)** takes the hub, the seam and the file boundary (`REVIEW-HANDOFF.md` §3
+P1), in that file's §8 order. `R6.<n>` is the finding's number in the ledger's sixth-pass entry.
+
+- [x] `ipc.ts` against the Rust commands: names, argument names, nullable arguments, return types, 34 struct shapes, the tagged enums and the seven event names. **No mismatch** (the evidence is in the ledger entry).
+- [x] `R6.1` a save wrote the document through a link standing at its temporary file name (`write_atomically`). Done 15 November 2026; mutation-checked.
+- [x] `R6.2` opening another folder threw away unsaved text (a failing save, an open conflict, the last 700 ms). Done 15 November 2026; mutation-checked. `controller.test.ts` no longer uses `openFolder` as a reset of the previous test's typing.
+- [x] `R6.3` the same file asked for twice at once made a second document and a doubled tab; a late read landed in the next project. Done 15 November 2026; both halves mutation-checked.
+- [x] `R6.4` closing a tab whose text could not be saved did nothing and said nothing. Done 15 November 2026; mutation-checked.
+- [x] `R6.5` 60 of 88 commands are synchronous (main thread) and the save path does real work in several: measured, not fixed (release: 1-36 ms per save for 15-200 chapters; a dev build is about ten times that).
+
+Open from the sixth pass (by reading, none reproduced):
+
+- [ ] `R6.6` a build of the previous project that finishes after a folder is opened shows its PDF and diagnostics on the new one; `refreshOutline` guards on a path, not a project.
+- [ ] `R6.7` `export_tree` does not check the names in a commit's tree for `..` (git and GitHub refuse such a tree; libgit2's fetch is unknown).
+- [ ] `R6.8` `clone_destination` accepts Windows reserved names (`con`, `nul`) and a trailing dot or space.
+- [ ] Still unread in the P1 files: `controller.svelte.ts` lines 600-780 and 900-1878 and 2652-2905, and every component.
+
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 

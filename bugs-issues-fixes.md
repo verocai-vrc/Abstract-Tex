@@ -2419,3 +2419,140 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
       far bigger than any project; it is not worth a cap and a truncation notice until a real folder
       shows otherwise.
 
+
+- **Agentic review, sixth pass (15 Nov 2026): the hub, the seam and the file boundary
+  (`REVIEW-HANDOFF.md` §3 P1, in the order of its §8). Findings are logged as they are found; the
+  fix batch follows the list.** Method as before: read the code, reproduce with the real thing
+  (a throwaway probe, then a failing test), then fix test-first. R = reproduced, S = by reading.
+  Covered: `REVIEW-HANDOFF.md`; `src/lib/ipc.ts` (all 88 `invoke` calls, by script; and the seven
+  `listen` wrappers); `src-tauri/src/commands.rs` (all of it); `src-tauri/src/git.rs`;
+  `src-tauri/src/project.rs` (`Project::open`, `resolve`, `resolve_for_write`, `info`, the include-graph
+  cache, `detect_root`, `list_tree`, `read_text`, `write_atomically`); `src/lib/controller.svelte.ts`
+  lines 1-600, 780-900, 1878-2660 and 2905-3110 (the language-server glue, the assistant settings, Git
+  refresh, GitHub sign-in, crash reports, `start`, `openFolder`, `openFile`, `closeTab`, `triggerCompile`,
+  the comments flows, `handleCompileEvent`, `handleFsEvent`, `reconcileOpenDocument`);
+  `src/lib/documents.ts`; `src/lib/document.ts` lines 84-310; `crates/abstract-tex-git/src/lib.rs`
+  (`log`, `export_tree`, `write_gitignore`). **Not read, so silence there is not a clean bill:**
+  `controller.svelte.ts` lines 600-780 (the assistant review flow), 900-1878 (the diff view, snapshots,
+  clone, live sessions, templates, comparison, branches, tags) and 2652-2905 (placeholders, conflict
+  resolution); `project.rs`'s tests; every Svelte component; the editor extensions.
+
+  **Clean, with the evidence, so nobody re-does it.** The Rust/TypeScript seam agrees everywhere it
+  was checked. A script (scratchpad, not kept) paired every `invoke` in `ipc.ts` with its
+  `#[tauri::command]`: 88 names each way; the argument names (camelCase on this side, snake_case in
+  Rust) agree for all 88; every argument that the TypeScript may send as `null` or leave out is an
+  `Option` in Rust (`compile`, `assistant_save_provider`, `github_create_repository`, `git_clone`,
+  `compare_revisions`, `save_comparison_pdf`); every return type agrees, `Option<T>` as `T | null` and
+  `()` as `void`; 34 serialised Rust structs match their TypeScript interfaces field for field
+  (`rename_all`, `rename` and `skip_serializing_if` taken into account; the one report, `Finding`, was
+  two Rust types of one name, and the one the command returns matches); the tagged enums carry the
+  tags and variant names the unions expect (`SyncOutcome`, `CompileEvent`, `ComparisonStarted`,
+  `SignInEvent`, `Jump`, `BibOrigin`); and the seven event names `ipc.ts` listens for are the ones
+  Rust emits (`compile`, `compile-diff`, `fs:changed`, `lsp`, `git:status-changed`, `github:sign-in`,
+  `bibliography:changed`). The hand-off's open question about argument names and return types is
+  answered: no mismatch.
+
+  1. **R (high). A save writes through a link standing at its temporary file name.**
+     `project::write_atomically` writes `<name>.abstract-tex-tmp` with `fs::write` and renames it over
+     `<name>`. `fs::write` opens with create-or-truncate, which follows a link. A cloned repository can
+     carry `main.tex.abstract-tex-tmp` as a link to any file the author can write (the tree hides that
+     name as junk, so nothing in the window shows it), and the next autosave of `main.tex` writes the
+     document into the link's target; the rename then makes `main.tex` itself the link. The document
+     text is largely the repository author's own. Same door as R3.12, R5.2 and R5.23.
+     Reproduced with a probe against the real function: the "victim" file outside the project held the
+     document text afterwards and `main.tex` was a symlink. Used by `write_file`, `create_file`, the
+     bibliography append, snapshot restore, `abstract-tex.toml`, and the two settings files.
+     **Fixed 15 Nov 2026.** The temporary name is removed first (`remove_file` removes a link, never
+     its target; a half-written leftover from a crash goes the same way) and the new file is made with
+     `create_new`, which refuses anything that exists, a dangling link included; a failed write removes
+     its temporary file. Three tests, red first (a link to a file, a dangling link, a leftover file);
+     mutation-checked (the `remove_file` step taken out: all three go red).
+  2. **R (high). Opening another folder threw away every unsaved edit.** `openFolder` called
+     `ipc.openProject` (Rust switches projects at once) and then `closeAllDocuments`, which disposes
+     each `OpenDocument`; `dispose` clears the save timer and destroys the `Y.Doc`, writing nothing.
+     So the text was lost in three situations: a save that was failing (disk full, permission) with
+     the tab still dirty; **a conflict bar still on screen**, where saves are held on purpose and the
+     buffer holds edits that exist nowhere else (`openFile` refuses to even switch tabs in that state,
+     "Answer the question first", but `openFolder` did not ask); and an edit typed less than 700 ms
+     before an `openFolder(path)` that does not wait for a picker (Clone, New project from a template,
+     the command line). The folder-picker case is mostly safe because the debounce fires while the
+     dialog is up. Reproduced with three controller tests: the buffer read `hello`, not `hello and more`;
+     `app.conflict` was `null` afterwards; the disk still held `hello`.
+     **Fixed 15 Nov 2026.** `flushBeforeLeavingProject` runs before `ipc.openProject`: it refuses while
+     a conflict is open (same sentence as `openFile`), writes every tab with `manager.saveAll()`, and if
+     any tab is still dirty (a failed or held save) it says which file and that the folder was not
+     changed, and does not switch. Four tests (the three above plus the failing one), red first; the
+     flush taken out turns three red. **Cost to the test file:** `controller.test.ts` used
+     `openFolder('/proj')` in its `beforeEach` as a reset, which relied on this data loss to forget
+     what the previous test had typed; the `beforeEach` now writes leftovers to the old fake disk
+     first, and one test ("clears when the project closes") saved its heading and opens a project
+     without one, so it still tests the outline resetting rather than the loss.
+  3. **R (medium). Asking for the same file twice before the first read returned made a second
+     `Y.Doc`, and a late read landed in the next project.** `openFile` checked `isOpen`, awaited
+     `ipc.readFile`, then called `manager.open`; `DocumentManager.open` says in its own comment that it
+     must never be called for an open path ("silently orphan the live one"). Two overlapping calls
+     (a double click on a slow disk, Quick Open pressed twice, a jump to a diagnostic racing a click)
+     both passed the check: `docs.set` replaced the first document without disposing it and the path
+     went into the tab row twice, which a keyed `{#each}` in `Tabs.svelte` takes as a duplicate key.
+     The same gap let a read started in project A finish after `openFolder` had opened B and open A's
+     file text as a tab of B. Reproduced with two controller tests (`['chapter.tex', 'chapter.tex']`;
+     the stale file open in the new project).
+     **Fixed 15 Nov 2026.** One read per path in flight (`opensInFlight`): a second request waits for
+     the first and ends; and `projectEpoch`, bumped by `openFolder`, is checked after the read so a
+     late answer for the old project is dropped. Two tests, red first; each half mutation-checked.
+  4. **R (low). Closing a tab whose text cannot be saved did nothing, and said nothing.** `closeTab`
+     awaited `save()` with no `catch`; `Tabs.svelte` calls it with `void`, so a failing save was an
+     unhandled rejection, the tab stayed and the author saw a dead button. `save()` also returns
+     `false` without writing when saves are held (a reconcile in flight), and the tab was then closed
+     with its text. Reproduced: `closeTab` rejected with the write error.
+     **Fixed 15 Nov 2026.** A failed save keeps the tab and says why in the notice; a tab still dirty
+     after the save is kept too. One test, red first, mutation-checked.
+  5. **Measured, not fixed. 60 of the 88 commands are synchronous, so they run on the main thread, and
+     the save path does real work in several of them.** After the 700 ms idle autosave: `write_file`
+     (sync) writes, then, for any `.tex` or `.bib`, `emit_bibliography` rebuilds the whole index
+     (include graph, every `.tex` read twice, every `.bib` parsed) and sends it as one event; the
+     `triggerCompile` that follows calls `compile` (sync), whose `root_file()` falls back to
+     `detect_root` (a three-level walk that reads every `.tex` it finds) whenever the root is not
+     `main.tex` and none is configured, and `emit_bibliography` calls it again; and the
+     `git:status-changed` the write announces makes the frontend ask six synchronous Git questions in a
+     row (a seventh, the history, only when `HEAD` moved), each opening the repository again. `read_log`, the SyncTeX commands and `compare_revisions`
+     call `root_file()` too, the SyncTeX ones also parsing the whole `.synctex.gz` per click under the
+     project lock. Measured with a probe (a thesis-shaped project, root `thesis.tex`, 800 `.bib`
+     entries, ~7 KB per chapter): **release build** 15 chapters `root_file()` 0.8 ms, `build_index`
+     5.0 ms, `info()` 1.2 ms; 60 chapters 3.1, 12.5 and 4.1 ms; 200 chapters (1.4 MB of `.tex`) 10.1,
+     36.3 and 12.8 ms. In an **unoptimised** build, which is what `pnpm tauri dev` runs, the same code
+     is about ten times slower (a project of 100 chapters at 27 KB each: 89 ms, 409 ms, 107 ms). So on a
+     release build a typical document costs a few milliseconds once per pause, a long book 50 ms, and
+     the dev build can stall for a few hundred ms after each pause. Not measured: the Git questions on
+     a large repository, and the SyncTeX parse of a 300-page document. Options if it is ever felt:
+     `spawn_blocking` for `emit_bibliography`, a cached root file (`Project` already caches its graph by
+     file stamps), and one `git_overview` command in place of six.
+  6. **S (low). A build of the previous project that finishes after `openFolder` has reset the window
+     lands on the new project.** `handleCompileEvent` accepts a `finished` when its generation is not
+     older than the current one; `openFolder` resets `app.compile` but keeps the generation, and
+     `open_project` does not cancel the running build ("a running build of the previous project
+     finishes on the engine it started with"). Between the reset and the new project's own `started`
+     (the language server's start-up sits in that gap) the old project's PDF address and diagnostics
+     can be shown over the new project's tabs. Needs a build still running when a folder is opened (a
+     cold package fetch takes long enough). Not reproduced. Fix: cancel in `open_project`, or compare a
+     project epoch in the handler as `openFile` now does. `refreshOutline` has the same shape (it
+     guards on the path only; two projects both have `main.tex`).
+  7. **S (low, unverified). `export_tree` joins the names in a commit's tree to the destination.**
+     `dest_dir.join(format!("{root}{name}"))` with no check on a name of `..`. Git itself and GitHub's
+     receive-pack refuse such a tree, so a commit reaching `latexdiff`'s comparison from one of them
+     cannot carry it; whether libgit2's fetch from another server does is not known. Not reproduced.
+     A one-line check that every component is a normal name would close it.
+  8. **S (low, Windows). `clone_destination` refuses the characters Windows refuses in a name, but not
+     the reserved device names (`con`, `nul`, `aux`, `com1`) or a trailing dot or space.** A repository
+     named `con` would fail inside libgit2 with its own sentence. Cannot be checked on this machine.
+
+  Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
+  answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
+  link (the author said yes to it); the sync commands hold the project lock across their disk work
+  (`synctex_*`, `read_log`), and an async command that needs the project (`comments_*`, `snapshot_*`,
+  `compare_revisions`) waits behind it: a delay of the same size as item 5's, not a deadlock.
+
+  **Verification, 15 Nov 2026.** `pnpm verify` exit 0 with items 1-4 fixed: `cargo fmt --check`,
+  1,026 Rust tests passed (36 ignored), clippy `-D warnings`, svelte-check 0 errors, 922 Vitest tests.
+  Not walked in the real app: items 2-4 are controller flows tested with a faked `ipc`, and item 1 is
+  tested against the real filesystem but not through a saved file in the running window.
