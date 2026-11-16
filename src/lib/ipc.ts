@@ -875,12 +875,16 @@ export const ipc = {
 
   /** S10.3a: ask before throwing away work. Two sentences, because a discard is two different
    * operations: a tracked file is restored from Git, an untracked one is deleted outright and
-   * Git has never seen it. The default button is the safe one. */
-  confirmDiscard: (path: string, untracked: boolean): Promise<boolean> =>
+   * Git has never seen it. `alsoStaged` is a third wording (review finding R6.12): a restore comes
+   * from the index, so a file that is staged goes back to the staged version and not to the last
+   * commit, and the staged work is kept. The default button is the safe one. */
+  confirmDiscard: (path: string, untracked: boolean, alsoStaged = false): Promise<boolean> =>
     ask(
       untracked
         ? `${path} has never been committed, so there is no version to put back. Discarding it deletes the file.`
-        : `${path} will go back to the last committed version. Changes to it since then are lost.`,
+        : alsoStaged
+          ? `${path} will go back to the version you staged. Edits to it since you staged it are lost; the staged version stays.`
+          : `${path} will go back to the last committed version. Changes to it since then are lost.`,
       {
         title: untracked ? `Delete ${path}?` : `Discard changes to ${path}?`,
         kind: 'warning',

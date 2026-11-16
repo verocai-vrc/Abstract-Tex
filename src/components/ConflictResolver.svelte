@@ -37,9 +37,12 @@
     try {
       text = await ipc.readFile(path);
     } catch (error) {
-      loadError = `Could not read ${path}: ${String(error)}`;
+      if (loadedPath === path) loadError = `Could not read ${path}: ${String(error)}`;
       return;
     }
+    // The tab changed while the file was being read: this text belongs to another file's view, and
+    // "Mark Resolved" writes whatever is in `sections` to the *active* path (review finding R6.15).
+    if (loadedPath !== path) return;
     const parsed = parseConflictMarkers(text);
     if (!parsed) {
       loadError = `${path} has a conflict this view cannot show as paragraphs — likely a file added or removed on both sides, not a line both sides edited. Resolve it in a terminal, then stage it here.`;
@@ -63,8 +66,11 @@
   async function markResolved(): Promise<void> {
     if (!sections || !app.activePath || resolving) return;
     resolving = true;
-    await resolveMergeConflict(app.activePath, reassembleConflictSections(sections, resolutions));
-    resolving = false;
+    try {
+      await resolveMergeConflict(app.activePath, reassembleConflictSections(sections, resolutions));
+    } finally {
+      resolving = false; // whatever happened, the button comes back (review finding R6.14)
+    }
   }
 </script>
 

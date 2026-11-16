@@ -388,8 +388,8 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return untracked ? 'deleted' : 'restored';
     },
-    confirmDiscard: async (path: string, untracked: boolean) => {
-      calls.discardQuestions.push(`${path}${untracked ? ' (untracked)' : ''}`);
+    confirmDiscard: async (path: string, untracked: boolean, alsoStaged = false) => {
+      calls.discardQuestions.push(`${path}${untracked ? ' (untracked)' : ''}${alsoStaged ? ' (also staged)' : ''}`);
       return discardAnswer;
     },
     gitInitialise: async () => {
@@ -2338,6 +2338,19 @@ describe('the Source Control view (S10.3a)', () => {
     expect(git.lastDiscard).toBe('Deleted notes.tex.');
   });
 
+  // Review finding R6.12. A discard restores from the index, so for a file that is also staged it goes
+  // back to the staged version; the question and the report both said "last committed version".
+  it('says the true thing when the file is also staged: it goes back to what was staged', async () => {
+    gitOnDisk = { staged: [modified], unstaged: [modified], conflicted: [] };
+    await refreshGitStatus();
+    discardAnswer = true;
+
+    await discardChange('sections/intro.tex', false);
+
+    expect(calls.discardQuestions).toEqual(['sections/intro.tex (also staged)']);
+    expect(git.lastDiscard).toBe('sections/intro.tex is back to the version you staged.');
+  });
+
   it('a Git failure is a sentence in the panel and nowhere else', async () => {
     gitOnDisk = { staged: [], unstaged: [modified], conflicted: [] };
     await refreshGitStatus();
@@ -2672,6 +2685,39 @@ describe('resolving a conflict (S11.2b)', () => {
     expect(calls.gitVerbs).toContain('stage notes.tex');
     expect(app.activePath).toBe('notes.tex');
     expect(app.activeDoc!.text()).toBe('the resolved sentence\n');
+  });
+
+  // Review finding R6.14. A write that failed was an unhandled rejection: the "Resolving…" button never
+  // came back, nothing said why, and the git step after it was skipped by luck of the throw.
+  it('says so, stages nothing and does not throw when the resolution cannot be written', async () => {
+    disk.set('notes.tex', conflictedMarkers);
+    gitOnDisk = { staged: [], unstaged: [], conflicted: [{ path: 'notes.tex', kind: 'conflicted', renamedFrom: null }] };
+    await refreshGitStatus();
+    await openFile('notes.tex');
+    const working = ipcWriteFile;
+    ipcWriteFile = async () => {
+      throw new Error('Permission denied');
+    };
+
+    await expect(resolveMergeConflict('notes.tex', 'the resolved sentence\n')).resolves.toBeUndefined();
+    ipcWriteFile = working;
+
+    expect(app.notice).toContain('notes.tex');
+    expect(app.notice).toContain('Permission denied');
+    expect(calls.gitVerbs).not.toContain('stage notes.tex');
+    expect(app.openTabs).toContain('notes.tex');
+  });
+
+  it('tells the author, where they are looking, when Git will not mark it resolved', async () => {
+    disk.set('notes.tex', conflictedMarkers);
+    gitOnDisk = { staged: [], unstaged: [], conflicted: [{ path: 'notes.tex', kind: 'conflicted', renamedFrom: null }] };
+    await refreshGitStatus();
+    await openFile('notes.tex');
+    gitVerbError = 'notes.tex still has conflict markers in it, so it was not marked as resolved.';
+
+    await resolveMergeConflict('notes.tex', '<<<<<<< HEAD\nleft in by mistake\n');
+
+    expect(app.notice).toContain('still has conflict markers');
   });
 
   it('discards the stale buffer without disturbing whatever tab is actually active', async () => {
@@ -4547,6 +4593,71 @@ describe('opening the same file twice at once (R6.3)', () => {
     expect(app.openTabs.filter((path) => path === 'chapter.tex')).toHaveLength(1);
     type(' kept');
     expect(app.docs.get('chapter.tex')?.text()).toBe('one kept');
+  });
+});
+
+describe('making or cloning a project while a tab cannot be saved (R6.9)', () => {
+  /** A tab that holds text the disk does not: the save is failing. */
+  async function leaveAnUnsavableEdit(): Promise<() => void> {
+    const working = ipcWriteFile;
+    ipcWriteFile = async () => {
+      throw new Error('No space left on device');
+    };
+    type(' unsaved');
+    await vi.advanceTimersByTimeAsync(700);
+    return () => {
+      ipcWriteFile = working;
+    };
+  }
+
+  it('creates nothing from a template, and says why in the window', async () => {
+    const restore = await leaveAnUnsavableEdit();
+    // The stores are module-level singletons; start from the window as it is when first opened.
+    templatesAnswer = [{ id: 'essay', name: 'Essay', category: 'essay', description: '', previewUrl: '', fields: [] }];
+    newProject.catalog = null;
+    newProject.values = {};
+    newProject.error = null;
+    newProject.creating = false;
+    showNewProjectWindow();
+    await vi.advanceTimersByTimeAsync(0);
+    chooseTemplate('essay');
+
+    await createProject();
+    restore();
+
+    expect(templatesMade).toEqual([]);
+    expect(newProject.visible).toBe(true);
+    expect(newProject.error).toContain('main.tex');
+  });
+
+  it('downloads nothing, and says why in the window', async () => {
+    const restore = await leaveAnUnsavableEdit();
+    showCloneWindow();
+    clone.url = 'https://github.com/ada/thesis.git';
+
+    await cloneRepository();
+    restore();
+
+    expect(clones.asked).toEqual([]);
+    expect(clone.visible).toBe(true);
+    expect(clone.error).toContain('main.tex');
+  });
+});
+
+describe('committing while a sync is running (R6.16)', () => {
+  // The Commit button is disabled mid-sync ("the two should not race"), but Ctrl Enter in the message
+  // box calls `commitStaged` directly and only `committing` was checked.
+  it('commits nothing, by any route, until the sync has finished', async () => {
+    gitOnDisk = { staged: [{ path: 'main.tex', kind: 'modified', renamedFrom: null }], unstaged: [], conflicted: [] };
+    await refreshGitStatus();
+    git.message = 'Revised the introduction';
+    git.syncing = true;
+
+    await commitStaged();
+    git.syncing = false;
+
+    expect(calls.gitVerbs.filter((verb) => verb.startsWith('commit'))).toEqual([]);
+    expect(git.committing).toBe(false);
   });
 });
 

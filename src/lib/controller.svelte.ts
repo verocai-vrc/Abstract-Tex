@@ -1057,6 +1057,12 @@ export async function cloneRepository(): Promise<void> {
   if (clone.cloning || clone.url.trim() === '') return;
   clone.error = null;
   try {
+    // Asked before the download, for the same reason as in `createProject` (R6.9).
+    const staying = await whyNotToLeaveProject();
+    if (staying !== null) {
+      clone.error = staying;
+      return;
+    }
     const parent = await ipc.pickParentFolder();
     if (!parent) return;
     clone.cloning = true;
@@ -1372,6 +1378,13 @@ export async function createProject(): Promise<void> {
   }
   newProject.error = null;
   try {
+    // Asked before anything is made: the result is opened at once, and opening is refused while a
+    // tab holds text that cannot be saved (R6.9).
+    const staying = await whyNotToLeaveProject();
+    if (staying !== null) {
+      newProject.error = staying;
+      return;
+    }
     const parent = await ipc.pickParentFolder();
     if (!parent) return;
     newProject.creating = true;
@@ -1576,7 +1589,7 @@ export async function loadMoreCommits(): Promise<void> {
  * shows under the box and never as a dialog.
  */
 export async function commitStaged(): Promise<void> {
-  if (git.committing) return;
+  if (git.committing || git.syncing) return; // a sync moves the branch a commit would move (R6.16)
   git.committing = true;
   const committed = await runGitVerb(() => ipc.gitCommit(git.message));
   git.committing = false;
@@ -1595,7 +1608,7 @@ export async function commitStaged(): Promise<void> {
  * plain commit's.
  */
 export async function amendCommit(): Promise<void> {
-  if (git.committing) return;
+  if (git.committing || git.syncing) return; // a sync moves the branch a commit would move (R6.16)
   git.committing = true;
   const amended = await runGitVerb(() => ipc.gitAmend(git.message));
   git.committing = false;
@@ -1609,7 +1622,7 @@ export async function amendCommit(): Promise<void> {
  * only on success run `after` — a refused commit (no message, nothing staged, no identity) has
  * nothing to push or sync, and trying anyway would turn one refusal into two under the same box. */
 async function commitThen(after: () => Promise<unknown>): Promise<void> {
-  if (git.committing) return;
+  if (git.committing || git.syncing) return; // a sync moves the branch a commit would move (R6.16)
   git.committing = true;
   const committed = await runGitVerb(() => ipc.gitCommit(git.message));
   if (committed !== null) {
@@ -1827,10 +1840,17 @@ export async function unstageChange(path: string): Promise<void> {
  * the panel reports it — an unrecoverable action should not be silent about having happened.
  */
 export async function discardChange(path: string, untracked: boolean): Promise<void> {
-  if (!(await ipc.confirmDiscard(path, untracked))) return;
+  // A restore comes from the index, so a file that is also staged goes back to the staged version
+  // (review finding R6.12): the question and the report say which.
+  const alsoStaged = git.status.staged.some((change) => change.path === path);
+  if (!(await ipc.confirmDiscard(path, untracked, alsoStaged))) return;
   const done = await runGitVerb(() => ipc.gitDiscard(path));
   if (done === 'deleted') git.lastDiscard = `Deleted ${path}.`;
-  else if (done === 'restored') git.lastDiscard = `${path} is back to its last committed version.`;
+  else if (done === 'restored') {
+    git.lastDiscard = alsoStaged
+      ? `${path} is back to the version you staged.`
+      : `${path} is back to its last committed version.`;
+  }
 }
 
 /**
@@ -2091,12 +2111,13 @@ export async function start(): Promise<void> {
  * must have been told it is not (review finding R6.2). `closeAllDocuments` disposes the buffers,
  * and a buffer that is disposed with an edit in it takes the edit with it: the 700 ms debounce had
  * not fired yet, a save was failing, or a conflict bar was holding the saves and its question was
- * still unanswered. Returns whether it is safe to go on; when it is not, the notice says why.
+ * still unanswered. Answers `null` when it is safe to go on, and otherwise the sentence that says
+ * why not, for the caller to show where the author is looking (R6.9: a window that is about to make
+ * or download a project asks first, so nothing is made that cannot then be opened).
  */
-async function flushBeforeLeavingProject(): Promise<boolean> {
+async function whyNotToLeaveProject(): Promise<string | null> {
   if (app.conflict) {
-    app.notice = `Answer the question about ${app.conflict.path} first: keep your version, or load the one on disk.`;
-    return false;
+    return `Answer the question about ${app.conflict.path} first: keep your version, or load the one on disk.`;
   }
   let reason = '';
   try {
@@ -2105,9 +2126,8 @@ async function flushBeforeLeavingProject(): Promise<boolean> {
     reason = ` (${String(error)})`;
   }
   const unsaved = manager.dirtyPaths();
-  if (unsaved.length === 0) return true;
-  app.notice = `${unsaved.join(', ')} could not be saved${reason}, so the folder was not changed. The text is still in the editor.`;
-  return false;
+  if (unsaved.length === 0) return null;
+  return `${unsaved.join(', ')} could not be saved${reason}, so the folder was not changed. The text is still in the editor.`;
 }
 
 /** Bumped each time a project is opened. An answer that was asked for in one project and arrives in
@@ -2117,7 +2137,11 @@ let projectEpoch = 0;
 export async function openFolder(path?: string, options: { atFirstPlaceholder?: boolean } = {}): Promise<void> {
   const chosen = path ?? (await ipc.pickFolder());
   if (!chosen) return;
-  if (!(await flushBeforeLeavingProject())) return;
+  const staying = await whyNotToLeaveProject();
+  if (staying !== null) {
+    app.notice = staying;
+    return;
+  }
   try {
     const info = await ipc.openProject(chosen);
     projectEpoch += 1;
@@ -2330,8 +2354,22 @@ export async function closeTab(path: string): Promise<void> {
  * editor, reading the clean text that is now actually on disk.
  */
 export async function resolveMergeConflict(path: string, finalText: string): Promise<void> {
-  await ipc.writeFile(path, finalText);
-  await runGitVerb(() => ipc.gitStage(path));
+  // A write that fails changes nothing: the conflict is still on disk and still listed, and the
+  // resolver's button has to come back (review finding R6.14).
+  try {
+    await ipc.writeFile(path, finalText);
+  } catch (error) {
+    app.notice = `Could not write ${path}: ${String(error)}. The conflict is still there and nothing was changed.`;
+    return;
+  }
+  // `()` arrives as `null`, which is also what a refusal returns; see `switchToBranch`.
+  const staged = await runGitVerb(async () => {
+    await ipc.gitStage(path);
+    return true;
+  });
+  // The refusal would otherwise sit in the Source Control panel, out of sight of the view that was
+  // just asked to resolve this file (e.g. markers typed back in by hand).
+  if (!staged) app.notice = `${path} was saved but not marked as resolved: ${git.error ?? 'Git refused it.'}`;
   const wasActive = app.activePath === path;
   if (manager.isOpen(path)) {
     manager.close(path);
