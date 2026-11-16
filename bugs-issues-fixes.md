@@ -2432,10 +2432,15 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   refresh, GitHub sign-in, crash reports, `start`, `openFolder`, `openFile`, `closeTab`, `triggerCompile`,
   the comments flows, `handleCompileEvent`, `handleFsEvent`, `reconcileOpenDocument`);
   `src/lib/documents.ts`; `src/lib/document.ts` lines 84-310; `crates/abstract-tex-git/src/lib.rs`
-  (`log`, `export_tree`, `write_gitignore`). **Not read, so silence there is not a clean bill:**
-  `controller.svelte.ts` lines 600-780 (the assistant review flow), 900-1878 (the diff view, snapshots,
-  clone, live sessions, templates, comparison, branches, tags) and 2652-2905 (placeholders, conflict
-  resolution); `project.rs`'s tests; every Svelte component; the editor extensions.
+  (`log`, `export_tree`, `write_gitignore`, `inside_project`, `stage`, `unstage`, `discard`, `amend`).
+  Continued the same day: the rest of `src/lib/controller.svelte.ts` (the assistant review flow, the
+  diff view, snapshots, clone, live sessions, templates, comparison, commit/sync/branch/tag verbs,
+  placeholders, SyncTeX, `resolveMergeConflict`); `src/lib/conflict.ts`; `src/lib/git.svelte.ts` lines
+  40-384; `src/components/SourceControl.svelte` (script and markup, not the style block);
+  `src/components/ConflictResolver.svelte` (script and markup); `src/components/Tabs.svelte`;
+  `src/components/Editor.svelte` lines 140-170. **Not read, so silence there is not a clean bill:**
+  `project.rs`'s tests; the style blocks; the other Svelte components; the editor extensions; the rest
+  of `Editor.svelte`; the SyncTeX crate beyond timing `SyncTex::open`.
 
   **Clean, with the evidence, so nobody re-does it.** The Rust/TypeScript seam agrees everywhere it
   was checked. A script (scratchpad, not kept) paired every `invoke` in `ipc.ts` with its
@@ -2523,8 +2528,11 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      36.3 and 12.8 ms. In an **unoptimised** build, which is what `pnpm tauri dev` runs, the same code
      is about ten times slower (a project of 100 chapters at 27 KB each: 89 ms, 409 ms, 107 ms). So on a
      release build a typical document costs a few milliseconds once per pause, a long book 50 ms, and
-     the dev build can stall for a few hundred ms after each pause. Not measured: the Git questions on
-     a large repository, and the SyncTeX parse of a 300-page document. Options if it is ever felt:
+     the dev build can stall for a few hundred ms after each pause. The SyncTeX parse, timed on a real
+     3.2 MB table from a 300-page document: 13 ms in a release build, 113 ms in a debug build, once per
+     request, and requests are explicit (Ctrl-Alt-J, a double click in the PDF; the comment in
+     `syncTexForward` saying it "fires on ordinary cursor movement" is stale). Not measured: the Git
+     questions on a large repository. Options if it is ever felt:
      `spawn_blocking` for `emit_bibliography`, a cached root file (`Project` already caches its graph by
      file stamps), and one `git_overview` command in place of six.
   6. **S (low). A build of the previous project that finishes after `openFolder` has reset the window
@@ -2546,13 +2554,91 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      the reserved device names (`con`, `nul`, `aux`, `com1`) or a trailing dot or space.** A repository
      named `con` would fail inside libgit2 with its own sentence. Cannot be checked on this machine.
 
+  9. **R (low; a consequence of the fix to item 2). Making a project from a template, or cloning one, did
+     the work and only then found it could not leave the open project.** `createProject` and
+     `cloneRepository` call `openFolder` last; once item 2 made `openFolder` refuse while a tab holds text
+     that cannot be saved, the author ended up with a new folder on disk (or a finished download) and a
+     notice saying the folder "was not changed". Reproduced with two controller tests (the template was
+     made; the clone was downloaded). **Fixed 15 Nov 2026.** The check is `whyNotToLeaveProject`, which
+     answers the sentence or `null`; both windows ask it before anything is made and show the sentence
+     in the window, and `openFolder` shows it as a notice. Both mutation-checked.
+  10. **R (high for anyone with `merge.conflictStyle = diff3` or `zdiff3`). The conflict view put the
+     common ancestor, and Git's `|||||||` line, into "Yours".** `parseConflictMarkers` ended the first
+     side at the first `=======`, so the base section of a diff3 hunk was part of `ours`, and one click
+     on *Keep mine* wrote the marker line and the original sentence into the manuscript. The app meets
+     such files whenever a conflict was made by a `git` in a terminal (the watcher shows them as
+     conflicted). It also took any line that merely *started* with `=======` (a heading underline of
+     nine, a longer rule) as the separator. Reproduced with two tests (the first side held
+     `My sentence.\n||||||| merged common ancestors\nThe original sentence.`). **Fixed 15 Nov 2026.**
+     Markers are matched as Git writes them (seven of the character, then the end of the line or a space;
+     `=======` alone), a trailing `\r` is ignored for the match, and the base section is skipped. Three
+     tests (diff3, the longer rule, Windows line endings), the first two mutation-checked.
+  11. **R (high). A conflicted file could be staged with its markers in it, and committed.** The
+     *Merge Changes* rows reused the ordinary row, so each had a Stage (+) and a Discard (↺) button.
+     `stage` is `index.add_path`, which replaces the conflict entries with the working file; with
+     `<<<<<<<` still in it the path stopped being conflicted, `commit` was no longer refused, and the
+     commit held the markers (reproduced against a real conflict: the committed `main.tex` was the
+     marker text). Discard on a conflicted path ran `checkout_index`, answered `Restored`, and in fact
+     wrote fresh `ours`/`theirs` markers over whatever the file held, so the panel said "back to its last
+     committed version" about a file still in conflict. **Fixed 15 Nov 2026.** `stage` refuses a
+     *conflicted* path whose file still has a marker line (`StillConflicted`; a file that talks about
+     markers but is not conflicted is allowed, and so is a conflicted one the author has cleaned up,
+     which is how the resolver finishes); `discard` refuses a conflicted path (`ConflictedPath`); the
+     rows no longer offer either button. Four crate tests, red first (the first two against the real
+     behaviour printed above), the two refusals mutation-checked.
+  12. **R (low). Discard told the wrong version.** A tracked file is restored from the *index*, so a file
+     that is also staged goes back to the staged version and keeps the staged work; the confirmation
+     said "the last committed version… changes since then are lost" and the report afterwards said the
+     file "is back to its last committed version". Safe in effect, untrue in both sentences. **Fixed 15
+     Nov 2026.** The question and the report say "the version you staged" when the path is also in the
+     staged list. One test, red first.
+  13. **R (medium). Amend in the middle of a merge made a one-parent commit and left the merge hanging.**
+     After a conflicted Sync the local commit is unpushed (so *Amend* is offered) and `MERGE_HEAD` is
+     set; `amend` keeps `HEAD`'s own parents, so once the conflict was resolved and staged it wrote a
+     commit holding the coauthor's text with a single parent, and `MERGE_HEAD` stayed. Reproduced: the
+     amended commit had `parents=1`, the state was still `Merge`, its tree held the resolved text.
+     **Fixed 15 Nov 2026.** `amend` refuses while a merge is waiting (`MergeInProgress`: commit it
+     first). One test, red first.
+  14. **R (medium). A failed write in *Mark Resolved* was an unhandled rejection.** `resolveMergeConflict`
+     had no `catch` and the component no `finally`, so with a write error the button stayed on
+     "Resolving…" for good and nothing said why. And when the write worked but Git then refused to stage
+     (item 11's new refusal, or any other), the sentence went to the Source Control panel while the
+     author was looking at the file. **Fixed 15 Nov 2026.** A failed write is a notice and changes
+     nothing; a refused staging is a notice from the same place; the component's button returns in a
+     `finally`. Two tests, red first.
+  15. **S (latent). `ConflictResolver.load` did not check the path after its read.** `sections` and
+     `resolutions` are written when the read returns, but *Mark Resolved* writes them to
+     `app.activePath`. If two loads were ever answered out of order (every command is synchronous and
+     answered in order today, so not now; `read_file` is the first candidate for item 5's
+     `spawn_blocking`), one conflicted file's text would be saved over the other's. **Fixed 15 Nov
+     2026** with the guard (`loadedPath !== path`); no test, because the repository has no component
+     test harness.
+  16. **R (medium). Ctrl Enter in the commit box committed during a sync.** The Commit button is
+     disabled while a sync runs ("the two should not race"), but the key calls `commitStaged`, which
+     checked only `committing`. Reproduced with a controller test (a commit verb was sent with
+     `syncing` set). **Fixed 15 Nov 2026** in `commitStaged`, `amendCommit` and `commitThen`; one test,
+     red first.
+  17. **S (medium; a design decision). Hand-typed resolutions are lost when the tab changes.** The
+     resolver's boxes live in component state, and `Editor.svelte` shows it only `{#if activeIsConflicted}`
+     for the active tab, so looking at another file for a moment unmounts it, and coming back re-reads
+     the file and resets every box to "Yours". Not reproduced in the running app. Keeping the state per
+     path in a module (as `git.message` is kept) is the fix and is a change to the view, not a patch.
+  18. **S (low; a decision). A forward search that finds nothing is silent.** `syncTexForward` swallows
+     every failure on the grounds that it "fires on ordinary cursor movement"; it fires on Ctrl-Alt-J. A
+     person who pressed the key and got "No SyncTeX data yet. Build the project first." from Rust sees
+     nothing happen. Either the comment or the policy is wrong; the sentence is already written.
+
   Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
   answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
   link (the author said yes to it); the sync commands hold the project lock across their disk work
   (`synctex_*`, `read_log`), and an async command that needs the project (`comments_*`, `snapshot_*`,
   `compare_revisions`) waits behind it: a delay of the same size as item 5's, not a deadlock.
 
-  **Verification, 15 Nov 2026.** `pnpm verify` exit 0 with items 1-4 fixed: `cargo fmt --check`,
-  1,026 Rust tests passed (36 ignored), clippy `-D warnings`, svelte-check 0 errors, 922 Vitest tests.
-  Not walked in the real app: items 2-4 are controller flows tested with a faked `ipc`, and item 1 is
-  tested against the real filesystem but not through a saved file in the running window.
+  **Verification, 15 Nov 2026.** `pnpm verify` exit 0 with items 1-16 fixed (the first run with items 9-16
+  exited 101 on a clippy lint in the new `holds_conflict_markers`, `byte_char_slices`; fixed and run
+  again): `cargo fmt --check`, 1,031 Rust tests passed (36 ignored), clippy `-D warnings`, svelte-check 0
+  errors, 931 Vitest tests. Not walked in the real app: items 2-4, 9, 12, 14 and 16 are controller flows
+  tested with a faked `ipc`; items 10, 11 and 13 are tested against the real parser and the real libgit2;
+  item 1 is tested against the real filesystem but not through a saved file in the running window; the
+  removal of the two buttons from a conflicted row (item 11) and the resolver guard (item 15) are
+  template changes with no test of their own.

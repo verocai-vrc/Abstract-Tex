@@ -7339,12 +7339,23 @@ P1), in that file's §8 order. `R6.<n>` is the finding's number in the ledger's 
 - [x] `R6.4` closing a tab whose text could not be saved did nothing and said nothing. Done 15 November 2026; mutation-checked.
 - [x] `R6.5` 60 of 88 commands are synchronous (main thread) and the save path does real work in several: measured, not fixed (release: 1-36 ms per save for 15-200 chapters; a dev build is about ten times that).
 
+Sixth pass, continued the same day (the rest of the controller, then `SourceControl`, `ConflictResolver`, `conflict.ts`):
+
+- [x] `R6.9` making or cloning a project did the work and only then found it could not leave the open project (a consequence of `R6.2`'s fix). Done 15 November 2026; mutation-checked.
+- [x] `R6.10` the conflict view put the common ancestor of a `diff3`/`zdiff3` hunk into "Yours"; any line starting with `=======` was taken as the separator. Done 15 November 2026; mutation-checked.
+- [x] `R6.11` a conflicted file could be staged with its markers in it and committed; Discard on one wrote fresh markers and said "restored". Done 15 November 2026; both refusals mutation-checked; the rows lose their two buttons.
+- [x] `R6.12` Discard named the wrong version for a file that is also staged. Done 15 November 2026.
+- [x] `R6.13` Amend in the middle of a merge made a one-parent commit and left the merge hanging. Done 15 November 2026.
+- [x] `R6.14`, `R6.15` *Mark Resolved* with a failed write stuck on "Resolving…"; a refused staging was reported out of sight; the resolver's load did not check its path. Done 15 November 2026 (`R6.15` has no test: no component harness).
+- [x] `R6.16` Ctrl Enter committed during a sync. Done 15 November 2026.
+- [ ] `R6.17` hand-typed conflict resolutions are lost when the tab changes (the state belongs in a module); `R6.18` a forward search that finds nothing is silent although it is an explicit command. Both want a decision.
+
 Open from the sixth pass (by reading, none reproduced):
 
 - [ ] `R6.6` a build of the previous project that finishes after a folder is opened shows its PDF and diagnostics on the new one; `refreshOutline` guards on a path, not a project.
 - [ ] `R6.7` `export_tree` does not check the names in a commit's tree for `..` (git and GitHub refuse such a tree; libgit2's fetch is unknown).
 - [ ] `R6.8` `clone_destination` accepts Windows reserved names (`con`, `nul`) and a trailing dot or space.
-- [ ] Still unread in the P1 files: `controller.svelte.ts` lines 600-780 and 900-1878 and 2652-2905, and every component.
+- [ ] Still unread: the other Svelte components (`NewProjectWindow`, `CloneWindow`, `Drawer`, `StatusBar`, `DocumentMap`, the assistant views, `CommandPalette`, `QuickOpen`, `Sidebar`, `TreeItem`, `ActivityBar`, `ZoteroLink`, `BibliographyHealth`, `CommentsView`, `SnapshotViewer`, `DiffView`, `SessionCommitOffer`, most of `Editor`), the state modules other than `git.svelte.ts`, and the editor extensions.
 
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
