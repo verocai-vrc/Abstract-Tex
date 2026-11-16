@@ -2916,3 +2916,34 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      Four tests (a Russian layout saves, builds, opens, shows Files; Dvorak keeps its letter; Alt and
      the modifier still count; a digit or a dead key is not guessed at), red first (the Russian one
      returned `null`), both directions of the rule mutation-checked.
+
+  6. **R (low). Quick Open and the command palette mis-highlight, split and fail to find names that
+     are not plain ASCII.** `fuzzyMatch` lowercased the query and the candidate, scanned the lowercased
+     copy and reported positions into it, which `highlightMatch` then applied to the original, one UTF-16
+     unit at a time. Probed with the real functions (Node, `src/lib/fuzzy.ts` unchanged): (a) `İ`
+     lowercases to *two* code units, so in `İçindekiler.tex` the query `kiler` highlighted `iler.`:
+     every position after the `İ` drifted by one; (b) an emoji (two units) was cut in half, the first
+     unit marked and the second not, drawing a replacement glyph inside the `<mark>` (`a[�]�[b].tex`);
+     (c) a name stored with decomposed accents (`e` + a combining acute, which is how macOS file
+     systems present them) never matched the `é` a keyboard types (`é` against `Résumé.tex`:
+     no match); (d) accents had to be typed: `introducao` did not find `introdução.tex`, `resume` did
+     not find `Résumé.tex`. (a)-(c) are defects; (d) is the missing half of (c), made worth fixing by it.
+     **Fixed 16 Nov 2026.** Matching is by *letter* (a character with the accents after it), compared
+     without accents and without case, and the positions are into the name as written; `highlightMatch`
+     marks whole letters. The first version of the fix was 30 times slower (108 ms per keystroke for
+     5,000 names, against 3.6 ms: measured, which is why this entry has numbers), so ASCII names, which
+     is nearly all of them, keep the old allocation-free scan (`asciiCandidate`), other names are broken
+     into letters once and remembered (a bounded cache, 4,000 names), and plain ASCII letters inside an
+     accented name skip the Unicode folding. Now: 5,000 ASCII names 4.3-4.9 ms per keystroke, 2,000
+     fully accented names 4.1-4.8 ms (the old code, for the ASCII case: 0.9-4.4 ms). Five new tests (red
+     first: four failures, the Turkish one printing `iler.` for `kiler`; plus one pinning that the two
+     paths give identical positions and scores for ASCII names), five mutations killed (accent
+     stripping, NFD, positions as letter indices, highlight by unit, the ASCII boundary rule).
+     No `findLastIndex` or `Intl.Segmenter`: the regular expression uses `\p{M}` with the `u` flag
+     (Safari 11.1), the lesson of `R5.4`'s runtime assumption. **Walked in the app**: with
+     `introdução.tex` and a decomposed-accent `Résumé.tex` in a copy of the thesis fixture, Quick Open
+     for `introducao` and for a typed `résumé` finds each with the whole word highlighted.
+     **Not fixed, noted:** `paths.toRelative` compares paths case-insensitively by code unit and does
+     not normalise Unicode, so on macOS a watcher that reports a decomposed folder name for a project
+     the dialog returned composed would make `toRelative` answer `null` and every change to be
+     ignored. Not reproduced and not reproducible here (Linux); the fix would be to compare NFC forms.
