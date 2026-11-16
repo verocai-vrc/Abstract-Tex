@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { handledByInputMethod } from '../lib/keys';
   import { createFile, openFile, setRootFile } from '../lib/controller.svelte';
   import TreeItem from './TreeItem.svelte';
   import DocumentMap from './DocumentMap.svelte';
@@ -29,6 +30,7 @@
   }
 
   function onNameKeydown(event: KeyboardEvent) {
+    if (handledByInputMethod(event)) return; // an input method is composing: not ours to answer (R7.4)
     if (event.key === 'Enter') {
       event.preventDefault();
       void finishNaming();

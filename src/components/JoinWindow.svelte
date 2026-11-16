@@ -3,9 +3,11 @@
   // syncing with whoever shared it, replacing any session it already had.
   import { live } from '../lib/live.svelte';
   import { modalFocus } from '../lib/dialog';
+  import { handledByInputMethod } from '../lib/keys';
   import { closeJoinWindow, joinSession } from '../lib/controller.svelte';
 
   function onKeydown(event: KeyboardEvent) {
+    if (handledByInputMethod(event)) return; // an input method is composing: not ours to answer (R7.4)
     if (event.key === 'Escape') closeJoinWindow();
     if (event.key === 'Enter' && event.target instanceof HTMLInputElement) void joinSession();
   }

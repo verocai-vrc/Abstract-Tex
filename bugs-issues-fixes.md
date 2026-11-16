@@ -2876,3 +2876,43 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      `applyReview` returns early when no change is accepted. One controller test, red first (an
      `assistantApply` call was made with `[false]` and the text was replaced by itself, observed as an
      undo step), mutation-checked.
+
+  4. **S (medium for anyone who types with an input method; not reproduced here, no IME on the virtual
+     display). The Enter that confirms an IME composition also runs the field's action.** Ten
+     handlers act on `event.key === 'Enter'` in a text field and none looks at whether an input method
+     is composing (`grep isComposing src` finds nothing): the commit offer (`SessionCommitOffer`:
+     *Commit* with the message as it stood before the composition was confirmed), the command palette
+     and Quick Open (the highlighted command or file, for a query still being composed), New project
+     (a project made with a half-composed folder name), the new-file name in the sidebar (a file
+     created under a half-composed name), the version name and new branch name in Source Control, Join,
+     Clone and the PDF find bar. A Japanese, Chinese or Korean author types a name by composing it and
+     pressing Enter to accept the candidate, which is the same key. Chromium sends that keydown with
+     `isComposing` true; Safari's engine (WKWebView, and so macOS here) sends it with `isComposing`
+     false and `keyCode` 229, so both have to be tested. The repository ships a `non-latin` template
+     and fixture, so a CJK author is an intended user.
+  5. **S (low; not reproduced). The global shortcuts match `event.key`, so with a layout that does
+     not type Latin letters none of them works.** `shortcutFor` compares `event.key.toLowerCase()` to
+     the chord's letter. With a Russian, Greek or Hebrew layout active, Ctrl S reports the layout's own
+     character, not `s`, so Save, Build, Quick Open, the palette and the rest do nothing (autosave
+     still saves, so nothing is lost; the keyboard-first commitment, design rule 5, is). The fix that
+     other editors use is the key's place on the keyboard (`event.code`, `KeyS`) when `event.key` is not
+     ASCII, which leaves Dvorak and AZERTY users on the letter their layout prints.
+     **R7.4 fixed 16 Nov 2026.** `handledByInputMethod(event)` in the new `src/lib/keys.ts` is
+     `event.isComposing || event.keyCode === 229`, and each of the handlers above starts with
+     `if (handledByInputMethod(event)) return;`: the whole handler and not only the Enter, because
+     an input method also uses the arrows to choose between candidates (the palette's highlight would
+     move under the person's candidate window) and Escape to abandon a composition (which would close
+     the dialog or drop a comment draft). Added to the comment box and the Join, Clone and New project
+     windows too. Two tests on the helper, red first (module missing), each half of the `||`
+     mutation-checked. **Not exercised against a real input method**: none can be driven on the
+     virtual display, so the guard is verified for the helper and, by walking, only for "an ordinary
+     Enter still works": in the real app Quick Open still opens a file on Enter and the sidebar's
+     new-file box still creates one. The call sites have no unit test (no component harness).
+     **R7.5 reproduced and fixed 16 Nov 2026.** On the virtual display with `setxkbmap ru`, Ctrl and
+     the physical K key (prints `л`) did nothing with the old matching and opened the command palette
+     with the new (stashed and restored `shortcuts.ts` between the two runs, same keypress, screenshots
+     compared). `shortcutFor` now matches a *non-ASCII* single character by `event.code` (`KeyK` is
+     `K`) and leaves an ASCII `key` alone, so Dvorak and AZERTY users still press the letter they see.
+     Four tests (a Russian layout saves, builds, opens, shows Files; Dvorak keeps its letter; Alt and
+     the modifier still count; a digit or a dead key is not guessed at), red first (the Russian one
+     returned `null`), both directions of the rule mutation-checked.

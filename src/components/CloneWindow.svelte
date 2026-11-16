@@ -7,6 +7,7 @@
   // says so in a sentence, and the address field beside it works regardless.
   import { clone, filterRepositories } from '../lib/clone.svelte';
   import { modalFocus } from '../lib/dialog';
+  import { handledByInputMethod } from '../lib/keys';
   import { github, timeLeft } from '../lib/github.svelte';
   import {
     chooseRepositoryToClone,
@@ -31,6 +32,7 @@
   });
 
   function onKeydown(event: KeyboardEvent) {
+    if (handledByInputMethod(event)) return; // an input method is composing: not ours to answer (R7.4)
     if (event.key === 'Escape') closeCloneWindow();
     if (event.key === 'Enter' && event.target instanceof HTMLInputElement && event.target.name === 'url') {
       void cloneRepository();

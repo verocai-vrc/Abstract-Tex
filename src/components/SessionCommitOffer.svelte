@@ -4,6 +4,7 @@
   // Dismissing it changes nothing: the work stays an ordinary uncommitted change.
   import { acceptCommitOffer, dismissCommitOffer } from '../lib/controller.svelte';
   import { live } from '../lib/live.svelte';
+  import { handledByInputMethod } from '../lib/keys';
 
   const offer = $derived(live.commitOffer);
 
@@ -24,6 +25,7 @@
         if (live.commitOffer) live.commitOffer = { ...live.commitOffer, message: event.currentTarget.value };
       }}
       onkeydown={(event) => {
+        if (handledByInputMethod(event)) return; // the Enter that accepts a candidate is not "Commit" (R7.4)
         if (event.key === 'Enter') void acceptCommitOffer();
         if (event.key === 'Escape') dismissCommitOffer();
       }}

@@ -8,6 +8,7 @@
   // move the highlight, Enter chooses, Enter in a question creates, Esc goes back.
   import { newProject, categoriesOf, categoryLabel, filterTemplates } from '../lib/templates.svelte';
   import { modalFocus } from '../lib/dialog';
+  import { handledByInputMethod } from '../lib/keys';
   import {
     chooseTemplate,
     closeNewProjectWindow,
@@ -32,6 +33,7 @@
   });
 
   function onKeydown(event: KeyboardEvent) {
+    if (handledByInputMethod(event)) return; // an input method is composing: not ours to answer (R7.4)
     if (event.key === 'Escape') {
       event.stopPropagation();
       newProjectBack();

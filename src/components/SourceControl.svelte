@@ -46,6 +46,7 @@
   import { github, timeLeft } from '../lib/github.svelte';
   import { snapshotLabel, snapshots } from '../lib/snapshots.svelte';
   import { app } from '../lib/state.svelte';
+  import { handledByInputMethod } from '../lib/keys';
 
   // S10.5b: the publish block's own two fields. `$state` and not `$derived`, because once the
   // author has typed a name it is theirs — the same rule the commit box follows.
@@ -402,6 +403,7 @@
                 aria-label="Name for a new branch"
                 bind:value={newBranchName}
                 onkeydown={(event) => {
+                  if (handledByInputMethod(event)) return; // R7.4
                   if (event.key === 'Enter') {
                     event.preventDefault();
                     void onStartBranch();
@@ -651,6 +653,7 @@
                     aria-label="A name for this version"
                     bind:value={versionName}
                     onkeydown={(event) => {
+                      if (handledByInputMethod(event)) return; // R7.4
                       if (event.key === 'Enter') {
                         event.preventDefault();
                         void onNameVersion(commit.id);

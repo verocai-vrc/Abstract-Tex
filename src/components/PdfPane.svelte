@@ -1,5 +1,6 @@
 <script lang="ts">
   import { app } from '../lib/state.svelte';
+  import { handledByInputMethod } from '../lib/keys';
   import { compare } from '../lib/compare.svelte';
   import {
     clearComparison,
@@ -114,6 +115,7 @@
   }
 
   function onFindKeydown(event: KeyboardEvent) {
+    if (handledByInputMethod(event)) return; // an input method is composing: not ours to answer (R7.4)
     if (event.key === 'Enter') {
       event.preventDefault();
       if (event.shiftKey) viewer?.findPrevious();

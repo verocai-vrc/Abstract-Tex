@@ -7,6 +7,7 @@
   import { quickOpenPick } from '../lib/controller.svelte';
   import { highlightMatch, rank } from '../lib/fuzzy';
   import { listFiles } from '../lib/paths';
+  import { handledByInputMethod } from '../lib/keys';
 
   let query = $state('');
   let selected = $state(0);
@@ -36,6 +37,7 @@
   });
 
   function onKeydown(event: KeyboardEvent) {
+    if (handledByInputMethod(event)) return; // an input method is composing: not ours to answer (R7.4)
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();

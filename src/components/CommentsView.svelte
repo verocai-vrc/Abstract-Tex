@@ -13,6 +13,7 @@
   import { comments } from '../lib/comments.svelte';
   import { groupComments, problemSentence, quotePreview } from '../lib/comments';
   import { app } from '../lib/state.svelte';
+  import { handledByInputMethod } from '../lib/keys';
 
   /** Svelte action: focus the element when it is created, so the keyboard is in the comment box. */
   function focusOnCreate(node: HTMLElement) {
@@ -38,6 +39,7 @@
         placeholder="Write a comment…"
         aria-label="Comment"
         onkeydown={(event) => {
+          if (handledByInputMethod(event)) return; // Escape abandons a composition; it must not drop the comment (R7.4)
           if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void saveComment();
           if (event.key === 'Escape') cancelComment();
         }}
