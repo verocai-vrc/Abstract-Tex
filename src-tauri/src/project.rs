@@ -676,8 +676,27 @@ pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let temp = path.with_file_name(format!("{file_name}.abstract-tex-tmp"));
-    fs::write(&temp, contents)?;
-    // `rename` replaces an existing destination on Windows too (MoveFileEx with REPLACE_EXISTING).
+    // `fs::write` opens with "create or truncate", and that follows a link: a cloned repository can
+    // carry this very name as a link to any file the author may write, and a save would put the
+    // document there (review finding R6.1). So whatever stands at the name is removed first
+    // (`remove_file` removes a link itself, never what it points at; a leftover half-written file
+    // from a crash goes the same way), and the new file is made with `create_new`, which refuses
+    // to open anything that exists, a dangling link included.
+    match fs::remove_file(&temp) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    // `Write` is what puts `write_all` on `File`; the `use` is local so the one place that needs it says so.
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+    if let Err(error) = file.write_all(contents.as_bytes()) {
+        drop(file);
+        let _ = fs::remove_file(&temp); // a half-written temporary file helps nobody
+        return Err(error);
+    }
+    drop(file); // closed before the rename, which Windows would refuse on an open file
+                // `rename` replaces an existing destination on Windows too (MoveFileEx with REPLACE_EXISTING).
     fs::rename(&temp, path).inspect_err(|_| {
         let _ = fs::remove_file(&temp);
     })
@@ -878,6 +897,65 @@ mod tests {
             0,
             "nothing may be written into the link's target"
         );
+    }
+
+    // Review finding R6.1. A save writes to `<name>.abstract-tex-tmp` and renames it over `<name>`;
+    // a cloned repository can carry that temporary name as a link, and `fs::write` followed it, so a
+    // save wrote the document into the link's target (and the rename then made `<name>` the link).
+    #[cfg(unix)]
+    #[test]
+    fn a_save_never_writes_through_a_link_standing_at_the_temporary_name() {
+        let dir = scaffold(&[("main.tex", "the old text")]);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let victim = elsewhere.path().join("victim.txt");
+        fs::write(&victim, "not the author's to change").unwrap();
+        std::os::unix::fs::symlink(&victim, dir.path().join("main.tex.abstract-tex-tmp")).unwrap();
+
+        write_atomically(&dir.path().join("main.tex"), "the new text").unwrap();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "not the author's to change");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("main.tex")).unwrap(),
+            "the new text"
+        );
+        assert!(
+            !fs::symlink_metadata(dir.path().join("main.tex"))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "main.tex must be the file that was written, not the link"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_save_through_a_dangling_link_at_the_temporary_name_creates_nothing_elsewhere() {
+        let dir = scaffold(&[("main.tex", "the old text")]);
+        let elsewhere = tempfile::tempdir().unwrap();
+        let would_be_created = elsewhere.path().join("created-by-the-save");
+        std::os::unix::fs::symlink(&would_be_created, dir.path().join("main.tex.abstract-tex-tmp")).unwrap();
+
+        write_atomically(&dir.path().join("main.tex"), "the new text").unwrap();
+
+        assert!(!would_be_created.exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("main.tex")).unwrap(),
+            "the new text"
+        );
+    }
+
+    #[test]
+    fn a_leftover_temporary_file_from_a_crash_does_not_stop_the_next_save() {
+        let dir = scaffold(&[
+            ("main.tex", "the old text"),
+            ("main.tex.abstract-tex-tmp", "half of a write"),
+        ]);
+        write_atomically(&dir.path().join("main.tex"), "the new text").unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("main.tex")).unwrap(),
+            "the new text"
+        );
+        assert!(!dir.path().join("main.tex.abstract-tex-tmp").exists());
     }
 
     // Review finding R5.3. `read_file` read whatever the name pointed at, whole, on the main thread.
