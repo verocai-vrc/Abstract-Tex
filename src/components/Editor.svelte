@@ -11,6 +11,7 @@
     lspHover,
     openFolder,
     pasteCite,
+    reportSelection,
     resolveConflict,
     showCloneWindow,
     showNewProjectWindow,
@@ -85,7 +86,7 @@
       untrack(() => app.typewriterModeEnabled),
       pasteCite,
       (line) => (placeholders.cursorLine = line),
-      (from, to) => (assistant.selection = from === to ? null : { from, to }),
+      (from, to) => reportSelection(path, from, to),
       awareness,
     );
     view = created;
@@ -93,6 +94,9 @@
     return () => {
       created.destroy();
       view = null;
+      // A new view reports its selection only when the cursor moves, so what the last view reported
+      // would otherwise stand for the next tab (R7.1; the controller also files it under its path).
+      assistant.selection = null;
     };
   });
 

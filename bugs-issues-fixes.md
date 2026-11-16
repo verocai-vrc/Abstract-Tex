@@ -2785,3 +2785,83 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   the real libgit2; item 1 is tested against the real filesystem but not through a saved file in the
   running window; the removal of the two buttons from a conflicted row (item 11) and the resolver guard
   (item 15) are template changes with no test of their own.
+
+- **Agentic review, seventh pass (16 Nov 2026): the Svelte components and state modules the sixth pass
+  did not reach (`REVIEW-HANDOFF.md` §3 P2), then the Rust P3 list.** Findings are logged as they are
+  found; the fix batch follows each. Method as before (R = reproduced, S = by reading). Baseline
+  first: `pnpm verify` exit 0 at `6839b77` before any change (read from the exit code written to a file).
+  Covered (so far): `src/App.svelte`; `src/lib/shortcuts.ts`; `src/lib/commands.ts`; `src/lib/dialog.ts`;
+  `src/lib/state.svelte.ts`; `src/lib/assistant.svelte.ts`; `src/lib/bibliography.svelte.ts`;
+  `src/lib/comments.svelte.ts`; `src/lib/comments.ts`; `src/lib/live.svelte.ts`;
+  `src/lib/snapshots.svelte.ts`; `src/lib/diffview.svelte.ts`; `src-tauri/src/snapshots.rs`;
+  `src/components/SnapshotViewer.svelte`; `DiffView.svelte`; `CommandPalette.svelte`;
+  `QuickOpen.svelte`; `CommentsView.svelte`; `SessionCommitOffer.svelte`; `Sidebar.svelte` (script and
+  the top of the markup); `TreeItem.svelte` (script); `Editor.svelte` lines 40-170 (re-read for the
+  selection); and the controller's snapshot, assistant-review, live-session and `openFolder` code,
+  re-read for what survives a project switch.
+
+  1. **R (medium). The assistant's selection is the previous tab's after a tab switch, so *Comment on
+     selection* (and every assistant action) acts on text the author never selected.**
+     `assistant.selection` is written only by `selectionReporter`, a CodeMirror `updateListener`, which
+     runs on an *update* (`selectionSet` or `docChanged`). `Editor.svelte` builds a new `EditorView` for
+     every tab it shows, and a view's first state is not an update, so nothing is reported until the
+     author moves the cursor or types in the new tab. Until then the controller holds the old tab's
+     `{ from, to }` and `startComment` and `askAssistant` slice the *active* document with it. Reproduced
+     in the app on the virtual display (thesis fixture): the line `\include{sections/introduction}`
+     selected in `main.tex` (offsets 611-642), `sections/results.tex` opened from the tree with no key
+     pressed in it, the Comments view's "+" pressed: the draft's quote reads "ich one node receiv…",
+     which is `results.tex[611:642]` ("ich one node receives a disprop"), text the author did not
+     select. For a comment that is a wrong anchor, saved into the project's history and pushed with
+     it; for an assistant action it is text sent to the provider that the author did not choose (with
+     the payload inspector off, unseen), and a rewrite proposed for it.
+     **Fixed 16 Nov 2026.** The selection is filed under the file it was made in
+     (`assistant.selection = { path, from, to }`, written by the new `reportSelection(path, from, to)`),
+     and `startComment` and `askAssistant` read it through `selectionInActiveFile()`, which answers
+     `null` for another file's. That alone does not cover leaving a file and coming back (the new view
+     starts at the top, the old report still names the same file), so `Editor.svelte`'s effect also
+     clears the selection when it tears a view down. Four controller tests, red first (the red run of
+     the assistant test printed the request it would have built: `[{ kind: 'tighten' }, 'A dif']`, the
+     first five characters of the other file); the path check mutation-checked (ignored: both tests
+     go red). **Walked in the app** after the fix, same steps: the Comments "+" says "Select some text
+     first, then add a comment." and opens no draft; a real selection made in `results.tex` still
+     quotes that text; and after `results.tex` → `main.tex` → `results.tex` the same press says the
+     same (that case only the editor's reset covers; it has no unit test, the repository has no
+     component harness).
+
+  2. **S then R (medium). Opening another folder leaves the previous project's comment draft, comment
+     list, diff dialog, commit offer, suggestion under review and prepared request on screen, and each
+     can act on the new project.** `openFolder`'s reset block (the one that clears the PDF, the
+     bibliography, Git and snapshot state) does not touch `comments`, `diffView`, `live.commitOffer`,
+     `assistant.review` or `assistant.prepared`. Consequences read from the code:
+     (a) a comment being written in project A (`comments.draft` holds `{ file, from, to, text, quote }`,
+     `text` the whole buffer) is still in the box when B opens, because the Comments view stays the
+     active view; *Comment* then calls `commentAdd(draft.file, draft.text, …)` against B, and
+     `comments::add_comment` checks only that the path is inside the project, so B's comments ref
+     gets a record whose quote and context are A's text, filed under B's file of the same name
+     (`main.tex` exists in nearly every project), and the next Sync pushes it to B's remote;
+     (b) the Comments list keeps A's rows until the view is reopened (it is read only when shown),
+     and *Resolve* on one of them asks B to resolve an id it does not hold;
+     (c) the "Commit this session's changes to main.tex?" card (S15.2) outlives the project it was
+     made for, and *Commit* runs `gitCommitFile(path, message)` in B;
+     (d) an open diff dialog shows A's file, and *Open file* opens that path in B;
+     (e) `assistant.review` and `assistant.prepared` keep A's suggestion and A's request payload;
+     the review's *Apply* is guarded by its `original` text, the payload's *Send* is not.
+     All five are reachable with a click (the toolbar's *Open folder…* is not behind the Comments
+     panel) or, for the dialogs, with `Ctrl O`, because `App.svelte`'s window key handler does not
+     look at whether a modal is open. Same class as the sixth pass's "state not reset when a project
+     closes".
+     **Fixed 16 Nov 2026.** `openFolder` now calls `forgetWhatTheOldProjectLeftOpen()`: the comment
+     draft, body and list are cleared (and the list is read again at once if the Comments view is the
+     one showing, or it would say "Reading comments…" for good: there is no Refresh button in that
+     state), the diff is closed, the commit offer is dropped, and a review and a prepared request are
+     closed through `closeReview` and `cancelPrepared`, which also tell Rust to forget them. Seven
+     controller tests, red first (all failing on the state still being there); each line of the fix
+     mutation-checked. The first mutation pass left one alive (the list kept while another view is
+     showing, because the re-read hides it), so a test for exactly that was added and the mutation
+     killed. Not walked in the app: *Open folder…* goes through the GTK picker, which drops keystrokes
+     on the virtual display. **Left alone, narrow:** an `Apply` in flight when the folder is opened
+     can still write the old review back with its error sentence (the post-await branch is not guarded
+     by the review's id); it needs the local `assistant_apply` call to be slower than a folder switch.
+     **Not changed:** the window key handler still passes `Ctrl O` and `Ctrl Shift N` through an open
+     dialog; with the state now reset, the consequence that mattered is gone, and which dialogs should
+     block which chords is a design call.

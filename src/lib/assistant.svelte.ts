@@ -70,9 +70,12 @@ class AssistantState {
   message = $state<string | null>(null);
   messageIsError = $state(false);
 
-  /** The author's selection in the active document, or `null` when nothing is selected. Offsets
-   * only; the text is read from the document when an action asks for it. */
-  selection = $state.raw<{ from: number; to: number } | null>(null);
+  /** The author's selection, or `null` when nothing is selected: which file it is in, and offsets
+   * only; the text is read from the document when an action asks for it. The file is part of it
+   * because a new editor view reports nothing until the cursor moves (R7.1), so after a tab
+   * switch this still holds the *previous* tab's selection, and offsets are meaningless in another
+   * file. Read it through `selectionInActiveFile()`, never directly. */
+  selection = $state.raw<{ path: string; from: number; to: number } | null>(null);
   /** An action is waiting on the model. */
   asking = $state(false);
   /** Explanations of build errors, by the error's message, for this session. A card shows its own. */

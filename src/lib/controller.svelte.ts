@@ -603,6 +603,20 @@ export function assistantActionLabel(action: AssistantAction): string {
   }
 }
 
+/** The editor's report of where the author's selection is, filed under the file it was made in
+ * (R7.1). An empty selection is no selection. */
+export function reportSelection(path: string, from: number, to: number): void {
+  assistant.selection = from === to ? null : { path, from, to };
+}
+
+/** The selection, if it was made in the file now being edited. A report from the editor outlives
+ * the tab it came from until the next view reports, so offsets filed under another file are
+ * offsets into someone else's text (R7.1): treated as no selection. */
+function selectionInActiveFile(): { from: number; to: number } | null {
+  const selection = assistant.selection;
+  return selection !== null && selection.path === app.activePath ? selection : null;
+}
+
 /**
  * Ask the model to rewrite what is selected. Does nothing unless the assistant is ready (the entry
  * points are absent otherwise, and Rust refuses again), and sends only the selection: not the file,
@@ -612,7 +626,7 @@ export function assistantActionLabel(action: AssistantAction): string {
 export async function askAssistant(action: AssistantAction): Promise<void> {
   if (!assistant.ready || assistant.asking) return;
   const doc = app.activeDoc;
-  const selection = assistant.selection;
+  const selection = selectionInActiveFile();
   const path = app.activePath;
   if (!doc || !path || !selection) {
     app.notice = 'Select some text first, then choose an assistant action.';
@@ -2199,6 +2213,7 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
     snapshots.rows = null;
     snapshots.selected = null;
     snapshots.listError = null;
+    forgetWhatTheOldProjectLeftOpen();
     void refreshGitStatus();
     void refreshSnapshots();
     // Start the language server before opening the first file, so that file's `didOpen` is the
@@ -2225,6 +2240,27 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
   } catch (error) {
     app.notice = String(error);
   }
+}
+
+/**
+ * What the previous project left half-done or on screen, which would otherwise act on this one
+ * (R7.2). A comment being written holds the old buffer's text and is saved against whichever
+ * project is open; a commit offer commits a path in whichever project is open; a suggestion under
+ * review and a request waiting for *Send* hold the old project's text. The two that live in Rust
+ * (a proposal, a prepared request) are told to forget as well.
+ */
+function forgetWhatTheOldProjectLeftOpen(): void {
+  comments.rows = null;
+  comments.error = null;
+  comments.draft = null;
+  comments.body = '';
+  // The list is read when the view is shown; if it is showing now, it would say "Reading…" for good.
+  if (app.activityView === 'comments') void refreshComments();
+  closeDiff();
+  live.commitOffer = null;
+  closeReview();
+  cancelPrepared();
+  assistant.selection = null;
 }
 
 /** Ask Rust for the index as it stands on disk. Only needed once per project, at open; every
@@ -2583,7 +2619,7 @@ export async function refreshComments(): Promise<void> {
 export function startComment(): void {
   const doc = app.activeDoc;
   const path = app.activePath;
-  const selection = assistant.selection;
+  const selection = selectionInActiveFile();
   if (!doc || !path || !selection) {
     app.notice = 'Select some text first, then add a comment.';
     return;

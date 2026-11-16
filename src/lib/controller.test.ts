@@ -31,6 +31,7 @@ import type {
   LspEvent,
   ProjectInfo,
   SyncOutcome,
+  CommentRow,
   CommentsSync,
   TextOp,
 } from './ipc';
@@ -66,7 +67,11 @@ const calls = {
    * time the public confirmation was put to the person. */
   created: [] as string[],
   publicQuestions: [] as string[],
+  /** R7.2: every comment the author saved, and every resolve or reopen, against whatever project was open. */
+  commentsAdded: [] as Array<{ file: string; text: string; from: number; to: number; body: string }>,
+  commentsResolved: [] as string[],
 };
+let commentRowsOnDisk: CommentRow[] = [];
 /** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
 let shellEscapeOnDisk = false;
 let shellEscapeAnswer = false;
@@ -480,6 +485,19 @@ vi.mock('./ipc', () => ({
       gitStatusHandler();
       return syncOutcome;
     },
+    // R7.1/R7.2: the comments of whichever project is open, and every comment saved or resolved.
+    commentsList: async () => commentRowsOnDisk,
+    commentAdd: async (file: string, text: string, from: number, to: number, body: string) => {
+      calls.commentsAdded.push({ file, text, from, to, body });
+      return 'c-new';
+    },
+    commentSetResolved: async (id: string, resolved: boolean) => {
+      calls.commentsResolved.push(`${id} ${resolved}`);
+    },
+    gitCommitFile: async (path: string, message: string) => {
+      calls.gitVerbs.push(`commitFile ${path}: ${message}`);
+      return 'abc1234';
+    },
     commentsSync: async (): Promise<CommentsSync> => {
       if (commentsSyncError) throw new Error(commentsSyncError);
       commentsSyncCount += 1;
@@ -748,9 +766,14 @@ const {
   refreshSnapshots,
   restoreSnapshotFile,
   showSnapshotFile,
+  reportSelection,
+  startComment,
+  saveComment,
+  acceptCommitOffer,
 } = await import('./controller.svelte');
 const { snapshots } = await import('./snapshots.svelte');
-const { assistant } = await import('./assistant.svelte');
+const { assistant, reviewFrom } = await import('./assistant.svelte');
+const { comments } = await import('./comments.svelte');
 const { diffView } = await import('./diffview.svelte');
 const { compare, WORKING_COPY } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
@@ -885,6 +908,10 @@ beforeEach(async () => {
   assistant.status = null;
   assistant.selection = null;
   assistant.review = null;
+  assistant.prepared = null;
+  calls.commentsAdded = [];
+  calls.commentsResolved = [];
+  commentRowsOnDisk = [];
   assistant.asking = false;
   reviewCalls.prepared = [];
   reviewCalls.explainPrepared = [];
@@ -3966,7 +3993,7 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     app.activeDoc!.ytext.insert(0, 'Prior work is very very old. Done.');
     assistantStatusOnDisk = ready;
     await refreshAssistant();
-    assistant.selection = { from, to };
+    assistant.selection = { path: 'main.tex', from, to };
   }
 
   const honest: AssistantProposal = {
@@ -3977,7 +4004,7 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
   };
 
   it('does nothing, and sends nothing, unless the assistant is ready', async () => {
-    assistant.selection = { from: 0, to: 5 };
+    assistant.selection = { path: 'main.tex', from: 0, to: 5 };
     await askAssistant({ kind: 'tighten' });
     expect(reviewCalls.proposed).toEqual([]);
     expect(assistant.review).toBeNull();
@@ -4000,10 +4027,10 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     expect(reviewCalls.proposed).toEqual([]);
     expect(app.notice).toMatch(/Select some text/);
 
-    assistant.selection = { from: 3, to: 3 + 0 };
+    assistant.selection = { path: 'main.tex', from: 3, to: 3 + 0 };
     app.activeDoc!.ytext.delete(0, app.activeDoc!.ytext.length);
     app.activeDoc!.ytext.insert(0, '   ');
-    assistant.selection = { from: 0, to: 3 };
+    assistant.selection = { path: 'main.tex', from: 0, to: 3 };
     await askAssistant({ kind: 'tighten' });
     expect(reviewCalls.proposed).toEqual([]);
   });
@@ -4730,5 +4757,142 @@ describe('closing a tab whose text cannot be saved (R6.4)', () => {
     expect(app.openTabs).toContain('main.tex');
     expect(app.notice).toContain('main.tex');
     expect(app.notice).toContain('Permission denied');
+  });
+});
+
+describe('a selection made in another tab (R7.1)', () => {
+  const ready: AssistantStatus = {
+    provider: { kind: 'anthropic', model: 'claude-x', address: 'https://api.anthropic.com' },
+    hasKey: true,
+    enabled: true,
+    inspectFirst: false,
+  };
+
+  it('is not the selection of the tab now showing, so Comment on selection asks for one', async () => {
+    disk.set('chapter.tex', 'A different file, with its own words in it.');
+    reportSelection('main.tex', 0, 5); // "hello", selected in main.tex
+    await openFile('chapter.tex'); // a new editor view reports nothing until the cursor moves
+
+    startComment();
+
+    expect(comments.draft).toBeNull();
+    expect(app.notice).toMatch(/Select some text/);
+  });
+
+  it('is still the selection in the tab it was made in', () => {
+    reportSelection('main.tex', 0, 5);
+    startComment();
+    expect(comments.draft).toMatchObject({ file: 'main.tex', quote: 'hello', from: 0, to: 5 });
+  });
+
+  it('is not what an assistant action sends when another tab is showing', async () => {
+    disk.set('chapter.tex', 'A different file, with its own words in it.');
+    assistantStatusOnDisk = ready;
+    await refreshAssistant();
+    reportSelection('main.tex', 0, 5);
+    await openFile('chapter.tex');
+
+    await askAssistant({ kind: 'tighten' });
+
+    expect(reviewCalls.prepared).toEqual([]);
+    expect(reviewCalls.proposed).toEqual([]);
+    expect(app.notice).toMatch(/Select some text/);
+  });
+
+  it('an empty selection forgets the earlier one', () => {
+    reportSelection('main.tex', 0, 5);
+    reportSelection('main.tex', 3, 3);
+    expect(assistant.selection).toBeNull();
+  });
+});
+
+describe('opening another folder leaves nothing of the previous project on screen (R7.2)', () => {
+  it('forgets a comment being written, so it cannot be saved into the new project', async () => {
+    reportSelection('main.tex', 0, 5);
+    startComment();
+    comments.body = 'check this';
+    expect(comments.draft).not.toBeNull();
+
+    await openFolder('/proj');
+
+    expect(comments.draft).toBeNull();
+    expect(comments.body).toBe('');
+    await saveComment();
+    expect(calls.commentsAdded).toEqual([]);
+  });
+
+  const old: CommentRow = {
+    id: 'old1', file: 'main.tex', author: 'A', body: 'from the old project', quote: 'hello',
+    created: 1, resolved: false, state: 'anchored', from: 0, to: 5,
+  };
+
+  it('forgets the comment list, so Resolve cannot be pressed on a row the new project does not hold', async () => {
+    commentRowsOnDisk = [old];
+    showActivityView('comments');
+    await vi.advanceTimersByTimeAsync(0);
+    showActivityView('files'); // another view is showing: nothing re-reads the list for it
+    expect(comments.rows).toEqual([old]);
+
+    await openFolder('/proj');
+
+    expect(comments.rows).toBeNull();
+    expect(comments.error).toBeNull();
+  });
+
+  it('forgets the comment list, and reads the new project\'s when the Comments view is the one showing', async () => {
+    commentRowsOnDisk = [old];
+    showActivityView('comments');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(comments.rows).toEqual([old]);
+
+    commentRowsOnDisk = []; // the new project has none
+    await openFolder('/proj');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(comments.rows).toEqual([]); // read again, not left as the old list and not left "Reading…" for good
+  });
+
+  it('forgets the offer to commit a finished live session', async () => {
+    live.commitOffer = { path: 'main.tex', message: 'Edited together with Sam', error: null, committing: false };
+    await openFolder('/proj');
+    expect(live.commitOffer).toBeNull();
+    await acceptCommitOffer();
+    expect(calls.gitVerbs.filter((verb) => verb.startsWith('commitFile'))).toEqual([]);
+  });
+
+  it('closes a diff that was open', async () => {
+    await openChangeRow('main.tex', false, false);
+    expect(diffView.open).not.toBeNull();
+    await openFolder('/proj');
+    expect(diffView.open).toBeNull();
+    expect(diffView.sides).toBeNull();
+  });
+
+  it('drops a suggestion under review, and tells Rust to forget it', async () => {
+    assistant.review = reviewFrom(
+      { id: 41, original: 'hello', hunks: [{ start: 0, end: 5, replacement: 'hi', refusal: null }], unknownKeys: [] },
+      'main.tex',
+      0,
+      'Tighten',
+    );
+    await openFolder('/proj');
+    expect(assistant.review).toBeNull();
+    expect(reviewCalls.discarded).toContain(41);
+  });
+
+  it('drops a request that was shown and not sent, and tells Rust to forget it', async () => {
+    assistantStatusOnDisk = { ...assistantStatusOnDisk, provider: { kind: 'anthropic', model: 'claude-x', address: 'https://api.anthropic.com' }, hasKey: true, enabled: true };
+    await refreshAssistant();
+    await explainWithAssistant({
+      title: 't', explanation: 'e', line: 1, file: 'main.tex', openFiles: ['main.tex'], severity: 'error',
+      rule: null, rawMessage: 'Package x Error: y.', fix: null,
+    });
+    expect(assistant.prepared).not.toBeNull();
+
+    await openFolder('/proj');
+
+    expect(assistant.prepared).toBeNull();
+    expect(assistant.explaining).toBeNull();
+    expect(reviewCalls.cancelled).toContain(9);
   });
 });
