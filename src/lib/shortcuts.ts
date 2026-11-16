@@ -51,6 +51,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
 /** The fields of a `KeyboardEvent` the table cares about, so tests need not build a real one. */
 export interface KeyFacts {
   key: string;
+  /** Where the key is on the keyboard (`KeyS`), whatever the layout prints on it. Optional so tests
+   * and callers that have only the letter still work. */
+  code?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
@@ -69,9 +72,23 @@ export function shortcutFor(event: KeyFacts): Action | null {
     const chord = splitChord(shortcut.keys);
     if (chord.mod !== mod) continue;
     if (chord.shift !== event.shiftKey) continue;
-    if (event.key.toLowerCase() === chord.key.toLowerCase()) return shortcut.action;
+    if (keyForChord(event).toLowerCase() === chord.key.toLowerCase()) return shortcut.action;
   }
   return null;
+}
+
+/**
+ * The key a chord is matched against (R7.5). Normally what the layout prints: Dvorak and AZERTY
+ * users press the letter they see. But a layout that does not type Latin letters (Cyrillic, Greek,
+ * Hebrew, Arabic) reports its own character for Ctrl S, which no chord names, so for those — and
+ * only those — the key's place on the keyboard stands in: `KeyS` is the S of a QWERTY board.
+ */
+function keyForChord(event: KeyFacts): string {
+  const printable = event.key.length === 1;
+  const isAscii = printable && event.key.charCodeAt(0) < 128;
+  if (!printable || isAscii) return event.key;
+  const place = event.code;
+  return place !== undefined && /^Key[A-Z]$/.test(place) ? place.slice(3) : event.key;
 }
 
 interface Chord {

@@ -73,3 +73,29 @@ describe('shortcutFor', () => {
     }
   });
 });
+
+// R7.5. With a layout that does not type Latin letters, Ctrl S reports the layout's own character.
+describe('shortcutFor on a layout that does not type Latin letters (R7.5)', () => {
+  it('uses the key\'s place on the keyboard, so a Russian layout still saves, builds and opens', () => {
+    expect(shortcutFor(press('ы', { ctrlKey: true, code: 'KeyS' }))).toBe('save');
+    expect(shortcutFor(press('и', { ctrlKey: true, code: 'KeyB' }))).toBe('compile');
+    expect(shortcutFor(press('щ', { ctrlKey: true, code: 'KeyO' }))).toBe('open-folder');
+    expect(shortcutFor(press('З', { ctrlKey: true, shiftKey: true, code: 'KeyP' }))).toBeNull(); // Ctrl Shift P is not a chord
+    expect(shortcutFor(press('У', { ctrlKey: true, shiftKey: true, code: 'KeyE' }))).toBe('view-files');
+  });
+
+  it('keeps the letter a Latin layout prints, whatever key it is on (Dvorak puts S where QWERTY has O)', () => {
+    expect(shortcutFor(press('s', { ctrlKey: true, code: 'KeyO' }))).toBe('save');
+    expect(shortcutFor(press('o', { ctrlKey: true, code: 'KeyS' }))).toBe('open-folder');
+  });
+
+  it('still needs the modifier, and still ignores Alt', () => {
+    expect(shortcutFor(press('ы', { code: 'KeyS' }))).toBeNull();
+    expect(shortcutFor(press('ы', { ctrlKey: true, altKey: true, code: 'KeyS' }))).toBeNull();
+  });
+
+  it('does not guess from a key that has no letter on it', () => {
+    expect(shortcutFor(press('1', { ctrlKey: true, code: 'Digit1' }))).toBeNull();
+    expect(shortcutFor(press('Dead', { ctrlKey: true, code: 'KeyS' }))).toBeNull();
+  });
+});
