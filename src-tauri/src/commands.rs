@@ -149,8 +149,8 @@ pub fn refresh_tree(state: State<'_, AppState>) -> CommandResult<ProjectInfo> {
 pub fn read_file(state: State<'_, AppState>, path: String) -> CommandResult<String> {
     with_project(&state, |project| {
         let absolute = project.resolve(&path)?;
-        // `.tex` files from other tools are occasionally Latin-1; lossy decoding keeps them
-        // openable (`project::read_text`), which also refuses what is not a text file.
+        // `project::read_text` refuses what is not UTF-8 text: a Latin-1 file opened with its
+        // letters replaced would lose them on the first save (R7.8).
         crate::project::read_text(&absolute)
     })
 }

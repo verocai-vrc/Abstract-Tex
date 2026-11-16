@@ -284,6 +284,8 @@ fn linked_but_not_named(index: &BibliographyIndex, project_dir: &Path) -> Vec<Fi
         let argument = relative_to(&index.base_dir, path);
         let (jump, fix) = match &last_named {
             Some((tex_file, line)) => {
+                // A strict read, unlike the scans above: this line's text becomes the `find` of a
+                // one-click fix, and a line with replacement marks in it would never match the file.
                 let line_text = std::fs::read_to_string(project_dir.join(tex_file))
                     .ok()
                     .and_then(|text| text.lines().nth(*line as usize - 1).map(str::to_string));
@@ -521,7 +523,7 @@ fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
 fn entry_level_findings(index: &BibliographyIndex, project_dir: &Path) -> Vec<Finding> {
     let mut findings = Vec::new();
     for file in index.files.iter().filter(|file| file.exists) {
-        let Ok(text) = std::fs::read_to_string(project_dir.join(&file.path)) else {
+        let Some(text) = crate::project::read_for_scanning(&project_dir.join(&file.path)) else {
             continue;
         };
         let bibliography = texbib::parse(&text);
@@ -656,7 +658,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
     let mut has_nocite_star = false;
 
     for node in graph.nodes.iter().filter(|node| node.exists) {
-        let Ok(text) = std::fs::read_to_string(project_dir.join(&node.path)) else {
+        let Some(text) = crate::project::read_for_scanning(&project_dir.join(&node.path)) else {
             continue;
         };
 
@@ -707,7 +709,7 @@ pub fn build_index(project_dir: &Path, root_file: &Path, extra_bib_files: &[Stri
 
     let mut entries: Vec<EntrySummary> = Vec::new();
     for file in files.iter_mut().filter(|file| file.exists) {
-        let Ok(text) = std::fs::read_to_string(project_dir.join(&file.path)) else {
+        let Some(text) = crate::project::read_for_scanning(&project_dir.join(&file.path)) else {
             file.exists = false;
             continue;
         };
@@ -1100,6 +1102,58 @@ mod tests {
         "@article{smith2019,\n  author = {Smith, Jane},\n  title = {A Title},\n  year = 2019,\n}\n";
     const MORE: &str =
         "@book{doe2020,\n  editor = {Doe, John},\n  title = {A Book},\n  date = {2020-05-01},\n}\n";
+
+    // R7.9. A bibliography or a chapter saved as Latin-1 builds fine with BibTeX, but was read with a
+    // strict UTF-8 read: the `.bib` was then called "not on disk" and its entries undefined, and the
+    // citations in the chapter were never seen, so the entries they cite looked unused.
+    #[test]
+    fn a_latin_1_bib_file_and_chapter_are_read_for_the_index_not_reported_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("main.tex"),
+            "\\input{intro}\n\\bibliography{refs}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("intro.tex"),
+            b"As shown by M\xfcller~\\cite{smith2019}.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("refs.bib"),
+            b"@article{smith2019,\n  author = {M\xfcller, Jan},\n  title = {Caf\xe9},\n  journal = {J. Tests},\n  year = 2019,\n}\n\
+              @article{noauthor2020,\n  title = {Caf\xe9 again},\n  journal = {J. Tests},\n  year = 2020,\n}\n",
+        )
+        .unwrap();
+
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+
+        let refs = index
+            .files
+            .iter()
+            .find(|file| file.path == "refs.bib")
+            .expect("refs.bib is listed");
+        assert!(refs.exists, "an existing Latin-1 file is not a missing one");
+        assert_eq!(refs.entry_count, 2);
+        assert!(
+            index
+                .citations
+                .iter()
+                .any(|citation| citation.key == "smith2019" && citation.file == "intro.tex"),
+            "the citation in the Latin-1 chapter was seen: {:?}",
+            index.citations
+        );
+        // What is wrong with this project is exactly what is wrong with it: one entry has no author
+        // (found only if the health pass can read the file) and the second is never cited. Nothing
+        // is called missing, undefined or unused because of the file's encoding.
+        let mut rules: Vec<&str> = index
+            .health(dir.path())
+            .into_iter()
+            .map(|finding| finding.rule)
+            .collect();
+        rules.sort_unstable();
+        assert_eq!(rules, vec!["missing-field", "never-cited"], "{rules:?}");
+    }
 
     // ---- the card's done-when: two .bib files and one missing one, all reported by path ----
 

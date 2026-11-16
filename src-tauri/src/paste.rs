@@ -97,7 +97,9 @@ pub fn append_new_entry(
     fetched: &Entry,
     keys_in_use: &[String],
 ) -> Result<String, String> {
-    let current = std::fs::read_to_string(absolute).map_err(|error| error.to_string())?;
+    // `read_text`, not a bare `read_to_string`: it bounds the read, and it refuses a file that is not
+    // UTF-8 with a sentence, which matters here because this function writes the whole file back (R7.8).
+    let current = crate::project::read_text(absolute).map_err(|error| error.to_string())?;
     let (key, new_text) = render_new_entry(fetched, keys_in_use, &current);
     crate::project::write_atomically(absolute, &new_text).map_err(|error| error.to_string())?;
     Ok(key)
@@ -468,6 +470,25 @@ mod tests {
             text.contains(&format!("{{{first},")) && text.contains(&format!("{{{second},")),
             "{text}"
         );
+    }
+
+    // R7.8/R7.9. Appending rewrites the whole file, so a Latin-1 `.bib` must be refused with a sentence,
+    // not rewritten (which would replace its accents) and not answered with "stream did not contain
+    // valid UTF-8".
+    #[test]
+    fn a_bib_file_that_is_not_utf_8_is_refused_with_a_sentence_and_left_byte_for_byte() {
+        let dir = tempfile::tempdir().unwrap();
+        let bib = dir.path().join("refs.bib");
+        let original: &[u8] = b"@book{existing,\n  title = {Caf\xe9},\n}\n";
+        std::fs::write(&bib, original).unwrap();
+        let entry = fetched_entry(vec![braced_field("title", "A New Paper")]);
+
+        let error = append_new_entry(&bib, &entry, &["existing".to_string()]).unwrap_err();
+
+        assert!(error.contains("not saved as UTF-8"), "{error}");
+        assert!(error.contains("refs.bib"), "{error}");
+        assert!(!error.contains("stream did not contain"), "{error}");
+        assert_eq!(std::fs::read(&bib).unwrap(), original, "the file is untouched");
     }
 
     #[test]

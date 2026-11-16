@@ -3191,8 +3191,15 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
     if (existsOnDisk) {
       try {
         diskText = await ipc.readFile(relative);
-      } catch {
-        return; // a transient read failure is not an answer; the next event will bring another
+      } catch (error) {
+        // A transient read failure is not an answer; the next event will bring another. A file that
+        // is no longer UTF-8 is different (R7.8): nothing later changes that, and this tab still holds
+        // the text from before, which the next save would write over what arrived on disk. Rust's
+        // sentence for it contains "not saved as UTF-8" (`project::read_text`; a Rust test pins it).
+        if (String(error).includes('not saved as UTF-8')) {
+          app.notice = `${relative} changed on disk and was not reloaded. ${String(error)} The tab still holds the text from before; saving it will replace the file on disk.`;
+        }
+        return;
       }
     }
 

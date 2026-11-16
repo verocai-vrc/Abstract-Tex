@@ -2967,3 +2967,75 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      heading; `environmentTitle` scans to the end of the document for each `\begin{figure}` that is
      never closed, which is quadratic for a document of thousands of unclosed floats (not a real
      document).
+
+  8. **R (high; silent loss of the author's text). A file that is not UTF-8 (Latin-1, Windows-1252)
+     opens with every non-ASCII letter replaced, and the first autosave writes the replacements over
+     the original.** `project::read_text` decodes with `String::from_utf8_lossy`: a byte that is not valid
+     UTF-8 becomes U+FFFD, it is not read as Latin-1 although the doc comment ("Decoded leniently
+     (`Latin-1` files open)"), the comment in `read_file` and the test's name say so. The editor is
+     editable, so the buffer holds the replacement marks, and `write_file` writes the buffer back as
+     UTF-8. Reproduced in the real app on the virtual display: a project file written with `printf`
+     as `\chapter{Caf\xe9}` and `Jos\xe9 wrote \xe0 la mode, with fa\xe7ade and \xfcber.`, opened from
+     the tree, one `x` typed at the end, two seconds later `xxd` of the file on disk: every `E9`, `E0`,
+     `E7` and `FC` byte had become `EF BF BD` (the bytes of U+FFFD). The original letters are gone from
+     the file (only Git, if the file was committed, still has them). Latin-1 `.tex` and `.bib` files are
+     common in older Portuguese, French, German and Spanish projects (`\usepackage[latin1]{inputenc}`
+     was the norm for years), they build with `pdflatex`/`bibtex`, and a colleague's project is exactly
+     what this app's Open folder is for. The fifth pass (`R5.3`) kept this behaviour on purpose ("a
+     Latin-1 file that still opens") and tested the read, not what a save then does. This is the
+     failure the design rules exist for (rule 1: plain files are the truth) and the one `read_text`
+     already guards for NUL bytes ("opening it would show garbage that saving then writes back over the
+     original"): the same reasoning applies.
+     **Fixed 16 Nov 2026 (the data loss; the product decision is open, see the end).** `read_text`
+     now refuses a file that is not valid UTF-8, with a sentence that names the line of the first bad
+     byte and the way out: "latin1.tex is not saved as UTF-8 (line 1 holds a byte that is not valid
+     UTF-8, as in a Latin-1 or Windows-1252 file), so Abstract-Tex does not edit it: writing it back
+     would replace every letter it cannot read with a replacement mark. Convert it to UTF-8 first, for
+     example with `iconv -f latin1 -t utf-8`." The test that blessed the lossy open was rewritten into
+     three (a binary file; a Latin-1 file, which must be refused with the file's name, "UTF-8" and
+     "line 2" in the sentence and its bytes untouched; UTF-8 with accents, CJK, an emoji and a byte
+     order mark, which must still open), the new one red first (`unwrap_err` on an `Ok`). **Walked in
+     the real app**, same file and same click: the notice shows that sentence, the app stays on
+     `main.tex`, and `xxd` of `latin1.tex` still shows `E9`, `E0`, `E7`, `FC`. The same refusal now
+     protects `paste_cite` (below). **One more path:** an *open* tab whose file *becomes* non-UTF-8
+     on disk (a pull or another editor) used to apply the lossy text or, with the refusal, would have
+     kept the old buffer without a word, because `reconcileOpenDocument` swallows every read error as
+     transient. It now says "x changed on disk and was not reloaded. [the sentence] The tab still holds
+     the text from before; saving it will replace the file on disk." for this error only (recognised by
+     the phrase "not saved as UTF-8", pinned by a Rust test); two controller tests, red first (the
+     second pins that an ordinary failed read stays quiet), mutation-checked. Saves are not held in
+     that state: the buffer is what the author sees and the notice says what a save does; holding them
+     with no conflict to answer would leave a tab that cannot save.
+  9. **R (medium). A `.bib` or chapter saved as Latin-1 made the index say false things.**
+     `bibliography.rs` read the `.bib` files and the `.tex` files it scans with a strict
+     `read_to_string` and treated a failure as "not there": an existing Latin-1 `.bib` was marked
+     `exists: false` (so the health pass reports it as missing and every `\cite` as undefined), and a
+     Latin-1 chapter's citations and bibliography commands were never seen (so the entries cited only
+     there look "never cited"). BibTeX builds all of this without complaint. Reproduced with a Rust
+     test (`a_latin_1_bib_file_and_chapter_are_read_for_the_index_not_reported_missing`): red on
+     "an existing Latin-1 file is not a missing one". **Fixed 16 Nov 2026.** `project::read_for_scanning`
+     (regular file, at most 32 MB, decoded loosely, `None` otherwise) is used by the three index reads;
+     it is the opposite of `read_text` on purpose and its doc says a caller that might write the text
+     back must use `read_text`. The test's `.bib` carries one entry without an author and one never
+     cited, so it pins that exactly those two findings appear and nothing about the encoding; three
+     of the four reads mutation-checked. The fourth (the line a one-click *fix* is built from) stays
+     strict, because a lossy line would never match the file; a mutation there is expected to survive.
+     This also bounds three reads that had no size limit.
+  10. **R (low). Paste-to-cite into a Latin-1 `.bib` answered "stream did not contain valid UTF-8".**
+     `append_new_entry` read the file with a bare `read_to_string` and rewrites the whole file, so
+     the only safe answer is a refusal, and the sentence the author saw was Rust's own. **Fixed 16 Nov
+     2026**: it reads with `read_text` (bounded; the sentence above). One test, red first (it printed
+     the raw message), asserting the file is byte-for-byte unchanged.
+     **For the maintainer (open, not decided here): the app cannot work on a Latin-1 project, only
+     protect it.** Refusing is the only change that cannot lose text without a larger design. The two
+     real options are (1) say in `DESIGN.md` that the app edits UTF-8 only and leave the sentence as
+     the answer, or (2) support legacy encodings: remember a file's encoding when it is read, decode
+     Latin-1/Windows-1252 into the buffer, and encode back on save, refusing a save that would need a
+     character the encoding lacks (the stateless way to know is to look at the file on disk at write
+     time: if it is not UTF-8, encode as that). (2) touches `read_text`, `write_file`, the index
+     readers and the include graph. **Other strict reads that skip a non-UTF-8 file, noted and left**
+     (each degrades quietly, none writes): `project::detect_root` (a Latin-1 root is never found),
+     `abstract_tex_includes::graph` (reported as `Unresolved::Unreadable`, by design, so a Latin-1 file's
+     own includes are not followed), `compile.rs`'s two reads for placing BibTeX diagnostics,
+     `assistant_review.rs`'s two, `comments.rs`' read of the file a comment is anchored in, and
+     `fragile_command.rs`.

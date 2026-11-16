@@ -235,6 +235,8 @@ vi.mock('./ipc', () => ({
     readFile: async (path: string) => {
       calls.reads.push(path);
       if (readGate?.path === path) await readGate.until; // a test holds one file's read open
+      const refusal = readRefusals.get(path);
+      if (refusal !== undefined) throw new Error(refusal); // a test makes one file unreadable as text
       const text = disk.get(path);
       if (text === undefined) throw new Error(`no such file: ${path}`);
       return text;
@@ -794,6 +796,9 @@ async function fileChanged(relative: string): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+/** Files whose read is refused with this sentence, as Rust refuses one that is not UTF-8 (R7.8). */
+const readRefusals = new Map<string, string>();
+
 /** What the mocked `writeFile` does; a test swaps it to make a save fail. */
 let ipcWriteFile: (path: string, contents: string) => Promise<void> = async (path, contents) => {
   calls.writes.push({ path, contents });
@@ -909,6 +914,7 @@ beforeEach(async () => {
   assistant.selection = null;
   assistant.review = null;
   assistant.prepared = null;
+  readRefusals.clear();
   calls.commentsAdded = [];
   calls.commentsResolved = [];
   commentRowsOnDisk = [];
@@ -4912,5 +4918,32 @@ describe('opening another folder leaves nothing of the previous project on scree
     expect(assistant.prepared).toBeNull();
     expect(assistant.explaining).toBeNull();
     expect(reviewCalls.cancelled).toContain(9);
+  });
+});
+
+describe('an open file that can no longer be read as text (R7.8)', () => {
+  const sentence =
+    'main.tex is not saved as UTF-8 (line 1 holds a byte that is not valid UTF-8, as in a Latin-1 or Windows-1252 file), so Abstract-Tex does not edit it.';
+
+  it('says so, and that the tab was not updated, instead of keeping the old text without a word', async () => {
+    disk.set('main.tex', 'changed on disk, now in Latin-1');
+    readRefusals.set('main.tex', sentence);
+
+    await fileChanged('main.tex');
+
+    expect(app.notice).toContain('not saved as UTF-8');
+    expect(app.notice).toMatch(/not (reloaded|updated)/i);
+    expect(app.notice).toMatch(/replace the file on disk/i);
+    expect(app.docs.get('main.tex')?.text()).toBe('hello'); // the buffer is untouched
+  });
+
+  it('stays quiet about an ordinary failed read, which the next event will answer', async () => {
+    disk.set('main.tex', 'being rewritten by an editor');
+    readRefusals.set('main.tex', 'Permission denied (os error 13)');
+
+    await fileChanged('main.tex');
+
+    expect(app.notice).toBeNull();
+    expect(app.docs.get('main.tex')?.text()).toBe('hello');
   });
 });

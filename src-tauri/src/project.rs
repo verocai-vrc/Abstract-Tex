@@ -633,7 +633,14 @@ fn is_junk_file(name: &str) -> bool {
 pub const MAX_TEXT_FILE_BYTES: u64 = 32 * 1024 * 1024;
 
 /// Read a project file as text for the editor, or say why it is not one: not a regular file (a
-/// device, a pipe, a folder), too large, or binary. Decoded leniently (`Latin-1` files open).
+/// device, a pipe, a folder), too large, binary, or not UTF-8.
+///
+/// **A file that is not valid UTF-8 is refused, not decoded loosely** (review finding R7.8). It used
+/// to open through `String::from_utf8_lossy`, which turns every byte it cannot read into U+FFFD. The
+/// editor is editable, so the buffer then held the replacement marks and the first autosave wrote
+/// them over the author's accents: a Latin-1 file lost every `é` and `ç` on the first keystroke. The
+/// same reasoning as the NUL check below: opening it would show something that saving writes back
+/// over the original. Nothing is written here; the sentence says where the first bad byte is.
 pub fn read_text(path: &Path) -> Result<String> {
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
@@ -659,7 +666,40 @@ pub fn read_text(path: &Path) -> Result<String> {
     if bytes.contains(&0) {
         bail!("{name} does not look like a text file (UTF-8 or Latin-1), so it is not opened in the editor.");
     }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    // `String::from_utf8` hands the bytes back on failure, which is how the position is found
+    // without reading the file twice.
+    String::from_utf8(bytes).map_err(|error| {
+        let valid_up_to = error.utf8_error().valid_up_to();
+        let line = error.as_bytes()[..valid_up_to]
+            .iter()
+            .filter(|byte| **byte == b'\n')
+            .count()
+            + 1;
+        anyhow::anyhow!(
+            "{name} is not saved as UTF-8 (line {line} holds a byte that is not valid UTF-8, as in a Latin-1 \
+             or Windows-1252 file), so Abstract-Tex does not edit it: writing it back would replace every \
+             letter it cannot read with a replacement mark. Convert it to UTF-8 first, for example with \
+             `iconv -f latin1 -t utf-8`."
+        )
+    })
+}
+
+/// A project file's text, to *look at* and never to write back: scanning a chapter for citations,
+/// parsing a bibliography (R7.9). Decoded loosely, so a file saved as Latin-1 is still read (its
+/// ASCII commands and keys are intact; only its accented letters become U+FFFD, which no scan
+/// cares about), and bounded the way [`read_text`] is, so a huge or special file is skipped rather
+/// than read whole. `None` for anything that is not a readable regular file.
+///
+/// This is deliberately the opposite of [`read_text`]: the editor must not open what saving would
+/// damage, while an index that skipped such a file would tell the author their bibliography is
+/// missing. A caller that might write the text back must use `read_text`.
+pub fn read_for_scanning(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_TEXT_FILE_BYTES {
+        return None;
+    }
+    let bytes = fs::read(path).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// Windows paths use `\`; the frontend and `abstract-tex.toml` always use `/`.
@@ -987,20 +1027,52 @@ mod tests {
     }
 
     #[test]
-    fn read_text_refuses_a_binary_file_but_opens_latin_1_text() {
+    fn read_text_refuses_a_binary_file() {
         let dir = scaffold(&[]);
         fs::write(dir.path().join("figure.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
         let error = read_text(&dir.path().join("figure.png")).unwrap_err();
         assert!(error.to_string().contains("text file"), "{error}");
 
-        // `caf\xe9` is Latin-1, not UTF-8: it opens, with the bad byte replaced, as before.
-        fs::write(dir.path().join("old.tex"), b"caf\xe9 au lait").unwrap();
-        assert_eq!(
-            read_text(&dir.path().join("old.tex")).unwrap(),
-            "caf\u{fffd} au lait"
-        );
         fs::write(dir.path().join("main.tex"), "plain").unwrap();
         assert_eq!(read_text(&dir.path().join("main.tex")).unwrap(), "plain");
+    }
+
+    // R7.8. A Latin-1 file used to open with each accented letter replaced by U+FFFD, and the first
+    // autosave then wrote the replacements over the original bytes. Refusing to open it is the only
+    // answer that cannot lose the author's text; the sentence says which line and what to do.
+    #[test]
+    fn read_text_refuses_a_file_that_is_not_utf_8_instead_of_opening_it_with_its_letters_replaced() {
+        let dir = scaffold(&[]);
+        let path = dir.path().join("old.tex");
+        let bytes: &[u8] = b"first line is fine\ncaf\xe9 au lait\n";
+        fs::write(&path, bytes).unwrap();
+
+        let error = read_text(&path).unwrap_err().to_string();
+
+        assert!(error.contains("old.tex"), "{error}");
+        // The controller recognises this sentence by this phrase (`reconcileOpenDocument`).
+        assert!(error.contains("not saved as UTF-8"), "{error}");
+        assert!(
+            error.contains("line 2"),
+            "the sentence says where the first bad byte is: {error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), bytes, "reading must not touch the file");
+    }
+
+    #[test]
+    fn read_text_still_opens_utf_8_with_accents_and_a_byte_order_mark() {
+        let dir = scaffold(&[]);
+        fs::write(
+            dir.path().join("accents.tex"),
+            "caf\u{e9} \u{4e2d}\u{6587} \u{1F600}",
+        )
+        .unwrap();
+        assert_eq!(
+            read_text(&dir.path().join("accents.tex")).unwrap(),
+            "caf\u{e9} \u{4e2d}\u{6587} \u{1F600}"
+        );
+        fs::write(dir.path().join("bom.tex"), b"\xef\xbb\xbfbody").unwrap();
+        assert_eq!(read_text(&dir.path().join("bom.tex")).unwrap(), "\u{feff}body");
     }
 
     #[test]
