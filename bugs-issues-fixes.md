@@ -3039,3 +3039,46 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      own includes are not followed), `compile.rs`'s two reads for placing BibTeX diagnostics,
      `assistant_review.rs`'s two, `comments.rs`' read of the file a comment is anchored in, and
      `fragile_command.rs`.
+
+  11. **R (high; silent corruption of the author's text). Every edit to a file with CRLF line endings
+     lands earlier in the text than the cursor, by one character per preceding line break.**
+     `OpenDocument` keeps the file's text in a `Y.Text` exactly as read, and `Editor.svelte` binds
+     CodeMirror to it with `y-codemirror.next`. CodeMirror splits its document on `\r\n`, `\r` and `\n`
+     and counts a line break as **one** position; the `Y.Text` holds `\r\n` and counts **two**. The
+     binding passes CodeMirror's positions to Yjs unchanged, so after the first line break every
+     insertion and deletion is off by the number of line breaks before it. Nothing in the editor layer
+     mentions line endings (`grep -n 'CRLF\|lineSeparator\|\\r'` over `document.ts`, `setup.ts`,
+     `documents.ts` and the controller finds nothing). Reproduced in the real app on the virtual
+     display with a six-line `\r\n` file: the cursor at the start of line 5, one `X` typed, two seconds
+     later `xxd` shows `line foXur` (the fourth line) and an untouched `line five`. The LF control
+     (same text, `\n`) gives `Xline five`. A multi-character edit, a paste, a deletion or an undo shifts
+     the same way, so a file can be damaged beyond a typo. Every `.tex` and `.bib` checked out by Git for
+     Windows with `core.autocrlf=true` (the default of the installer) is CRLF, as is anything saved by
+     Notepad or TeXworks on Windows; the maintainer's other machine is Windows. The ledger's own
+     entry on `texbib` fixtures notes that the fixtures there are checked out CRLF.
+     **Fixed 16 Nov 2026.** `OpenDocument` now holds the text with `\n` only and remembers the file's
+     own line ending (`lineEndingOf`: CRLF when more of its breaks are `\r\n` than bare `\n`). It writes
+     the text back in that ending, so a CRLF file is read, edited and saved as CRLF and a file nobody
+     touched is never rewritten (`save` still compares in the buffer's own text). Everywhere disk text
+     meets the buffer goes through the same normalisation: `applyExternal` diffs `\n`-only texts and
+     learns the ending from what it was given; `matchesDisk(diskText)` replaces the controller's
+     `diskText === doc.text()` and learns the ending too, so a file checked out again with the other
+     ending is not rewritten back; `textAsOnDisk()` gives the one caller that has a *byte offset from
+     Rust* (`jumpToFinding`, a bibliography finding's line) the text in the form the offset was
+     counted in; and `comments::list` reads the file with `\r\n` as `\n`, because a comment is anchored
+     in the buffer's text and a quote that spans two lines is never found in a CRLF file otherwise.
+     No change on the Rust side of the editor's read and write. **Tests:** 10 in `document.test.ts`
+     (including the root cause pinned as an invariant, that CodeMirror's document is as long as the
+     `Y.Text`, which it was not for the text as read), 3 in the controller through `openFile` and the
+     watcher path, 1 for the jump (red with the buffer's text: line 16 for 13), 1 Rust test for the
+     comment (red: "orphaned"). Eleven mutations of the logic, each killed; three survived at first
+     and each needed a better test, not a different fix (the external change that also changes the
+     text; the language server being told text arrived when nothing did; the jump offset with enough
+     short lines to overshoot). **Walked in the app**, same file and same keys: `X` at the start of line 5
+     gives `Xline five` and every line keeps its `\r\n`; Enter in that file writes `\r\n` (7 CRLF and
+     no bare LF on disk afterwards); no console error in the dev log.
+     **Known and left:** a file that mixes the two endings is saved with the majority's, which changes
+     the endings of the minority lines (and so shows in `git diff`) and nothing else; a lone `\r`
+     (classic Mac) is left as it is, one character in both counts; and the conflict resolver's own
+     write path (`resolveMergeConflict`) rebuilds the file from sections parsed from the disk text and
+     was not touched, so a CRLF file resolved there may come back with LF endings (not read for this).

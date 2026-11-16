@@ -25,6 +25,32 @@ export interface DocumentBackend {
   afterSave?(path: string): void;
 }
 
+/** How a file ends its lines. */
+export type LineEnding = 'lf' | 'crlf';
+
+/**
+ * Which line ending `text` uses: CRLF when more of its line breaks are `\r\n` than bare `\n`, else
+ * LF (which is also the answer for text with no line break at all, and a file made here).
+ */
+export function lineEndingOf(text: string): LineEnding {
+  let crlf = 0;
+  let lf = 0;
+  for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) {
+    if (at > 0 && text.charCodeAt(at - 1) === 13) crlf++;
+    else lf++;
+  }
+  return crlf > lf ? 'crlf' : 'lf';
+}
+
+/** `\r\n` as `\n`. The buffer never holds a `\r\n` (see `OpenDocument`). */
+function toLf(text: string): string {
+  return text.includes('\r\n') ? text.replace(/\r\n/g, '\n') : text;
+}
+
+function inLineEnding(text: string, ending: LineEnding): string {
+  return ending === 'crlf' ? text.replace(/\n/g, '\r\n') : text;
+}
+
 /** The outcome of the decision table below. */
 export type ExternalChange = 'ignore' | 'apply' | 'conflict' | 'vanished';
 
@@ -58,6 +84,15 @@ export function decideExternalChange(facts: ExternalChangeFacts): ExternalChange
   return facts.bufferDirty ? 'conflict' : 'apply';
 }
 
+/**
+ * One open file. **The buffer always uses `\n`** (review finding R7.11): CodeMirror counts a line break
+ * as one position however the file spells it, and `y-codemirror.next` gives those positions to the
+ * `Y.Text` unchanged, so a `Y.Text` holding `\r\n` (two positions) made every edit after the first line
+ * break land one character early per break. The file's own line ending is remembered instead and put
+ * back when the text is written, so a CRLF file is read, edited and saved as CRLF and one that nobody
+ * touched is never rewritten. A file that mixes the two is written back with the majority's, which
+ * changes the line endings of the minority and nothing else.
+ */
 export class OpenDocument {
   readonly ydoc = new Y.Doc();
   readonly ytext: Y.Text;
@@ -87,6 +122,8 @@ export class OpenDocument {
    * one whose save we must not.
    */
   private lastSavedText: string | null;
+  /** The line ending the file on disk has, learned whenever disk text is seen (R7.11). */
+  private lineEnding: LineEnding;
   /** Whether the last autosave failed and has not yet been followed by one that worked. */
   private saveFailing = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -100,8 +137,10 @@ export class OpenDocument {
     private readonly saveDelayMs = SAVE_DELAY_MS,
   ) {
     this.ytext = this.ydoc.getText('content');
-    this.ydoc.transact(() => this.ytext.insert(0, initialText), ORIGIN_LOAD);
-    this.lastSavedText = initialText;
+    this.lineEnding = lineEndingOf(initialText);
+    const text = toLf(initialText);
+    this.ydoc.transact(() => this.ytext.insert(0, text), ORIGIN_LOAD);
+    this.lastSavedText = text;
 
     // The undo manager tracks the author's own edits. y-codemirror adds its own origin to it;
     // loads and external changes use origins it never tracks, so Ctrl-Z cannot undo a
@@ -113,6 +152,26 @@ export class OpenDocument {
 
   text(): string {
     return this.ytext.toString();
+  }
+
+  /**
+   * The text as the file on disk spells it, with its own line endings. For the one caller that has
+   * a byte offset Rust counted in the file on disk (a bibliography finding's jump) and needs the
+   * line it falls on: the buffer's `\n`-only text would put it a line further on per line break.
+   */
+  textAsOnDisk(): string {
+    return inLineEnding(this.text(), this.lineEnding);
+  }
+
+  /**
+   * Whether `diskText` is what the buffer holds, apart from how it ends its lines. Also learns the
+   * file's line ending from it: a file checked out again with the other one is still this file, and
+   * the next save should keep what is on disk now rather than turn it back.
+   */
+  matchesDisk(diskText: string): boolean {
+    const same = toLf(diskText) === this.text();
+    if (same) this.lineEnding = lineEndingOf(diskText);
+    return same;
   }
 
   private onChange(origin: unknown) {
@@ -217,7 +276,7 @@ export class OpenDocument {
       return false;
     }
     try {
-      await this.backend.writeFile(this.path, snapshot);
+      await this.backend.writeFile(this.path, inLineEnding(snapshot, this.lineEnding));
     } catch (error) {
       // The timer was cancelled above, so whoever is saving, a failed write has to leave one behind:
       // `autosave` used to be the only caller that re-armed it, and a build's save-all, a closing tab
@@ -245,7 +304,9 @@ export class OpenDocument {
    * never save over it (review finding R4.6: the old code recorded the disk text as saved and let
    * the next autosave overwrite it).
    */
-  async applyExternal(diskText: string): Promise<boolean> {
+  async applyExternal(rawDiskText: string): Promise<boolean> {
+    // The buffer and its diff are `\n`-only (R7.11); only the file on disk has a say in the line ending.
+    const diskText = toLf(rawDiskText);
     // The diff is computed asynchronously (in Rust). If the author types in between, the ops
     // would land on the wrong indices, so we re-check and retry a couple of times.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -260,6 +321,7 @@ export class OpenDocument {
           }
         }, ORIGIN_EXTERNAL);
       }
+      this.lineEnding = lineEndingOf(rawDiskText);
       this.lastSavedText = diskText;
       this.setDirty(this.text() !== diskText);
       return true;

@@ -2963,7 +2963,8 @@ export async function jumpToFinding(finding: Finding): Promise<void> {
   if (app.activePath !== jump.file) await openFile(jump.file);
   const doc = manager.get(jump.file);
   if (!doc) return; // open failed; openFile already left a notice
-  jumpToLine(lineAtByteOffset(doc.text(), jump.span.start));
+  // Rust counted the byte offset in the file on disk, so the line is found in the text as the disk has it.
+  jumpToLine(lineAtByteOffset(doc.textAsOnDisk(), jump.span.start));
 }
 
 /**
@@ -3206,7 +3207,7 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
     const decision = decideExternalChange({
       isOpenFile: true,
       existsOnDisk,
-      sameAsBuffer: diskText === doc.text(),
+      sameAsBuffer: diskText !== null && doc.matchesDisk(diskText),
       bufferDirty: doc.dirty,
     });
 

@@ -772,6 +772,7 @@ const {
   startComment,
   saveComment,
   acceptCommitOffer,
+  jumpToFinding,
 } = await import('./controller.svelte');
 const { snapshots } = await import('./snapshots.svelte');
 const { assistant, reviewFrom } = await import('./assistant.svelte');
@@ -4945,5 +4946,63 @@ describe('an open file that can no longer be read as text (R7.8)', () => {
 
     expect(app.notice).toBeNull();
     expect(app.docs.get('main.tex')?.text()).toBe('hello');
+  });
+});
+
+describe('a file with CRLF line endings, through the controller (R7.11)', () => {
+  it('is edited where the cursor was and written back as CRLF', async () => {
+    disk.set('crlf.tex', 'one\r\ntwo\r\nthree\r\n');
+    await openFile('crlf.tex');
+    // The start of "three" as the editor counts it: two line breaks of one position each.
+    app.docs.get('crlf.tex')!.ytext.insert('one\ntwo\n'.length, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('crlf.tex')).toBe('one\r\ntwo\r\nXthree\r\n');
+  });
+
+  it('is the same file when the watcher reports it again with its own line endings', async () => {
+    disk.set('crlf.tex', 'one\r\ntwo\r\n');
+    await openFile('crlf.tex');
+    calls.writes = [];
+    calls.reads = [];
+    calls.lsp = [];
+    await fileChanged('crlf.tex');
+    expect(app.conflict).toBeNull();
+    expect(app.dirtyPaths.has('crlf.tex')).toBe(false);
+    expect(app.docs.get('crlf.tex')!.text()).toBe('one\ntwo\n');
+    expect(calls.writes).toEqual([]); // nothing was rewritten
+    expect(calls.compiles).toBe(0); // and nothing changed, so nothing is rebuilt
+    // "Ignore", not "apply": the language server is not told that text arrived from disk.
+    expect(calls.lsp.filter((message) => message.method === 'textDocument/didChange')).toEqual([]);
+    expect(calls.reads).toEqual(['crlf.tex']); // the one read the report needed
+  });
+
+  it('asks when the buffer is dirty and the CRLF file changed, as for any other file', async () => {
+    disk.set('crlf.tex', 'one\r\ntwo\r\n');
+    await openFile('crlf.tex');
+    app.docs.get('crlf.tex')!.ytext.insert(0, 'mine ');
+    disk.set('crlf.tex', 'one\r\ntwo\r\nby someone else\r\n');
+    await fileChanged('crlf.tex');
+    expect(app.conflict?.path).toBe('crlf.tex');
+  });
+});
+
+describe('jumping from a bibliography finding in a file with CRLF line endings (R7.11)', () => {
+  it('lands on the entry\'s own line, though Rust counted the byte offset in the file with its \\r\\n', async () => {
+    // Twelve short lines, the entry, twelve more: with the \n-only buffer text the same offset is twelve
+    // characters further on, which is several short lines past the entry.
+    const onDisk = 'x\r\n'.repeat(12) + '@a{k3,\r\n' + 'y\r\n'.repeat(12);
+    disk.set('refs.bib', onDisk);
+    const start = onDisk.indexOf('@a{k3'); // a byte offset in the file as it is on disk (all ASCII)
+
+    await jumpToFinding({
+      rule: 'missing-field',
+      severity: 'warning',
+      message: 'k3 has no title.',
+      jump: { kind: 'bibEntry', file: 'refs.bib', span: { start, end: start + 6 } },
+      fix: null,
+    });
+
+    expect(app.activePath).toBe('refs.bib');
+    expect(app.jumpRequest?.line).toBe(13);
   });
 });

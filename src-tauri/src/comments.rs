@@ -92,9 +92,16 @@ fn byte_offset(text: &str, unit: usize) -> Option<usize> {
 }
 
 /// Every comment in the project at `root`, reanchored against the files as they are on disk.
+///
+/// A file's text is read with `\r\n` as `\n`, because that is the text a comment was anchored in:
+/// the editor's buffer always uses `\n` and puts the file's own line ending back when it saves
+/// (review finding R7.11). The offsets a row reports are in that text too, which is what the
+/// editor counts in.
 pub fn list(root: &Path) -> Result<Vec<CommentRow>, CommentError> {
     list_with(root, &|relative| {
-        std::fs::read_to_string(root.join(relative)).ok()
+        std::fs::read_to_string(root.join(relative))
+            .ok()
+            .map(|text| text.replace("\r\n", "\n"))
     })
 }
 
@@ -264,6 +271,29 @@ mod tests {
         assert_eq!(rows[0].state, "anchored");
         assert_eq!((rows[0].from, rows[0].to), (Some(from), Some(to)));
         assert_eq!(rows[0].quote, "result");
+    }
+
+    // R7.11. The editor's buffer always uses "\n" (the file's own line ending is put back on save), so
+    // a comment is anchored with a quote and offsets counted in that text. A file that is CRLF on disk
+    // must be read the same way when the comment is placed again, or a quote that spans two lines is
+    // never found and the comment is reported lost.
+    #[test]
+    fn a_comment_across_two_lines_stays_anchored_in_a_file_with_crlf_line_endings() {
+        let buffer = "first line\nthe result stands\nand holds here\nlast line\n";
+        let tmp = project_with(&buffer.replace('\n', "\r\n"));
+        let from = buffer.find("the result").unwrap();
+        let to = buffer.find(" here").unwrap();
+        add_comment(tmp.path(), "main.tex", buffer, from, to, "which result?", 1).unwrap();
+
+        let rows = list(tmp.path()).unwrap();
+
+        assert_eq!(rows[0].state, "anchored", "{rows:?}");
+        assert_eq!(rows[0].quote, "the result stands\nand holds");
+        assert_eq!(
+            (rows[0].from, rows[0].to),
+            (Some(from), Some(to)),
+            "offsets are in the buffer's own counting"
+        );
     }
 
     #[test]

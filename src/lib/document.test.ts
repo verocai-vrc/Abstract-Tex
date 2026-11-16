@@ -1,6 +1,8 @@
+import { EditorState } from '@codemirror/state';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   decideExternalChange,
+  lineEndingOf,
   OpenDocument,
   type DocumentBackend,
   type ExternalChangeFacts,
@@ -367,5 +369,115 @@ describe('decideExternalChange', () => {
 
   it('asks, and never merges, when the buffer is dirty and the disk moved on', () => {
     expect(decideExternalChange(facts({ bufferDirty: true }))).toBe('conflict');
+  });
+});
+
+// R7.11. CodeMirror counts a line break as one position and splits on "\r\n"; a Y.Text that holds
+// "\r\n" counts two. y-codemirror hands CodeMirror's positions to Yjs unchanged, so every edit after
+// the first line break of a CRLF file landed one character early per line break before it.
+describe('a file with CRLF line endings (R7.11)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const crlf = 'line one\r\nline two\r\nline three\r\nline four\r\nline five\r\n';
+
+  it('is held as LF, so CodeMirror and the Y.Text agree on every position', () => {
+    const { backend } = fakeBackend();
+    const doc = new OpenDocument('main.tex', crlf, backend);
+    expect(doc.text()).toBe('line one\nline two\nline three\nline four\nline five\n');
+    // The root cause, pinned: the editor's document is built from `doc.text()` and must be as long as the Y.Text.
+    expect(EditorState.create({ doc: doc.text() }).doc.length).toBe(doc.ytext.length);
+    // ...which it was not for the text as read.
+    expect(EditorState.create({ doc: crlf }).doc.length).toBeLessThan(crlf.length);
+    doc.dispose();
+  });
+
+  it('is written back with CRLF, and an edit in the middle lands where it was made', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', crlf, backend);
+    // The start of line 5 in the editor's own counting: four line breaks of one position each.
+    const startOfLineFive = 'line one\nline two\nline three\nline four\n'.length;
+    doc.ytext.insert(startOfLineFive, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.contents).toBe('line one\r\nline two\r\nline three\r\nline four\r\nXline five\r\n');
+    doc.dispose();
+  });
+
+  it('is not rewritten when nothing changed: the bytes on disk stay as they were', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', crlf, backend);
+    expect(await doc.save()).toBe(false);
+    expect(writes).toEqual([]);
+    expect(doc.dirty).toBe(false);
+    doc.dispose();
+  });
+
+  it('keeps LF files LF', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', 'a\nb\n', backend);
+    doc.ytext.insert(2, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents).toBe('a\nXb\n');
+    doc.dispose();
+  });
+
+  it('recognises its own file on disk, whichever line ending that has, and learns a change of it', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', crlf, backend);
+    expect(doc.matchesDisk(crlf)).toBe(true);
+    expect(doc.matchesDisk(crlf.replace(/\r\n/g, '\n'))).toBe(true); // checked out again with LF
+    expect(doc.matchesDisk(crlf + 'more')).toBe(false);
+    // The file is LF on disk now, so the next save keeps it LF rather than turning it back.
+    doc.ytext.insert(0, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents).not.toContain('\r');
+    doc.dispose();
+  });
+
+  it('folds an external CRLF change in without calling the unchanged lines a change', async () => {
+    const { backend } = fakeBackend();
+    const diffs: Array<[string, string]> = [];
+    const spying: DocumentBackend = {
+      ...backend,
+      diffOps: async (oldText, newText) => {
+        diffs.push([oldText, newText]);
+        return backend.diffOps(oldText, newText);
+      },
+    };
+    const doc = new OpenDocument('main.tex', crlf, spying);
+    expect(await doc.applyExternal(crlf)).toBe(true); // the same file again: nothing to diff
+    expect(diffs).toEqual([]);
+
+    const changed = crlf.replace('line three', 'line 3');
+    expect(await doc.applyExternal(changed)).toBe(true);
+    expect(diffs).toEqual([['line one\nline two\nline three\nline four\nline five\n', 'line one\nline two\nline 3\nline four\nline five\n']]);
+    expect(doc.text()).toBe('line one\nline two\nline 3\nline four\nline five\n');
+    expect(doc.dirty).toBe(false);
+    doc.dispose();
+  });
+
+  it('learns a new line ending from an external change that also changes the text', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', crlf, backend);
+    await doc.applyExternal('one\ntwo\n'); // rewritten by something that uses LF
+    doc.ytext.insert(0, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents).toBe('Xone\ntwo\n');
+    doc.dispose();
+  });
+
+  it('gives the text as it is on disk when a byte offset from Rust has to be turned into a line', () => {
+    const { backend } = fakeBackend();
+    const doc = new OpenDocument('refs.bib', '@a{k1,}\r\n@b{k2,}\r\n', backend);
+    expect(doc.textAsOnDisk()).toBe('@a{k1,}\r\n@b{k2,}\r\n');
+    doc.dispose();
+  });
+
+  it('decides the line ending by the majority, and LF when there is no line break at all', () => {
+    expect(lineEndingOf('a\r\nb\r\nc\n')).toBe('crlf');
+    expect(lineEndingOf('a\nb\nc\r\n')).toBe('lf');
+    expect(lineEndingOf('no line break')).toBe('lf');
+    expect(lineEndingOf('')).toBe('lf');
   });
 });
