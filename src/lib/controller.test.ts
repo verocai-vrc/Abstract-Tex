@@ -227,6 +227,7 @@ vi.mock('./ipc', () => ({
     refreshTree: async () => project,
     readFile: async (path: string) => {
       calls.reads.push(path);
+      if (readGate?.path === path) await readGate.until; // a test holds one file's read open
       const text = disk.get(path);
       if (text === undefined) throw new Error(`no such file: ${path}`);
       return text;
@@ -772,6 +773,9 @@ let ipcWriteFile: (path: string, contents: string) => Promise<void> = async (pat
   disk.set(path, contents);
 };
 
+/** While set, a `readFile` of that one path waits for `until`: the window in which a second request can arrive. */
+let readGate: { path: string; until: Promise<void> } | null = null;
+
 /** Called at the start of every `diffOps`, so a test can type while the diff is "running". */
 let diffHook: (() => void) | null = null;
 
@@ -787,8 +791,20 @@ function typeInto(path: string, text: string): void {
   doc.ytext.insert(doc.ytext.length, text);
 }
 
+const defaultWriteFile = ipcWriteFile;
+
 beforeEach(async () => {
   vi.useFakeTimers();
+  // Tabs left open by the last test still hold whatever it typed. Opening a folder now writes such
+  // text out before it lets go of it (R6.2), so let that happen to the old fake disk, before the
+  // disk is reset, rather than into the next test's.
+  ipcWriteFile = defaultWriteFile;
+  app.conflict = null;
+  readGate = null;
+  for (const doc of app.docs.values()) {
+    doc.releaseSaves();
+    await doc.save(false).catch(() => {});
+  }
   disk.clear();
   disk.set('main.tex', 'hello');
   calls.compiles = 0;
@@ -2167,6 +2183,10 @@ describe('the Document map (S4.2)', () => {
     await refreshOutline();
     expect(app.outline.length).toBe(1);
 
+    // The heading is saved, as it must be before a folder is left (R6.2); the next project's root
+    // file has none, so what is left on screen can only be the old project's outline.
+    await app.activeDoc!.save();
+    disk.set('main.tex', 'another project, no headings');
     await openFolder('/proj'); // closeAllDocuments runs before the new project is opened
     expect(app.outline).toEqual([]);
   });
@@ -4472,5 +4492,93 @@ describe('naming a version (A11)', () => {
     expect(done).toBe(false);
     expect(git.error).toContain('no spaces');
     expect(git.namingCommit).toBe('a1a1a1a1');
+  });
+});
+
+// Sixth review pass (R6.x): flows that throw an author's text away or open a tab twice.
+describe('opening another folder (R6.2)', () => {
+  it('does not drop an edit that could not be saved: it says so and stays where it is', async () => {
+    const working = ipcWriteFile;
+    ipcWriteFile = async () => {
+      throw new Error('No space left on device');
+    };
+    type(' and more');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(app.dirty).toBe(true);
+
+    await openFolder('/proj');
+    ipcWriteFile = working;
+
+    expect(app.docs.get('main.tex')?.text()).toBe('hello and more');
+    expect(app.notice).toContain('main.tex');
+    expect(app.notice).toMatch(/not saved|could not be saved/i);
+  });
+
+  it('does not drop the author\'s side of a conflict the bar is still asking about', async () => {
+    disk.set('main.tex', 'changed by someone else');
+    type(' mine');
+    await fileChanged('main.tex');
+    expect(app.conflict?.path).toBe('main.tex');
+
+    await openFolder('/proj');
+
+    expect(app.conflict?.path).toBe('main.tex');
+    expect(app.docs.get('main.tex')?.text()).toBe('hello mine');
+  });
+
+  it('saves the edits it can save before it switches', async () => {
+    type(' typed just now');
+    await openFolder('/proj');
+    expect(disk.get('main.tex')).toBe('hello typed just now');
+  });
+});
+
+describe('opening the same file twice at once (R6.3)', () => {
+  it('makes one tab, and keeps the text typed into it', async () => {
+    disk.set('chapter.tex', 'one');
+    let release!: () => void;
+    readGate = { path: 'chapter.tex', until: new Promise<void>((resolve) => (release = resolve)) };
+    const first = openFile('chapter.tex');
+    const second = openFile('chapter.tex');
+    release();
+    readGate = null;
+    await Promise.all([first, second]);
+
+    expect(app.openTabs.filter((path) => path === 'chapter.tex')).toHaveLength(1);
+    type(' kept');
+    expect(app.docs.get('chapter.tex')?.text()).toBe('one kept');
+  });
+});
+
+describe('a file read that finishes after another folder was opened (R6.3)', () => {
+  it('is not opened into the new project', async () => {
+    disk.set('chapter.tex', 'one');
+    let release!: () => void;
+    readGate = { path: 'chapter.tex', until: new Promise<void>((resolve) => (release = resolve)) };
+    const slow = openFile('chapter.tex');
+    await openFolder('/proj');
+    release();
+    readGate = null;
+    await slow;
+
+    expect(app.openTabs).not.toContain('chapter.tex');
+    expect(app.openTabs).toEqual(['main.tex']);
+  });
+});
+
+describe('closing a tab whose text cannot be saved (R6.4)', () => {
+  it('keeps the tab and says why, instead of doing nothing', async () => {
+    const working = ipcWriteFile;
+    ipcWriteFile = async () => {
+      throw new Error('Permission denied');
+    };
+    type(' unsaved');
+
+    await expect(closeTab('main.tex')).resolves.toBeUndefined();
+    ipcWriteFile = working;
+
+    expect(app.openTabs).toContain('main.tex');
+    expect(app.notice).toContain('main.tex');
+    expect(app.notice).toContain('Permission denied');
   });
 });

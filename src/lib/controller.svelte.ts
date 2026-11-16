@@ -2086,11 +2086,41 @@ export async function start(): Promise<void> {
   if (initial) await openFolder(initial);
 }
 
+/**
+ * Before the project is swapped for another, every open tab's text must be on disk, or the author
+ * must have been told it is not (review finding R6.2). `closeAllDocuments` disposes the buffers,
+ * and a buffer that is disposed with an edit in it takes the edit with it: the 700 ms debounce had
+ * not fired yet, a save was failing, or a conflict bar was holding the saves and its question was
+ * still unanswered. Returns whether it is safe to go on; when it is not, the notice says why.
+ */
+async function flushBeforeLeavingProject(): Promise<boolean> {
+  if (app.conflict) {
+    app.notice = `Answer the question about ${app.conflict.path} first: keep your version, or load the one on disk.`;
+    return false;
+  }
+  let reason = '';
+  try {
+    await manager.saveAll();
+  } catch (error) {
+    reason = ` (${String(error)})`;
+  }
+  const unsaved = manager.dirtyPaths();
+  if (unsaved.length === 0) return true;
+  app.notice = `${unsaved.join(', ')} could not be saved${reason}, so the folder was not changed. The text is still in the editor.`;
+  return false;
+}
+
+/** Bumped each time a project is opened. An answer that was asked for in one project and arrives in
+ * the next checks it, so a file read that finishes late is not opened into the wrong project. */
+let projectEpoch = 0;
+
 export async function openFolder(path?: string, options: { atFirstPlaceholder?: boolean } = {}): Promise<void> {
   const chosen = path ?? (await ipc.pickFolder());
   if (!chosen) return;
+  if (!(await flushBeforeLeavingProject())) return;
   try {
     const info = await ipc.openProject(chosen);
+    projectEpoch += 1;
     closeAllDocuments();
     app.project = info;
     // The previous project's placeholders are not this one's (S11.12).
@@ -2207,8 +2237,32 @@ export async function openFile(relativePath: string): Promise<void> {
     void refreshOutline();
     return;
   }
+  // A second request for a file whose first read is still out waits for that read and ends there:
+  // both would find the file not open, both would read it, and the second `manager.open` would
+  // replace the first's `Y.Doc` and put the path in the tab row twice (review finding R6.3).
+  const readingNow = opensInFlight.get(relativePath);
+  if (readingNow) {
+    await readingNow;
+    return;
+  }
+  const reading = openFileFromDisk(relativePath);
+  opensInFlight.set(relativePath, reading);
+  try {
+    await reading;
+  } finally {
+    opensInFlight.delete(relativePath);
+  }
+}
+
+/** Files whose first read has been asked for and has not come back, by path. */
+const opensInFlight = new Map<string, Promise<void>>();
+
+async function openFileFromDisk(relativePath: string): Promise<void> {
+  const epoch = projectEpoch;
   try {
     const text = await ipc.readFile(relativePath);
+    // The folder was changed while the file was being read: this text belongs to the old project.
+    if (epoch !== projectEpoch) return;
     const doc = manager.open(relativePath, text);
     doc.onDirtyChange = (isDirty) => setDirty(relativePath, isDirty);
     doc.onTextChange = () => {
@@ -2238,7 +2292,19 @@ export async function closeTab(path: string): Promise<void> {
     app.notice = `Answer the question about ${path} first: keep your version, or load the one on disk.`;
     return;
   }
-  await manager.get(path)?.save();
+  // A save that fails, or one that is held back while the file's change on disk is being weighed,
+  // leaves the text only in this buffer; closing then would drop it, and a rejection nobody catches
+  // would make the button look dead (review finding R6.4). Stay open and say why.
+  try {
+    await manager.get(path)?.save();
+  } catch (error) {
+    app.notice = `Could not save ${path}, so the tab was left open: ${String(error)}. The text is still in the editor.`;
+    return;
+  }
+  if (manager.get(path)?.dirty) {
+    app.notice = `${path} has changes that are not saved yet, so the tab was left open.`;
+    return;
+  }
   // S14.2c: a tab's session cannot outlive the Y.Doc it was syncing. S15.2: it ends with an offer.
   await leaveAndOfferCommit(path);
   const next = manager.close(path);
