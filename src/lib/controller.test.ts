@@ -2,6 +2,8 @@
 // change lands in the CRDT — or stops at a question. The IPC layer is faked, so this exercises
 // every line of the reaction except the Rust on the far side of `invoke`.
 
+import { EditorState } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AssistantAction,
@@ -241,6 +243,7 @@ vi.mock('./ipc', () => ({
       calls.compileFiles.push(file);
       return ++calls.compiles;
     },
+    pasteCite: async (_pasted: string) => pasteCiteAnswer(),
     diffOps: async (oldText: string, newText: string): Promise<TextOp[]> => {
       diffHook?.(); // a test's way of typing while Rust is still diffing
       // Prefix/suffix trimming, as the Rust reconciler does. Its own correctness is proved by
@@ -663,6 +666,7 @@ const {
   lspGoToDefinition,
   lspHover,
   openFile,
+  pasteCite,
   openFolder,
   quickOpenPick,
   refreshOutline,
@@ -772,6 +776,9 @@ let ipcWriteFile: (path: string, contents: string) => Promise<void> = async (pat
   calls.writes.push({ path, contents });
   disk.set(path, contents);
 };
+
+/** What `pasteCite` answers with, when it is asked: a test makes it wait to type while the answer is out. */
+let pasteCiteAnswer: () => Promise<{ key: string; created: boolean }> = async () => ({ key: 'knuth1984', created: true });
 
 /** While set, a `readFile` of that one path waits for `until`: the window in which a second request can arrive. */
 let readGate: { path: string; until: Promise<void> } | null = null;
@@ -4593,6 +4600,28 @@ describe('opening the same file twice at once (R6.3)', () => {
     expect(app.openTabs.filter((path) => path === 'chapter.tex')).toHaveLength(1);
     type(' kept');
     expect(app.docs.get('chapter.tex')?.text()).toBe('one kept');
+  });
+});
+
+describe('pasting a DOI while the answer is on its way (R6.19)', () => {
+  it('puts the cite where the paste was, though the author typed before it meanwhile', async () => {
+    const { pasteTracking } = await import('./editor/paste');
+    const view = {
+      state: EditorState.create({ doc: 'see 10.1000/x and more', selection: { anchor: 4, head: 12 }, extensions: [pasteTracking] }),
+      dispatch(spec: Parameters<EditorState['update']>[0]) {
+        view.state = view.state.update(spec).state;
+      },
+    } as unknown as EditorView & { state: EditorState };
+    let answer!: (value: { key: string; created: boolean }) => void;
+    pasteCiteAnswer = () => new Promise((resolve) => (answer = resolve));
+
+    const pending = pasteCite('10.1000/x', view, 4, 12);
+    view.dispatch({ changes: { from: 0, insert: 'ABC' } }); // typed while the answer was out
+    answer({ key: 'knuth1984', created: true });
+    await pending;
+    pasteCiteAnswer = async () => ({ key: 'knuth1984', created: true });
+
+    expect(view.state.doc.toString()).toBe('ABCsee \\cite{knuth1984}x and more');
   });
 });
 

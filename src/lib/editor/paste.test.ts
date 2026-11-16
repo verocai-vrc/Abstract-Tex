@@ -1,5 +1,7 @@
+import { EditorState } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import { describe, expect, it, vi } from 'vitest';
-import { identify, pasteCiteHandler } from './paste';
+import { identify, pasteCiteHandler, pasteTracking, trackPaste } from './paste';
 
 describe('identify', () => {
   it('recognises a doi.org URL, normalized to the bare DOI', () => {
@@ -80,5 +82,82 @@ describe('pasteCiteHandler', () => {
     expect(handled).toBe(false);
     expect(event.preventDefault).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+// Review finding R6.19. `pasteCite` fetched for as long as the network took and then dispatched
+// `{ from, to }` as they were at paste time, on the comment's belief that CodeMirror maps a position
+// captured earlier. It does not: positions in a `dispatch` are in the document as it is *now*, so
+// anything typed before the paste point in the meantime moved the cite onto other text.
+describe('keeping the place of a paste while its answer is awaited (R6.19)', () => {
+  /** A view reduced to what `trackPaste` uses, with CodeMirror's real transaction semantics. */
+  function viewOf(doc: string, from: number, to: number, tracked = true) {
+    const view = {
+      state: EditorState.create({ doc, selection: { anchor: from, head: to }, extensions: tracked ? [pasteTracking] : [] }),
+      dispatch(spec: Parameters<EditorState['update']>[0]) {
+        view.state = view.state.update(spec).state;
+      },
+    };
+    return view as unknown as EditorView & { state: EditorState };
+  }
+  const type = (view: EditorView, at: number, text: string) => view.dispatch({ changes: { from: at, insert: text } });
+
+  it('follows the paste point through text typed before it', () => {
+    const view = viewOf('see 10.1000/x and more', 4, 12);
+    const place = trackPaste(view, 4, 12);
+    type(view, 0, 'ABC');
+    expect(place.range()).toEqual({ from: 7, to: 15 });
+    expect(view.state.sliceDoc(7, 15)).toBe('10.1000/');
+  });
+
+  it('leaves it alone for text typed after it', () => {
+    const view = viewOf('see 10.1000/x and more', 4, 12);
+    const place = trackPaste(view, 4, 12);
+    type(view, 20, 'ZZZ');
+    expect(place.range()).toEqual({ from: 4, to: 12 });
+  });
+
+  it('puts the cite after text typed at the very spot of an empty paste point', () => {
+    const view = viewOf('ab', 1, 1);
+    const place = trackPaste(view, 1, 1);
+    type(view, 1, 'x');
+    expect(place.range()).toEqual({ from: 2, to: 2 });
+  });
+
+  it('does not widen a selection to take in text typed at its edges', () => {
+    const view = viewOf('0123456789', 3, 6);
+    const place = trackPaste(view, 3, 6);
+    type(view, 3, 'a');
+    type(view, 7, 'b'); // the old position 6, shifted by the first insertion
+    expect(place.range()).toEqual({ from: 4, to: 7 });
+    expect(view.state.sliceDoc(4, 7)).toBe('345');
+  });
+
+  it('collapses a range whose text was deleted instead of inverting it', () => {
+    const view = viewOf('0123456789', 3, 6);
+    const place = trackPaste(view, 3, 6);
+    view.dispatch({ changes: { from: 2, to: 8 } });
+    const { from, to } = place.range();
+    expect(from).toBe(to);
+    expect(from).toBeLessThanOrEqual(view.state.doc.length);
+  });
+
+  it('keeps each paste separate, and forgets one once it is released', () => {
+    const view = viewOf('0123456789', 2, 2);
+    const first = trackPaste(view, 2, 2);
+    const second = trackPaste(view, 8, 8);
+    type(view, 0, 'AB');
+    expect(first.range()).toEqual({ from: 4, to: 4 });
+    expect(second.range()).toEqual({ from: 10, to: 10 });
+    first.release();
+    expect(view.state.field(pasteTracking).size).toBe(1);
+  });
+
+  it('answers the range it was given when the editor has no tracker installed', () => {
+    const view = viewOf('0123456789', 2, 5, false);
+    const place = trackPaste(view, 2, 5);
+    type(view, 0, 'AB');
+    expect(place.range()).toEqual({ from: 2, to: 5 });
+    place.release(); // does nothing, and does not throw
   });
 });

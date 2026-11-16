@@ -40,6 +40,7 @@ import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticPlace, type DrawerFilter } from './drawer';
 import { firstLocation } from './editor/definition';
+import { trackPaste } from './editor/paste';
 import { flattenSymbols, type FlatSymbol } from './editor/symbols';
 import { LspClient, uriToPath } from './lsp';
 import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
@@ -222,11 +223,10 @@ export async function lspGoToDefinition(relativePath: string, line: number, char
  * as a DOI/arXiv id/ISBN and prevented CodeMirror's own paste; this is what actually happens —
  * ask the backend to fetch, deduplicate, and maybe write a new `.bib` entry (`ipc.pasteCite`,
  * S7.6's whole point: "the entry appears, deduplicated," DESIGN.md §5.4), then insert `\cite{key}`
- * at the position the paste landed on. `from`/`to` were captured *before* this awaited, so the
- * insertion still targets the right spot even if the cursor moved during the round trip; if the
- * document was edited there in the meantime CodeMirror simply maps the position through those
- * changes itself; a plain `changes: { from, to, insert }` on a stale-but-still-valid range is
- * exactly what every other deferred edit in this codebase already trusts CodeMirror to do.
+ * at the position the paste landed on. `from`/`to` are positions in the document *at paste time*, and
+ * the fetch takes as long as the network does: anything typed before them meanwhile moves the spot, and
+ * CodeMirror does not map a position a caller holds (review finding R6.19, which found this comment
+ * wrong). `trackPaste` keeps the place in the editor's own state, where every transaction maps it.
  *
  * A failure — no network, nothing found for the identifier, no `.bib` file to append to — is a
  * status message, not a dialog: the author's paste is simply left as it was (no raw text falls
@@ -234,11 +234,15 @@ export async function lspGoToDefinition(relativePath: string, line: number, char
  * reports a backend rejection without interrupting typing.
  */
 export async function pasteCite(pasted: string, view: EditorView, from: number, to: number): Promise<void> {
+  const place = trackPaste(view, from, to);
   try {
     const { key } = await ipc.pasteCite(pasted);
-    view.dispatch({ changes: { from, to, insert: `\\cite{${key}}` } });
+    const where = place.range();
+    view.dispatch({ changes: { from: where.from, to: where.to, insert: `\\cite{${key}}` } });
   } catch (error) {
     app.notice = String(error);
+  } finally {
+    place.release();
   }
 }
 

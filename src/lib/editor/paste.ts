@@ -7,6 +7,7 @@
 // afford to be slightly permissive; texbib's own answer is what's authoritative once a request
 // is actually made.
 
+import { StateEffect, StateField, type ChangeSet } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 
 export type PasteKind = 'doi' | 'arxiv' | 'isbn';
@@ -126,5 +127,79 @@ export function pasteCiteHandler(request: PasteCiteRequester) {
     const { from, to } = view.state.selection.main;
     void request(text, view, from, to);
     return true;
+  };
+}
+
+// ---- Keeping the place of a paste while its answer is awaited (review finding R6.19) -----------
+//
+// A DOI is fetched over the network, so the cite is inserted seconds after the paste. A position
+// captured at paste time is a position in the document *as it was*: anything typed before it since
+// then moves the spot, and CodeMirror does not map a position that a caller holds across
+// transactions (only its own state does). So the place is kept in the editor's state, where every
+// transaction maps it, and read back when the answer arrives.
+
+/** Where a waiting paste is: the text it will replace (empty for a plain cursor). */
+export interface PastePlace {
+  from: number;
+  to: number;
+}
+
+const startTracking = StateEffect.define<PastePlace & { id: number }>();
+const stopTracking = StateEffect.define<number>();
+
+/** Maps one place through a change. A cursor ends up after text typed at its own spot; a selection
+ * is not widened by text typed at either edge; a range whose text was deleted collapses to a point. */
+function mapPlace(place: PastePlace, changes: ChangeSet): PastePlace {
+  const empty = place.from === place.to;
+  const from = changes.mapPos(place.from, 1);
+  const to = changes.mapPos(place.to, empty ? 1 : -1);
+  return { from, to: Math.max(from, to) };
+}
+
+/** The editor extension that holds the places. `setup.ts` installs it together with the paste
+ * handler; without it `trackPaste` still works, but keeps the place it was given. */
+export const pasteTracking = StateField.define<ReadonlyMap<number, PastePlace>>({
+  create: () => new Map(),
+  update(places, transaction) {
+    const mapped = transaction.docChanged && places.size > 0;
+    const effects = transaction.effects.filter((effect) => effect.is(startTracking) || effect.is(stopTracking));
+    if (!mapped && effects.length === 0) return places; // almost every transaction: nothing waiting
+    const next = new Map<number, PastePlace>();
+    for (const [id, place] of places) next.set(id, mapped ? mapPlace(place, transaction.changes) : place);
+    for (const effect of effects) {
+      if (effect.is(startTracking)) next.set(effect.value.id, { from: effect.value.from, to: effect.value.to });
+      else if (effect.is(stopTracking)) next.delete(effect.value);
+    }
+    return next;
+  },
+});
+
+export interface PasteTracker {
+  /** Where the paste is now, in the document as it is now. */
+  range(): PastePlace;
+  /** Stop keeping it. Call when the answer has been used or has failed. */
+  release(): void;
+}
+
+let nextTrackedPaste = 0;
+
+/** Start keeping the place `from`..`to` of `view`, called synchronously from the paste event so no
+ * edit can come between the paste and the first mapping. */
+export function trackPaste(view: EditorView, from: number, to: number): PasteTracker {
+  const id = ++nextTrackedPaste;
+  view.dispatch({ effects: startTracking.of({ id, from, to }) });
+  return {
+    range() {
+      const place = view.state.field(pasteTracking, false)?.get(id) ?? { from, to };
+      const end = view.state.doc.length;
+      return { from: Math.min(place.from, end), to: Math.min(place.to, end) };
+    },
+    release() {
+      try {
+        view.dispatch({ effects: stopTracking.of(id) });
+      } catch {
+        // The editor is gone (its tab was closed); there is nothing left to keep a place in.
+      }
+    },
   };
 }

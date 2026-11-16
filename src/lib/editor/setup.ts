@@ -37,7 +37,7 @@ import { lspHoverSource, type HoverRequester } from './hover';
 import { mathPreview } from './math-preview';
 import { selectionReporter } from './selection';
 import { placeholderMarks } from './placeholders';
-import { pasteCiteHandler, type PasteCiteRequester } from './paste';
+import { pasteCiteHandler, pasteTracking, type PasteCiteRequester } from './paste';
 import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
 import { typewriterModeExtension } from './typewriter';
 
@@ -198,7 +198,7 @@ export function createEditor(
       ...(definitionRequest
         ? [EditorView.domEventHandlers({ mousedown: definitionClickHandler(definitionRequest) })]
         : []),
-      ...(pasteCiteRequest ? [EditorView.domEventHandlers({ paste: pasteCiteHandler(pasteCiteRequest) })] : []),
+      ...(pasteCiteRequest ? [pasteTracking, EditorView.domEventHandlers({ paste: pasteCiteHandler(pasteCiteRequest) })] : []),
       // `yCollab` renders a remote cursor itself (its own `yRemoteSelectionsTheme`) once given a
       // real `Awareness`; the undo manager stays the document's own either way.
       yCollab(doc.ytext, awareness, { undoManager: doc.undo }),
