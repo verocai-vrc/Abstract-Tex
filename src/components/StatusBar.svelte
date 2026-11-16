@@ -25,9 +25,15 @@
 
   // A ticking clock while a build runs, so a long first compile (package downloads) never
   // looks like a hang (DESIGN.md §6, first run).
+  //
+  // `now` is set when the build starts, not only by the interval: it stopped moving when the last
+  // build ended, so until the first tick it was older than this build's start and the clock read a
+  // negative time ("Compiling… -16.8s", the minus being how long the app had sat idle). This effect
+  // does not read `now`, so writing it here cannot re-run the effect.
   let now = $state(Date.now());
   $effect(() => {
     if (app.compile.phase !== 'running') return;
+    now = Date.now();
     const timer = setInterval(() => (now = Date.now()), 250);
     return () => clearInterval(timer);
   });

@@ -170,6 +170,7 @@
   let now = $state(Date.now());
   $effect(() => {
     const every = github.stage === 'waiting' ? 1_000 : 60_000;
+    now = Date.now(); // the interval restarts when the stage changes; the clock must not wait for it
     const timer = setInterval(() => (now = Date.now()), every);
     return () => clearInterval(timer);
   });

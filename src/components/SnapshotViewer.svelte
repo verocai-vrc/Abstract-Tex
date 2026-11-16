@@ -6,7 +6,11 @@
   import { modalFocus } from '../lib/dialog';
   import { closeSnapshot, restoreSnapshotFile, showSnapshotFile } from '../lib/controller.svelte';
 
-  const now = Date.now();
+  // Read when a snapshot is opened, not when the app starts: this component is always mounted, so a
+  // `const now = Date.now()` here was the moment of launch, and every snapshot taken since then read
+  // "just now" in the header however old it was. `Date.now()` is not reactive, so this re-runs only
+  // when the selected snapshot changes, which is exactly when the label needs to be right.
+  const title = $derived(snapshots.selected ? snapshotLabel(snapshots.selected, Date.now()) : '');
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') closeSnapshot();
@@ -18,7 +22,7 @@
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="dialog" role="dialog" aria-modal="true" aria-label="An earlier version" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
-        <span>{snapshotLabel(snapshots.selected, now)}</span>
+        <span>{title}</span>
         <button class="ghost" onclick={closeSnapshot} aria-label="Close">✕</button>
       </header>
 

@@ -2677,6 +2677,33 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      keys: the cursor line sits at the vertical centre of the editor and the log holds no new crash. The
      fake enforces one rule of the real view and nothing else; the walk is what shows the real one agrees.
 
+  22. **R (low). A clock seeded once is wrong until its first tick: "Compiling… -16.8s", and every
+     snapshot "just now".** The same pattern in four components: `let now = $state(Date.now())` is set
+     when the component is created, and an effect later starts an interval that advances it, without
+     setting it when it starts. (a) `StatusBar.svelte`: `now` stops moving when a build ends, so the
+     next build's `startedAt` is newer than `now` and the clock shows a negative time for the first
+     250 ms. Reproduced in the app on the virtual display by photographing the status bar every 120 ms
+     after an edit, 16 s after the previous build: two frames read "Compiling… -16.8s", then 0.3 s, 0.3 s,
+     0.5 s. The size of the minus sign is how long the app had been idle. (b) `SnapshotViewer.svelte`
+     has `const now = Date.now()`, evaluated once when the app starts, because the component is always
+     mounted: `relativeTime` clamps a negative age to nothing, so every snapshot taken since the app
+     started is "just now · N words" in the viewer's header however old it is. Reproduced: the same
+     snapshot is "7 minutes ago · 3,368 words" in the Snapshots list and "just now · 3,368 words" in the
+     viewer opened from it. (c) `CloneWindow.svelte`: the sign-in countdown's `now` is from app start
+     until the first tick a second after the code appears, so `timeLeft` reads "N min left" with N the
+     minutes since launch plus the code's lifetime, for a second. By reading, not reproduced (it needs
+     a GitHub sign-in). (d) `SourceControl.svelte`: the effect that ticks the relative times does not
+     refresh `now` when it restarts (the sign-in stage changes its interval), so labels can be up to a
+     minute stale; harmless because `relativeTime` clamps, listed so the four are fixed alike.
+     **Fixed 15 Nov 2026.** Each effect now sets `now` as it starts (`StatusBar`, `CloneWindow`,
+     `SourceControl`; none of them reads `now`, so writing it cannot re-run the effect), and the viewer's
+     title is a `$derived` that reads the clock when a snapshot is selected. No unit test: these are
+     component effects and the repository has no component harness, and the arithmetic they feed
+     (`relativeTime`, `timeLeft`) was never wrong. Walked in the app after the fix, same steps: after 25 s
+     idle the first frames read "Compiling… 0.0s", and the viewer's header for the 8-minute-old
+     snapshot reads "8 minutes ago · 3,368 words", the list's own words. (c) was not reproduced and is
+     fixed on the reading alone.
+
   Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
   answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
   link (the author said yes to it); the sync commands hold the project lock across their disk work

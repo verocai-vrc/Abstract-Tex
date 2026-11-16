@@ -19,9 +19,13 @@
 
   const shown = $derived(clone.repositories ? filterRepositories(clone.repositories, clone.filter) : []);
 
+  // Set when the countdown starts, not only by the interval: this component is created with the
+  // app, so until the first tick `now` was the moment of launch and the countdown showed the code's
+  // lifetime plus however long the app had been open.
   let now = $state(Date.now());
   $effect(() => {
     if (!clone.visible || github.stage !== 'waiting') return;
+    now = Date.now();
     const timer = setInterval(() => (now = Date.now()), 1_000);
     return () => clearInterval(timer);
   });
