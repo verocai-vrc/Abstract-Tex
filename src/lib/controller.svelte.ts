@@ -8,7 +8,7 @@ import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
 import { filterTemplates, neighbour, newProject } from './templates.svelte';
 import { assistant, resetForm, reviewFrom, type PreparedState } from './assistant.svelte';
-import { toggled } from './assistant-review';
+import { counts, toggled } from './assistant-review';
 import { providerFromForm } from './assistant';
 import { placeholders } from './placeholders.svelte';
 import { findPlaceholderLines, nextPlaceholder, orderedTexFiles, texPathsOf } from './editor/placeholders';
@@ -785,6 +785,9 @@ export function closeReview(): void {
 export async function applyReview(): Promise<void> {
   const review = assistant.review;
   if (!review || review.applying) return;
+  // The Apply button is disabled with nothing accepted, but Ctrl Enter in the dialog reaches here
+  // too, and writing the selection back as itself is an edit that changes nothing (R7.3).
+  if (counts(review.hunks, review.choices).accepted === 0) return;
   assistant.review = { ...review, applying: true, error: null };
   try {
     const text = await ipc.assistantApply(review.id, review.choices);

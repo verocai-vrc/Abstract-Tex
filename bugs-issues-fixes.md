@@ -2865,3 +2865,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      **Not changed:** the window key handler still passes `Ctrl O` and `Ctrl Shift N` through an open
      dialog; with the state now reset, the consequence that mattered is gone, and which dialogs should
      block which chords is a design call.
+
+  3. **S then R (low). Ctrl Enter in the review dialog applies a suggestion with nothing accepted, as an
+     edit that changes nothing.** The *Apply* button is disabled when no change is accepted
+     (`tally.accepted === 0`) or the assistant suggested none, but the dialog's key handler calls
+     `applyReview()` on `Ctrl Enter` without that check. Rust answers an all-declined choice list with
+     the original text, and `replaceRange` then deletes and re-inserts the selection with itself in one
+     undo step: the tab goes dirty and is written, there is an undo step that undoes nothing, and the
+     author's cursor, if it was inside the range, is moved to the end of it. **Fixed 16 Nov 2026.**
+     `applyReview` returns early when no change is accepted. One controller test, red first (an
+     `assistantApply` call was made with `[false]` and the text was replaced by itself, observed as an
+     undo step), mutation-checked.

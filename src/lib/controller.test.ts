@@ -4118,6 +4118,24 @@ describe('rewriting a selection with the assistant (S12.3b)', () => {
     expect(assistant.review?.applying).toBe(false);
   });
 
+  // R7.3. The Apply button is disabled with nothing accepted; Ctrl Enter in the dialog was not.
+  it('does nothing when no change is accepted, instead of replacing the selection with itself', async () => {
+    await readyWithSelection();
+    proposalAnswer = honest;
+    await askAssistant({ kind: 'tighten' });
+    toggleReviewHunk(0); // leave the one change
+    expect(assistant.review?.choices).toEqual([false]);
+    applyAnswer = 'very very '; // what Rust answers for nothing accepted: the original
+    const stepsBefore = app.activeDoc!.undo.undoStack.length;
+
+    await applyReview();
+
+    expect(reviewCalls.applied).toEqual([]);
+    expect(app.activeDoc!.undo.undoStack.length).toBe(stepsBefore);
+    expect(assistant.review).not.toBeNull(); // still open: nothing was decided
+    expect(assistant.review?.applying).toBe(false);
+  });
+
   it('shows the guard’s sentences and writes nothing when Rust refuses the text', async () => {
     await readyWithSelection();
     proposalAnswer = honest;
