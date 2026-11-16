@@ -65,6 +65,35 @@ describe('parsing a real conflict (S11.2b)', () => {
   });
 });
 
+// Review finding R6.10. The file is whatever Git left, and the app lists conflicts made by a terminal's
+// `git merge` too, so it has to read the shapes Git's own settings produce.
+describe('reading the shapes Git leaves behind (R6.10)', () => {
+  const diff3 = (style: string) =>
+    ['Before.', '<<<<<<< HEAD', 'My sentence.', `${style} merged common ancestors`, 'The original sentence.', '=======', 'Their sentence.', '>>>>>>> origin/main', 'After.'].join('\n');
+
+  it('leaves the common ancestor out of "yours" when merge.conflictStyle is diff3', () => {
+    expect(parseConflictMarkers(diff3('|||||||'))).toEqual([
+      { kind: 'clean', text: 'Before.' },
+      { kind: 'conflict', ours: 'My sentence.', theirs: 'Their sentence.' },
+      { kind: 'clean', text: 'After.' },
+    ]);
+  });
+
+  it('a longer line of equals signs inside a side is text, not the separator', () => {
+    const text = ['<<<<<<< HEAD', 'A heading', '=============', 'its body', '=======', 'Theirs', '>>>>>>> origin/main'].join('\n');
+    expect(parseConflictMarkers(text)).toEqual([
+      { kind: 'conflict', ours: 'A heading\n=============\nits body', theirs: 'Theirs' },
+    ]);
+  });
+
+  it('reads a file with Windows line endings, and keeps its lines as they were', () => {
+    const text = ['Before.', '<<<<<<< HEAD', 'Mine.', '=======', 'Theirs.', '>>>>>>> origin/main', 'After.'].join('\r\n');
+    const sections = parseConflictMarkers(text)!;
+    expect(hunkCount(sections)).toBe(1);
+    expect(sections[1]).toEqual({ kind: 'conflict', ours: 'Mine.\r', theirs: 'Theirs.\r' });
+  });
+});
+
 describe('reassembling a resolution (S11.2b)', () => {
   it('round-trips a kept side exactly', () => {
     const sections = parseConflictMarkers(ONE_HUNK)!;

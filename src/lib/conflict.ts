@@ -21,9 +21,24 @@ export interface ConflictHunk {
 
 export type ConflictSection = CleanSection | ConflictHunk;
 
+// The four markers Git writes, matched the way Git writes them (review finding R6.10): seven of the
+// character, then either the end of the line or a space and a label. `=======` has no label. A line
+// of nine equals signs, or a heading underline, is text. A trailing `\r` (a file with Windows line
+// endings) is ignored for the match only; the lines themselves keep it.
+const OPENS = /^<{7}(?: |$)/;
+const BASE = /^\|{7}(?: |$)/;
+const SEPARATES = /^={7}$/;
+const CLOSES = /^>{7}(?: |$)/;
+
+const isMarker = (marker: RegExp, line: string): boolean => marker.test(line.replace(/\r$/, ''));
+
 /**
  * Split a file already containing real conflict markers into clean runs and hunks, in the order
  * they appear.
+ *
+ * A hunk written in `diff3` or `zdiff3` style (`merge.conflictStyle`, which the app meets whenever a
+ * conflict was made by a `git` in a terminal) has a third part between the two sides, the common
+ * ancestor, introduced by a `|||||||` line. It is not either side's text and is left out of both.
  *
  * `null` rather than a guess when the markers do not nest the way a plain modify/modify text
  * conflict does — an add/add or delete/modify conflict can leave a file with no markers in it at
@@ -44,7 +59,7 @@ export function parseConflictMarkers(text: string): ConflictSection[] | null {
 
   while (i < lines.length) {
     const line = lines[i]!;
-    if (!line.startsWith('<<<<<<<')) {
+    if (!isMarker(OPENS, line)) {
       clean.push(line);
       i++;
       continue;
@@ -53,15 +68,20 @@ export function parseConflictMarkers(text: string): ConflictSection[] | null {
     i++; // past the `<<<<<<< ours-label` line itself
 
     const ours: string[] = [];
-    while (i < lines.length && !lines[i]!.startsWith('=======')) {
+    while (i < lines.length && !isMarker(SEPARATES, lines[i]!) && !isMarker(BASE, lines[i]!)) {
       ours.push(lines[i]!);
       i++;
     }
     if (i >= lines.length) return null; // no `=======`: not a conflict this can read
+    if (isMarker(BASE, lines[i]!)) {
+      i++; // past `||||||| base-label`, then the ancestor's lines, which belong to neither side
+      while (i < lines.length && !isMarker(SEPARATES, lines[i]!)) i++;
+      if (i >= lines.length) return null;
+    }
     i++; // past `=======`
 
     const theirs: string[] = [];
-    while (i < lines.length && !lines[i]!.startsWith('>>>>>>>')) {
+    while (i < lines.length && !isMarker(CLOSES, lines[i]!)) {
       theirs.push(lines[i]!);
       i++;
     }
