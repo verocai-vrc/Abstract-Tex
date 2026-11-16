@@ -46,7 +46,9 @@ const SECTION_LEVELS: Record<string, number> = {
 const SECTION_RE = /\\(subsubsection|subsection|chapter|section|paragraph|part)(?![a-zA-Z])(\*)?/g;
 const BEGIN_ENV_RE = /\\begin\{(figure|table)(\*)?\}/g;
 const LABEL_RE = /\\label\{/g;
-const CAPTION_RE = /\\caption\{/;
+// The command only: its argument is read the way a section's is, past a star, spaces and a
+// `[short form]`. `(?![a-zA-Z])` keeps `\captionsetup` and `\captionof` out.
+const CAPTION_RE = /\\caption(?![a-zA-Z])\*?/;
 
 /** The index of the first `%` that starts a real comment, or -1. `100\%` is an escaped percent
  * sign, not a comment start, so a `%` preceded by an odd run of backslashes does not count —
@@ -104,15 +106,22 @@ function skipOptionalBracket(line: string, index: number): number {
   return index; // unbalanced — leave the caller to fail its own brace search rather than guess
 }
 
-/** The title after a sectioning command match ends at `afterCommand`, or `''` if the line does
- * not actually have a braced argument (a malformed or line-wrapped `\section`). */
-function sectionTitle(line: string, afterCommand: number): string {
+/** The braced argument of a command that ends at `afterCommand`, past spaces and an optional
+ * `[short form]`, or `null` if the line does not actually have one (a malformed or line-wrapped
+ * command). Shared by section titles and captions. */
+function argumentAfter(line: string, afterCommand: number): string | null {
   let i = afterCommand;
   while (i < line.length && /\s/.test(line[i]!)) i++;
   i = skipOptionalBracket(line, i);
   while (i < line.length && /\s/.test(line[i]!)) i++;
   const group = extractBraceGroup(line, i);
-  return group ? group.title : '';
+  return group ? group.title : null;
+}
+
+/** The title after a sectioning command match ends at `afterCommand`, or `''` if the line does
+ * not actually have a braced argument (a malformed or line-wrapped `\section`). */
+function sectionTitle(line: string, afterCommand: number): string {
+  return argumentAfter(line, afterCommand) ?? '';
 }
 
 /** The title for a `figure`/`table` environment that began at `lines[beginLineIndex]`: the text
@@ -129,9 +138,8 @@ function environmentTitle(lines: string[], beginLineIndex: number, afterBegin: n
     const endMatch = endRe.exec(text);
     const capMatch = CAPTION_RE.exec(text);
     if (capMatch && (!endMatch || capMatch.index < endMatch.index)) {
-      const openIndex = searchFrom + capMatch.index + capMatch[0].length - 1;
-      const group = extractBraceGroup(active, openIndex);
-      return group ? group.title : fallback;
+      const afterCaption = searchFrom + capMatch.index + capMatch[0].length;
+      return argumentAfter(active, afterCaption) ?? fallback;
     }
     if (endMatch) break;
   }

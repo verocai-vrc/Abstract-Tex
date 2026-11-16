@@ -70,6 +70,24 @@ describe('scanOutline', () => {
     expect(items).toEqual([{ kind: 'figure', title: 'Wide plot', line: 1, level: 0 }]);
   });
 
+  // R7.7. `\caption[short form]{long caption}` is how a list of figures gets a short entry; the scan
+  // looked for a brace straight after the command and gave up with the bare kind name.
+  it('reads the caption after an optional short form, a star or a space', () => {
+    const titleOf = (caption: string) =>
+      scanOutline(`\\begin{figure}\n${caption}\n\\end{figure}`)[0]?.title;
+    expect(titleOf('\\caption[Short]{A long caption}')).toBe('A long caption');
+    expect(titleOf('\\caption*{Unnumbered}')).toBe('Unnumbered');
+    expect(titleOf('\\caption {Spaced}')).toBe('Spaced');
+    expect(titleOf('\\caption[Short with [nested] brackets]{Long}')).toBe('Long');
+    expect(scanOutline('\\begin{figure}\\caption[Short]{On the begin line}\\end{figure}')[0]?.title).toBe('On the begin line');
+  });
+
+  it('does not take another command that starts with caption for the caption', () => {
+    // If `\\captionsetup{...}` counted, the scan would stop there and never reach the real caption.
+    const items = scanOutline('\\begin{figure}\n\\captionsetup{font=small}\n\\caption{The real one}\n\\end{figure}');
+    expect(items).toEqual([{ kind: 'figure', title: 'The real one', line: 1, level: 0 }]);
+  });
+
   it('recognises FIXME as well as TODO', () => {
     const items = scanOutline('% FIXME: this citation is wrong');
     expect(items).toEqual([{ kind: 'todo', title: 'FIXME: this citation is wrong', line: 1, level: 0 }]);

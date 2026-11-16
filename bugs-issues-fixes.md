@@ -2947,3 +2947,23 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      not normalise Unicode, so on macOS a watcher that reports a decomposed folder name for a project
      the dialog returned composed would make `toRelative` answer `null` and every change to be
      ignored. Not reproduced and not reproducible here (Linux); the fix would be to compare NFC forms.
+
+  7. **R (low). The Document map shows "Figure" or "Table" for any caption that has a short form, a star
+     or a space before its brace.** `CAPTION_RE` was `\\caption\{`, a brace straight after the command,
+     so `\caption[Short]{A long caption}`, the form that gives a list of figures its short entry, was
+     not read: the scan went on to `\end` and fell back to the bare kind name. Probed with the real
+     scanner: `\caption[Short]{…}`, `\caption*{…}`, `\caption {…}` and the one-line
+     `\begin{figure}\caption[Short]{…}\end{figure}` all gave "Figure" or "Table" (the plain form gave
+     its caption). With TexLab answering, `mergeOutline` borrows the server's name, so only the
+     no-server path shows it; that path is the one rule 6 promises to keep working. **Fixed 16 Nov
+     2026.** The regex finds the command (`\caption`, a star, not followed by a letter, so
+     `\captionsetup` and `\captionof` are not it) and the argument is read by the function that reads a
+     section's (`argumentAfter`: spaces, an optional bracketed short form with nested brackets, spaces,
+     a balanced brace group). Two tests, red first; the brace-only regex and the missing word
+     boundary both mutation-checked (the boundary needed a stronger test than the first: a
+     `\captionsetup` placed *before* the real caption, which the wrong match would have stopped at).
+     **Seen, not fixed:** `\subparagraph` is not an outline row (`SECTION_LEVELS` stops at
+     `\paragraph`); `a \\section{x}` (an escaped backslash directly followed by the word) is read as a
+     heading; `environmentTitle` scans to the end of the document for each `\begin{figure}` that is
+     never closed, which is quadratic for a document of thousands of unclosed floats (not a real
+     document).
