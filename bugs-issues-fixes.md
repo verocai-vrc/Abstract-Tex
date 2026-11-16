@@ -2756,6 +2756,25 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   (`synctex_*`, `read_log`), and an async command that needs the project (`comments_*`, `snapshot_*`,
   `compare_revisions`) waits behind it: a delay of the same size as item 5's, not a deadlock.
 
+  Also left alone, seen while driving the app (15 Nov 2026): the Commit box suggests a content summary
+  ("Revised Introduction on the other branch, +2 words") for the commit that finishes an in-app merge,
+  where `git` would say "Merge branch 'other'"; the commit is a real two-parent merge and the author can
+  edit the sentence, so it is a wording choice and not a defect. In the conflict bar (*changed on disk
+  while you had unsaved edits*) the *Load from disk* button wraps to three lines at the default editor
+  width; cosmetic.
+
+  **Walked in the real app in the sixth pass's second sitting** (virtual display, WebKitGTK; the dev
+  log read after each step): typewriter mode, completion from TexLab inside `\begin{`, every activity
+  view (no console error), the draft PDF, the failing-save paths (`R6.4`: closing a tab whose text
+  cannot be written keeps the tab; `R6.9`: *New project* refuses with the sentence and changes nothing;
+  `R6.23`: the retry lands once the folder is writable), the external-change bar (*Keep mine* writes the
+  buffer, the bar clears), and a real `diff3` merge conflict end to end (`R6.10`, `R6.11`, `R6.24`: open,
+  *Keep theirs*, *Mark Resolved*, staged, committed as a two-parent merge). Still not walked: items
+  `R6.2`'s *Open folder* (the GTK picker drops keystrokes), `R6.3`, `R6.12`, `R6.14`, `R6.16`, `R6.19`
+  (needs a network answer), and everything that needs an account (Clone, GitHub, the assistant).
+  `pnpm verify` exit 0 after each fix; the last run: 1,031 Rust tests, 948 Vitest tests, svelte-check
+  0 errors.
+
   **Verification, 15 Nov 2026.** `pnpm verify` exit 0 with items 1-16 and 19 fixed: `cargo fmt --check`, 1,031
   Rust tests passed (36 ignored), clippy `-D warnings`, svelte-check 0 errors, 939 Vitest tests. Two gate
   runs failed on the way and were read, not skipped: the run with items 9-16 exited 101 on a clippy lint
