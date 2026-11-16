@@ -2130,11 +2130,27 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      it out of sight), and a search re-run by a rebuild moves the view nowhere, so a reader on
      page 25 stays on page 25 and the count follows the new document (walked: "4 of 7", rebuild,
      "4 of 8", same page). Tested against pdf.js's real controller on a real PDF built in the test
-     (37 new tests, mutation-checked: whole-word, previous, close, wrapping, both holds on the view, the
-     reveal rule). Known limits: searching is by text as pdf.js extracts it, so a word broken by a
-     hyphen at the end of a line is two pieces; no regular expressions; no "highlight all" switch
-     (all are always highlighted); after a rebuild the current match is the first one at or after the
-     page being read, not the one that was current.
+     (37 new tests, then 11 for the polyfill below; mutation-checked: whole-word, previous, close, wrapping, both holds on the view, the
+     reveal rule). Known limits: no regular expressions; no "highlight all" switch (all are always
+     highlighted); after a rebuild the current match is the first one at or after the page being
+     read, not the one that was current. (A word hyphenated at the end of a line is found: probed, and
+     "photograph" matches "photo-" / "graph".)
+     **Found while testing the find bar, fixed 15 Nov 2026: pdf.js 5.7 needs `RegExp.escape`, which a
+     webview older than 2025 lacks, and nothing says so.** pdf.js builds its search pattern with
+     `RegExp.escape` for any query with punctuation in it ("non-trivial", "e-mail", "U.S.A.", "C++",
+     "O(n)", "[12]"). Where the function does not exist it throws inside a promise nobody sees, no
+     result event is ever sent, and the bar says "Searching…" for ever. Reproduced in Node 22 (no
+     `RegExp.escape` there) with the real controller: 27 of 29 punctuation queries never answered.
+     This machine's WebKitGTK (2.52.6) has the function, so the walk could not have shown it; the real
+     app searched "well-known" and "U.S.A." fine. Webviews that lack it: Safari before 18.2's WebKit
+     (macOS), WebKitGTK before about 2.48 (Ubuntu 24.04 ships 2.44), Chromium before 136. **Fixed:**
+     `src/lib/pdf/regexp-escape.ts` follows the specification (a hyphen must be `\x2d`, because
+     pdf.js's patterns carry the `u` flag) and installs itself only where the function is missing, from
+     `find-controller.ts`. 11 tests, red first (the hang reproduces as "searching"), mutation-checked
+     (not installed, no hex for a leading letter, replacing a native one). **Not verified:** a real old
+     webview. **Open question for the maintainer:** the oldest webview the app supports is not pinned or
+     tested anywhere, and the modern pdf.js build assumes recent engines; `pdfjs-dist/legacy` is the
+     alternative if older WebKitGTK or macOS must work.
   5. **S. Every page is rendered eagerly, and the new PDF appears only when the last page is done.**
      `viewer.ts` says so in its header ("a later loop, noted in SPRINTS.md") but SPRINTS.md has no
      such note. Memory is a canvas per page at the screen's pixel ratio (about 5 MB a page at a ratio

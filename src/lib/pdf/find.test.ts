@@ -10,19 +10,22 @@ import { describeFind, FindSession, searchSeed, type FindOptions, type FindStatu
 import { loadPdfJs, makePdf, type PdfJs } from './pdf-test-support';
 
 let pdfJs: PdfJs;
+let PaneFindController: typeof import('./find-controller').PaneFindController;
 
 beforeAll(async () => {
   pdfJs = await loadPdfJs();
+  // The controller the pane really uses, imported after pdf.js is loaded (it extends a pdf.js class).
+  ({ PaneFindController } = await import('./find-controller'));
 });
 
 /** pdf.js's find controller on `pdf`, and a `FindSession` talking to it over a shared event bus. */
 async function openSearch(pdf: Uint8Array) {
   const document: PDFDocumentProxy = await pdfJs.getDocument({ data: pdf, verbosity: 0 }).promise;
   const eventBus: EventBus = new pdfJs.web.EventBus();
-  const controller: PDFFindController = new pdfJs.web.PDFFindController({
-    eventBus,
-    linkService: { pagesCount: document.numPages, page: 1 } as never,
-  });
+  const controller: PDFFindController = new PaneFindController(
+    { eventBus, linkService: { pagesCount: document.numPages, page: 1 } as never },
+    () => {},
+  );
   controller.setDocument(document);
   const statuses: FindStatus[] = [];
   const session = new FindSession(eventBus, (status) => statuses.push(status));
@@ -81,6 +84,22 @@ describe('searching a PDF', () => {
     await vi.waitFor(() => expect(session.status).toEqual({ kind: 'found', current: 4, total: 4, wrapped: true }));
     session.previous();
     await vi.waitFor(() => expect(session.status).toMatchObject({ current: 3, total: 4 }));
+  });
+
+  it('finds words with punctuation in them: hyphens, dots, brackets, plus signs', async () => {
+    // pdf.js builds its pattern with RegExp.escape for these, which a webview older than 2025 lacks.
+    const pages = [['A non-trivial e-mail from U.S.A. about C++ and O(n) at [12] for $5.', 'Also well-known.']];
+    for (const query of ['non-trivial', 'e-mail', 'U.S.A.', 'C++', 'O(n)', '[12]', '$5', 'well-known']) {
+      const { session } = await openSearch(makePdf(pages));
+      session.search(query, INSENSITIVE);
+      await vi.waitFor(() => expect(session.status, query).toMatchObject({ kind: 'found', total: 1 }));
+    }
+  });
+
+  it('says "no matches" for a query with punctuation that matches nothing, rather than searching for ever', async () => {
+    const { session } = await openSearch(makePdf([['Nothing of the kind here.']]));
+    session.search('non-trivial', INSENSITIVE);
+    await vi.waitFor(() => expect(session.status).toEqual({ kind: 'none' }));
   });
 
   it('says so when nothing matches', async () => {

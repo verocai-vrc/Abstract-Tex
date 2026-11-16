@@ -12,6 +12,11 @@
 
 import { PDFFindController } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { EventBus, PDFLinkService } from 'pdfjs-dist/web/pdf_viewer.mjs';
+import { installRegExpEscape } from './regexp-escape';
+
+// pdf.js's search needs `RegExp.escape`, which older webviews lack; without it a query with punctuation in
+// it is never answered. Installed here, where the find controller is made, before any search can start.
+installRegExpEscape();
 
 export class PaneFindController extends PDFFindController {
   /** Shared with the link service handed to pdf.js, which is made before `this` exists. */
