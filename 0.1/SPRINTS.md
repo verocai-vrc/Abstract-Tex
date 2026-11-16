@@ -7155,7 +7155,7 @@ walked), and the rest, which wait on other things (publishing, CI, Windows).
 typewriter mode centres the active line; hovering `$t_1, \dots, t_n$` shows the rendered formula in a
 dark popover, readable. **Found and fixed:** toggling either mode threw the cursor back to line 1,
 because the effect that builds the editor read both flags as dependencies and so rebuilt the whole
-editor on every toggle (`untrack`; no unit test, the repository has no component harness; walked).
+editor on every toggle (`untrack`; no unit test, the repository has no component harness; walked). (The centring itself did not work on a later look, 15 November: `R6.21`.)
 
 **Owed walks, seventh pass (10 November 2026): areas no smoke script covers.** Walked in the app on
 the virtual display and found **nothing wrong**: *New…* (template chooser with search, category chips
@@ -7349,6 +7349,7 @@ Sixth pass, continued the same day (the rest of the controller, then `SourceCont
 - [x] `R6.14`, `R6.15` *Mark Resolved* with a failed write stuck on "Resolving…"; a refused staging was reported out of sight; the resolver's load did not check its path. Done 15 November 2026 (`R6.15` has no test: no component harness).
 - [x] `R6.16` Ctrl Enter committed during a sync. Done 15 November 2026.
 - [x] `R6.19` paste-to-cite put the cite on other text, destroying it, if the author typed before the paste point while the entry was fetched. Done 15 November 2026; mutation-checked. (`R6.20`: the cite completion's whole-document slice measured at 0.7 ms on 1 MB, left.)
+- [x] `R6.21` typewriter mode read the layout from a plugin's `update`, which CodeMirror forbids; the plugin threw on the first cursor move and was switched off, so the line was never centred. Done 15 November 2026; mutation-checked; walked on the virtual display (the line now sits at the centre).
 - [ ] `R6.17` hand-typed conflict resolutions are lost when the tab changes (the state belongs in a module); `R6.18` a forward search that finds nothing is silent although it is an explicit command. Both want a decision.
 
 Open from the sixth pass (by reading, none reproduced):

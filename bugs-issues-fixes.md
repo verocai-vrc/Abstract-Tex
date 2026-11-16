@@ -2439,9 +2439,12 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   40-384; `src/components/SourceControl.svelte` (script and markup, not the style block);
   `src/components/ConflictResolver.svelte` (script and markup); `src/components/Tabs.svelte`;
   `src/components/Editor.svelte` lines 140-170; `src/lib/editor/paste.ts`, `definition.ts`, `cite.ts`;
-  `src/lib/lsp.ts` lines 70-165 (`didChange`). **Not read, so silence there is not a clean bill:**
-  `project.rs`'s tests; the style blocks; the other Svelte components; the editor extensions; the rest
-  of `Editor.svelte`; the SyncTeX crate beyond timing `SyncTex::open`.
+  `src/lib/lsp.ts` lines 70-165 (`didChange`). Then, the same evening: the other editor extensions
+  (`setup.ts`, `diagnostics.ts`, `completion.ts`, `hover.ts`, `positions.ts`, `placeholders.ts`,
+  `math-preview.ts`, `focus.ts`, `typewriter.ts`, `synctex.ts`, `diff.ts`, `selection.ts`) and all of
+  `Editor.svelte`; one finding (item 21), in the one that reads the layout. **Not read, so silence there
+  is not a clean bill:** `project.rs`'s tests; the style blocks; the other Svelte components; `symbols.ts`;
+  the state modules other than `git.svelte.ts`; the SyncTeX crate beyond timing `SyncTex::open`.
 
   **Clean, with the evidence, so nobody re-does it.** The Rust/TypeScript seam agrees everywhere it
   was checked. A script (scratchpad, not kept) paired every `invoke` in `ipc.ts` with its
@@ -2652,6 +2655,27 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      the current line alone (Node, real CodeMirror). About 4% of the 16 ms budget; not worth a change on
      its own, but a one-line fix if it is ever near one. `lspCompletion` also sends the whole text with
      `didChange` before each request (skipped when it equals what the server has); not measured.
+
+  21. **R (medium). Typewriter mode throws on the first cursor move and switches itself off.**
+     `typewriterModePlugin` (S4.5) calls `view.coordsAtPos` from its `update`, and CodeMirror forbids
+     reading layout while an update is running (`readMeasured` throws "Reading the editor layout isn't
+     allowed during an update"). CodeMirror catches the throw, logs it, and deactivates the plugin for
+     that view, so the author sees nothing: the line is simply never centred. Reproduced in the real
+     app on the virtual display (WebKitGTK, CodeMirror view 6.43.11): thesis fixture with a 200-line
+     `results.tex`, *Toggle typewriter mode* from the palette, three Up keys; the cursor stayed at the
+     bottom of the screen (line 40 of 46 visible) and the dev log held `CodeMirror plugin crashed:
+     readMeasured … coordsAtPos … centerCursor@typewriter.ts … update@typewriter.ts`. The ledger's
+     10 Nov entry says the mode was re-walked and "centres its line"; I cannot reconcile that with this
+     run. The unit tests cover only `centeredScrollTarget`, the arithmetic, never the call that reads
+     the layout. **Fixed 15 Nov 2026.** `centerCursor` now files a `requestMeasure` (one key, so several
+     updates in a frame are measured once): the read of the cursor's coordinates runs in CodeMirror's
+     measure phase, where layout is allowed, and the scroll is written there too, before CodeMirror's own
+     scroll-into-view checks and finds the cursor already in view. Four tests, red first, against a fake
+     view that refuses a layout read during an update the way `readMeasured` does (the red run failed with
+     CodeMirror's own message); mutation-checked twice (a key per call: the coalescing test; the scroll set
+     to the cursor's raw offset: the centring test). Walked in the app after the fix, same document and
+     keys: the cursor line sits at the vertical centre of the editor and the log holds no new crash. The
+     fake enforces one rule of the real view and nothing else; the walk is what shows the real one agrees.
 
   Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
   answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
