@@ -901,9 +901,13 @@ async function refreshGitGraph(): Promise<void> {
 // ---- The side-by-side view of a Changes row (S11.7, design interview B8) -----------------------
 
 /** Open a row. A `.tex` or `.bib` row shows what *Stage* (or the next commit) would change, side by
- * side; anything else opens as it always has — the file itself, and nothing for a deleted one. */
-export async function openChangeRow(path: string, staged: boolean, deleted: boolean): Promise<void> {
-  if (!isDiffable(path)) {
+ * side; anything else opens as it always has — the file itself, and nothing for a deleted one.
+ *
+ * A *conflicted* row opens the file whatever its kind (R6.24): there is no "before staging" side to
+ * show, its text is the merge's markers, and opening it is what brings up the conflict view, which
+ * shows two paragraphs and a choice and never a `<<<<<<<` line (S11.2b, DESIGN.md §5.7). */
+export async function openChangeRow(path: string, staged: boolean, deleted: boolean, conflicted = false): Promise<void> {
+  if (conflicted || !isDiffable(path)) {
     if (!deleted) await openFile(path);
     return;
   }

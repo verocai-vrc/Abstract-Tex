@@ -200,7 +200,7 @@
   /** §6's "a click opens a diff" (S11.7): a `.tex` or `.bib` row opens side by side; any other
    * row opens its file, and a deleted one has nothing to open. */
   function openRow(row: ChangeRow, staged: boolean) {
-    void openChangeRow(row.path, staged, row.kind === 'deleted');
+    void openChangeRow(row.path, staged, row.kind === 'deleted', row.kind === 'conflicted');
   }
 </script>
 

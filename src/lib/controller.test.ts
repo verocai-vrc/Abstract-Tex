@@ -3810,6 +3810,16 @@ describe('the side-by-side view of a Changes row (S11.7)', () => {
     expect(diffView.sides).toEqual({ before: 'b-old', after: 'b-new' });
   });
 
+  // R6.24. A conflicted file has no "before staging" side and its text is the markers, so its row opens the
+  // file, where the conflict view shows two paragraphs; the diff would show `<<<<<<<` lines as added text.
+  it('opens a conflicted row as the file, never as a diff of the markers', async () => {
+    disk.set('chapters/a.tex', '<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> other\n');
+    await openChangeRow('chapters/a.tex', false, false, true);
+    expect(diffsAsked).toEqual([]);
+    expect(diffView.open).toBeNull();
+    expect(app.activePath).toBe('chapters/a.tex');
+  });
+
   it('Open file closes the view and opens the file in the editor', async () => {
     disk.set('chapters/a.tex', 'chapter text');
     await openChangeRow('chapters/a.tex', false, false);

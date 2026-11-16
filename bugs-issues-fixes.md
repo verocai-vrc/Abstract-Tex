@@ -2731,6 +2731,25 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      `disposed`; overwriting a waiting debounce). Walked in the app after the fix, same steps: the
      folder made writable again, the dot cleared and the word reached disk within 8 s, no key pressed.
 
+  24. **R (medium). Clicking a conflicted file in Source Control shows the raw conflict markers.**
+     S11.7b routed every `.tex` row's click to the side-by-side diff, and the Merge Changes list is a
+     list of `.tex` rows, so it went the same way. For a conflicted path the diff's left side ("before
+     staging") is empty, because the index has no stage-0 entry, and the right side is the file with its
+     `<<<<<<<`, `|||||||`, `=======` and `>>>>>>>` lines, all shown as added. S11.2b promised the
+     opposite ("the markers are parsed, never shown"; DESIGN.md §5.7: two paragraphs and a choice, not
+     `<<<<<<<` in the buffer), and the list's own hint says "Open a file to resolve it as two
+     paragraphs". The resolver is reachable only through the diff's *Open file* button. Reproduced in
+     the app on the virtual display with a real `git merge` conflict under `merge.conflictStyle diff3`:
+     one click on `introduction.tex` in Merge Changes, a dialog with an empty left column and the file's
+     markers on the right. **Fixed 15 Nov 2026.** `openChangeRow` takes the row's `conflicted` flag and
+     opens the file for it (`SourceControl` passes `row.kind === 'conflicted'`). One test, red first (the
+     diff was asked for), mutation-checked (flag ignored). Walked in the app after the fix: one click
+     opens the conflict view ("1 conflict in this file"; Yours is `\chapter{Introduction on main}` with
+     the `diff3` base line not in it, which is item 10 working on a real conflict), *Keep theirs* and
+     *Mark Resolved* write the file with no markers and move it to Staged Changes (`git ls-files -u` empty,
+     `M  sections/introduction.tex`), and the file then opens in the ordinary editor. Also seen in that
+     walk: the conflicted row shows only its `!`, with no Stage or Discard buttons (item 11).
+
   Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
   answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
   link (the author said yes to it); the sync commands hold the project lock across their disk work
