@@ -2438,7 +2438,8 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   placeholders, SyncTeX, `resolveMergeConflict`); `src/lib/conflict.ts`; `src/lib/git.svelte.ts` lines
   40-384; `src/components/SourceControl.svelte` (script and markup, not the style block);
   `src/components/ConflictResolver.svelte` (script and markup); `src/components/Tabs.svelte`;
-  `src/components/Editor.svelte` lines 140-170. **Not read, so silence there is not a clean bill:**
+  `src/components/Editor.svelte` lines 140-170; `src/lib/editor/paste.ts`, `definition.ts`, `cite.ts`;
+  `src/lib/lsp.ts` lines 70-165 (`didChange`). **Not read, so silence there is not a clean bill:**
   `project.rs`'s tests; the style blocks; the other Svelte components; the editor extensions; the rest
   of `Editor.svelte`; the SyncTeX crate beyond timing `SyncTex::open`.
 
@@ -2628,17 +2629,43 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      person who pressed the key and got "No SyncTeX data yet. Build the project first." from Rust sees
      nothing happen. Either the comment or the policy is wrong; the sentence is already written.
 
+  19. **R (high). Paste-to-cite put the cite on other text if the author typed meanwhile, destroying it.**
+     `pasteCite` (S7.6) fetches the entry over the network, so the cite is inserted seconds after the
+     paste, at the `{ from, to }` captured when the paste happened. Its comment said "if the document was
+     edited there in the meantime CodeMirror simply maps the position through those changes itself". It
+     does not: positions in a `dispatch` are in the document as it is now, and a position a caller holds
+     is mapped by nobody. Reproduced with the real CodeMirror state: with `see 10.1000/x and more` and
+     the DOI selected, three letters typed at the start while the answer was out gave
+     `ABCs\cite{knuth1984}00/x and more`: the four characters `ee 1` of the author's sentence were
+     replaced. A paste over a selection replaces that selection, so the loss can be as long as it.
+     **Fixed 15 Nov 2026.** `trackPaste` keeps the place in the editor's own state (a `StateField` that
+     `setup.ts` installs with the paste handler), where every transaction maps it: a cursor ends up
+     after text typed at its own spot, a selection is not widened by text typed at its edges, a deleted
+     range collapses to a point; `pasteCite` reads the place back when the answer arrives and releases
+     it either way. Eight tests, red first (seven on the unit, one through `pasteCite`); mutation-checked
+     twice (the stale range back: the corruption above; the edge association changed: the selection
+     test). The comment is corrected. Not walked in the app: the field is tested on real CodeMirror
+     state in Node, not in a window with the clipboard.
+  20. **Measured, fine. The cite completion slices the whole document up to the cursor on every request.**
+     `citeSource` and `citeThenLsp` start with `state.sliceDoc(0, pos)` and then read only the current
+     line. On a 1.03 MB document with the cursor near the end: 0.71 ms per request, against 0.003 ms for
+     the current line alone (Node, real CodeMirror). About 4% of the 16 ms budget; not worth a change on
+     its own, but a one-line fix if it is ever near one. `lspCompletion` also sends the whole text with
+     `didChange` before each request (skipped when it equals what the server has); not measured.
+
   Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
   answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
   link (the author said yes to it); the sync commands hold the project lock across their disk work
   (`synctex_*`, `read_log`), and an async command that needs the project (`comments_*`, `snapshot_*`,
   `compare_revisions`) waits behind it: a delay of the same size as item 5's, not a deadlock.
 
-  **Verification, 15 Nov 2026.** `pnpm verify` exit 0 with items 1-16 fixed (the first run with items 9-16
-  exited 101 on a clippy lint in the new `holds_conflict_markers`, `byte_char_slices`; fixed and run
-  again): `cargo fmt --check`, 1,031 Rust tests passed (36 ignored), clippy `-D warnings`, svelte-check 0
-  errors, 931 Vitest tests. Not walked in the real app: items 2-4, 9, 12, 14 and 16 are controller flows
-  tested with a faked `ipc`; items 10, 11 and 13 are tested against the real parser and the real libgit2;
-  item 1 is tested against the real filesystem but not through a saved file in the running window; the
-  removal of the two buttons from a conflicted row (item 11) and the resolver guard (item 15) are
-  template changes with no test of their own.
+  **Verification, 15 Nov 2026.** `pnpm verify` exit 0 with items 1-16 and 19 fixed: `cargo fmt --check`, 1,031
+  Rust tests passed (36 ignored), clippy `-D warnings`, svelte-check 0 errors, 939 Vitest tests. Two gate
+  runs failed on the way and were read, not skipped: the run with items 9-16 exited 101 on a clippy lint
+  in the new `holds_conflict_markers` (`byte_char_slices`), and the run with item 19 exited 1 on three type
+  errors in `paste.ts` that Vitest does not see (`ReadonlyMap` has no `set`); both fixed and the gate run
+  again. Not walked in the real app: items 2-4, 9, 12, 14, 16 and 19 are flows tested with a faked `ipc`
+  or a fake view over real CodeMirror state; items 10, 11 and 13 are tested against the real parser and
+  the real libgit2; item 1 is tested against the real filesystem but not through a saved file in the
+  running window; the removal of the two buttons from a conflicted row (item 11) and the resolver guard
+  (item 15) are template changes with no test of their own.

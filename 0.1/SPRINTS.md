@@ -7348,6 +7348,7 @@ Sixth pass, continued the same day (the rest of the controller, then `SourceCont
 - [x] `R6.13` Amend in the middle of a merge made a one-parent commit and left the merge hanging. Done 15 November 2026.
 - [x] `R6.14`, `R6.15` *Mark Resolved* with a failed write stuck on "Resolving…"; a refused staging was reported out of sight; the resolver's load did not check its path. Done 15 November 2026 (`R6.15` has no test: no component harness).
 - [x] `R6.16` Ctrl Enter committed during a sync. Done 15 November 2026.
+- [x] `R6.19` paste-to-cite put the cite on other text, destroying it, if the author typed before the paste point while the entry was fetched. Done 15 November 2026; mutation-checked. (`R6.20`: the cite completion's whole-document slice measured at 0.7 ms on 1 MB, left.)
 - [ ] `R6.17` hand-typed conflict resolutions are lost when the tab changes (the state belongs in a module); `R6.18` a forward search that finds nothing is silent although it is an explicit command. Both want a decision.
 
 Open from the sixth pass (by reading, none reproduced):
