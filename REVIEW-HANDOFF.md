@@ -98,8 +98,9 @@ were checked in pass 4 and the crash dialog was walked in the app. Nothing else 
   111, `assistant.svelte.ts` 98, `templates.svelte.ts` 72, `snapshots.svelte.ts` 48, `clone.svelte.ts`
   47, `live.svelte.ts` 38, `diffview.svelte.ts` 25, `placeholders.svelte.ts` 19, `comments.svelte.ts`
   17, `crash.svelte.ts` 13.
-- **Editor extensions** in `src/lib/editor/` (only `math-preview.ts` and `document.ts`, which is one level up,
-  were read): `diagnostics.ts` 329, `cite.ts` 253, `setup.ts` 238, `placeholders.ts` 169,
+- **Editor extensions** in `src/lib/editor/` (**read in the sixth pass, 15 Nov: all but `symbols.ts`; one finding,
+  `R6.21`, typewriter mode read the layout from a plugin's `update` and crashed**; earlier only `math-preview.ts` and
+  `document.ts`, which is one level up, were read): `diagnostics.ts` 329, `cite.ts` 253, `setup.ts` 238, `placeholders.ts` 169,
   `completion.ts` 141, `paste.ts` 130, `focus.ts` 110, `typewriter.ts` 73, `hover.ts` 72,
   `definition.ts` 68, `diff.ts` 51, `symbols.ts` 48, `positions.ts` 31, `synctex.ts` 28,
   `selection.ts` 15. Look for: text from project files flowing into the document or into a path
@@ -175,7 +176,7 @@ Search the ledger for the title. "Needs" says what closes it.
 | 9 | `texlog`'s `unwrap_lines` does not undo `\PackageError`'s own multi-line continuation (S6.1). | Recognise the `(packagename)` continuation shape. Low. |
 | 10 | The commit graph's word counts are recomputed for a whole page of 200 rows and cached nowhere (S10.3c; about 111 ms). | A `commit id -> delta` map, if it is ever felt. |
 | 11 | A merge commit is titled `Merge commit '<sha>'`; the code comment promises "Merge branch 'origin/main'". | Correct the comment (cosmetic). |
-| 12 | **S9.9's draft PDF has never been seen on screen.** The asset scope was fixed in S11.4c; the ledger says "Still Open until a draft is actually seen". | **A quick win now**: walk it on the virtual display (`fixtures/thesis`, edit a chapter, watch for the draft). |
+| 12 | ~~S9.9's draft PDF has never been seen on screen.~~ **Seen 15 Nov 2026 (sixth pass, Linux):** the pane showed the draft's page until the full PDF landed (ledger, the S9.9 entry). | Windows only, if it is wanted. |
 | 13 | `GitError::PushRejected` has never been triggered by a test (libgit2's local transport runs no server hooks). | A real GitHub repository with branch protection, after the OAuth app exists. |
 | 14 | Environmental, nothing to fix in code: `latexminted` 0.6.0 crashes on Python 3.14; `reqwest` cannot resolve DNS on the Windows machine while its security suite is on (`scripts/dev-proxy.py`). | Upstream; or the security-suite exception. |
 | 15 | **Find in the PDF, known limits** (`c638d77`): no regular expressions; after a rebuild the current match is the first one at or after the page being read, not the one that was current. (A word hyphenated at a line end *is* found: probed.) The DOM half of `viewer.ts` has no automated test (Vitest runs in Node). | Acceptable; walk it on WebView2 and WKWebView. |
@@ -232,7 +233,12 @@ on this machine; the CI full-TeX step; the first Windows and macOS runs of the p
    `paste`, `definition`, `diagnostics`).
 6. The remaining components and state modules.
 7. The 51 `texlog` fixtures, then the non-code items in §3.
-8. Walk the draft PDF (§4, item 12) on the virtual display, in passing.
+8. ~~Walk the draft PDF (§4, item 12) on the virtual display, in passing.~~ Done 15 Nov (sixth pass).
+
+**A method that paid off late in the sixth pass:** run the app on the virtual display and read `$TMPDIR/abstract-tex-xvfb.log`
+after driving it. Vite forwards the webview's `console.error` there, which is how the typewriter-mode crash (`R6.21`)
+was found; photographing the status bar every 120 ms found `R6.22`. Neither shows in a unit test or in a screenshot taken
+at rest.
 
 ## Appendix: every source file, with a weak signal
 

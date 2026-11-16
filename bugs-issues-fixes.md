@@ -157,6 +157,14 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   (`Project::state_dir`), which holds nothing the author wrote. **Still Open** until a draft is
   actually seen on screen: the Windows smoke campaign after S11.4d checks it (`fixtures/thesis`,
   edit a chapter, watch for the draft).
+  **Seen on screen, 15 Nov 2026 (sixth pass, Linux, virtual display): resolved.** `fixtures/thesis` with
+  a chapter edited in the app; the PDF pane photographed every 200 ms through one build. The status bar
+  read "showing a draft of sections/results", and with the pane scrolled to page 2 the middle frames
+  showed the draft's page (the Results chapter's paragraphs) where the full PDF has "Chapter 1
+  Introduction", then the pane went back to the full PDF when it landed. So the asset scope reaches
+  `.abstract-tex/draft/build/main.pdf`. The draft is on screen only between its own finish and the
+  full build's: about 60 ms on the 0.6 s fixture, about 1.2 s when the full build was made slower. Not
+  checked on Windows.
 
 - **A server-side push rejection (`GitError::PushRejected`) has never actually been triggered by a
   test.** (1 Oct 2026, S11.1a) `push`'s `push_update_reference` callback is where libgit2 reports
