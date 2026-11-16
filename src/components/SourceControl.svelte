@@ -212,8 +212,11 @@
     <span class="change-actions">
       {#if staged}
         <button class="ghost" title="Unstage this file" aria-label={`Unstage ${item.path}`} onclick={() => void unstageChange(item.path)}>−</button>
-      {:else}
-        <button class="ghost" title="Discard changes to this file" onclick={() => void discardChange(item.path, item.kind === 'untracked')}>
+      {:else if item.kind !== 'conflicted'}
+        <!-- Not on a conflicted row (review finding R6.11): staging it would mark the conflict
+             resolved with Git's markers still in the file, and discarding writes fresh markers over
+             it. Opening the row is how a conflict is settled. -->
+        <button class="ghost" title="Discard changes to this file" aria-label={`Discard changes to ${item.path}`} onclick={() => void discardChange(item.path, item.kind === 'untracked')}>
           ↺
         </button>
         <button class="ghost" title="Stage this file" aria-label={`Stage ${item.path}`} onclick={() => void stageChange(item.path)}>+</button>

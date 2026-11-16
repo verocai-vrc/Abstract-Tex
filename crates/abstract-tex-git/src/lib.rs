@@ -91,6 +91,22 @@ pub enum GitError {
     #[error("There are unresolved conflicts. Resolve them, then commit.")]
     UnresolvedConflicts,
 
+    /// R6.11: `stage` of a conflicted path whose file still holds Git's `<<<<<<<` or `>>>>>>>` lines.
+    /// Staging replaces the conflict with the file as it is, so it would be marked resolved with the
+    /// markers in it and the next commit would carry them into the manuscript.
+    #[error("{0} still has conflict markers in it, so it was not marked as resolved. Open it and choose between the two versions first.")]
+    StillConflicted(String),
+
+    /// R6.11: `discard` of a conflicted path. A checkout would write fresh markers over the file and
+    /// settle nothing, so the sentence points at the view that does.
+    #[error("{0} has a conflict to resolve, and discarding changes would not settle it. Open it to choose between the two versions.")]
+    ConflictedPath(String),
+
+    /// R6.13: `amend` while a merge is waiting to be finished. Amending keeps `HEAD`'s parents, so it
+    /// would swallow the other side's text into a one-parent commit and leave the merge hanging.
+    #[error("A merge is waiting to be finished. Commit it first; changing the last commit now would lose the other side's history.")]
+    MergeInProgress,
+
     /// S10.5a: `git init` inside a folder that is already in a repository. Names what was found,
     /// because the answer depends on which repository it is — often one the author forgot they
     /// had, occasionally a monorepo where the paper is meant to live.
@@ -462,12 +478,44 @@ pub fn stage(repository: &Repository, path: &str) -> Result<(), GitError> {
     let mut index = repository.index()?;
     let relative = Path::new(path);
     if workdir_path(repository, path).is_some_and(|full| full.exists()) {
+        // A conflicted path is resolved by staging it, so what is staged must be the author's answer
+        // and not Git's question (review finding R6.11).
+        if is_conflicted(repository, path) && holds_conflict_markers(repository, path) {
+            return Err(GitError::StillConflicted(path.to_string()));
+        }
         index.add_path(relative)?;
     } else {
         index.remove_path(relative)?;
     }
     index.write()?;
     Ok(())
+}
+
+/// Whether Git lists `path` as conflicted. A path it cannot judge is not.
+fn is_conflicted(repository: &Repository, path: &str) -> bool {
+    repository
+        .status_file(Path::new(path))
+        .is_ok_and(|flags| flags.is_conflicted())
+}
+
+/// Whether the file at `path` has a line that starts as one of Git's conflict markers: seven `<` or
+/// seven `>`, then the end of the line or a space. Seven characters in the middle of a line, or a
+/// longer run, are text. Read as bytes (a Latin-1 file is still a file), and a trailing `\r` ignored.
+fn holds_conflict_markers(repository: &Repository, path: &str) -> bool {
+    let Some(full) = workdir_path(repository, path) else {
+        return false;
+    };
+    let Ok(bytes) = std::fs::read(full) else {
+        return false;
+    };
+    bytes.split(|&byte| byte == b'\n').any(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        b"<>".iter().any(|&mark| {
+            line.len() >= 7
+                && line[..7].iter().all(|&byte| byte == mark)
+                && (line.len() == 7 || line[7] == b' ')
+        })
+    })
 }
 
 /// Unstage one path: put the index entry back to what `HEAD` has, leaving the working tree alone.
@@ -509,6 +557,9 @@ pub fn discard(repository: &Repository, path: &str) -> Result<Discarded, GitErro
     // judge, and an answer it could not give is no permission to delete (review finding R4.3: the
     // error used to be read as "untracked").
     let tracked = match repository.status_file(Path::new(path)) {
+        // A checkout of a conflicted path writes fresh markers over the file and answers "restored"
+        // while the conflict stands (review finding R6.11).
+        Ok(flags) if flags.is_conflicted() => return Err(GitError::ConflictedPath(path.to_string())),
         Ok(flags) => !flags.is_wt_new(),
         Err(error) if error.code() == git2::ErrorCode::NotFound => false,
         Err(error) => return Err(error.into()),
@@ -898,6 +949,11 @@ pub fn amend(repository: &Repository, message: &str) -> Result<String, GitError>
         .peel_to_commit()?;
     if is_on_remote(repository, head_commit.id()) {
         return Err(GitError::AlreadyPushed);
+    }
+    // A merge waiting to be finished is finished by `commit`, which adds the other side as a second
+    // parent. Amending keeps only `HEAD`'s own parents (review finding R6.13).
+    if repository.state() == git2::RepositoryState::Merge {
+        return Err(GitError::MergeInProgress);
     }
     let who = repository.signature().map_err(|_| GitError::NoIdentity)?;
 
@@ -3034,6 +3090,122 @@ mod tests {
         assert_eq!(
             fs::read_to_string(tmp.path().join("main.tex")).unwrap(),
             "the resolved version\n"
+        );
+    }
+
+    /// Both sides edited `main.tex`, so it is conflicted in a real repository, with Git's own markers
+    /// on disk. Shared by the next three tests.
+    fn conflicted_main_tex() -> (tempfile::TempDir, Repository) {
+        let (tmp, repository, bare, branch) = repo_with_empty_remote();
+        push(&repository, None).unwrap();
+        commit_into_bare(
+            bare.path(),
+            &branch,
+            "main.tex",
+            "the coauthor's version\n",
+            "coauthor",
+        );
+        fs::write(tmp.path().join("main.tex"), "the local version\n").unwrap();
+        commit_all(&repository, "local edit");
+        assert_eq!(sync(&repository, None).unwrap(), SyncOutcome::Conflicted);
+        (tmp, repository)
+    }
+
+    /// Review finding R6.11. `add_path` replaces the conflict entries with the working file, so staging
+    /// a file that still held `<<<<<<<` marked it resolved, and the next commit put the markers into
+    /// the manuscript. Reproduced against a real conflict before the refusal existed.
+    #[test]
+    fn staging_a_conflicted_file_that_still_has_its_markers_is_refused() {
+        let (tmp, repository) = conflicted_main_tex();
+        let on_disk = fs::read_to_string(tmp.path().join("main.tex")).unwrap();
+        assert!(on_disk.contains("<<<<<<<"), "the setup: {on_disk}");
+
+        let error = stage(&repository, "main.tex").unwrap_err();
+
+        assert!(matches!(error, GitError::StillConflicted(_)), "{error:?}");
+        assert!(error.to_string().contains("main.tex"), "{error}");
+        assert!(
+            changes(&repository)
+                .conflicted
+                .iter()
+                .any(|c| c.path == "main.tex"),
+            "it is still conflicted, so a commit is still refused"
+        );
+        assert!(matches!(
+            commit(&repository, "oops").unwrap_err(),
+            GitError::UnresolvedConflicts
+        ));
+    }
+
+    /// The other half: a file the author has already fixed (here or in a terminal) has no markers,
+    /// and staging it is exactly how the app resolves a conflict.
+    #[test]
+    fn staging_a_conflicted_file_without_markers_resolves_it() {
+        let (tmp, repository) = conflicted_main_tex();
+        fs::write(
+            tmp.path().join("main.tex"),
+            "a line about <<<<<<< in prose, no marker\n",
+        )
+        .unwrap();
+        // "<<<<<<<" in the middle of a line is text, not a marker.
+        stage(&repository, "main.tex").unwrap();
+        assert!(changes(&repository).conflicted.is_empty());
+    }
+
+    /// A file that is not conflicted may say anything it likes, including a line that starts with
+    /// seven `<`: only a conflicted path is checked.
+    #[test]
+    fn staging_an_ordinary_file_that_talks_about_markers_is_allowed() {
+        let (tmp, repository, _bare, _branch) = repo_with_empty_remote();
+        fs::write(
+            tmp.path().join("notes.tex"),
+            "<<<<<<< HEAD\nan example of what git writes\n>>>>>>> branch\n",
+        )
+        .unwrap();
+        stage(&repository, "notes.tex").unwrap();
+    }
+
+    /// Review finding R6.11. `discard` on a conflicted path ran `checkout_index`, which wrote fresh
+    /// markers over whatever the file held and answered `Restored`, so the panel said the file was
+    /// "back to its last committed version" while it was in fact still in conflict.
+    #[test]
+    fn discarding_a_conflicted_file_is_refused_and_leaves_the_file_as_it_was() {
+        let (tmp, repository) = conflicted_main_tex();
+        let before = fs::read_to_string(tmp.path().join("main.tex")).unwrap();
+        fs::write(
+            tmp.path().join("main.tex"),
+            format!("{before}my own note, half-written\n"),
+        )
+        .unwrap();
+
+        let error = discard(&repository, "main.tex").unwrap_err();
+
+        assert!(matches!(error, GitError::ConflictedPath(_)), "{error:?}");
+        assert!(
+            fs::read_to_string(tmp.path().join("main.tex"))
+                .unwrap()
+                .contains("my own note, half-written"),
+            "nothing was thrown away"
+        );
+    }
+
+    /// Review finding R6.13. `amend` rewrites `HEAD` from the index and keeps `HEAD`'s own parents, so in
+    /// the middle of a merge (a conflict resolved and staged, `MERGE_HEAD` still set) it made a commit
+    /// holding the coauthor's text with only one parent and left the merge hanging.
+    #[test]
+    fn amending_in_the_middle_of_a_merge_is_refused_and_changes_nothing() {
+        let (tmp, repository) = conflicted_main_tex();
+        fs::write(tmp.path().join("main.tex"), "the resolved version\n").unwrap();
+        stage(&repository, "main.tex").unwrap();
+        let head_before = repository.head().unwrap().target().unwrap();
+
+        let error = amend(&repository, "reworded").unwrap_err();
+
+        assert!(matches!(error, GitError::MergeInProgress), "{error:?}");
+        assert_eq!(repository.head().unwrap().target().unwrap(), head_before);
+        assert!(
+            repository.path().join("MERGE_HEAD").exists(),
+            "the merge is still there to finish"
         );
     }
 
