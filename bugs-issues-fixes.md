@@ -2790,15 +2790,38 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
   did not reach (`REVIEW-HANDOFF.md` §3 P2), then the Rust P3 list.** Findings are logged as they are
   found; the fix batch follows each. Method as before (R = reproduced, S = by reading). Baseline
   first: `pnpm verify` exit 0 at `6839b77` before any change (read from the exit code written to a file).
-  Covered (so far): `src/App.svelte`; `src/lib/shortcuts.ts`; `src/lib/commands.ts`; `src/lib/dialog.ts`;
+  Covered: `src/App.svelte`; `src/lib/shortcuts.ts`; `src/lib/commands.ts`; `src/lib/dialog.ts`;
   `src/lib/state.svelte.ts`; `src/lib/assistant.svelte.ts`; `src/lib/bibliography.svelte.ts`;
   `src/lib/comments.svelte.ts`; `src/lib/comments.ts`; `src/lib/live.svelte.ts`;
-  `src/lib/snapshots.svelte.ts`; `src/lib/diffview.svelte.ts`; `src-tauri/src/snapshots.rs`;
-  `src/components/SnapshotViewer.svelte`; `DiffView.svelte`; `CommandPalette.svelte`;
+  `src/lib/snapshots.svelte.ts`; `src/lib/diffview.svelte.ts`; `src/lib/templates.svelte.ts`;
+  `src/lib/clone.svelte.ts`; `src/lib/paths.ts`; `src/lib/fuzzy.ts`; `src/lib/announce.ts`;
+  `src/lib/session-commit.ts`; `src/lib/outline.ts`; `src/lib/assistant.ts`;
+  `src/lib/assistant-review.ts`; `src/lib/assistant-payload.ts`; `src/lib/document.ts` (re-read in full
+  for R7.11); `src/components/SnapshotViewer.svelte`; `DiffView.svelte`; `CommandPalette.svelte`;
   `QuickOpen.svelte`; `CommentsView.svelte`; `SessionCommitOffer.svelte`; `Sidebar.svelte` (script and
-  the top of the markup); `TreeItem.svelte` (script); `Editor.svelte` lines 40-170 (re-read for the
-  selection); and the controller's snapshot, assistant-review, live-session and `openFolder` code,
-  re-read for what survives a project switch.
+  the top of the markup); `TreeItem.svelte` (script); `AssistantPayload.svelte`;
+  `AssistantReview.svelte`; `AssistantView.svelte` (script and the first 120 lines); `NewProjectWindow.svelte`;
+  `Editor.svelte` lines 40-170; the Enter handlers of `CloneWindow.svelte`, `JoinWindow.svelte`,
+  `PdfPane.svelte` and `SourceControl.svelte`; `src/lib/editor/math-preview.ts` lines 200-225 (the KaTeX
+  options); `src-tauri/src/snapshots.rs`; `src-tauri/src/paste.rs` (the first 330 lines and the append
+  tests); `src-tauri/src/project.rs` (`read_text`, `write_atomically` and their tests, `detect_root`'s
+  read); `src-tauri/src/comments.rs` (`list`, `add_comment`); `src-tauri/src/bibliography.rs`
+  (`build_index`, `entry_level_findings`, the linked-file finding); `src-tauri/src/commands.rs` (the
+  snapshot, comment, `read_file` and `write_file` commands); `src-tauri/src/compile.rs` lines 455-540
+  (BibTeX diagnostics placement); `crates/abstract-tex-includes/src/graph.rs` lines 140-200 (how an
+  unreadable file is treated); `crates/abstract-tex-assistant/src/edit.rs` (`Review::apply`). **Not read,
+  so silence there is not a clean bill:** `ZoteroLink`, `BibliographyHealth`, `StatusBar`, `Drawer`,
+  `DocumentMap`, `ActivityBar` (read only for `innerHTML`, by search), `CloneWindow`'s markup, the state
+  modules `github`, `compare`, `crash`, `placeholders`; `lsp.ts`, `lsp-protocol.ts`,
+  `lsp-diagnostics.ts`; and in Rust `github.rs`, `watcher.rs`, `templates.rs`, `consent.rs`, `lsp.rs`,
+  `latexdiff.rs`, `assistant_review.rs`, most of `compile.rs`, and the 51 `texlog` fixtures.
+
+  **Baseline and method.** `pnpm verify` exit 0 at `6839b77` before any change (read from the exit code
+  written to a file). Probes were throwaway, in the session scratchpad, and used the real functions
+  (Node's `--experimental-strip-types` runs a `.ts` module directly, which is how `fuzzy.ts` and
+  `outline.ts` were probed) and the real app on the virtual display. The finding that paid most was
+  not found in a component: it was found by following a sentence in a doc comment ("`Latin-1` files
+  open") through to the *write*; the next (CRLF) by asking what else turns bytes into text.
 
   1. **R (medium). The assistant's selection is the previous tab's after a tab switch, so *Comment on
      selection* (and every assistant action) acts on text the author never selected.**
@@ -3082,3 +3105,31 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      (classic Mac) is left as it is, one character in both counts; and the conflict resolver's own
      write path (`resolveMergeConflict`) rebuilds the file from sections parsed from the disk text and
      was not touched, so a CRLF file resolved there may come back with LF endings (not read for this).
+
+  **Looked at and left alone (seventh pass).** `Ctrl O` and `Ctrl Shift N` still reach `openFolder` and
+  the New project window through an open modal dialog (`R7.2`: the consequence that mattered is gone,
+  which dialogs should block which chords is a design call); `paths.toRelative` and NFC/NFD (`R7.6`,
+  not reproducible here); `\subparagraph`, `\\section` and the quadratic scan for unclosed floats in
+  `outline.ts` (`R7.7`); the payload inspector's `prettyBody` re-serialises the JSON through
+  `JSON.parse`, which can reorder integer-like keys, the request bodies have none; KaTeX runs with
+  `trust` off and its default `maxExpand`, and `maxSize` is unbounded, so a hovered `\rule{1e9em}{1em}`
+  makes a very wide tooltip and nothing worse; `[pdf] load failed` once in the dev log, at the moment
+  Vite reloaded the page during a rebuild, and not again (dev only). The Latin-1 *product* decision
+  and the strict readers it leaves are in item 10 above.
+
+  **Walked in the real app in the seventh pass** (virtual display, WebKitGTK, dev log read): the
+  stale selection and its same-file case (`R7.1`), Quick Open and the palette with accented and
+  decomposed names and the plain Enter in both (`R7.4`, `R7.6`), the Russian layout with and without the
+  fix (`R7.5`), a Latin-1 file before and after (`R7.8`) and a CRLF file before and after (`R7.11`).
+  **Not walked:** the `openFolder` reset (`R7.2`, the GTK picker drops keystrokes), the input-method
+  guard itself (`R7.4`, no input method can be driven here), the Windows and macOS behaviour of
+  `R7.5` and `R7.11`.
+
+  **Verification, 16 Nov 2026.** `pnpm verify` exit 0 at the tip: `cargo fmt --check`, 1,036 Rust tests
+  passed (36 ignored), clippy `-D warnings`, `svelte-check` 0 errors, 989 Vitest tests in 56 files (the
+  sixth pass ended at 1,031 and 948). One gate run failed on the way and was read, not skipped:
+  `svelte-check` rejected the first version of `keys.test.ts` (a `key` field its type does not declare,
+  which Vitest cannot see). Eleven findings, eleven fixes, each test red first; the mutation checks
+  killed every mutation, eleven of them only after a stronger test (the cases are in the items). One
+  fix made things 30 times slower on a hot path (`R7.6`) and was caught by measuring before
+  committing, not by a test.

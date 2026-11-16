@@ -1,7 +1,7 @@
 # Review hand-off: what has not been reviewed, and what is still open
 
-Written 15 November 2026 at commit `08b5287`, for an agent session starting cold. Read this, then
-`CLAUDE.md`, then the **fifth-pass entry at the end of `bugs-issues-fixes.md`** and the checklist
+Written 15 November 2026 at commit `08b5287`; updated 16 November 2026 (seventh pass, at the commit named in §1), for an agent session starting cold. Read this, then
+`CLAUDE.md`, then the **sixth- and seventh-pass entries at the end of `bugs-issues-fixes.md`** and the checklist
 under "Agentic review, 10 November 2026" in `0.1/SPRINTS.md` (§3, just before "4. Decisions taken at
 sprint 1"). Nothing in this file is a clean bill of health: **silence in the ledger means unread, not
 fine.**
@@ -30,12 +30,14 @@ fine.**
 
 ## 1. State of the repository
 
-- `main` at `08b5287` (this file is committed after it), **39 commits ahead of `origin/main`** at that point (nothing pushed from here).
-- `pnpm verify` exit 0 at this commit: 1,023 Rust tests passed (36 `#[ignore]`d: they need real
-  tools or the network), 916 Vitest tests in 55 files, clippy and svelte-check clean.
-- This session's last pieces of work: the fifth-pass fix batch (`f920765` .. `b357796`, ledger
-  items `R5.1` .. `R5.24`), **find in the PDF** (`c638d77`), and a `RegExp.escape` stand-in for webviews
-  older than 2025 (`08b5287`, §4 item 16).
+- `main` is **63 commits ahead of `origin/main`** (counted at `5c1b549`, before this file's own commit):
+  the fifth pass's, the sixth pass's (`R6.*`) and the seventh's (`R7.*`, `9f177d4` .. `5c1b549`).
+  Nothing is pushed from here; the maintainer pushes.
+- `pnpm verify` exit 0 at `5c1b549`: 1,036 Rust tests passed (36 `#[ignore]`d), 989 Vitest tests in 56
+  files, clippy and svelte-check clean.
+- **The seventh pass found 11 things in 8 hours, two of them silent losses of the author's text** (a
+  file that is not UTF-8, and a file with CRLF line endings, both reproduced in the real app, both
+  fixed). Neither was in a component. Both were at the place where bytes become text. See §2.
 - Other sessions' worktrees exist at `.claude/worktrees/*` (three branches) and
   `../Abstract-Tex.stable-build`. They are not part of this review; do not edit them.
   `scripts/review-coverage.py` skips them.
@@ -59,6 +61,15 @@ fine.**
    - unbounded reads and missing timeouts (`R5.3`, `R5.22`, `R4.7`);
    - frontend async and null-versus-undefined traps (the ledger's "Starting a branch looked like a
      failure": Tauri answers `()` with `null`);
+   - **where bytes become text, and text becomes bytes** (the seventh pass's two worst): a decode that
+     "keeps files openable" (`from_utf8_lossy`) is a promise about the *save*; two libraries that each
+     count a line break correctly (CodeMirror, Yjs) disagree about a `\r\n`. **The method that found
+     both:** write a file with the awkward bytes (`printf '\xe9'`, `\r\n`), open it in the real app,
+     type one character, and `xxd` the file. Do it for any new byte-level case (a BOM, a lone `\r`, a
+     tab, an emoji, a very long line, a name with a space or an accent).
+   - **state that outlives its project or its tab**: `R7.1`, `R7.2` (and `R6.2`, `R6.6` before them).
+     The question to ask of any module-level store: *who resets it when the project changes, and when the
+     active tab changes?*
    - **assumptions about the runtime**: pdf.js 5.7 needs `RegExp.escape`, which only webviews from
      2025 on have. The walk on this machine's new WebKitGTK never showed it; a probe of 29 awkward
      queries through the real library under Node did. After a feature works on the happy path, push a
@@ -76,28 +87,28 @@ fine.**
 | `src/lib/ipc.ts` | 908 | **Read in the sixth pass (15 Nov): clean.** Argument names, nullable arguments, return types, struct and enum shapes and event names all agree with Rust (ledger, sixth-pass entry). | **Names are consistent** (checked 15 Nov: 88 commands registered in `src-tauri/src/lib.rs`, 88 defined with `#[tauri::command]`, 88 invoked here, none missing either way). **Not checked**: argument names (camelCase here, snake_case in Rust), return types (`Option<T>` is `T \| null`), the error shape, and doc comments that promise something the Rust no longer does. Script the argument comparison; it is the cheapest likely find. |
 | `src-tauri/src/commands.rs`, rest of `src-tauri/src/project.rs` | 1,371 + 1,185 | `read_file`/`read_text`, `Project::open`, the tree walk (pass 5); "the file commands" for paths (pass 3); `Project::resolve` in snapshot restore (pass 3). | The remaining ~75 commands: write, create, rename, delete, list, resolve. Is every path confined to the project **lexically and through links** (`R3.12` left links on reads, by design)? Size caps. Work done on the UI thread (a synchronous Tauri command blocks the window). What delete or rename does to open tabs and the watcher's echo filter. Case-insensitive file systems. |
 
-### P2: the Svelte components (none line-read, except as noted)
+### P2: the Svelte components
 
-`PdfPane`, `JoinWindow` and `ShareWindow` were read in pass 5; the dialogs' focus and `aria-modal` rules
-were checked in pass 4 and the crash dialog was walked in the app. Nothing else was read.
+**Read in the seventh pass (16 Nov):** `SnapshotViewer`, `DiffView`, `CommandPalette`, `QuickOpen`,
+`CommentsView`, `SessionCommitOffer`, `Sidebar` (script), `TreeItem` (script), `AssistantView`,
+`AssistantPayload`, `AssistantReview`, `NewProjectWindow`, `App.svelte`, and the Enter handlers of
+`CloneWindow`, `JoinWindow`, `PdfPane` and `SourceControl`; `innerHTML` was searched for across the
+frontend (one use, KaTeX, with its safe defaults). `PdfPane`, `JoinWindow` and `ShareWindow` were read in
+pass 5; `SourceControl`, `ConflictResolver`, `Tabs` and `Editor` in pass 6.
 
 | Component | Lines | Look for |
 |---|---:|---|
-| `SourceControl.svelte` | 1,074 | The data-loss paths: discard (confirmation? the right file?), amend (the crate refuses an already-pushed commit; does the panel say so?), sync with staged changes, the graph's keyboard use, double-click races on stage/unstage, error text. Also `src/lib/git.svelte.ts` (384). |
-| `NewProjectWindow`, `CloneWindow` | 325, 266 | Folder-name and URL validation shown to the person; what happens with a failed clone; a credential prompt; destination chosen by the person. |
-| `ConflictResolver` | 186 | Design rule: never merge a dirty buffer with a changed file; never pick a side silently. |
-| `Drawer`, `StatusBar`, `DocumentMap` | 282, 197, 116 | Raw log must stay one click away and never be the default; any `innerHTML`; state that survives a project switch. |
-| `AssistantView`, `AssistantPayload`, `AssistantReview` | 231, 217, 199 | The payload view must match **exactly** what is sent (the Rust side was checked in pass 3; this side was not); suggestions applied as one undo step; no citation key the `.bib` lacks reaches the buffer. |
-| `CommandPalette`, `QuickOpen`, `Sidebar`, `Tabs`, `TreeItem`, `ActivityBar` | 233, 178, 111, 97, 66, 90 | Keyboard use (design rule 5); dirty-tab close prompts; file operations on paths with odd characters. |
-| `ZoteroLink`, `BibliographyHealth`, `CommentsView`, `SnapshotViewer`, `DiffView`, `SessionCommitOffer`, `Editor` | 187, 184, 178, 163, 138, 70, 194 | Restoring a snapshot overwrites files: is it confirmed and undoable? Zotero talks to a local HTTP endpoint: what does the capability and CSP allow? Comment anchors after edits. |
+| `ZoteroLink`, `BibliographyHealth` | 187, 184 | Zotero talks to a local HTTP endpoint: what does the capability and CSP allow? What a fix does to a `.bib` the author did not write. |
+| `Drawer`, `StatusBar`, `DocumentMap` | 282, 197, 116 | Raw log must stay one click away and never be the default; state that survives a project switch (`R7.2`'s question). |
+| `CloneWindow` (markup) | 266 | Validation shown to the person; what a failed clone leaves; a credential prompt. |
+| `ActivityBar` | 90 | Keyboard use (design rule 5). |
 
 ### P2: frontend state and editor extensions
 
-- **State modules** (none read, except `compare.svelte.ts`'s use in pass 1): `git.svelte.ts` 384,
-  `compare.svelte.ts` 190, `state.svelte.ts` 182, `github.svelte.ts` 112, `bibliography.svelte.ts`
-  111, `assistant.svelte.ts` 98, `templates.svelte.ts` 72, `snapshots.svelte.ts` 48, `clone.svelte.ts`
-  47, `live.svelte.ts` 38, `diffview.svelte.ts` 25, `placeholders.svelte.ts` 19, `comments.svelte.ts`
-  17, `crash.svelte.ts` 13.
+- **State modules**: read in passes 6 and 7: `git.svelte.ts`, `state.svelte.ts`, `bibliography.svelte.ts`,
+  `assistant.svelte.ts`, `templates.svelte.ts`, `snapshots.svelte.ts`, `clone.svelte.ts`, `live.svelte.ts`,
+  `diffview.svelte.ts`, `comments.svelte.ts`. **Not read:** `compare.svelte.ts` 190 (except its use in pass
+  1), `github.svelte.ts` 112, `placeholders.svelte.ts` 19, `crash.svelte.ts` 13.
 - **Editor extensions** in `src/lib/editor/` (**read in the sixth pass, 15 Nov: all but `symbols.ts`; one finding,
   `R6.21`, typewriter mode read the layout from a plugin's `update` and crashed**; earlier only `math-preview.ts` and
   `document.ts`, which is one level up, were read): `diagnostics.ts` 329, `cite.ts` 253, `setup.ts` 238, `placeholders.ts` 169,
@@ -129,11 +140,13 @@ checks, the cycle-safe tree walk); `crates/abstract-tex-engine/src/tectonic.rs` 
 
 ### P3: Rust with only partial coverage statements
 
-`src-tauri/src/bibliography.rs` 1,777 (path handling in pass 4, the case rule in pass 5; the health rules
-themselves are unread), `compile.rs` 1,393 (BibTeX and placement in pass 1), `latexdiff.rs` 1,247 (retry
-and the working-copy lane in pass 2), `assistant_review.rs` 880 (the "review flow" in pass 3), `paste.rs`
-481, `comments.rs` 449, `github.rs` 407, `watcher.rs` 404 (pass 3), `lsp.rs` 240, `templates.rs` 207,
-`git.rs` 195, `snapshots.rs` 170, `consent.rs` 133. In crates: `abstract-tex-includes` (`graph.rs`
+**Pass 7 read:** `snapshots.rs`; `paste.rs` (the first 330 lines); `comments.rs` (`list`, `add_comment`);
+`bibliography.rs`'s index and the entry-level health read (the rest of the health rules still unread);
+`project.rs`'s `read_text` and `write_atomically`. **Still partial or unread:** `bibliography.rs` 1,777
+(path handling in pass 4, the case rule in pass 5), `compile.rs` 1,393 (BibTeX and placement in pass 1),
+`latexdiff.rs` 1,247 (retry and the working-copy lane in pass 2), `assistant_review.rs` 880 (the "review
+flow" in pass 3), `github.rs` 407, `watcher.rs` 404 (pass 3), `lsp.rs` 240, `templates.rs` 207,
+`consent.rs` 133. In crates: `abstract-tex-includes` (`graph.rs`
 706, `scan.rs` 473: only the root detection and the scan changes), `texlog` (`tokenizer.rs` 522,
 `resolver.rs` 406, `blg.rs` 158: the rule catalog was read in passes 2 and 5, these were not),
 `texbib` (`keys.rs`, `health.rs`, `identify.rs`, `value.rs`), `abstract-tex-synctex` 670 (pass 3 says
@@ -182,6 +195,12 @@ Search the ledger for the title. "Needs" says what closes it.
 | 15 | **Find in the PDF, known limits** (`c638d77`): no regular expressions; after a rebuild the current match is the first one at or after the page being read, not the one that was current. (A word hyphenated at a line end *is* found: probed.) The DOM half of `viewer.ts` has no automated test (Vitest runs in Node). | Acceptable; walk it on WebView2 and WKWebView. |
 | 16 | **The oldest webview the app supports is not pinned or tested anywhere.** pdf.js's modern build assumes recent engines: it needs `RegExp.escape` (Chrome 136, Firefox 134, Safari 18.2; WebKitGTK before about 2.48 lacks it, and Ubuntu 24.04 ships 2.44). `08b5287` adds a stand-in for that one function, but pdf.js may need others, and `src/lib/pdf/viewer.ts` itself was only ever run on WebKitGTK 2.52.6 here. | **A maintainer decision**: state the minimum (in `DESIGN.md`), or switch to `pdfjs-dist/legacy` (viewer and worker), or both; then walk the PDF pane on the oldest one. |
 | 17 | The ledger's own sections are unreliable: fixed entries sit under "Open" and under "Won't fix". | A tidy by the maintainer (move, never delete). |
+| 18 | **A file that is not UTF-8 is refused, not supported** (`R7.8`; ledger sixth-pass-and-seventh-pass entry, items 8-10). The app cannot work on a Latin-1 or Windows-1252 project, which is common in older Portuguese, French, German and Spanish theses (`\usepackage[latin1]{inputenc}`). | **A maintainer decision**: (1) say in `DESIGN.md` that the app edits UTF-8 only, or (2) support legacy encodings by looking at the file on disk at write time and encoding back (touches `read_text`, `write_file`, the index readers, the include graph). |
+| 19 | **Other strict `read_to_string` readers skip a non-UTF-8 file quietly:** `project::detect_root` (a Latin-1 root is never found), the include graph (`Unresolved::Unreadable`, by design), `compile.rs`'s two diagnostic-placement reads, `assistant_review.rs`' two, `comments.rs`' anchor read, `fragile_command.rs`. None writes. | Part of item 18's decision. |
+| 20 | **Line endings:** a file that mixes CRLF and LF is saved with the majority's, which changes the minority lines' endings (shows in `git diff`); the conflict resolver's own write path (`resolveMergeConflict`) rebuilds the file from sections and was not read for `\r\n`; a lone `\r` is left as it is (`R7.11`). | Read `resolveMergeConflict` with a CRLF file in a real conflict; decide whether a mixed file should be left alone instead. |
+| 21 | **Two fixes verified for the helper only:** the input-method guard (`R7.4`, no input method can be driven on the virtual display) and `R7.5`/`R7.11` on Windows and macOS. | Walk a Japanese or Chinese IME on a real desktop (type a file name, accept a candidate with Enter in the palette, New project and the commit offer); walk a CRLF file and a Cyrillic layout on Windows. |
+| 22 | `paths.toRelative` compares code units case-insensitively and does not normalise Unicode (`R7.6`, "not fixed, noted"): on macOS a watcher reporting a decomposed folder name for a project the dialog returned composed would make every change be ignored. | A macOS run; compare NFC forms. |
+| 23 | Global chords (`Ctrl O`, `Ctrl Shift N`) still pass through an open modal dialog (`R7.2`, "left alone"). | A design call: which dialogs block which chords. |
 
 ## 5. Fixed, but not verified where it matters
 
@@ -196,6 +215,8 @@ Search the ledger for the title. "Needs" says what closes it.
 - **The `RegExp.escape` stand-in** (`08b5287`): tested under Node 22, which lacks the function, and
   not in a real webview that lacks it. This machine's WebKitGTK 2.52.6 has the native one, so the
   stand-in never runs in the app here; a real search of "well-known" and "U.S.A." passed on the native one.
+- **`R7.4`, `R7.5`, `R7.11` off this machine** (see §4 item 21), and **`R7.2`'s `openFolder` reset**: it is
+  tested with a faked `ipc`, not walked (the GTK folder picker drops keystrokes on the virtual display).
 - **The widened opener scope** (`R5.4`): the opener may now open any `http:` or `https:` address, because
   a link in a PDF needs it. `file:`, `mailto:`, `javascript:`, `ftp:`, `data:` and `asset:` stay
   refused and `src-tauri/tests/capabilities.rs` pins that. Confirm it is the policy you want.
@@ -222,18 +243,30 @@ on this machine; the CI full-TeX step; the first Windows and macOS runs of the p
 - Probes for a suspicion go in the session scratchpad, not in the repository. Real inputs for the
   fuzzer are the repository's own `.tex`, `.bib`, `.log` and `.blg` files.
 - A Tauri command that returns `()` arrives as `null`; a mock that returns `undefined` hides the bug.
+- **Keyboard layouts on the virtual display:** `DISPLAY=:99 setxkbmap ru` then
+  `scripts/xvfb-ui.py key ctrl+Cyrillic_el` presses Ctrl and the physical K key under a Russian layout;
+  `setxkbmap us` puts it back. `git stash push <file>` between two runs gives an honest before and after
+  (the dev server reloads the page in a few seconds).
+- **Probing a pure `.ts` module without Vitest:** `node --experimental-strip-types --no-warnings probe.ts`
+  (Node 22) runs it directly, if it has only erasable types and imports `.ts` paths. That is how
+  `fuzzy.ts` and `outline.ts` were fed awkward inputs and benchmarked.
+- **Reading a gate's exit code:** `pnpm verify > file 2>&1; echo "exit=$?"`, then `grep` the file. A
+  background job that starts the gate in a subshell reports the *wrapper's* exit, not the gate's.
+- **Looking at what the app wrote:** open a copy of a fixture, make one edit, `xxd` the file. Reading the
+  text back through the same decoder shows nothing (that is how `R7.8` hid for months).
+- The app's window is 1440x900 in the top-left of the 1600x1100 screen; the tree's rows are 24 px apart
+  starting at y=88; crop a screenshot (`PIL.Image.crop`) rather than reading the whole 1600x1100.
 
-## 8. Suggested order for a sixth pass
+## 8. Suggested order for an eighth pass
 
-1. `ipc.ts` against the Rust commands (argument names and return types): scriptable, likely to find something.
-2. `controller.svelte.ts`, one section at a time.
-3. `commands.rs` and the rest of `project.rs`.
-4. `SourceControl.svelte`, `git.svelte.ts` and `ConflictResolver.svelte`: the data-loss paths.
-5. The editor extensions that move project text into the document or a path (`cite`, `completion`,
-   `paste`, `definition`, `diagnostics`).
-6. The remaining components and state modules.
-7. The 51 `texlog` fixtures, then the non-code items in §3.
-8. ~~Walk the draft PDF (§4, item 12) on the virtual display, in passing.~~ Done 15 Nov (sixth pass).
+1. **Byte-level cases through the real app** (§2): a UTF-8 BOM, a lone `\r`, a file with no final newline,
+   a 5 MB file, a name with a space, an accent and a `#`, a tab character, an emoji in a heading. Open,
+   type, `xxd`. The two worst findings of the seventh pass were this and nothing else.
+2. `resolveMergeConflict` with a CRLF file (§4 item 20), and the rest of §4's table that is not a decision.
+3. The Rust P3 list: `watcher.rs`, `github.rs`, `templates.rs`, `consent.rs`, `lsp.rs`, the health rules in
+   `bibliography.rs`, `compile.rs`, `latexdiff.rs`, `assistant_review.rs`.
+4. The remaining components and state modules (§3), then `lsp.ts`, `lsp-protocol.ts`, `lsp-diagnostics.ts`.
+5. The 51 `texlog` fixtures, then the non-code items.
 
 **A method that paid off late in the sixth pass:** run the app on the virtual display and read `$TMPDIR/abstract-tex-xvfb.log`
 after driving it. Vite forwards the webview's `console.error` there, which is how the typewriter-mode crash (`R6.21`)
@@ -242,8 +275,8 @@ at rest.
 
 ## Appendix: every source file, with a weak signal
 
-Generated by `scripts/review-coverage.py --markdown` on 15 November 2026 (180 files, 56,775 lines; 126
-files, 30,854 lines are named by no review entry). **It is a lead list, not a verdict, and it errs both
+Generated by `scripts/review-coverage.py --markdown` on 16 November 2026, after the seventh pass (181 files,
+57,771 lines; 49 files, 11,708 lines are named by no review entry, down from 126 and 30,854). **It is a lead list, not a verdict, and it errs both
 ways.** *Too few*: a pass can read a file and name it only by what it does ("the watcher"), so files the
 fifth pass did read (`relay/live-session.ts`, `relay/awareness.ts`, `PdfPane.svelte`, `fix.ts`,
 `math-preview.ts`, `src-tauri/src/synctex.rs`) show zero. *Too many*: a "Still not reviewed" sentence
@@ -253,183 +286,184 @@ find files nobody has named.** Re-run the script after you add your "Covered:" l
 
 | Lines | File named | Crate named | File |
 |---:|---:|---:|---|
-| 3110 | 0 |  | `src/lib/controller.svelte.ts` |
-| 1371 | 0 |  | `src-tauri/src/commands.rs` |
-| 1185 | 0 |  | `src-tauri/src/project.rs` |
-| 1074 | 0 |  | `src/components/SourceControl.svelte` |
-| 908 | 0 |  | `src/lib/ipc.ts` |
-| 449 | 0 |  | `src-tauri/src/comments.rs` |
-| 407 | 0 |  | `src-tauri/src/github.rs` |
-| 404 | 0 |  | `src-tauri/src/watcher.rs` |
 | 389 | 0 |  | `src-tauri/src/synctex.rs` |
-| 384 | 0 |  | `src/lib/git.svelte.ts` |
-| 329 | 0 |  | `src/lib/editor/diagnostics.ts` |
-| 325 | 0 |  | `src/components/NewProjectWindow.svelte` |
-| 313 | 0 |  | `src/components/PdfPane.svelte` |
 | 282 | 0 |  | `src/components/Drawer.svelte` |
-| 266 | 0 |  | `src/components/CloneWindow.svelte` |
-| 266 | 0 |  | `src/lib/editor/math-preview.ts` |
 | 255 | 0 |  | `src/lib/drawer.ts` |
 | 255 | 0 |  | `src/lib/relay/live-session.ts` |
-| 253 | 0 |  | `src/lib/editor/cite.ts` |
-| 249 | 0 |  | `src/lib/outline.ts` |
-| 240 | 0 |  | `src-tauri/src/lsp.rs` |
-| 238 | 0 |  | `src/lib/editor/setup.ts` |
-| 233 | 0 |  | `src/components/CommandPalette.svelte` |
-| 233 | 0 |  | `src/lib/lsp.ts` |
-| 231 | 0 |  | `src/components/AssistantView.svelte` |
-| 217 | 0 |  | `src/components/AssistantPayload.svelte` |
-| 207 | 0 |  | `src-tauri/src/templates.rs` |
-| 199 | 0 |  | `src/components/AssistantReview.svelte` |
-| 197 | 0 |  | `src/components/StatusBar.svelte` |
-| 195 | 0 |  | `src-tauri/src/git.rs` |
-| 194 | 0 |  | `src/components/Editor.svelte` |
-| 191 | 0 |  | `src/lib/lsp-protocol.ts` |
 | 190 | 0 |  | `src/lib/compare.svelte.ts` |
-| 186 | 0 |  | `src/components/ConflictResolver.svelte` |
 | 184 | 0 |  | `src/components/ShareWindow.svelte` |
-| 182 | 0 |  | `src/lib/state.svelte.ts` |
-| 178 | 0 |  | `src/components/CommentsView.svelte` |
-| 178 | 0 |  | `src/components/QuickOpen.svelte` |
-| 169 | 0 |  | `src/lib/editor/placeholders.ts` |
-| 168 | 0 |  | `src/lib/lsp-diagnostics.ts` |
 | 166 | 0 |  | `src/lib/relay/awareness.ts` |
-| 163 | 0 |  | `src/components/SnapshotViewer.svelte` |
-| 141 | 0 |  | `src/App.svelte` |
-| 141 | 0 |  | `src/lib/editor/completion.ts` |
-| 138 | 0 |  | `src/components/DiffView.svelte` |
 | 133 | 0 |  | `src/lib/relay/provider.ts` |
-| 130 | 0 |  | `src/components/JoinWindow.svelte` |
-| 130 | 0 |  | `src/lib/editor/paste.ts` |
 | 116 | 0 |  | `src/components/DocumentMap.svelte` |
 | 112 | 0 |  | `src/lib/github.svelte.ts` |
-| 111 | 0 |  | `src/components/Sidebar.svelte` |
-| 111 | 0 |  | `src/lib/bibliography.svelte.ts` |
-| 110 | 0 |  | `src/lib/editor/focus.ts` |
-| 103 | 0 |  | `src/lib/conflict.ts` |
-| 98 | 0 |  | `src/lib/assistant.svelte.ts` |
-| 97 | 0 |  | `src/components/Tabs.svelte` |
 | 94 | 0 |  | `src/components/CrashReportWindow.svelte` |
-| 94 | 0 |  | `src/lib/documents.ts` |
-| 93 | 0 |  | `src/lib/fuzzy.ts` |
 | 90 | 0 |  | `src/components/ActivityBar.svelte` |
-| 88 | 0 |  | `src/lib/shortcuts.ts` |
 | 85 | 0 |  | `src/lib/relay/channel.ts` |
 | 84 | 0 |  | `src/lib/pdf/geometry.ts` |
-| 73 | 0 |  | `src/lib/editor/typewriter.ts` |
-| 72 | 0 |  | `src/lib/assistant.ts` |
-| 72 | 0 |  | `src/lib/editor/hover.ts` |
-| 72 | 0 |  | `src/lib/templates.svelte.ts` |
-| 70 | 0 |  | `src/components/SessionCommitOffer.svelte` |
-| 70 | 0 |  | `src/lib/assistant-review.ts` |
-| 68 | 0 |  | `src/lib/editor/definition.ts` |
-| 66 | 0 |  | `src/components/TreeItem.svelte` |
-| 63 | 0 |  | `src/lib/comments.ts` |
-| 57 | 0 |  | `src/lib/assistant-payload.ts` |
 | 55 | 0 |  | `src/lib/pdf/pdf-test-support.ts` |
-| 52 | 0 |  | `src/lib/paths.ts` |
-| 51 | 0 |  | `src/lib/editor/diff.ts` |
-| 48 | 0 |  | `src/lib/commands.ts` |
-| 48 | 0 |  | `src/lib/editor/symbols.ts` |
-| 48 | 0 |  | `src/lib/snapshots.svelte.ts` |
-| 47 | 0 |  | `src/lib/clone.svelte.ts` |
-| 38 | 0 |  | `src/lib/live.svelte.ts` |
-| 31 | 0 |  | `src/lib/editor/positions.ts` |
-| 28 | 0 |  | `src/lib/editor/synctex.ts` |
-| 25 | 0 |  | `src/lib/diffview.svelte.ts` |
-| 20 | 0 |  | `src/lib/announce.ts` |
 | 19 | 0 |  | `src/lib/placeholders.svelte.ts` |
-| 18 | 0 |  | `src/lib/session-commit.ts` |
-| 17 | 0 |  | `src/lib/comments.svelte.ts` |
-| 15 | 0 |  | `src/lib/editor/selection.ts` |
 | 13 | 0 |  | `src/lib/crash.svelte.ts` |
 | 7 | 0 |  | `src/main.ts` |
 | 5 | 0 |  | `src-tauri/build.rs` |
-| 706 | 0 | 0 | `crates/abstract-tex-includes/src/graph.rs` |
 | 670 | 0 | 0 | `crates/abstract-tex-synctex/src/lib.rs` |
-| 473 | 0 | 0 | `crates/abstract-tex-includes/src/scan.rs` |
 | 168 | 0 | 0 | `crates/abstract-tex-latexdiff/src/lib.rs` |
-| 20 | 0 | 0 | `crates/abstract-tex-includes/src/lib.rs` |
-| 750 | 0 | 1 | `crates/abstract-tex-assistant/src/provider.rs` |
-| 336 | 0 | 1 | `crates/abstract-tex-assistant/src/edit.rs` |
-| 307 | 0 | 1 | `crates/abstract-tex-assistant/src/inspect.rs` |
+| 473 | 0 | 1 | `crates/abstract-tex-includes/src/scan.rs` |
 | 278 | 0 | 1 | `crates/abstract-tex-github/src/repos.rs` |
 | 251 | 0 | 1 | `crates/abstract-tex-github/src/device.rs` |
-| 142 | 0 | 1 | `crates/abstract-tex-assistant/src/keys.rs` |
-| 67 | 0 | 1 | `crates/abstract-tex-assistant/src/client.rs` |
+| 750 | 0 | 2 | `crates/abstract-tex-assistant/src/provider.rs` |
 | 620 | 0 | 2 | `crates/abstract-tex-lsp/src/bridge.rs` |
+| 307 | 0 | 2 | `crates/abstract-tex-assistant/src/inspect.rs` |
 | 280 | 0 | 2 | `crates/abstract-tex-comments/src/anchor.rs` |
 | 247 | 0 | 2 | `crates/abstract-tex-templates/src/instantiate.rs` |
-| 238 | 0 | 2 | `crates/abstract-tex-comments/src/project.rs` |
 | 205 | 0 | 2 | `crates/abstract-tex-lsp/src/transport.rs` |
 | 154 | 0 | 2 | `crates/abstract-tex-lsp/src/server.rs` |
 | 152 | 0 | 2 | `crates/abstract-tex-templates/src/render.rs` |
+| 142 | 0 | 2 | `crates/abstract-tex-assistant/src/keys.rs` |
+| 67 | 0 | 2 | `crates/abstract-tex-assistant/src/client.rs` |
 | 9 | 0 | 2 | `crates/abstract-tex-templates/build.rs` |
-| 522 | 0 | 5 | `crates/texlog/src/tokenizer.rs` |
-| 406 | 0 | 5 | `crates/texlog/src/resolver.rs` |
-| 61 | 0 | 5 | `crates/texlog/build.rs` |
-| 850 | 0 | 9 | `crates/texbib/src/parse.rs` |
-| 494 | 0 | 9 | `crates/texbib/src/acquire/arxiv.rs` |
-| 399 | 0 | 9 | `crates/texbib/src/acquire/zotero.rs` |
-| 280 | 0 | 9 | `crates/texbib/src/keys.rs` |
-| 249 | 0 | 9 | `crates/texbib/src/acquire/doi.rs` |
-| 249 | 0 | 9 | `crates/texbib/src/health.rs` |
-| 249 | 0 | 9 | `crates/texbib/src/tex_text.rs` |
-| 210 | 0 | 9 | `crates/texbib/src/acquire/identify.rs` |
-| 210 | 0 | 9 | `crates/texbib/src/render.rs` |
-| 174 | 0 | 9 | `crates/texbib/src/value.rs` |
-| 48 | 0 | 9 | `crates/texbib/build.rs` |
-| 1393 | 1 |  | `src-tauri/src/compile.rs` |
-| 1247 | 1 |  | `src-tauri/src/latexdiff.rs` |
-| 481 | 1 |  | `src-tauri/src/paste.rs` |
-| 211 | 1 |  | `src-tauri/src/fragile_command.rs` |
+| 522 | 0 | 6 | `crates/texlog/src/tokenizer.rs` |
+| 406 | 0 | 6 | `crates/texlog/src/resolver.rs` |
+| 61 | 0 | 6 | `crates/texlog/build.rs` |
+| 850 | 0 | 10 | `crates/texbib/src/parse.rs` |
+| 494 | 0 | 10 | `crates/texbib/src/acquire/arxiv.rs` |
+| 399 | 0 | 10 | `crates/texbib/src/acquire/zotero.rs` |
+| 280 | 0 | 10 | `crates/texbib/src/keys.rs` |
+| 249 | 0 | 10 | `crates/texbib/src/acquire/doi.rs` |
+| 249 | 0 | 10 | `crates/texbib/src/health.rs` |
+| 249 | 0 | 10 | `crates/texbib/src/tex_text.rs` |
+| 210 | 0 | 10 | `crates/texbib/src/acquire/identify.rs` |
+| 210 | 0 | 10 | `crates/texbib/src/render.rs` |
+| 174 | 0 | 10 | `crates/texbib/src/value.rs` |
+| 48 | 0 | 10 | `crates/texbib/build.rs` |
+| 407 | 1 |  | `src-tauri/src/github.rs` |
+| 404 | 1 |  | `src-tauri/src/watcher.rs` |
+| 327 | 1 |  | `src/components/NewProjectWindow.svelte` |
+| 315 | 1 |  | `src/components/PdfPane.svelte` |
+| 253 | 1 |  | `src/lib/editor/cite.ts` |
+| 240 | 1 |  | `src-tauri/src/lsp.rs` |
+| 235 | 1 |  | `src/components/CommandPalette.svelte` |
+| 231 | 1 |  | `src/components/AssistantView.svelte` |
+| 217 | 1 |  | `src/components/AssistantPayload.svelte` |
+| 207 | 1 |  | `src-tauri/src/templates.rs` |
+| 203 | 1 |  | `src/components/StatusBar.svelte` |
+| 199 | 1 |  | `src/components/AssistantReview.svelte` |
+| 195 | 1 |  | `src-tauri/src/git.rs` |
 | 193 | 1 |  | `src/lib/pdf/find.ts` |
+| 192 | 1 |  | `src/components/ConflictResolver.svelte` |
+| 191 | 1 |  | `src/lib/lsp-protocol.ts` |
 | 187 | 1 |  | `src/components/ZoteroLink.svelte` |
 | 184 | 1 |  | `src/components/BibliographyHealth.svelte` |
-| 170 | 1 |  | `src-tauri/src/snapshots.rs` |
-| 133 | 1 |  | `src-tauri/src/consent.rs` |
+| 182 | 1 |  | `src/lib/state.svelte.ts` |
+| 180 | 1 |  | `src/components/CommentsView.svelte` |
+| 180 | 1 |  | `src/components/QuickOpen.svelte` |
+| 169 | 1 |  | `src/lib/editor/placeholders.ts` |
+| 168 | 1 |  | `src/lib/lsp-diagnostics.ts` |
+| 141 | 1 |  | `src/lib/editor/completion.ts` |
+| 138 | 1 |  | `src/components/DiffView.svelte` |
+| 132 | 1 |  | `src/components/JoinWindow.svelte` |
+| 123 | 1 |  | `src/lib/conflict.ts` |
+| 113 | 1 |  | `src/components/Sidebar.svelte` |
+| 111 | 1 |  | `src/lib/bibliography.svelte.ts` |
+| 110 | 1 |  | `src/lib/editor/focus.ts` |
 | 104 | 1 |  | `src-tauri/src/lfs.rs` |
 | 104 | 1 |  | `src/lib/relay/invite.ts` |
+| 101 | 1 |  | `src/lib/assistant.svelte.ts` |
+| 72 | 1 |  | `src/components/SessionCommitOffer.svelte` |
+| 72 | 1 |  | `src/lib/assistant.ts` |
+| 72 | 1 |  | `src/lib/editor/hover.ts` |
+| 72 | 1 |  | `src/lib/templates.svelte.ts` |
+| 70 | 1 |  | `src/lib/assistant-review.ts` |
+| 68 | 1 |  | `src/lib/editor/definition.ts` |
+| 66 | 1 |  | `src/components/TreeItem.svelte` |
+| 63 | 1 |  | `src/lib/comments.ts` |
 | 58 | 1 |  | `src/lib/pdf/regexp-escape.ts` |
+| 57 | 1 |  | `src/lib/assistant-payload.ts` |
+| 52 | 1 |  | `src/lib/paths.ts` |
+| 51 | 1 |  | `src/lib/editor/diff.ts` |
+| 48 | 1 |  | `src/lib/commands.ts` |
+| 48 | 1 |  | `src/lib/editor/symbols.ts` |
+| 48 | 1 |  | `src/lib/snapshots.svelte.ts` |
+| 47 | 1 |  | `src/lib/clone.svelte.ts` |
+| 38 | 1 |  | `src/lib/live.svelte.ts` |
 | 37 | 1 |  | `src/lib/fix.ts` |
-| 873 | 1 | 1 | `crates/abstract-tex-assistant/src/guard.rs` |
+| 31 | 1 |  | `src/lib/editor/positions.ts` |
+| 28 | 1 |  | `src/lib/editor/synctex.ts` |
+| 25 | 1 |  | `src/lib/diffview.svelte.ts` |
+| 23 | 1 |  | `src/lib/keys.ts` |
+| 20 | 1 |  | `src/lib/announce.ts` |
+| 18 | 1 |  | `src/lib/session-commit.ts` |
+| 17 | 1 |  | `src/lib/comments.svelte.ts` |
+| 15 | 1 |  | `src/lib/editor/selection.ts` |
+| 706 | 1 | 1 | `crates/abstract-tex-includes/src/graph.rs` |
 | 520 | 1 | 1 | `crates/abstract-tex-relay/src/lib.rs` |
 | 163 | 1 | 1 | `crates/abstract-tex-github/src/lib.rs` |
 | 153 | 1 | 1 | `crates/abstract-tex-github/src/store.rs` |
-| 103 | 1 | 1 | `crates/abstract-tex-assistant/src/lib.rs` |
+| 20 | 1 | 1 | `crates/abstract-tex-includes/src/lib.rs` |
 | 20 | 1 | 1 | `crates/abstract-tex-relay/src/main.rs` |
 | 969 | 1 | 2 | `crates/abstract-tex-comments/src/store.rs` |
+| 873 | 1 | 2 | `crates/abstract-tex-assistant/src/guard.rs` |
 | 813 | 1 | 2 | `crates/abstract-tex-engine/src/tectonic.rs` |
 | 356 | 1 | 2 | `crates/abstract-tex-engine/src/draft.rs` |
+| 336 | 1 | 2 | `crates/abstract-tex-assistant/src/edit.rs` |
 | 298 | 1 | 2 | `crates/abstract-tex-engine/src/incremental.rs` |
-| 2474 | 1 | 5 | `crates/texlog/src/rules.rs` |
-| 376 | 1 | 5 | `crates/abstract-tex-git/src/branches.rs` |
-| 158 | 1 | 5 | `crates/texlog/src/blg.rs` |
-| 136 | 1 | 5 | `crates/abstract-tex-git/src/tags.rs` |
-| 689 | 1 | 9 | `crates/texbib/src/acquire/isbn.rs` |
-| 1777 | 2 |  | `src-tauri/src/bibliography.rs` |
-| 880 | 2 |  | `src-tauri/src/assistant_review.rs` |
+| 2474 | 1 | 6 | `crates/texlog/src/rules.rs` |
+| 376 | 1 | 6 | `crates/abstract-tex-git/src/branches.rs` |
+| 158 | 1 | 6 | `crates/texlog/src/blg.rs` |
+| 136 | 1 | 6 | `crates/abstract-tex-git/src/tags.rs` |
+| 689 | 1 | 10 | `crates/texbib/src/acquire/isbn.rs` |
+| 3269 | 2 |  | `src/lib/controller.svelte.ts` |
+| 1371 | 2 |  | `src-tauri/src/commands.rs` |
+| 1247 | 2 |  | `src-tauri/src/latexdiff.rs` |
+| 502 | 2 |  | `src-tauri/src/paste.rs` |
 | 497 | 2 |  | `src-tauri/src/crash.rs` |
+| 479 | 2 |  | `src-tauri/src/comments.rs` |
+| 384 | 2 |  | `src/lib/git.svelte.ts` |
 | 361 | 2 |  | `src-tauri/src/assistant_explain.rs` |
-| 310 | 2 |  | `src/lib/document.ts` |
-| 236 | 2 |  | `src-tauri/src/lib.rs` |
+| 329 | 2 |  | `src/lib/editor/diagnostics.ts` |
+| 272 | 2 |  | `src/components/CloneWindow.svelte` |
+| 266 | 2 |  | `src/lib/editor/math-preview.ts` |
+| 233 | 2 |  | `src/lib/lsp.ts` |
+| 211 | 2 |  | `src-tauri/src/fragile_command.rs` |
+| 205 | 2 |  | `src/lib/editor/paste.ts` |
+| 170 | 2 |  | `src-tauri/src/snapshots.rs` |
+| 167 | 2 |  | `src/components/SnapshotViewer.svelte` |
+| 141 | 2 |  | `src/App.svelte` |
+| 133 | 2 |  | `src-tauri/src/consent.rs` |
+| 105 | 2 |  | `src/lib/shortcuts.ts` |
+| 94 | 2 |  | `src/lib/documents.ts` |
 | 76 | 2 |  | `src/lib/pdf/find-controller.ts` |
-| 44 | 2 |  | `src/lib/dialog.ts` |
-| 6 | 2 |  | `src-tauri/src/main.rs` |
-| 200 | 2 | 1 | `crates/abstract-tex-assistant/src/explain.rs` |
 | 846 | 2 | 2 | `crates/abstract-tex-snapshot/src/lib.rs` |
 | 512 | 2 | 2 | `crates/abstract-tex-templates/src/lib.rs` |
 | 223 | 2 | 2 | `crates/abstract-tex-sidecar/src/lib.rs` |
+| 200 | 2 | 2 | `crates/abstract-tex-assistant/src/explain.rs` |
 | 178 | 2 | 2 | `crates/abstract-tex-engine/src/lib.rs` |
+| 103 | 2 | 2 | `crates/abstract-tex-assistant/src/lib.rs` |
 | 36 | 2 | 2 | `crates/abstract-tex-comments/src/lib.rs` |
 | 36 | 2 | 2 | `crates/abstract-tex-lsp/src/lib.rs` |
+| 1335 | 3 |  | `src-tauri/src/project.rs` |
+| 1081 | 3 |  | `src/components/SourceControl.svelte` |
+| 912 | 3 |  | `src/lib/ipc.ts` |
 | 648 | 3 |  | `src-tauri/src/assistant.rs` |
+| 257 | 3 |  | `src/lib/outline.ts` |
+| 238 | 3 |  | `src/lib/editor/setup.ts` |
+| 204 | 3 |  | `src/lib/fuzzy.ts` |
+| 103 | 3 |  | `src/lib/editor/typewriter.ts` |
+| 97 | 3 |  | `src/components/Tabs.svelte` |
+| 44 | 3 |  | `src/lib/dialog.ts` |
 | 495 | 3 | 2 | `crates/abstract-tex-engine/src/process.rs` |
+| 238 | 3 | 2 | `crates/abstract-tex-comments/src/project.rs` |
 | 326 | 3 | 3 | `crates/abstract-tex-reconcile/src/lib.rs` |
+| 1831 | 4 |  | `src-tauri/src/bibliography.rs` |
+| 1393 | 4 |  | `src-tauri/src/compile.rs` |
+| 880 | 4 |  | `src-tauri/src/assistant_review.rs` |
 | 400 | 4 |  | `src/lib/pdf/viewer.ts` |
 | 538 | 4 | 2 | `crates/abstract-tex-engine/src/latexmk.rs` |
 | 688 | 4 | 4 | `crates/texwords/src/lib.rs` |
-| 3705 | 5 | 5 | `crates/abstract-tex-git/src/lib.rs` |
-| 168 | 5 | 5 | `crates/texlog/src/lib.rs` |
-| 68 | 9 | 9 | `crates/texbib/src/acquire/mod.rs` |
-| 64 | 9 | 9 | `crates/texbib/src/lib.rs` |
+| 380 | 5 |  | `src/lib/document.ts` |
+| 3877 | 6 | 6 | `crates/abstract-tex-git/src/lib.rs` |
+| 168 | 6 | 6 | `crates/texlog/src/lib.rs` |
+| 198 | 7 |  | `src/components/Editor.svelte` |
+| 68 | 10 | 10 | `crates/texbib/src/acquire/mod.rs` |
+| 64 | 10 | 10 | `crates/texbib/src/lib.rs` |
+| 236 | 12 |  | `src-tauri/src/lib.rs` |
+| 6 | 12 |  | `src-tauri/src/main.rs` |

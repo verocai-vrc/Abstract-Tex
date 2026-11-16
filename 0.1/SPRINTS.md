@@ -7363,6 +7363,22 @@ Open from the sixth pass (by reading, none reproduced):
 - [ ] `R6.8` `clone_destination` accepts Windows reserved names (`con`, `nul`) and a trailing dot or space.
 - [ ] Still unread: the other Svelte components (`NewProjectWindow`, `CloneWindow`, `Drawer`, `StatusBar`, `DocumentMap`, the assistant views, `CommandPalette`, `QuickOpen`, `Sidebar`, `TreeItem`, `ActivityBar`, `ZoteroLink`, `BibliographyHealth`, `CommentsView`, `SnapshotViewer`, `DiffView`, `SessionCommitOffer`, most of `Editor`), the state modules other than `git.svelte.ts`, and the editor extensions.
 
+**Seventh pass (16 November 2026)** reads the Svelte components and state modules the sixth pass did
+not reach, then starts on the Rust P3 list (`REVIEW-HANDOFF.md` §3). `R7.<n>` is the finding's number in
+the ledger's seventh-pass entry. Two of the findings are silent loss of the author's text.
+
+- [x] `R7.1` the assistant's selection was the previous tab's after a tab switch, so *Comment on selection* and the assistant actions acted on text nobody selected. Done 16 November 2026; mutation-checked; walked.
+- [x] `R7.2` opening another folder left the old project's comment draft, comment list, diff, commit offer, review and prepared request, each able to act on the new project. Done 16 November 2026; every line mutation-checked. Not walked (the GTK picker).
+- [x] `R7.3` Ctrl Enter in the review applied a suggestion with nothing accepted. Done 16 November 2026.
+- [x] `R7.4` the Enter, arrows and Escape that belong to an input method ran the field's action (ten handlers). Done 16 November 2026 on the helper; **not exercised against a real input method**.
+- [x] `R7.5` the global shortcuts did nothing on a layout without Latin letters. Done 16 November 2026; reproduced and walked with `setxkbmap ru`.
+- [x] `R7.6` Quick Open and the palette mis-highlighted, split and missed non-ASCII names. Done 16 November 2026; measured (a first version was 30 times slower); walked.
+- [x] `R7.7` the Document map ignored a caption with a short form. Done 16 November 2026.
+- [x] **`R7.8` a file that is not UTF-8 opened with its letters replaced and the first autosave wrote the replacements over the original** (reproduced in the app: `E9 E0 E7 FC` became `EF BF BD`). Done 16 November 2026: refused, with a sentence; walked. **The product decision (UTF-8 only, or preserve legacy encodings) is open: ledger item 10.**
+- [x] `R7.9`, `R7.10` the index called a Latin-1 `.bib` missing and its citations undefined; paste-to-cite answered with Rust's raw error. Done 16 November 2026.
+- [x] **`R7.11` every edit to a CRLF file landed one character early per preceding line** (reproduced in the app: `X` typed at the start of line 5 appeared in line 4). Done 16 November 2026: the buffer is LF and the document writes the file's own ending back; walked.
+- [ ] Still unread from the §3 list: `ZoteroLink`, `BibliographyHealth`, `StatusBar`, `Drawer`, `DocumentMap`, `ActivityBar`, the `github`, `compare`, `crash` and `placeholders` state modules, `lsp.ts`, `lsp-protocol.ts`, `lsp-diagnostics.ts`; in Rust `github.rs`, `watcher.rs`, `templates.rs`, `consent.rs`, `lsp.rs`, `latexdiff.rs`, `assistant_review.rs`, most of `compile.rs`; the 51 `texlog` fixtures.
+
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 
