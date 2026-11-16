@@ -158,6 +158,89 @@ describe('OpenDocument', () => {
     doc.dispose();
   });
 
+  // R6.23. `save()` cancels the pending timer before it writes, and only `autosave` re-armed one when
+  // the write failed. So a save made by anything else (a build's save-all, a tab closing, the
+  // New-project button) that failed took the retry with it: the buffer stayed dirty, the notice said
+  // "will be saved as soon as it can be", and nothing tried again until the next keystroke. Seen in the
+  // app: the folder made writable again, the tab still dirty two minutes later, Ctrl S saved it at once.
+  it('keeps trying after another save fails while a retry is waiting', async () => {
+    const { backend, writes } = fakeBackend();
+    let failures = 2;
+    const working = backend.writeFile;
+    backend.writeFile = async (path, contents) => {
+      if (failures-- > 0) throw new Error('Permission denied');
+      return working(path, contents);
+    };
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    doc.onSaveError = () => {};
+    doc.ytext.insert(3, 'd');
+    await vi.advanceTimersByTimeAsync(700); // the autosave fails; a retry is now waiting
+    await expect(doc.save(false)).rejects.toThrow('Permission denied'); // a save-all fails too
+    expect(doc.dirty).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(5000); // the retry must still come, and now the write works
+    expect(writes).toEqual([{ path: 'main.tex', contents: 'abcd' }]);
+    expect(doc.dirty).toBe(false);
+    doc.dispose();
+  });
+
+  it('keeps trying after a save made before the debounce fired fails', async () => {
+    const { backend, writes } = fakeBackend();
+    let failures = 1;
+    const working = backend.writeFile;
+    backend.writeFile = async (path, contents) => {
+      if (failures-- > 0) throw new Error('Permission denied');
+      return working(path, contents);
+    };
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    doc.onSaveError = () => {};
+    doc.ytext.insert(3, 'd');
+    await expect(doc.save(false)).rejects.toThrow('Permission denied'); // the build's save-all, before 700 ms
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(writes).toEqual([{ path: 'main.tex', contents: 'abcd' }]);
+    expect(doc.dirty).toBe(false);
+    doc.dispose();
+  });
+
+  it('does not leave a retry behind when the document is disposed during a failing write', async () => {
+    const { backend } = fakeBackend();
+    let attempts = 0;
+    let fail: (error: Error) => void = () => {};
+    backend.writeFile = () => {
+      attempts++;
+      return new Promise<void>((_resolve, reject) => (fail = reject));
+    };
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    doc.ytext.insert(3, 'd');
+    const saving = doc.save(false).catch(() => {});
+    doc.dispose(); // the tab closes while the write is out
+    fail(new Error('Permission denied'));
+    await saving;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(attempts).toBe(1);
+  });
+
+  it('leaves a debounce that typing set during the failing write where it is', async () => {
+    const { backend } = fakeBackend();
+    let attempts = 0;
+    let fail: (error: Error) => void = () => {};
+    backend.writeFile = () => {
+      attempts++;
+      if (attempts > 1) return Promise.resolve();
+      return new Promise<void>((_resolve, reject) => (fail = reject));
+    };
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    doc.onSaveError = () => {};
+    doc.ytext.insert(3, 'd');
+    const saving = doc.save(false).catch(() => {});
+    doc.ytext.insert(4, 'e'); // typing goes on while the write is out: the 700 ms debounce is set
+    fail(new Error('Permission denied'));
+    await saving;
+    await vi.advanceTimersByTimeAsync(700); // not five seconds: the newest text is tried at once
+    expect(attempts).toBe(2);
+    doc.dispose();
+  });
+
   it('stops retrying a failed save once the document is disposed', async () => {
     const { backend } = fakeBackend();
     let attempts = 0;

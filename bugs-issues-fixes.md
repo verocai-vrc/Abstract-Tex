@@ -2712,6 +2712,25 @@ left, with the reason. `Wontfix` entries still need a reason a future reader wil
      snapshot reads "8 minutes ago · 3,368 words", the list's own words. (c) was not reproduced and is
      fixed on the reading alone.
 
+  23. **R (medium). A failed save made by anything but the autosave timer cancels the retry, and the
+     notice's promise ("will be saved as soon as it can be") is then false.** `OpenDocument.save` clears
+     the pending timer before it writes, and when the write throws only `autosave` re-armed one, so a
+     save started by something else that failed (a build's save-all, a tab closing, the New project
+     button's check) took the retry with it. The buffer stays dirty with no timer until the next keystroke
+     in that file. Reproduced in the app on the virtual display: the chapter folder made read-only, a
+     word typed, "Could not save sections/results.tex: Permission denied (os error 13). The text is
+     still in the editor and will be saved as soon as it can be." (correct), *New* then *Create* (whose
+     check runs a save-all that fails: also correct, and the second window's message was right); the
+     folder made writable again; two minutes later the tab still had its dot and the word was not on
+     disk; Ctrl S wrote it at once. Two Vitest tests, red first (a save-all fails while a retry waits; a
+     save-all fails before the 700 ms debounce has fired). **Fixed 15 Nov 2026.** `save` itself now puts
+     the retry back on the timer when its write throws (unless the document was disposed, or typing has
+     already set a sooner debounce); `autosave` keeps only the once-per-failure notice. Four more tests
+     pin the guards (disposed during the failing write; the waiting debounce is kept), and each of the
+     three parts was mutation-checked (no re-arm: three tests fail, the two new and R4.5's; ignoring
+     `disposed`; overwriting a waiting debounce). Walked in the app after the fix, same steps: the
+     folder made writable again, the dot cleared and the word reached disk within 8 s, no key pressed.
+
   Looked at and left alone: `save_comparison_pdf` copies to a path the webview sends (the Save dialog's
   answer; a compromised webview could do far more); `write_gitignore` follows a `.gitignore` that is a
   link (the author said yes to it); the sync commands hold the project lock across their disk work

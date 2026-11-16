@@ -154,8 +154,7 @@ export class OpenDocument {
         this.saveFailing = true;
         this.onSaveError?.(error);
       }
-      this.scheduleSave(RETRY_AFTER_FAILED_SAVE_MS);
-      return;
+      return; // `save` has already put the retry on the timer
     }
     if (this.saveFailing) {
       this.saveFailing = false;
@@ -217,7 +216,16 @@ export class OpenDocument {
       this.setDirty(false);
       return false;
     }
-    await this.backend.writeFile(this.path, snapshot);
+    try {
+      await this.backend.writeFile(this.path, snapshot);
+    } catch (error) {
+      // The timer was cancelled above, so whoever is saving, a failed write has to leave one behind:
+      // `autosave` used to be the only caller that re-armed it, and a build's save-all, a closing tab
+      // or a New-project check that failed took the retry with it (R6.23). A debounce already waiting
+      // (typing went on during the write) is sooner than the retry and is left alone.
+      if (!this.disposed && !this.saveTimer) this.scheduleSave(RETRY_AFTER_FAILED_SAVE_MS);
+      throw error;
+    }
     this.lastSavedText = snapshot;
     // Typing may have continued during the write. If so, stay dirty and let the debounce
     // timer (already restarted by onChange) take care of it.
