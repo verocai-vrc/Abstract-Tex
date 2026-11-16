@@ -7332,6 +7332,9 @@ Open from the fifth pass (reasons and reproductions in the ledger; none is fixed
 **Not yet reviewed, to be analysed later** (nothing here has been read for defects; do not take a
 silence in the ledger as a clean bill):
 
+A hand-off for the next session, with sizes, a priority order, every open issue and what was fixed but
+not verified where it matters, is in `REVIEW-HANDOFF.md` at the repository root (15 November 2026).
+
 - [~] The PDF viewer (pdf.js integration) and the editor extensions beyond `document.ts`. The PDF viewer and pane were read, and then rewritten, on 11 November 2026 (`R5.4`, `R5.5`); the editor extensions were not, apart from `math-preview.ts` (KaTeX with `trust` off: fine).
 - [x] The SyncTeX frontend (`synctex.rs` glue and the click handlers). Read 11 November 2026 (`R5.6`: nothing works through a symlinked project path).
 - [~] `src-tauri/src/assistant.rs` and `assistant_explain.rs`. Read 11 November 2026 (fifth pass); findings in the ledger.
