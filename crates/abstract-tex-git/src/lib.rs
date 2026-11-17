@@ -1696,8 +1696,11 @@ fn merge(
         return Ok(SyncOutcome::Conflicted);
     }
 
-    // libgit2 writes `MERGE_MSG` itself as part of `merge`, above — the same sentence `git commit`
-    // would default to ("Merge branch 'origin/main'..."), read back rather than invented again.
+    // libgit2 writes `MERGE_MSG` itself as part of `merge`, above, and this reads it back rather than
+    // inventing a sentence. Because `their_commit` was made from a bare object id, libgit2 has no
+    // branch name to put in it, so the title is "Merge commit '<sha>'", not the "Merge branch
+    // 'origin/main'" that `git pull` would write (the ledger's low-and-design note on sync). A
+    // title with the branch in it would mean building the sentence here instead.
     let message = repository
         .message()
         .unwrap_or_else(|_| format!("Merge {ORIGIN} into the local branch"));
