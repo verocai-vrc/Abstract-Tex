@@ -6,6 +6,7 @@
 
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_engine::{BuildJob, EngineInfo};
@@ -1098,9 +1099,16 @@ pub fn github_cancel_sign_in(state: State<'_, AppState>) -> CommandResult<()> {
 }
 
 /// Forget the token. The keychain entry is removed, so the next start is signed out.
+///
+/// `async` with `spawn_blocking`, so the keychain call (which can stop for a password) is not made on
+/// the thread that draws the window (review finding R5.9). A `State<'_, _>` borrows from the app and
+/// cannot move into that thread, so the command clones the `Arc` around the session first.
 #[tauri::command]
-pub fn github_sign_out(state: State<'_, AppState>) -> CommandResult<()> {
-    state.github.sign_out().map_err(to_message)
+pub async fn github_sign_out(state: State<'_, AppState>) -> CommandResult<()> {
+    let github = Arc::clone(&state.github);
+    tauri::async_runtime::spawn_blocking(move || github.sign_out().map_err(to_message))
+        .await
+        .map_err(to_message)?
 }
 
 /// Create a repository on GitHub for the open project and set it as `origin` (S10.5b).
@@ -1377,5 +1385,70 @@ mod tests {
     #[test]
     fn flags_are_not_mistaken_for_paths() {
         assert_eq!(folder_from_args(args(&["--devtools"])), None);
+    }
+
+    /// A token store that notes which thread cleared it (see the assistant's `ThreadNotingKeys`).
+    struct ThreadNotingStore {
+        cleared_on: Arc<std::sync::Mutex<Vec<std::thread::ThreadId>>>,
+    }
+
+    impl abstract_tex_github::SecretStore for ThreadNotingStore {
+        fn save(&self, _token: &str) -> Result<(), abstract_tex_github::GitHubError> {
+            Ok(())
+        }
+        fn read(&self) -> Result<Option<String>, abstract_tex_github::GitHubError> {
+            Ok(None)
+        }
+        fn clear(&self) -> Result<(), abstract_tex_github::GitHubError> {
+            self.cleared_on.lock().unwrap().push(std::thread::current().id());
+            Ok(())
+        }
+    }
+
+    // The same finding as the assistant's keychain commands (R5.9): deleting the token asks the OS
+    // keychain, which can stop for a password, and a plain command runs on the thread that draws the
+    // window. Driven through Tauri's mock runtime, where a sync command runs on the calling thread
+    // and an async one does not (the assistant's test explains the setup).
+    #[test]
+    fn signing_out_does_not_ask_the_keychain_on_the_thread_that_called_it() {
+        let cleared_on = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let state = AppState {
+            github: Arc::new(crate::github::GitHubSession::with_store(Box::new(
+                ThreadNotingStore {
+                    cleared_on: Arc::clone(&cleared_on),
+                },
+            ))),
+            ..AppState::new()
+        };
+        let app = tauri::test::mock_builder()
+            .manage(state)
+            .invoke_handler(tauri::generate_handler![github_sign_out])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        tauri::test::get_ipc_response(
+            &webview,
+            tauri::webview::InvokeRequest {
+                cmd: "github_sign_out".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: "tauri://localhost".parse().unwrap(),
+                body: tauri::ipc::InvokeBody::Json(serde_json::json!({})),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+        )
+        .unwrap_or_else(|error| panic!("github_sign_out failed: {error}"));
+
+        let threads = cleared_on.lock().unwrap();
+        assert_eq!(threads.len(), 1, "signing out should clear the store once");
+        assert_ne!(
+            threads[0],
+            std::thread::current().id(),
+            "the token was cleared on the calling thread"
+        );
     }
 }

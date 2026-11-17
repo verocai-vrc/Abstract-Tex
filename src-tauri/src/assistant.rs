@@ -252,37 +252,58 @@ fn open_project_dir(state: &AppState) -> Option<PathBuf> {
         .map(|project| project.root_dir.clone())
 }
 
+/// Run `work` on one of Tauri's threads for blocking calls and wait for it, without holding up the
+/// window.
+///
+/// The three commands below talk to the OS keychain, which can stop to ask the person for a password
+/// or take a while to answer. A plain `#[tauri::command]` function runs on the thread that also
+/// draws the window, so the whole window would freeze until the prompt was answered (review finding
+/// R5.9). An `async` command is handed to Tauri's own pool instead, and `spawn_blocking` is the
+/// pool's place for work that waits rather than computes. A `State<'_, T>` borrows from the app and
+/// cannot go into the closure, so each command copies out what it needs first (`work` is `'static`).
+async fn on_blocking_thread<T, F>(work: F) -> CommandResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> CommandResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
-pub fn assistant_status(
+pub async fn assistant_status(
     state: State<'_, AppState>,
     settings: State<'_, AssistantSettings>,
     keys: State<'_, AssistantKeys>,
     include_key: bool,
 ) -> CommandResult<AssistantStatus> {
-    status(
-        &settings,
-        keys.0.as_ref(),
-        open_project_dir(&state).as_deref(),
-        include_key,
-    )
+    let project_dir = open_project_dir(&state);
+    let settings = AssistantSettings::at(settings.file.clone());
+    let keys = Arc::clone(&keys.0);
+    on_blocking_thread(move || status(&settings, keys.as_ref(), project_dir.as_deref(), include_key)).await
 }
 
 #[tauri::command]
-pub fn assistant_save_provider(
+pub async fn assistant_save_provider(
     settings: State<'_, AssistantSettings>,
     keys: State<'_, AssistantKeys>,
     provider: Provider,
     key: Option<String>,
 ) -> CommandResult<()> {
-    save_provider(&settings, keys.0.as_ref(), provider, key)
+    let settings = AssistantSettings::at(settings.file.clone());
+    let keys = Arc::clone(&keys.0);
+    on_blocking_thread(move || save_provider(&settings, keys.as_ref(), provider, key)).await
 }
 
 #[tauri::command]
-pub fn assistant_clear_key(
+pub async fn assistant_clear_key(
     settings: State<'_, AssistantSettings>,
     keys: State<'_, AssistantKeys>,
 ) -> CommandResult<()> {
-    clear_key(&settings, keys.0.as_ref())
+    let settings = AssistantSettings::at(settings.file.clone());
+    let keys = Arc::clone(&keys.0);
+    on_blocking_thread(move || clear_key(&settings, keys.as_ref())).await
 }
 
 #[tauri::command]
@@ -310,13 +331,11 @@ pub async fn assistant_test(
     settings: State<'_, AssistantSettings>,
     keys: State<'_, AssistantKeys>,
 ) -> CommandResult<String> {
-    // `spawn_blocking` because the HTTP client is blocking, as for the GitHub calls. The state
+    // Off the window's thread because the HTTP client is blocking, as for the GitHub calls. The state
     // handles are cheap to clone out: the file path, and the `Arc` around the key store.
     let settings = AssistantSettings::at(settings.file.clone());
     let keys = Arc::clone(&keys.0);
-    tauri::async_runtime::spawn_blocking(move || test_connection(&settings, keys.as_ref()))
-        .await
-        .map_err(|error| error.to_string())?
+    on_blocking_thread(move || test_connection(&settings, keys.as_ref())).await
 }
 
 #[cfg(test)]
@@ -643,6 +662,109 @@ mod tests {
         match listener.accept() {
             Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
             Ok(_) => panic!("something connected without being asked to"),
+        }
+    }
+
+    /// A key store that notes which thread each call arrived on. The OS keychain can stop to ask the
+    /// person for a password, so a call made on the thread that handles the window's events freezes
+    /// the window until they answer.
+    #[derive(Default)]
+    struct ThreadNotingKeys {
+        inner: MemoryKeyStore,
+        calls: std::sync::Mutex<Vec<(&'static str, std::thread::ThreadId)>>,
+    }
+
+    impl ThreadNotingKeys {
+        fn note(&self, call: &'static str) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((call, std::thread::current().id()));
+        }
+    }
+
+    impl KeyStore for ThreadNotingKeys {
+        fn save(&self, slot: &str, key: &str) -> Result<(), AssistantError> {
+            self.note("save");
+            self.inner.save(slot, key)
+        }
+        fn read(&self, slot: &str) -> Result<Option<String>, AssistantError> {
+            self.note("read");
+            self.inner.read(slot)
+        }
+        fn clear(&self, slot: &str) -> Result<(), AssistantError> {
+            self.note("clear");
+            self.inner.clear(slot)
+        }
+    }
+
+    // Review finding R5.9, the part it left open. A plain `#[tauri::command]` function runs on the
+    // thread that received the message from the webview, which is the one that also draws the window.
+    // `async` commands are handed to Tauri's own pool. This test uses Tauri's mock runtime (the
+    // `test` feature, dev-dependency only): a real command dispatcher with no window on screen. There
+    // a sync command runs on the calling thread and an async one does not, which is the same
+    // difference the real window sees. Each of the three commands that touch the keychain must come
+    // in on another thread. What this does not pin: that the work then goes through `spawn_blocking`
+    // (see `on_blocking_thread`) and not inline on one of the pool's async threads. Both leave the
+    // window alone; the first is the pool's convention for calls that wait, and no test can tell them apart.
+    #[test]
+    fn the_commands_that_touch_the_keychain_do_not_run_on_the_thread_that_called_them() {
+        let keys = Arc::new(ThreadNotingKeys::default());
+        let config = tempfile::tempdir().unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppState::new())
+            .manage(AssistantSettings::at(config.path().join("assistant.json")))
+            .manage(AssistantKeys(Arc::clone(&keys) as Arc<dyn KeyStore>))
+            .invoke_handler(tauri::generate_handler![
+                assistant_status,
+                assistant_save_provider,
+                assistant_clear_key
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        let invoke = |command: &str, arguments: serde_json::Value| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: command.into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(arguments),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+            )
+            .unwrap_or_else(|error| panic!("{command} failed: {error}"))
+        };
+
+        invoke(
+            "assistant_save_provider",
+            serde_json::json!({
+                "provider": { "kind": "openAiCompatible", "model": "llama3", "address": "http://localhost:11434/v1" },
+                "key": "secret"
+            }),
+        );
+        invoke("assistant_status", serde_json::json!({ "includeKey": true }));
+        invoke("assistant_clear_key", serde_json::json!({}));
+
+        let this_thread = std::thread::current().id();
+        let calls = keys.calls.lock().unwrap();
+        let names: Vec<&str> = calls.iter().map(|(name, _)| *name).collect();
+        assert_eq!(
+            names,
+            ["save", "read", "clear"],
+            "each command should reach the key store once"
+        );
+        for (name, thread) in calls.iter() {
+            assert_ne!(
+                *thread, this_thread,
+                "{name} ran on the thread that invoked the command"
+            );
         }
     }
 }

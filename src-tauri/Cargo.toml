@@ -76,6 +76,8 @@ notify-debouncer-full = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# The assistant's tests drive real commands through Tauri's mock runtime (no window is shown).
+tauri = { version = "2", features = ["test"] }
 # Only to build fixture commits in `latexdiff.rs`'s tests (a signature, an index) — the app
 # itself reaches Git through abstract-tex-git alone.
 git2 = { version = "0.20", default-features = false }

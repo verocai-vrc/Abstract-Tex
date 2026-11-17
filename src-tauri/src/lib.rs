@@ -72,8 +72,9 @@ pub struct AppState {
     /// editor must open and compile without TexLab (DESIGN.md §2, commitment 6).
     pub lsp: LspSession,
     /// The GitHub sign-in (S10.4b). Not per project: an account belongs to the person and the
-    /// machine, and its token is in the keychain rather than in here.
-    pub github: GitHubSession,
+    /// machine, and its token is in the keychain rather than in here. In an `Arc` so a command can
+    /// hand a copy of the handle to a thread of its own (`github_sign_out`).
+    pub github: Arc<GitHubSession>,
 }
 
 impl AppState {
@@ -93,7 +94,7 @@ impl AppState {
             watcher: Mutex::new(None),
             written: WrittenHashes::default(),
             lsp: LspSession::default(),
-            github: GitHubSession::default(),
+            github: Arc::new(GitHubSession::default()),
         }
     }
 }
