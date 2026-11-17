@@ -2,8 +2,17 @@
 /target/
 /dist/
 node_modules/
+# Tauri regenerates these permission schemas on every build (tauri-build, from build.rs).
+/src-tauri/gen/schemas/
 
-# The Tectonic sidecar: ~30 MB per platform, fetched by `pnpm fetch-engine` (SPRINTS.md §4).
+# The maintainer's private working notes (sprint plan, bug ledger, agent conventions): a separate
+# Git repository checked out inside this one. The root CLAUDE.md is a one-line local stub that
+# imports notes/CLAUDE.md, and .claude/ holds per-machine Claude Code state.
+/notes/
+/CLAUDE.md
+/.claude/
+
+# The Tectonic sidecar: ~30 MB per platform, fetched by `pnpm fetch-engine`.
 # This also covers the `.download-*` staging directory the fetch script unpacks into, which
 # lives beside its destination so the final rename stays on one filesystem.
 /src-tauri/binaries/*
@@ -39,3 +48,4 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+*.code-workspace

@@ -12,8 +12,7 @@ short on ceremony and long on the things that will save you a round trip.
   or Git, no mobile). A change that breaks one of them will be declined however well it is built.
 - **For anything bigger than a fix, open an issue first.** Say what you want to change and why.
   It is much cheaper to find out that a feature is already planned, or deliberately excluded,
-  before you write it. [`0.1/SPRINTS.md`](0.1/SPRINTS.md) is the plan; its last section lists
-  cards decided but not yet scheduled.
+  before you write it. The roadmap is in `0.1/DESIGN.md` §7.
 - **Small fixes are welcome straight away**: a wrong sentence in an error explanation, a rule
   for a LaTeX error the catalogue misses, a document that builds wrongly, a typo.
 
@@ -72,9 +71,8 @@ display; their headers say how.
 
 ## Bugs you find on the way
 
-Every bug found while working goes in [`bugs-issues-fixes.md`](bugs-issues-fixes.md) the moment you
-find it, not after you fix it, and its entry is updated in place, never deleted. A bug you do not
-fix is still worth an entry.
+A bug you find while working on something else is worth an issue the moment you find it, even if
+you do not fix it, so that it survives to be fixed instead of being forgotten.
 
 ## Pull requests
 
@@ -82,8 +80,8 @@ fix is still worth an entry.
   400 lines of Rust, it is probably two.
 - Say what a reader should learn from the diff, not only what it does.
 - `pnpm verify` must pass. Say so, and say what you ran by hand that it does not cover.
-- Commit messages are `S<sprint>.<loop>: what changed` for work from the plan; for anything else a
-  plain imperative sentence is fine, and the maintainer may reword it.
+- Commit messages are a plain imperative sentence, and the maintainer may reword them. You will see
+  `S<sprint>.<loop>:` prefixes in the history: those are the maintainer's units of planned work.
 
 ## Reporting a security problem
 

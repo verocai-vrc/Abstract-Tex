@@ -1,4 +1,4 @@
-# The loop gate on every platform we ship to (SPRINTS.md §1, rungs 1–3; S2.8).
+# The verification gate on every platform we ship to (S2.8).
 #
 # One job, three runners. Each does what a developer does on a fresh machine, in the order
 # README.md's "Building" section gives: install, fetch the engine, build the frontend, verify.

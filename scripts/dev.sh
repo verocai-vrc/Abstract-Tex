@@ -5,8 +5,7 @@
 # GTK finds *its own* modules. A child process inherits them, and the app's GTK then loads the
 # snap's older libc-era modules and dies at startup with
 #   symbol lookup error: /snap/core20/.../libpthread.so.0: undefined symbol: __libc_pthread_init
-# (bugs-issues-fixes.md, "pnpm tauri dev fails"). A terminal opened outside the snap has none of
-# this and does not need the script; outside a snap it changes nothing and just runs the command.
+# A terminal opened outside the snap has none of this and does not need the script; outside a snap it changes nothing and just runs the command.
 #
 # Usage: scripts/dev.sh [extra args for `pnpm tauri dev`]
 #        ABSTRACT_TEX_OPEN="$PWD/fixtures/paper" scripts/dev.sh

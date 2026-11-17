@@ -9,11 +9,8 @@ build and test it.
 | File | What it holds |
 | --- | --- |
 | [`0.1/DESIGN.md`](0.1/DESIGN.md) | Architecture, the six commitments that settle arguments, non-goals, stack rationale, the milestone roadmap, risks and open decisions. Authoritative: code follows it. |
-| [`0.1/SPRINTS.md`](0.1/SPRINTS.md) | The sprint plan as numbered loops (`S<sprint>.<loop>`), each with a verification command and a done-when clause, and the recorded outcome of every loop run so far. The live project status is its §3. |
-| [`bugs-issues-fixes.md`](bugs-issues-fixes.md) | The bug ledger. Every bug found gets an entry the moment it is found, and the entry is updated in place, never deleted. |
-| [`user-suggested-features.md`](user-suggested-features.md) | Feature requests from early testers, not yet planned. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to propose a change, the code style, and what a pull request must show. |
-| [`CLAUDE.md`](CLAUDE.md) | Conventions for anyone working here, human or agent: code style, error handling, commit messages. |
+| [`CHANGELOG.md`](CHANGELOG.md) | What each release contains, and what it knowingly does not do. |
 | [`fixtures/corpus/README.md`](fixtures/corpus/README.md) | The golden corpus of eight real documents, what building them found, and the measured build times. |
 
 ## Status in detail
@@ -35,9 +32,9 @@ criterion that must be demonstrated on a real document before it counts as done
 | v0.9 | 16 | It ships | A stranger installs it on a clean machine and compiles their paper without reading anything |
 | v1.0 | — | Public release | Announced |
 
-As of sprint 9, the features of v0.1–v0.4 are in the code, but several of their loops are still
-marked `[~]`: the code and its tests are done, and a manual smoke run in the app or an exit demo
-is outstanding. [`0.1/SPRINTS.md`](0.1/SPRINTS.md) §3 says which ones and why.
+The features of v0.1–v0.8 are in the code, and the release is tagged v0.8.0. Two exit criteria
+are not met: v0.5's 1.2 s target on the bundled engine, and v0.6's two-machine demo, which has not
+been performed. The [README](README.md#versions) has the status of each milestone.
 
 Sixteen sprints is roughly seven and a half months at full time. Solo and part-time, plan for
 double. This project is also how its maintainer is learning Rust, so the early sprints ran
@@ -68,7 +65,7 @@ The full rationale, including what was rejected and why, is in `DESIGN.md` §4.
 ## Repository layout
 
 ```
-0.1/                            design document and sprint plan for the v0.1 line
+0.1/                            the design document
 crates/abstract-tex-engine/     Engine trait, Tectonic and latexmk subprocesses (no Tauri, testable alone)
 crates/abstract-tex-reconcile/  text diff → CRDT operations, with property tests
 crates/abstract-tex-includes/   the \input/\include graph
@@ -122,10 +119,10 @@ Things that trip people up:
   `\write18` (and `minted` through it) runs with the build folder as its working directory, on
   either engine, so its output stays out of the source tree. The cost: a command handed a
   project-relative path — `\write18{cat code/x.py}` — finds nothing. There is no general fix; it
-  is a known limitation (ledger, *Won't fix*).
+  is a known limitation.
 - **Turning shell-escape consent on or off makes the next latexmk build a full one.** The consent
   changes the engine's command line, so a system-engine build starts from scratch once. Expected,
-  not a bug (ledger, *Won't fix*).
+  not a bug.
 
 [`.github/workflows/verify.yml`](.github/workflows/verify.yml) runs on Linux, Windows and macOS
 for every push: it fetches the sidecars, builds the frontend, runs `pnpm verify` and the
@@ -133,13 +130,13 @@ real-engine fixture build, and builds the app crate.
 
 ## Working on the code
 
-- Work is done in loops from `0.1/SPRINTS.md`, one commit per loop, with the message
-  `S<sprint>.<loop>: <what changed>`.
+- The maintainer works in numbered loops, one commit per loop, with the message
+  `S<sprint>.<loop>: <what changed>`; code comments cite those numbers, and
+  `git log --grep 'S7.3:'` finds the commit behind one.
 - Rust here is written for a reader who is learning it: descriptive names, a short comment the
-  first time a construct appears in a file, and a `//!` doc comment on every module. `CLAUDE.md`
-  has the full list.
-- Any bug you find goes into `bugs-issues-fixes.md` straight away, even if you are in the middle
-  of something else.
+  first time a construct appears in a file, and a `//!` doc comment on every module.
+  [`CONTRIBUTING.md`](CONTRIBUTING.md) has the full list.
+- Any bug you find gets an issue straight away, even if you are in the middle of something else.
 
 ## Licensing
 

@@ -27,8 +27,7 @@ ABSTRACT_TEX_RECORD_CORPUS=1 cargo test -p abstract-tex-engine --test corpus -- 
 ```
 
 On the maintainer's Windows machine the engine cannot resolve DNS by itself; run
-`python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1:3128` first
-(`bugs-issues-fixes.md`).
+`python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1:3128` first.
 
 ## What building it found
 

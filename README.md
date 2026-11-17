@@ -16,8 +16,8 @@ Your project stays a plain folder of `.tex` and `.bib` files. Abstract-Tex adds 
 sources that another editor would not understand, and you can stop using it at any time without
 converting anything.
 
-> **Pre-release.** Abstract-Tex is under active development. There are no installers or tagged
-> releases yet; to try it, build it from source as described in [Quick start](#quick-start).
+> **Pre-release.** Abstract-Tex is under active development. The current release, v0.8.0, is
+> source only: there are no installers yet, so build it as described in [Quick start](#quick-start).
 
 ---
 
@@ -158,8 +158,10 @@ CodeMirror 6, Yjs and pdf.js for the interface.
 
 ## Versions
 
-The current version is **0.1.0**, unreleased: no version has been tagged yet, and `main` is the
-development line. Work is organised in milestones, each ending in something usable.
+The current version is **0.8.0**, a source-only pre-release; [`CHANGELOG.md`](CHANGELOG.md) says
+what it contains and what it does not. `main` is the development line. Work is organised in
+milestones, each ending in something usable, and the version number names the last milestone
+whose features are all in.
 
 | Milestone | Theme | Status |
 | --- | --- | --- |
@@ -167,7 +169,7 @@ development line. Work is organised in milestones, each ending in something usab
 | v0.2 | **It navigates**: language server, SyncTeX, multi-file projects, command palette | Implemented, in pre-release testing |
 | v0.3 | **It explains itself**: every error traced to its file and line and explained in plain language | Implemented, in pre-release testing |
 | v0.4 | **It cites**: citation completion, paste-to-cite, Zotero, bibliography checks | Implemented, in pre-release testing |
-| v0.5 | **It's fast**: single-pass warm builds, system TeX engines, a performance gate in CI | Implemented; the 1.2 s target is not met for a sixty-page thesis on the bundled engine (see `0.1/SPRINTS.md`) |
+| v0.5 | **It's fast**: single-pass warm builds, system TeX engines, a performance gate in CI | Implemented; the 1.2 s target is not met for a sixty-page thesis on the bundled engine (see [`CHANGELOG.md`](CHANGELOG.md)) |
 | v0.6 | **It syncs**: history and sync through any Git remote, conflicts shown as plain paragraphs | Implemented, in pre-release testing; the two-machine demo is not yet performed |
 | v0.7 | **It assists**: an optional prose assistant using your own API key, unable to invent citations | Implemented, in pre-release testing |
 | v0.8 | **It shares, live**: real-time co-editing through a self-hostable relay | Implemented; the exit demo passes against the real relay |
@@ -257,14 +259,17 @@ the bundled engine instead.
 
 - The bundled engine does not include Biber. Use `biblatex` with `backend=bibtex`, or switch the
   project to a system engine.
-- Shell escape is disabled, so packages that run external programs, such as `minted`, do not
-  build yet.
+- Shell escape, which packages such as `minted` need, is off until you allow it for a project
+  folder on your machine. Commands then run in the build folder, so a project-relative path in
+  `\write18` finds nothing.
 - With the bundled engine, `fontspec` finds fonts by file name (`\setmainfont{FreeSerif.otf}`),
   not by family name (`\setmainfont{DejaVu Serif}`).
 - There are no installers yet. Live sessions need a relay you run yourself; a relay's address is
   typed into the Share window each time.
-- Comments are kept on a Git ref of their own. They are not yet pushed with *Sync*, so for now
-  they stay on the machine that wrote them.
+- Comments travel with *Sync* on a Git ref of their own; this has not yet been tried between two
+  real machines.
+- Signing in to GitHub from a source build needs a GitHub OAuth app's client ID in the
+  `ABSTRACT_TEX_GITHUB_CLIENT_ID` environment variable; without one, the app says so.
 - Screen-reader support has been checked by reading the markup, not yet with a screen reader.
 
 ---

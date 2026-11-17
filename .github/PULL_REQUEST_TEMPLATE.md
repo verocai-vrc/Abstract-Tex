@@ -7,7 +7,7 @@
 - [ ] `pnpm verify` passes
 - [ ] I ran the app and looked at the change (say what you did), or it has nothing to see
 - [ ] Tests for the change are in this pull request
-- [ ] A bug I found along the way has an entry in `bugs-issues-fixes.md`
+- [ ] A bug I found along the way and did not fix has an issue
 
 ## Does it keep the project's rules?
 
