@@ -76,7 +76,9 @@ function isArxivIdShape(id: string): boolean {
   if (dot !== -1) {
     const yymm = withoutVersion.slice(0, dot);
     const rest = withoutVersion.slice(dot + 1);
-    return yymm.length === 4 && /^\d{4}$/.test(yymm) && rest.length > 0 && rest.length <= 5 && /^\d+$/.test(rest);
+    // The month is 01-12 and the number is four or five digits: without them `1250.5` is "an id"
+    // (review finding R8.22). Same rule as `is_year_and_month` in Rust.
+    return /^\d{2}(?:0[1-9]|1[0-2])$/.test(yymm) && /^\d{4,5}$/.test(rest);
   }
   const slash = withoutVersion.indexOf('/');
   if (slash !== -1) {

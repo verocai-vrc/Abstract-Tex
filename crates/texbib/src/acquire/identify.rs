@@ -92,7 +92,8 @@ fn looks_like_arxiv_id(candidate: &str) -> Option<String> {
     is_arxiv_id_shape(&normalized).then_some(normalized)
 }
 
-/// `YYMM.NNNNN[vN]` (new-style, 2007 onward) or `archive/YYMMNNN` (old-style) — the two shapes
+/// `YYMM.NNNN[vN]` or `YYMM.NNNNN[vN]` (new-style, 2007 onward: four digits after the dot up to
+/// December 2014, five from January 2015) or `archive/YYMMNNN` (old-style) — the two shapes
 /// [`crate::acquire::arxiv::normalize_arxiv_id`]'s own doc comment names, the version suffix
 /// included since `normalize_arxiv_id` deliberately keeps it rather than stripping it (only
 /// `arxiv::fetch_arxiv_with`'s own `eprint`/`url` fields strip it, for the reason its comment
@@ -101,10 +102,8 @@ fn looks_like_arxiv_id(candidate: &str) -> Option<String> {
 fn is_arxiv_id_shape(id: &str) -> bool {
     let without_version = strip_version_suffix(id);
     if let Some((yymm, rest)) = without_version.split_once('.') {
-        return yymm.len() == 4
-            && yymm.bytes().all(|b| b.is_ascii_digit())
-            && !rest.is_empty()
-            && rest.len() <= 5
+        return is_year_and_month(yymm)
+            && (rest.len() == 4 || rest.len() == 5)
             && rest.bytes().all(|b| b.is_ascii_digit());
     }
     if let Some((archive, digits)) = without_version.split_once('/') {
@@ -116,6 +115,19 @@ fn is_arxiv_id_shape(id: &str) -> bool {
             && digits.bytes().all(|b| b.is_ascii_digit());
     }
     false
+}
+
+/// `YYMM`: four digits whose last two are a month, 01 to 12 (the first new-style id is `0704.0001`,
+/// April 2007). Without the month and the four-or-five-digit number after the dot, any decimal
+/// number such as `1250.5` or `3000.25` was "an arXiv id", and pasting it into a table swallowed
+/// it and sent it to arxiv.org (review finding R8.22).
+fn is_year_and_month(yymm: &str) -> bool {
+    let digits = yymm.as_bytes();
+    if digits.len() != 4 || !digits.iter().all(u8::is_ascii_digit) {
+        return false;
+    }
+    let month = (digits[2] - b'0') * 10 + (digits[3] - b'0');
+    (1..=12).contains(&month)
 }
 
 /// A run of exactly 10 or 13 digits once hyphens/spaces are stripped, the last character of a
