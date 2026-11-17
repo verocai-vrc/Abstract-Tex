@@ -70,6 +70,13 @@ pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayou
     if draft.dir == job.out_dir || draft.dir.parent() != job.out_dir.parent() {
         return Ok(None);
     }
+    // The folder is deleted from and written into, and both follow a link standing at its name. A
+    // cloned repository can carry `.abstract-tex/draft` as one, and a `sync` can bring one while the
+    // project is open, so this is asked here, every time (R8.9). `symlink_metadata` looks at the name
+    // itself. No draft is made, which is never an error: the full build runs.
+    if fs::symlink_metadata(&draft.dir).is_ok_and(|found| found.file_type().is_symlink()) {
+        return Ok(None);
+    }
     let Ok(dir_in_project) = draft.dir.strip_prefix(&job.project_dir) else {
         return Ok(None);
     };
@@ -100,7 +107,13 @@ pub fn prepare(job: &BuildJob, draft: &DraftJob) -> io::Result<Option<DraftLayou
          \\includeonly{{{}}}\n\\input{{{root_from_wrapper}}}\n",
         draft.chapter
     );
-    fs::write(draft.dir.join(&wrapper_name), wrapper_text)?;
+    // `fs::write` opens the name and so writes through a link standing there (R8.9). Whatever is at
+    // that name in the draft folder is disposable, so a link is taken away and the file written fresh.
+    let wrapper_path = draft.dir.join(&wrapper_name);
+    if fs::symlink_metadata(&wrapper_path).is_ok_and(|found| found.file_type().is_symlink()) {
+        fs::remove_file(&wrapper_path)?;
+    }
+    fs::write(&wrapper_path, wrapper_text)?;
 
     Ok(Some(DraftLayout {
         wrapper: dir_in_project.join(wrapper_name),
@@ -326,6 +339,63 @@ mod tests {
         )
         .unwrap();
         assert_eq!(spaced_root, None);
+    }
+
+    /// R8.9's sibling: `.abstract-tex/draft` carried as a link by a cloned repository, or brought by a
+    /// `sync`. `prepare` deletes `<draft>/build` and writes `<root>.tex` into the folder, so through a
+    /// link it removed a folder and overwrote a file of the same name in someone else's folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_draft_folder_that_is_a_link_gets_no_draft_and_nothing_behind_it_is_touched() {
+        let project = built_project();
+        let someone_elses = tempfile::tempdir().unwrap();
+        fs::create_dir_all(someone_elses.path().join("build")).unwrap();
+        fs::write(someone_elses.path().join("build/figure.pdf"), "theirs").unwrap();
+        fs::write(someone_elses.path().join("main.tex"), "their thesis").unwrap();
+        std::os::unix::fs::symlink(someone_elses.path(), project.path().join(".abstract-tex/draft")).unwrap();
+
+        let result = prepare(
+            &job(project.path(), "main.tex"),
+            &draft(project.path(), "chapters/two"),
+        )
+        .unwrap();
+
+        assert_eq!(result, None, "a link was used as the draft folder");
+        assert_eq!(
+            fs::read_to_string(someone_elses.path().join("main.tex")).unwrap(),
+            "their thesis"
+        );
+        assert!(
+            someone_elses.path().join("build/figure.pdf").exists(),
+            "a folder was deleted through the link"
+        );
+    }
+
+    /// The wrapper file itself carried as a link: `fs::write` follows it, so the target was overwritten.
+    /// The draft folder is the app's and disposable, so the link is replaced by the file it should be.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_where_the_wrapper_goes_is_replaced_and_its_target_is_not_written() {
+        let project = built_project();
+        let target = tempfile::tempdir().unwrap();
+        let victim = target.path().join("thesis.tex");
+        fs::write(&victim, "the author's own file").unwrap();
+        fs::create_dir_all(project.path().join(".abstract-tex/draft")).unwrap();
+        std::os::unix::fs::symlink(&victim, project.path().join(".abstract-tex/draft/main.tex")).unwrap();
+
+        let layout = prepare(
+            &job(project.path(), "main.tex"),
+            &draft(project.path(), "chapters/two"),
+        )
+        .unwrap()
+        .expect("the draft is still made: only the link is in the way");
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "the author's own file");
+        let wrapper = project.path().join(&layout.wrapper);
+        assert!(!fs::symlink_metadata(&wrapper).unwrap().file_type().is_symlink());
+        assert!(fs::read_to_string(&wrapper)
+            .unwrap()
+            .contains("\\includeonly{chapters/two}"));
     }
 
     #[test]
