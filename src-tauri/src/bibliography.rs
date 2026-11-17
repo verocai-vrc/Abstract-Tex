@@ -931,7 +931,9 @@ pub fn scan_citations(source: &str) -> Vec<(String, u32)> {
             for key in argument
                 .split(',')
                 .map(str::trim)
-                .filter(|key| !key.is_empty() && *key != "*")
+                // `#1` is a macro's parameter (`\newcommand{\mycite}[1]{\cite{#1}}`), not a key: BibTeX
+                // keys cannot contain `#` (review finding R8.17).
+                .filter(|key| !key.is_empty() && *key != "*" && !key.contains('#'))
             {
                 citations.push((key.to_string(), line));
             }
@@ -1917,6 +1919,20 @@ mod tests {
             "{}",
             finding.message
         );
+    }
+
+    // R8.17. A macro that wraps `\\cite` passes its argument on as `#1`. `#` cannot be in a BibTeX key,
+    // so `#1` is not one; it was reported as "'#1' is cited but no entry defines it", an error, for a
+    // document that is fine.
+    #[test]
+    fn a_macro_parameter_inside_cite_is_not_a_citation() {
+        let source =
+            "\\newcommand{\\mycite}[1]{\\cite{#1}}\\def\\other#1{\\citep[p.~2]{#1,real}}\n\\mycite{real}\n";
+        let keys: Vec<String> = scan_citations(source)
+            .into_iter()
+            .map(|(key, _line)| key)
+            .collect();
+        assert_eq!(keys, vec!["real".to_string(), "real".to_string()], "{keys:?}");
     }
 
     // ---- scanners ----
