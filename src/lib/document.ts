@@ -51,6 +51,18 @@ function inLineEnding(text: string, ending: LineEnding): string {
   return ending === 'crlf' ? text.replace(/\n/g, '\r\n') : text;
 }
 
+/** The byte-order mark, as the character a decoder gives for the three bytes `EF BB BF` (R8.1). */
+const BYTE_ORDER_MARK = '\uFEFF';
+
+function hasByteOrderMark(text: string): boolean {
+  return text.startsWith(BYTE_ORDER_MARK);
+}
+
+/** The text as the buffer holds it: no byte-order mark and `\n` line endings. */
+function asBuffer(diskText: string): string {
+  return toLf(hasByteOrderMark(diskText) ? diskText.slice(1) : diskText);
+}
+
 /** The outcome of the decision table below. */
 export type ExternalChange = 'ignore' | 'apply' | 'conflict' | 'vanished';
 
@@ -92,6 +104,12 @@ export function decideExternalChange(facts: ExternalChangeFacts): ExternalChange
  * back when the text is written, so a CRLF file is read, edited and saved as CRLF and one that nobody
  * touched is never rewritten. A file that mixes the two is written back with the majority's, which
  * changes the line endings of the minority and nothing else.
+ *
+ * **The buffer never holds a byte-order mark either** (R8.1). It is not text: it is three bytes at the
+ * start of the file that say how the rest is encoded. Held as a character it sat at position 0, so a
+ * line typed at the top of the file went in front of it and the file was written with the mark in the
+ * middle, where the engine reads it as a character of the document. Like the line ending, it is
+ * remembered and put back first when the text is written.
  */
 export class OpenDocument {
   readonly ydoc = new Y.Doc();
@@ -124,6 +142,8 @@ export class OpenDocument {
   private lastSavedText: string | null;
   /** The line ending the file on disk has, learned whenever disk text is seen (R7.11). */
   private lineEnding: LineEnding;
+  /** Whether the file on disk starts with a byte-order mark, learned the same way (R8.1). */
+  private byteOrderMark: boolean;
   /** Whether the last autosave failed and has not yet been followed by one that worked. */
   private saveFailing = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -138,7 +158,8 @@ export class OpenDocument {
   ) {
     this.ytext = this.ydoc.getText('content');
     this.lineEnding = lineEndingOf(initialText);
-    const text = toLf(initialText);
+    this.byteOrderMark = hasByteOrderMark(initialText);
+    const text = asBuffer(initialText);
     this.ydoc.transact(() => this.ytext.insert(0, text), ORIGIN_LOAD);
     this.lastSavedText = text;
 
@@ -160,17 +181,26 @@ export class OpenDocument {
    * line it falls on: the buffer's `\n`-only text would put it a line further on per line break.
    */
   textAsOnDisk(): string {
-    return inLineEnding(this.text(), this.lineEnding);
+    return this.asOnDisk(this.text());
+  }
+
+  /** `bufferText` as the file spells it: its line ending, and its byte-order mark first if it has one. */
+  private asOnDisk(bufferText: string): string {
+    const text = inLineEnding(bufferText, this.lineEnding);
+    return this.byteOrderMark ? BYTE_ORDER_MARK + text : text;
   }
 
   /**
-   * Whether `diskText` is what the buffer holds, apart from how it ends its lines. Also learns the
-   * file's line ending from it: a file checked out again with the other one is still this file, and
-   * the next save should keep what is on disk now rather than turn it back.
+   * Whether `diskText` is what the buffer holds, apart from how it ends its lines and whether it
+   * starts with a byte-order mark. Also learns both from it: a file checked out again with the other
+   * ending is still this file, and the next save should keep what is on disk now rather than turn it back.
    */
   matchesDisk(diskText: string): boolean {
-    const same = toLf(diskText) === this.text();
-    if (same) this.lineEnding = lineEndingOf(diskText);
+    const same = asBuffer(diskText) === this.text();
+    if (same) {
+      this.lineEnding = lineEndingOf(diskText);
+      this.byteOrderMark = hasByteOrderMark(diskText);
+    }
     return same;
   }
 
@@ -276,7 +306,7 @@ export class OpenDocument {
       return false;
     }
     try {
-      await this.backend.writeFile(this.path, inLineEnding(snapshot, this.lineEnding));
+      await this.backend.writeFile(this.path, this.asOnDisk(snapshot));
     } catch (error) {
       // The timer was cancelled above, so whoever is saving, a failed write has to leave one behind:
       // `autosave` used to be the only caller that re-armed it, and a build's save-all, a closing tab
@@ -305,8 +335,9 @@ export class OpenDocument {
    * the next autosave overwrite it).
    */
   async applyExternal(rawDiskText: string): Promise<boolean> {
-    // The buffer and its diff are `\n`-only (R7.11); only the file on disk has a say in the line ending.
-    const diskText = toLf(rawDiskText);
+    // The buffer and its diff are `\n`-only and start with no byte-order mark (R7.11, R8.1); only the
+    // file on disk has a say in the line ending and the mark.
+    const diskText = asBuffer(rawDiskText);
     // The diff is computed asynchronously (in Rust). If the author types in between, the ops
     // would land on the wrong indices, so we re-check and retry a couple of times.
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -322,6 +353,7 @@ export class OpenDocument {
         }, ORIGIN_EXTERNAL);
       }
       this.lineEnding = lineEndingOf(rawDiskText);
+      this.byteOrderMark = hasByteOrderMark(rawDiskText);
       this.lastSavedText = diskText;
       this.setDirty(this.text() !== diskText);
       return true;

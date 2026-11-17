@@ -372,6 +372,105 @@ describe('decideExternalChange', () => {
   });
 });
 
+// R8.1. A file that starts with a byte-order mark (what older Windows editors leave, three bytes `EF BB BF`)
+// came in as a `U+FEFF` character at the start of the buffer. The caret can sit in front of it, so a line
+// typed at the top of the file went before the mark and the file was written with the mark in the middle,
+// which the engine reads as a character in the text: "Missing \begin{document}" over a dot nobody can read.
+describe('a file that starts with a byte-order mark (R8.1)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const mark = '\uFEFF';
+  const withMark = `${mark}\\documentclass{article}\nbody\n`;
+
+  it('is held without the mark, so nothing can be typed in front of it', () => {
+    const { backend } = fakeBackend();
+    const doc = new OpenDocument('main.tex', withMark, backend);
+    expect(doc.text()).toBe('\\documentclass{article}\nbody\n');
+    doc.dispose();
+  });
+
+  it('is written back with the mark first, and a line typed at the top comes after it', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', withMark, backend);
+    doc.ytext.insert(0, '% my paper\n'); // the caret at the very start of the file, as Ctrl Home puts it
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.contents).toBe(`${mark}% my paper\n\\documentclass{article}\nbody\n`);
+    expect(writes[0]!.contents.indexOf(mark)).toBe(0);
+    doc.dispose();
+  });
+
+  it('is not rewritten when nothing changed: the three bytes stay as they were', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', withMark, backend);
+    expect(await doc.save()).toBe(false);
+    expect(writes).toEqual([]);
+    doc.dispose();
+  });
+
+  it('does not put a mark on a file that had none', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', 'a\nb\n', backend);
+    doc.ytext.insert(0, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents).toBe('Xa\nb\n');
+    doc.dispose();
+  });
+
+  it('keeps the mark and a CRLF ending together', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', `${mark}a\r\nb\r\n`, backend);
+    expect(doc.text()).toBe('a\nb\n');
+    doc.ytext.insert(0, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents).toBe(`${mark}Xa\r\nb\r\n`);
+    doc.dispose();
+  });
+
+  it('recognises its own file on disk with or without the mark, and learns a change of it', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', withMark, backend);
+    expect(doc.matchesDisk(withMark)).toBe(true);
+    expect(doc.matchesDisk(withMark.slice(1))).toBe(true); // saved again by an editor that drops the mark
+    expect(doc.matchesDisk(`${withMark}more`)).toBe(false);
+    // The file has no mark on disk now, so the next save keeps it that way rather than putting it back.
+    doc.ytext.insert(0, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents).toBe('X\\documentclass{article}\nbody\n');
+    doc.dispose();
+  });
+
+  it('folds an external change in without calling the mark a change, and learns it from the new text', async () => {
+    const { backend, writes } = fakeBackend();
+    const diffs: Array<[string, string]> = [];
+    const spying: DocumentBackend = {
+      ...backend,
+      diffOps: async (oldText, newText) => {
+        diffs.push([oldText, newText]);
+        return backend.diffOps(oldText, newText);
+      },
+    };
+    const doc = new OpenDocument('main.tex', withMark, spying);
+    expect(await doc.applyExternal(withMark)).toBe(true); // the same file again: nothing to diff
+    expect(diffs).toEqual([]);
+
+    expect(await doc.applyExternal('\\documentclass{article}\nBODY\n')) .toBe(true); // rewritten with no mark
+    expect(diffs).toEqual([['\\documentclass{article}\nbody\n', '\\documentclass{article}\nBODY\n']]);
+    doc.ytext.insert(0, 'X');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(writes[0]!.contents.startsWith(mark)).toBe(false);
+    doc.dispose();
+  });
+
+  it('gives the text as it is on disk when a byte offset from Rust has to be turned into a line', () => {
+    const { backend } = fakeBackend();
+    const doc = new OpenDocument('refs.bib', `${mark}@a{k1,}\n`, backend);
+    expect(doc.textAsOnDisk()).toBe(`${mark}@a{k1,}\n`);
+    doc.dispose();
+  });
+});
+
 // R7.11. CodeMirror counts a line break as one position and splits on "\r\n"; a Y.Text that holds
 // "\r\n" counts two. y-codemirror hands CodeMirror's positions to Yjs unchanged, so every edit after
 // the first line break of a CRLF file landed one character early per line break before it.
