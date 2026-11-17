@@ -46,13 +46,45 @@ pub fn identify(pasted: &str) -> Option<Identified> {
     None
 }
 
-/// A DOI always contains a `10.` registrant prefix somewhere in it, wrapped or bare — the one
-/// structural fact [`crate::acquire::doi::normalize_doi`] does not itself check, since that
-/// function only strips a wrapper and trusts doi.org to judge the rest. `identify` is the one
-/// place that does judge, so a plain sentence is never sent to doi.org as if it might be one.
+/// A DOI is one word shaped `10.<registrant>/<suffix>`, wrapped or bare — the structural facts
+/// [`crate::acquire::doi::normalize_doi`] does not itself check, since that function only strips a
+/// wrapper and trusts doi.org to judge the rest. `identify` is the one place that does judge, so
+/// ordinary text is never sent to doi.org as if it might be one (review finding R8.18: a paste that
+/// merely began `10.` — "10. Conclusion", "10.5 mg was dissolved…" — used to be, and the whole of it
+/// went out as part of the URL).
 fn looks_like_doi(candidate: &str) -> Option<String> {
     let normalized = normalize_doi(candidate);
-    normalized.starts_with("10.").then_some(normalized)
+    is_doi_shape(&normalized).then_some(normalized)
+}
+
+/// `10.` + a registrant code + `/` + a suffix, with no whitespace anywhere: a DOI is never written
+/// with a space in it, so a paste that has one is a DOI *followed by something*, and that something
+/// would be sent to doi.org along with it. The registrant code is digits, with optional `.`-separated
+/// sub-divisions (`10.1000.10/123456`), and its first group is at least four digits long — every
+/// registrant code issued is, and it is what keeps a ratio such as `10.5/12` out. The suffix is
+/// anything non-empty: old publisher DOIs carry parentheses, colons, brackets and semicolons.
+fn is_doi_shape(doi: &str) -> bool {
+    if doi.chars().any(char::is_whitespace) {
+        return false;
+    }
+    // `let … else` binds on a match and runs its `else` block (which must leave the function) when
+    // there is none — a flat way to say "give up unless the text has this shape", where a chain of
+    // `if let` would nest one level deeper per step.
+    let Some(after_prefix) = doi.strip_prefix("10.") else {
+        return false;
+    };
+    let Some((registrant, suffix)) = after_prefix.split_once('/') else {
+        return false;
+    };
+    if suffix.is_empty() {
+        return false;
+    }
+    let mut groups = registrant.split('.');
+    let first_group_is_long_enough = groups
+        .next()
+        .is_some_and(|group| group.len() >= 4 && group.bytes().all(|byte| byte.is_ascii_digit()));
+    first_group_is_long_enough
+        && groups.all(|group| !group.is_empty() && group.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 fn looks_like_arxiv_id(candidate: &str) -> Option<String> {
@@ -90,10 +122,15 @@ fn is_arxiv_id_shape(id: &str) -> bool {
 /// 10-digit ISBN allowed to be a literal `X` check digit (ISBN-10's own rule; ISBN-13 has none).
 fn looks_like_isbn(candidate: &str) -> Option<String> {
     let normalized = normalize_isbn(candidate);
-    let is_isbn_10 = normalized.len() == 10
-        && normalized[..9].bytes().all(|b| b.is_ascii_digit())
-        && matches!(normalized.as_bytes()[9], b'0'..=b'9' | b'X');
-    let is_isbn_13 = normalized.len() == 13 && normalized.bytes().all(|b| b.is_ascii_digit());
+    // Bytes, not a `str` slice: `normalized[..9]` panics when byte 9 falls inside a multi-byte
+    // letter, and `normalized` is whatever the author pasted (review finding R8.19: `Jean-André`
+    // is ten bytes once the hyphen goes, and the `é` straddles byte 9). On bytes the same test is
+    // simply false for any non-ASCII text.
+    let bytes = normalized.as_bytes();
+    let is_isbn_10 = bytes.len() == 10
+        && bytes[..9].iter().all(u8::is_ascii_digit)
+        && matches!(bytes[9], b'0'..=b'9' | b'X');
+    let is_isbn_13 = bytes.len() == 13 && bytes.iter().all(u8::is_ascii_digit);
     (is_isbn_10 || is_isbn_13).then_some(normalized)
 }
 
@@ -196,6 +233,107 @@ mod tests {
     fn a_run_of_the_wrong_digit_count_identifies_as_nothing() {
         assert_eq!(identify("12345"), None);
         assert_eq!(identify("123456789012345"), None);
+    }
+
+    /// `tests/identify-cases.json` is read by this test and by `src/lib/editor/paste.test.ts`: the
+    /// editor decides in TypeScript, before any IPC, whether to swallow a paste, and a paste it
+    /// swallows that this function then refuses is lost. One table, two readers, so they cannot drift.
+    #[test]
+    fn the_shared_cases_are_answered_as_written() {
+        let table: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/identify-cases.json")).expect("the table is JSON");
+        let cases = table["cases"].as_array().expect("the table has a list of cases");
+        assert!(cases.len() > 20, "the table was emptied");
+        for case in cases {
+            let paste = case["paste"].as_str().expect("every case has a paste");
+            let normalized = || {
+                case["identified"]["normalized"]
+                    .as_str()
+                    .expect("a normalized form")
+                    .to_string()
+            };
+            let expected = match case["identified"]["kind"].as_str() {
+                None => None,
+                Some("doi") => Some(Identified::Doi(normalized())),
+                Some("arxiv") => Some(Identified::Arxiv(normalized())),
+                Some("isbn") => Some(Identified::Isbn(normalized())),
+                Some(other) => panic!("unknown kind {other:?} in the table"),
+            };
+            assert_eq!(identify(paste), expected, "{paste:?}");
+        }
+    }
+
+    // Review finding R8.18: `looks_like_doi` accepted anything that began `10.`, so a numbered heading
+    // or a measurement was "a DOI", and the editor sent the whole paste to doi.org.
+    #[test]
+    fn text_that_merely_begins_with_ten_point_is_not_a_doi() {
+        for prose in [
+            "10. Conclusion",
+            "10.5 mg of the compound was dissolved in 2 ml of ethanol and stirred.",
+            "10.5% of the sample failed.",
+            "10.000 samples were collected over two years",
+            // A ratio has a slash, but a registrant code is never one digit long.
+            "10.5/12",
+        ] {
+            assert_eq!(identify(prose), None, "{prose:?} is prose, not a DOI");
+        }
+    }
+
+    #[test]
+    fn a_doi_followed_by_more_text_is_not_a_doi() {
+        // Whatever follows a DOI would be sent to doi.org as part of it.
+        assert_eq!(identify("10.1000/xyz123 is the DOI of the paper I mean"), None);
+        assert_eq!(
+            identify("10.1000/xyz123\nAnd then a paragraph of the manuscript."),
+            None
+        );
+        assert_eq!(identify("https://doi.org/10.1000/xyz123 and more"), None);
+    }
+
+    #[test]
+    fn a_doi_with_the_odd_characters_real_ones_have_is_still_identified() {
+        // Old Wiley DOIs carry parentheses, colons, angle brackets and semicolons.
+        let wiley = "10.1002/(SICI)1097-4636(199706)35:3<345::AID-JBM8>3.0.CO;2-N";
+        assert_eq!(identify(wiley), Some(Identified::Doi(wiley.to_string())));
+        // A registrant code may carry a sub-division.
+        assert_eq!(
+            identify("10.1000.10/123456"),
+            Some(Identified::Doi("10.1000.10/123456".to_string()))
+        );
+        // The `doi:` scheme, in any capitals, and surrounding whitespace.
+        assert_eq!(
+            identify("  DOI: 10.1371/journal.pcbi.1000387\n"),
+            Some(Identified::Doi("10.1371/journal.pcbi.1000387".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_doi_prefix_with_nothing_after_the_slash_is_not_a_doi() {
+        assert_eq!(identify("10.1000/"), None);
+        assert_eq!(identify("10.1000"), None);
+        assert_eq!(identify("10./abc"), None);
+    }
+
+    #[test]
+    fn a_registrant_code_is_digits_and_dots_and_nothing_else() {
+        for not_a_doi in [
+            "10.abcd/xyz",
+            "10.1000x/xyz",
+            "10.1000..5/xyz",
+            "10.1000./xyz",
+            "10.1000.a/xyz",
+        ] {
+            assert_eq!(identify(not_a_doi), None, "{not_a_doi:?}");
+        }
+    }
+
+    // Review finding R8.19: `normalized[..9]` panics when byte 9 is inside a character.
+    #[test]
+    fn ten_bytes_of_letters_that_are_not_ascii_do_not_panic() {
+        // 5 x 2 bytes, 1 + 3 x 3 bytes, and a hyphenated name that is 10 bytes once the hyphen goes.
+        for pasted in ["ééééé", "a李明李", "Jean-André"] {
+            assert_eq!(identify(pasted), None, "{pasted:?}");
+        }
     }
 
     #[test]

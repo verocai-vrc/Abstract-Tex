@@ -1,0 +1,49 @@
+{
+  "about": "What `identify` must answer for a pasted string. Read by two tests that must agree: `acquire::identify::tests::the_shared_cases_are_answered_as_written` (Rust) and `identify` in src/lib/editor/paste.test.ts (the TypeScript copy the editor uses to decide, synchronously, whether to intercept a paste). A paste the TypeScript copy accepts and Rust refuses is swallowed and then lost, so the two must never differ. `identified` is null for plain text.",
+  "cases": [
+    { "paste": "https://doi.org/10.1109/tcbb.2019.000001", "identified": { "kind": "doi", "normalized": "10.1109/tcbb.2019.000001" } },
+    { "paste": "HTTPS://DOI.ORG/10.1371/journal.pcbi.1000387", "identified": { "kind": "doi", "normalized": "10.1371/journal.pcbi.1000387" } },
+    { "paste": "10.1371/journal.pcbi.1000387", "identified": { "kind": "doi", "normalized": "10.1371/journal.pcbi.1000387" } },
+    { "paste": "  DOI: 10.1371/journal.pcbi.1000387\n", "identified": { "kind": "doi", "normalized": "10.1371/journal.pcbi.1000387" } },
+    { "paste": "10.1002/(SICI)1097-4636(199706)35:3<345::AID-JBM8>3.0.CO;2-N", "identified": { "kind": "doi", "normalized": "10.1002/(SICI)1097-4636(199706)35:3<345::AID-JBM8>3.0.CO;2-N" } },
+    { "paste": "10.1000.10/123456", "identified": { "kind": "doi", "normalized": "10.1000.10/123456" } },
+
+    { "why": "R8.18: text that only begins `10.` was taken for a DOI and sent to doi.org whole", "paste": "10. Conclusion", "identified": null },
+    { "paste": "10.5 mg of the compound was dissolved in 2 ml of ethanol and stirred.", "identified": null },
+    { "paste": "10.5% of the sample failed.", "identified": null },
+    { "paste": "10.000 samples were collected over two years", "identified": null },
+    { "why": "a ratio has a slash, but no registrant code is one digit long", "paste": "10.5/12", "identified": null },
+    { "why": "what follows a DOI would be sent to doi.org as part of it", "paste": "10.1000/xyz123 is the DOI of the paper I mean", "identified": null },
+    { "paste": "10.1000/xyz123\nAnd then a paragraph of the manuscript.", "identified": null },
+    { "paste": "https://doi.org/10.1000/xyz123 and more", "identified": null },
+    { "paste": "10.1000/", "identified": null },
+    { "paste": "10.1000", "identified": null },
+    { "paste": "10./abc", "identified": null },
+    { "paste": "10.abcd/xyz", "identified": null },
+    { "paste": "10.1000x/xyz", "identified": null },
+    { "paste": "10.1000..5/xyz", "identified": null },
+    { "paste": "10.1000./xyz", "identified": null },
+    { "paste": "10.1000.a/xyz", "identified": null },
+
+    { "paste": "arXiv:1706.03762", "identified": { "kind": "arxiv", "normalized": "1706.03762" } },
+    { "paste": "ARXIV:1706.03762", "identified": { "kind": "arxiv", "normalized": "1706.03762" } },
+    { "paste": "1706.03762v7", "identified": { "kind": "arxiv", "normalized": "1706.03762v7" } },
+    { "paste": "hep-th/9901001", "identified": { "kind": "arxiv", "normalized": "hep-th/9901001" } },
+    { "paste": "hep-th/9901001v2", "identified": { "kind": "arxiv", "normalized": "hep-th/9901001v2" } },
+    { "paste": "https://arxiv.org/abs/2101.00001", "identified": { "kind": "arxiv", "normalized": "2101.00001" } },
+    { "paste": "https://arxiv.org/pdf/2101.00001.pdf", "identified": { "kind": "arxiv", "normalized": "2101.00001" } },
+
+    { "paste": "978-0-262-03384-8", "identified": { "kind": "isbn", "normalized": "9780262033848" } },
+    { "paste": "0-262-03384-4", "identified": { "kind": "isbn", "normalized": "0262033844" } },
+
+    { "paste": "", "identified": null },
+    { "paste": "   ", "identified": null },
+    { "paste": "A Probabilistic Model of DNA Folding", "identified": null },
+    { "paste": "https://www.nature.com/articles/s41586-020-2649-2", "identified": null },
+    { "paste": "12345", "identified": null },
+    { "paste": "123456789012345", "identified": null },
+    { "why": "R8.19: ten bytes with no character boundary at byte 9 panicked the Rust side", "paste": "ééééé", "identified": null },
+    { "paste": "a李明李", "identified": null },
+    { "paste": "Jean-André", "identified": null }
+  ]
+}

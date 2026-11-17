@@ -30,6 +30,15 @@ function normalizeDoi(pasted: string): string {
   return trimmed;
 }
 
+/** `texbib::acquire::identify::is_doi_shape`, ported: one word shaped `10.<registrant>/<suffix>`, the
+ * registrant being digits with optional `.`-separated sub-divisions and a first group of at least
+ * four. A paste that only *begins* `10.` ("10. Conclusion", "10.5 mg was…") is text, and swallowing
+ * it would send all of it to doi.org and lose it (review finding R8.18). Kept identical to the Rust
+ * rule: `crates/texbib/tests/identify-cases.json` is checked against both. */
+function isDoiShape(doi: string): boolean {
+  return !/\s/.test(doi) && /^10\.\d{4,}(?:\.\d+)*\/./.test(doi);
+}
+
 /** `texbib::acquire::arxiv::normalize_arxiv_id`, ported. */
 function normalizeArxivId(pasted: string): string {
   const prefixes = ['https://arxiv.org/abs/', 'http://arxiv.org/abs/', 'https://arxiv.org/pdf/', 'http://arxiv.org/pdf/', 'arxiv:'];
@@ -94,7 +103,7 @@ export function identify(pasted: string): Identified | null {
   if (trimmed.length === 0) return null;
 
   const doi = normalizeDoi(trimmed);
-  if (doi.startsWith('10.')) return { kind: 'doi', normalized: doi };
+  if (isDoiShape(doi)) return { kind: 'doi', normalized: doi };
 
   const arxiv = normalizeArxivId(trimmed);
   if (isArxivIdShape(arxiv)) return { kind: 'arxiv', normalized: arxiv };

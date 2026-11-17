@@ -1,7 +1,31 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { describe, expect, it, vi } from 'vitest';
-import { identify, pasteCiteHandler, pasteTracking, trackPaste } from './paste';
+import { identify, pasteCiteHandler, pasteTracking, trackPaste, type Identified } from './paste';
+
+// The cases `texbib::acquire::identify` is tested against, read from the same file. The editor
+// swallows a paste when *this* copy says it is an identifier, and then asks Rust, which re-runs
+// the real `identify`; a paste this copy accepts and Rust refuses is lost. So the two must agree
+// on every row, and a row added for one is checked against the other (review finding R8.18).
+const sharedCases = (
+  JSON.parse(readFileSync(path.resolve('crates/texbib/tests/identify-cases.json'), 'utf8')) as {
+    cases: { paste: string; identified: Identified | null }[];
+  }
+).cases;
+
+describe('identify, on the cases it shares with texbib', () => {
+  it('has the table', () => {
+    expect(sharedCases.length).toBeGreaterThan(20);
+  });
+
+  for (const { paste, identified } of sharedCases) {
+    it(`answers ${JSON.stringify(paste)} as texbib does`, () => {
+      expect(identify(paste)).toEqual(identified);
+    });
+  }
+});
 
 describe('identify', () => {
   it('recognises a doi.org URL, normalized to the bare DOI', () => {
