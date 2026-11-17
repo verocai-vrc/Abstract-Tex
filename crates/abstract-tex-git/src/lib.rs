@@ -56,6 +56,11 @@ pub enum GitError {
     #[error("{0}")]
     Io(#[from] std::io::Error),
 
+    /// R6.7: a name in a commit's tree that would put a file outside the folder it is exported to
+    /// (`..` or an absolute path). The argument is the name, for the sentence.
+    #[error("A file in that version is named \"{0}\", which would write outside the comparison folder, so that version cannot be compared.")]
+    UnsafePath(String),
+
     /// Not a `git2::Error`, because it is the one failure here with an answer the author can act
     /// on, and the app shows it as a sentence rather than as "Git reported: …".
     #[error("Git does not know who you are yet. Set a name and e-mail with `git config --global user.name` and `user.email`, then commit again.")]
@@ -694,9 +699,14 @@ pub fn log(repository: &Repository, skip: usize, limit: usize) -> Result<Vec<Com
 /// same `RefCell`-into-a-shared-closure shape `push`'s own `rejected` uses, and for the same
 /// reason: an `FnMut` closure already borrowing `dest_dir` and `repository` cannot also take
 /// `&mut` of a plain local without the borrow checker correctly refusing it.
+///
+/// A name is only written if every part of its path is a plain name (R6.7). libgit2 reads a tree
+/// that holds `../x` or `/etc/x` without complaint, and `Path::join` with such a name would write
+/// beside the folder, or replace it altogether. Git and GitHub refuse to store such a tree, but this
+/// function is handed whatever a fetch left in the object database, so it does not rely on that.
 pub fn export_tree(repository: &Repository, commit: git2::Oid, dest_dir: &Path) -> Result<(), GitError> {
     let tree = repository.find_commit(commit)?.tree()?;
-    let failure: std::cell::RefCell<Option<std::io::Error>> = std::cell::RefCell::new(None);
+    let failure: std::cell::RefCell<Option<GitError>> = std::cell::RefCell::new(None);
 
     let walked = tree.walk(git2::TreeWalkMode::PreOrder, |root, entry| {
         if entry.kind() != Some(git2::ObjectType::Blob) {
@@ -705,7 +715,17 @@ pub fn export_tree(repository: &Repository, commit: git2::Oid, dest_dir: &Path) 
         let Some(name) = entry.name() else {
             return git2::TreeWalkResult::Ok;
         };
-        let full_path = dest_dir.join(format!("{root}{name}"));
+        let relative_path = format!("{root}{name}");
+        // `components()` splits a path into its parts and gives `..`, a leading `/` and a drive
+        // letter parts of their own; `Normal` is the only kind that is an ordinary file name.
+        let only_plain_names = Path::new(&relative_path)
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)));
+        if !only_plain_names {
+            *failure.borrow_mut() = Some(GitError::UnsafePath(relative_path));
+            return git2::TreeWalkResult::Abort;
+        }
+        let full_path = dest_dir.join(&relative_path);
         let write = entry
             .to_object(repository)
             .ok()
@@ -720,14 +740,14 @@ pub fn export_tree(repository: &Repository, commit: git2::Oid, dest_dir: &Path) 
         match write {
             Ok(()) => git2::TreeWalkResult::Ok,
             Err(error) => {
-                *failure.borrow_mut() = Some(error);
+                *failure.borrow_mut() = Some(GitError::Io(error));
                 git2::TreeWalkResult::Abort
             }
         }
     });
 
     if let Some(error) = failure.into_inner() {
-        return Err(GitError::Io(error));
+        return Err(error);
     }
     walked?;
     Ok(())
@@ -2240,6 +2260,78 @@ mod tests {
         export_tree(&repository, commit, dest.path()).unwrap();
 
         assert!(!dest.path().join("main.tex").exists());
+    }
+
+    /// A commit whose root tree holds one file, `entry_name`, written as raw tree bytes. The tree
+    /// builder (and `git add`) refuse a name like `../x`; `Odb::write` does not look at what it is
+    /// given, which is how a hostile server's tree would reach us: as bytes, fetched and stored
+    /// without anyone having asked whether its names were sane.
+    fn commit_with_raw_entry(repository: &Repository, entry_name: &str) -> git2::Oid {
+        let blob = repository.blob(b"written outside the export\n").unwrap();
+        let mut raw_tree = format!("100644 {entry_name}\0").into_bytes();
+        raw_tree.extend_from_slice(blob.as_bytes());
+        let tree_id = repository
+            .odb()
+            .unwrap()
+            .write(git2::ObjectType::Tree, &raw_tree)
+            .unwrap();
+        let tree = repository.find_tree(tree_id).unwrap();
+        let who = git2::Signature::now("Mallory", "mallory@example.invalid").unwrap();
+        repository
+            .commit(None, &who, &who, "hostile", &tree, &[])
+            .unwrap()
+    }
+
+    /// R6.7: `export_tree` joined every name in a commit's tree onto the destination, so a name of
+    /// `../escaped.tex` wrote beside the export folder, and an absolute name replaced the
+    /// destination altogether (`Path::join` of an absolute path *is* that path).
+    #[test]
+    fn exporting_a_tree_with_a_name_that_leaves_the_folder_writes_nothing_outside_it() {
+        let (tmp, repository) = repo();
+        let outside = tmp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        let absolute_target = outside.join("absolute.tex");
+
+        for hostile in [
+            "../escaped.tex".to_string(),
+            "sub/../../escaped.tex".to_string(),
+            absolute_target.to_string_lossy().into_owned(),
+        ] {
+            let commit = commit_with_raw_entry(&repository, &hostile);
+            let dest = outside.join("export");
+            fs::create_dir_all(&dest).unwrap();
+
+            let result = export_tree(&repository, commit, &dest);
+
+            assert!(
+                matches!(result, Err(GitError::UnsafePath(_))),
+                "{hostile:?}: {result:?}"
+            );
+            assert!(
+                !outside.join("escaped.tex").exists(),
+                "{hostile:?} escaped the export folder"
+            );
+            assert!(
+                !absolute_target.exists(),
+                "{hostile:?} replaced the export folder"
+            );
+            fs::remove_dir_all(&dest).unwrap();
+        }
+    }
+
+    /// The check must not turn an ordinary tree away: nested folders, spaces and accents are names.
+    #[test]
+    fn exporting_a_tree_with_ordinary_nested_names_still_works() {
+        let (tmp, repository) = repo();
+        fs::create_dir_all(tmp.path().join("chapters/série 1")).unwrap();
+        fs::write(tmp.path().join("chapters/série 1/intro final.tex"), "ordinary\n").unwrap();
+        commit_all(&repository, "nested");
+        let commit = repository.head().unwrap().target().unwrap();
+
+        let dest = tempfile::tempdir().unwrap();
+        export_tree(&repository, commit, dest.path()).unwrap();
+
+        assert!(dest.path().join("chapters/série 1/intro final.tex").exists());
     }
 
     // --- S11.4c: the two questions a comparison asks before exporting anything ---------------
