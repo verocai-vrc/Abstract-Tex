@@ -114,6 +114,9 @@ pub fn append_new_entry(
 /// — no comparison-time re-normalisation to keep in sync with either source's own rules.
 fn find_by_identifier<'a>(fetched: &Entry, index: &'a BibliographyIndex) -> Option<&'a EntrySummary> {
     if let Some(doi) = normalized_field(fetched, "doi") {
+        // The index's DOIs went through `doi_key` (prefix removed, capitals folded); the fetched one
+        // is run through it too, so a Zotero entry in capitals and doi.org's lower case are one paper.
+        let doi = crate::bibliography::doi_key(&doi);
         return index
             .entries
             .iter()
@@ -272,6 +275,69 @@ mod tests {
             resolve_paste(&fetched, &index).unwrap(),
             PasteOutcome::Existing {
                 key: "smith2019".to_string()
+            }
+        );
+    }
+
+    // The index of a project whose only `.bib` reads `bib`, built the way the app builds it.
+    fn index_of_bib(bib: &str) -> BibliographyIndex {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.tex"), "\\bibliography{refs}\n").unwrap();
+        std::fs::write(dir.path().join("refs.bib"), bib).unwrap();
+        crate::bibliography::build_index(dir.path(), std::path::Path::new("main.tex"), &[])
+    }
+
+    // R8.13. Zotero writes a DOI in the capitals the publisher printed; doi.org answers in lower case.
+    // Compared as written, pasting a paper that was already in the file added it again under a new key.
+    #[test]
+    fn a_doi_in_other_capitals_still_reuses_the_existing_key() {
+        let index = index_of_bib(
+            "@article{zotero2015,\n  title = {A Paper},\n  doi = {10.1002/ANIE.201505580},\n}\n",
+        );
+        let fetched = fetched_entry(vec![
+            braced_field("doi", "10.1002/anie.201505580"),
+            braced_field("title", "A Paper"),
+        ]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "zotero2015".to_string()
+            }
+        );
+    }
+
+    // R8.13, the other way round: the file has the lower-case DOI and the registry answers in capitals.
+    #[test]
+    fn a_fetched_doi_in_capitals_still_reuses_the_existing_key() {
+        let index =
+            index_of_bib("@article{typed2015,\n  title = {A Paper},\n  doi = {10.1002/anie.201505580},\n}\n");
+        let fetched = fetched_entry(vec![
+            braced_field("doi", "10.1002/ANIE.201505580"),
+            braced_field("title", "A Paper"),
+        ]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "typed2015".to_string()
+            }
+        );
+    }
+
+    // R8.14. A chapter that names its book with `crossref` took the book's DOI, and the chapter comes
+    // first in this file: a paste of the book's own DOI was answered with the chapter's key.
+    #[test]
+    fn a_dois_owner_is_the_entry_that_has_it_not_a_chapter_that_names_it_with_crossref() {
+        let index = index_of_bib(
+            "@incollection{chapter, title = {A Chapter}, crossref = {book}}\n@book{book, title = {The Book}, doi = {10.1/book}}\n",
+        );
+        let fetched = fetched_entry(vec![
+            braced_field("doi", "10.1/book"),
+            braced_field("title", "The Book"),
+        ]);
+        assert_eq!(
+            resolve_paste(&fetched, &index).unwrap(),
+            PasteOutcome::Existing {
+                key: "book".to_string()
             }
         );
     }

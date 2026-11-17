@@ -485,6 +485,12 @@ fn never_cited(index: &BibliographyIndex) -> Vec<Finding> {
 /// Two (or more) entries whose `doi` field normalises to the same value — the same comparison
 /// S7.6's paste-to-cite already makes before appending a new entry, run here across everything
 /// already in the bibliography rather than against one candidate paste.
+///
+/// One finding per entry, each naming the others, so the panel can put a finding on every entry
+/// involved. An "other" with the same key as this entry (the same entry pasted twice, or defined in
+/// a named `.bib` and again in a linked export) is named as such: left to the key list it was
+/// removed along with this entry's own key, and the sentence ended "has the same DOI as ."
+/// (review finding R8.12).
 fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
     let mut by_doi: HashMap<&str, Vec<&EntrySummary>> = HashMap::new();
     for entry in &index.entries {
@@ -492,27 +498,49 @@ fn duplicate_dois(index: &BibliographyIndex) -> Vec<Finding> {
             by_doi.entry(doi).or_default().push(entry);
         }
     }
-    let mut groups: Vec<&Vec<&EntrySummary>> = by_doi.values().filter(|group| group.len() > 1).collect();
-    groups.sort_unstable_by_key(|group| group[0].key.clone());
-    groups
+    let mut groups: Vec<(&str, Vec<&EntrySummary>)> = by_doi
         .into_iter()
-        .flat_map(|group| {
-            let others: Vec<&str> = group.iter().map(|e| e.key.as_str()).collect();
-            group.iter().map(move |entry| {
-                let rest: Vec<&str> = others.iter().copied().filter(|key| *key != entry.key).collect();
-                Finding {
-                    rule: "duplicate-doi",
-                    severity: HealthSeverity::Warning,
-                    message: format!("'{}' has the same DOI as {}.", entry.key, rest.join(", ")),
-                    jump: Jump::BibEntry {
-                        file: entry.file.clone(),
-                        span: entry.span,
-                    },
-                    fix: None,
+        .filter(|(_doi, group)| group.len() > 1)
+        .collect();
+    // A `HashMap` is walked in a different order on every run, so the order has to come from the data:
+    // the first entry's key, then the DOI itself, which is different in every group. Two groups can
+    // share a first key (a key defined twice with different DOIs); the key alone left their order to chance.
+    groups.sort_by(|(doi_a, group_a), (doi_b, group_b)| {
+        group_a[0].key.cmp(&group_b[0].key).then_with(|| doi_a.cmp(doi_b))
+    });
+
+    let mut findings = Vec::new();
+    for (_doi, group) in &groups {
+        for entry in group {
+            let mut named: Vec<String> = Vec::new();
+            let mut with_the_same_key = 0;
+            // `ptr::eq` asks "is this the very same entry" rather than "an equal one", which is the
+            // question here: two entries can be equal in every field.
+            for other in group.iter().filter(|other| !std::ptr::eq(**other, *entry)) {
+                if other.key == entry.key {
+                    with_the_same_key += 1;
+                } else if !named.contains(&other.key) {
+                    named.push(other.key.clone());
                 }
-            })
-        })
-        .collect()
+            }
+            match with_the_same_key {
+                0 => {}
+                1 => named.push("another entry with the same key".to_string()),
+                many => named.push(format!("{many} other entries with the same key")),
+            }
+            findings.push(Finding {
+                rule: "duplicate-doi",
+                severity: HealthSeverity::Warning,
+                message: format!("'{}' has the same DOI as {}.", entry.key, named.join(", ")),
+                jump: Jump::BibEntry {
+                    file: entry.file.clone(),
+                    span: entry.span,
+                },
+                fix: None,
+            });
+        }
+    }
+    findings
 }
 
 /// Reparses each existing `.bib` file to run `texbib::health::check` on it. Reparsing rather
@@ -601,9 +629,9 @@ pub struct EntrySummary {
     /// parent.
     pub year: Option<String>,
     pub title: Option<String>,
-    /// The `doi` field, normalised through `texbib::acquire::doi::normalize_doi` so a paste of
-    /// `https://doi.org/10.…` compares equal to an entry whose field already reads bare
-    /// `10.…` — S7.6's dedup key, not shown anywhere.
+    /// The entry's own `doi` field (a `crossref` parent's is not inherited), through [`doi_key`] so a
+    /// paste of `https://doi.org/10.…` compares equal to an entry whose field already reads bare
+    /// `10.…`, in any capitals — S7.6's dedup key, not shown anywhere.
     pub doi: Option<String>,
     /// The `eprint` field when `eprinttype` is (case-insensitively) `arxiv`, normalised through
     /// `texbib::acquire::arxiv::normalize_arxiv_id` — S7.6's dedup key for a pasted arXiv id.
@@ -767,9 +795,12 @@ fn summarise_file(path: &str, bibliography: &Bibliography) -> Vec<EntrySummary> 
                 author: own_or_parent(author_of),
                 year: own_or_parent(year_of),
                 title: own_or_parent(title_of),
-                doi: own_or_parent(doi_of),
-                eprint: own_or_parent(eprint_of),
-                isbn: own_or_parent(isbn_of),
+                // Identifiers are the entry's own, never the parent's: a DOI, ISBN or arXiv id names the
+                // container, not the chapter. Inherited, two chapters and their book "had the same DOI",
+                // and a paste of the book's ISBN could find a chapter first (review finding R8.14).
+                doi: doi_of(entry, bibliography),
+                eprint: eprint_of(entry, bibliography),
+                isbn: isbn_of(entry, bibliography),
                 file: path.to_string(),
                 span: entry.span,
             }
@@ -800,7 +831,16 @@ fn title_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
 /// key), so a hand-typed `10.1109/tcbb.2019.000001` and an export's `https://doi.org/10.1109/…`
 /// compare equal.
 fn doi_of(entry: &Entry, bibliography: &Bibliography) -> Option<String> {
-    resolved_field(entry, bibliography, "doi").map(|doi| texbib::acquire::doi::normalize_doi(&doi))
+    resolved_field(entry, bibliography, "doi").map(|doi| doi_key(&doi))
+}
+
+/// A DOI as it is compared: the pasted wrapping removed (`https://doi.org/`, `doi:`) and the capitals
+/// folded. DOIs are case-insensitive: Zotero exports `10.1002/ANIE.201505580` where doi.org and a
+/// hand-typed entry write `10.1002/anie.201505580`, and compared as written those were two papers
+/// (review finding R8.13). The one definition, used by the index and by paste-to-cite's lookup, so
+/// the two sides of that comparison cannot drift apart. ASCII only, as the DOI Handbook has it.
+pub fn doi_key(doi: &str) -> String {
+    texbib::acquire::doi::normalize_doi(doi).to_ascii_lowercase()
 }
 
 /// The entry's `eprint` field, but only when `eprinttype` names arXiv — `eprint` alone is
@@ -1725,6 +1765,111 @@ mod tests {
             findings[0].message.contains('b') || findings[0].message.contains('a'),
             "{findings:#?}"
         );
+    }
+
+    // Findings of one rule for a project made of `files`, whose root file is `main.tex`.
+    fn findings_of_rule(files: &[(&str, &str)], rule: &str) -> Vec<Finding> {
+        let dir = scaffold(files);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        index
+            .health(dir.path())
+            .into_iter()
+            .filter(|finding| finding.rule == rule)
+            .collect()
+    }
+
+    // R8.12. The same entry pasted twice into a file, or defined in the named `.bib` and again in a
+    // linked export, has the same key *and* the same DOI. Each finding listed "the others" by key,
+    // took its own key out, and was left with nothing: "'a' has the same DOI as ." The message must
+    // still say what is wrong, and say that the other entry has the same key.
+    #[test]
+    fn two_entries_with_the_same_key_and_the_same_doi_are_described_in_a_whole_sentence() {
+        let findings = findings_of_rule(
+            &[
+                ("main.tex", "\\cite{a}\n\\bibliography{refs}\n"),
+                (
+                    "refs.bib",
+                    "@misc{a, title={A}, doi={10.1/x}}\n@misc{a, title={A again}, doi={10.1/x}}\n",
+                ),
+            ],
+            "duplicate-doi",
+        );
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+        for finding in &findings {
+            assert!(
+                !finding.message.ends_with("as ."),
+                "the sentence names nothing: {}",
+                finding.message
+            );
+            assert!(
+                finding.message.contains("same key"),
+                "it should say the other entry has the same key: {}",
+                finding.message
+            );
+        }
+        // Each finding still points at its own entry.
+        assert_ne!(findings[0].jump, findings[1].jump);
+    }
+
+    // R8.12. Two groups of duplicates whose first entries share a key were put in order by a sort
+    // that does not keep ties in order, from a map that is walked in a different order on every
+    // run, so the panel listed the same findings in a different order each time the index was rebuilt.
+    #[test]
+    fn duplicate_doi_findings_come_in_the_same_order_every_time() {
+        let refs = "@misc{a, doi={10.1/x}}\n@misc{b, doi={10.1/x}}\n@misc{a, doi={10.1/y}}\n@misc{c, doi={10.1/y}}\n";
+        let first = findings_of_rule(
+            &[
+                ("main.tex", "\\cite{a,b,c}\\bibliography{refs}\n"),
+                ("refs.bib", refs),
+            ],
+            "duplicate-doi",
+        );
+        for _ in 0..20 {
+            let again = findings_of_rule(
+                &[
+                    ("main.tex", "\\cite{a,b,c}\\bibliography{refs}\n"),
+                    ("refs.bib", refs),
+                ],
+                "duplicate-doi",
+            );
+            assert_eq!(again, first);
+        }
+    }
+
+    // R8.13. A DOI is the same DOI in capitals or not: Zotero exports `10.1002/ANIE.201505580` where
+    // doi.org and a hand-typed entry write `10.1002/anie.201505580`. Compared as written, the two
+    // were never reported as duplicates (and a paste of the lower-case one added a second entry).
+    #[test]
+    fn dois_that_differ_only_in_capitals_are_duplicates() {
+        let findings = findings_of_rule(
+            &[
+                ("main.tex", "\\cite{a,b}\\bibliography{refs}\n"),
+                (
+                    "refs.bib",
+                    "@misc{a, title={A}, doi={10.1002/ANIE.201505580}}\n@misc{b, title={B}, doi={https://doi.org/10.1002/anie.201505580}}\n",
+                ),
+            ],
+            "duplicate-doi",
+        );
+        assert_eq!(findings.len(), 2, "{findings:#?}");
+    }
+
+    // R8.14. A chapter that names its book with `crossref` takes the author, year and title it lacks
+    // from it, and the DOI too. Two chapters of a book whose entry carries a DOI then "had the same
+    // DOI" as each other and as the book: three duplicate findings for a bibliography with none.
+    #[test]
+    fn chapters_of_one_book_do_not_share_the_books_doi() {
+        let findings = findings_of_rule(
+            &[
+                ("main.tex", "\\cite{one,two,book}\\bibliography{refs}\n"),
+                (
+                    "refs.bib",
+                    "@incollection{one, title={One}, crossref={book}}\n@incollection{two, title={Two}, crossref={book}}\n@book{book, title={The Book}, doi={10.1/book}, isbn={978-3-16-148410-0}}\n",
+                ),
+            ],
+            "duplicate-doi",
+        );
+        assert!(findings.is_empty(), "{findings:#?}");
     }
 
     // ---- scanners ----
