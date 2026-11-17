@@ -131,7 +131,11 @@ fn is_year_and_month(yymm: &str) -> bool {
 }
 
 /// A run of exactly 10 or 13 digits once hyphens/spaces are stripped, the last character of a
-/// 10-digit ISBN allowed to be a literal `X` check digit (ISBN-10's own rule; ISBN-13 has none).
+/// 10-digit ISBN allowed to be a literal `X` check digit (ISBN-10's own rule; ISBN-13 has none),
+/// whose check digit adds up, and which — for 13 digits — begins `978` or `979`. A bare number is
+/// not an ISBN just for having ten or thirteen digits: a phone number, an order number or a
+/// millisecond timestamp (`1700000000000`) has them too, and the editor swallows what this accepts
+/// (review finding R8.21). A mistyped ISBN is therefore pasted as the text it is, not looked up.
 fn looks_like_isbn(candidate: &str) -> Option<String> {
     let normalized = normalize_isbn(candidate);
     // Bytes, not a `str` slice: `normalized[..9]` panics when byte 9 falls inside a multi-byte
@@ -141,9 +145,41 @@ fn looks_like_isbn(candidate: &str) -> Option<String> {
     let bytes = normalized.as_bytes();
     let is_isbn_10 = bytes.len() == 10
         && bytes[..9].iter().all(u8::is_ascii_digit)
-        && matches!(bytes[9], b'0'..=b'9' | b'X');
-    let is_isbn_13 = bytes.len() == 13 && bytes.iter().all(u8::is_ascii_digit);
+        && matches!(bytes[9], b'0'..=b'9' | b'X')
+        && isbn_10_check_digit_adds_up(bytes);
+    let is_isbn_13 = bytes.len() == 13
+        && bytes.iter().all(u8::is_ascii_digit)
+        && (bytes.starts_with(b"978") || bytes.starts_with(b"979"))
+        && isbn_13_check_digit_adds_up(bytes);
     (is_isbn_10 || is_isbn_13).then_some(normalized)
+}
+
+/// ISBN-10's rule (ISO 2108): the digits weighted 10, 9, ... 1 — a final `X` counting as ten — add up
+/// to a multiple of 11. `isbn` is already known to be nine digits and a digit or `X`.
+fn isbn_10_check_digit_adds_up(isbn: &[u8]) -> bool {
+    let weighted_sum: u32 = isbn
+        .iter()
+        .enumerate()
+        .map(|(position, &byte)| {
+            let value = if byte == b'X' { 10 } else { u32::from(byte - b'0') };
+            value * (10 - position as u32)
+        })
+        .sum();
+    weighted_sum % 11 == 0
+}
+
+/// ISBN-13's rule: the digits weighted 1, 3, 1, 3, ... add up to a multiple of 10. `isbn` is already
+/// known to be thirteen digits.
+fn isbn_13_check_digit_adds_up(isbn: &[u8]) -> bool {
+    let weighted_sum: u32 = isbn
+        .iter()
+        .enumerate()
+        .map(|(position, &byte)| {
+            let weight = if position % 2 == 0 { 1 } else { 3 };
+            u32::from(byte - b'0') * weight
+        })
+        .sum();
+    weighted_sum % 10 == 0
 }
 
 #[cfg(test)]
@@ -225,8 +261,8 @@ mod tests {
     #[test]
     fn a_10_digit_isbn_with_x_check_digit_is_identified() {
         assert_eq!(
-            identify("0-306-40615-X"),
-            Some(Identified::Isbn("030640615X".to_string()))
+            identify("0-8044-2957-X"),
+            Some(Identified::Isbn("080442957X".to_string()))
         );
     }
 

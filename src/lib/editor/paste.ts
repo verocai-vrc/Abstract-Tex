@@ -90,10 +90,19 @@ function isArxivIdShape(id: string): boolean {
 }
 
 /** `texbib::acquire::identify::looks_like_isbn`, ported: 10 or 13 digits, the 10-digit form
- * allowing a trailing `X` check digit. */
+ * allowing a trailing `X` check digit, the check digit adding up, and a 13-digit one beginning 978 or
+ * 979. A bare number is not an ISBN for having ten or thirteen digits (review finding R8.21). */
 function looksLikeIsbn(normalized: string): boolean {
-  if (normalized.length === 10) return /^\d{9}[\dX]$/.test(normalized);
-  if (normalized.length === 13) return /^\d{13}$/.test(normalized);
+  if (/^\d{9}[\dX]$/.test(normalized)) {
+    // Weighted 10, 9, ... 1 with a final `X` counting as ten: a multiple of 11.
+    const sum = [...normalized].reduce((total, c, i) => total + (c === 'X' ? 10 : Number(c)) * (10 - i), 0);
+    return sum % 11 === 0;
+  }
+  if (/^97[89]\d{10}$/.test(normalized)) {
+    // Weighted 1, 3, 1, 3, ...: a multiple of 10.
+    const sum = [...normalized].reduce((total, c, i) => total + Number(c) * (i % 2 === 0 ? 1 : 3), 0);
+    return sum % 10 === 0;
+  }
   return false;
 }
 

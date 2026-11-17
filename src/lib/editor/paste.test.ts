@@ -57,7 +57,7 @@ describe('identify', () => {
   });
 
   it('recognises a 10-digit ISBN with an X check digit', () => {
-    expect(identify('0-306-40615-x')).toEqual({ kind: 'isbn', normalized: '030640615X' });
+    expect(identify('0-8044-2957-x')).toEqual({ kind: 'isbn', normalized: '080442957X' });
   });
 
   it('identifies a plain sentence as nothing', () => {

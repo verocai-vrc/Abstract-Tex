@@ -46,6 +46,17 @@
 
     { "paste": "978-0-262-03384-8", "identified": { "kind": "isbn", "normalized": "9780262033848" } },
     { "paste": "0-262-03384-4", "identified": { "kind": "isbn", "normalized": "0262033844" } },
+    { "paste": "979-10-32-30569-0", "identified": { "kind": "isbn", "normalized": "9791032305690" } },
+    { "paste": "0-306-40615-2", "identified": { "kind": "isbn", "normalized": "0306406152" } },
+    { "why": "an ISBN-10 whose check digit is X", "paste": "0-8044-2957-x", "identified": { "kind": "isbn", "normalized": "080442957X" } },
+    { "why": "R8.21: a bare number is an ISBN only if its check digit adds up (and an ISBN-13 begins 978 or 979)", "paste": "1700000000000", "identified": null },
+    { "paste": "5511987654321", "identified": null },
+    { "paste": "1234567890", "identified": null },
+    { "paste": "5551234567", "identified": null },
+    { "paste": "9780262033849", "identified": null },
+    { "paste": "0-262-03384-5", "identified": null },
+    { "paste": "0-306-40615-X", "identified": null },
+    { "why": "a valid check digit, but 977 is the prefix of a serial (ISSN) barcode, not a book", "paste": "9771234567003", "identified": null },
 
     { "paste": "", "identified": null },
     { "paste": "   ", "identified": null },
