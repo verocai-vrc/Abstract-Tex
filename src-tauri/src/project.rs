@@ -195,7 +195,9 @@ impl Project {
         // Belt and braces: even before the project is a Git repository with our .gitignore,
         // a `*` inside .abstract-tex/ keeps it out of any `git add .` the author might run.
         let keep_out = state_dir.join(".gitignore");
-        if !keep_out.exists() {
+        // Asked about the name, not what it points to: `exists()` follows a link, and a dangling one
+        // reads as "absent", so `fs::write` below would create its target, wherever that is (R8.10).
+        if fs::symlink_metadata(&keep_out).is_err() {
             fs::write(&keep_out, "*\n")?;
         }
 
@@ -1336,5 +1338,24 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains("preamble-tmp"))
             .collect();
         assert!(leftovers.is_empty());
+    }
+
+    /// R8.10: `.abstract-tex/.gitignore` was written `if !exists()`, and `exists()` follows a link, so a
+    /// dangling link made `fs::write` create the target (anywhere the author can write) holding `*`.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_where_the_gitignore_goes_creates_nothing_behind_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        let would_be_created = elsewhere.path().join("created-by-the-app");
+        fs::create_dir_all(dir.path().join(STATE_DIR)).unwrap();
+        std::os::unix::fs::symlink(&would_be_created, dir.path().join(STATE_DIR).join(".gitignore")).unwrap();
+
+        Project::open(dir.path()).unwrap();
+
+        assert!(
+            !would_be_created.exists(),
+            "a file was created through a dangling link"
+        );
     }
 }

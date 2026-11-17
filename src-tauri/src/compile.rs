@@ -199,6 +199,22 @@ impl Orchestrator {
             return generation;
         };
 
+        // The engine writes its outputs into this folder, and a link standing at its name sends them
+        // (and `main.pdf`, `.aux`, `.log`... over any files of those names) to another folder. A
+        // cloned repository can carry one, and a `sync` can bring one, so this is asked on every
+        // request and not only when the project opens (R8.10). `symlink_metadata` looks at the name
+        // itself; a folder that does not exist yet is not a link and is made by the engine.
+        if std::fs::symlink_metadata(&job.out_dir).is_ok_and(|found| found.file_type().is_symlink()) {
+            on_event(CompileEvent::Failed {
+                generation,
+                message: format!(
+                    "{} is a link, and Abstract-Tex keeps the build files there. Remove the link (or rename it) and build again.",
+                    job.out_dir.display()
+                ),
+            });
+            return generation;
+        }
+
         on_event(CompileEvent::Started {
             generation,
             root_file: job.root_file.to_string_lossy().replace('\\', "/"),
@@ -1188,6 +1204,108 @@ mod tests {
         });
         let event = rx.recv().await.unwrap();
         assert_eq!(status(&event).0, "failed");
+    }
+
+    /// An engine that only counts how often it was asked to build.
+    struct CountingEngine {
+        builds: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for CountingEngine {
+        async fn probe(&self) -> Result<EngineInfo, EngineError> {
+            Ok(EngineInfo {
+                name: "counting".into(),
+                version: "0".into(),
+                path: PathBuf::new(),
+            })
+        }
+
+        async fn build(
+            &self,
+            _job: &BuildJob,
+            _cancel: CancellationToken,
+            _progress: Option<abstract_tex_engine::ProgressSink>,
+        ) -> Result<BuildOutcome, EngineError> {
+            self.builds.fetch_add(1, Ordering::SeqCst);
+            Ok(BuildOutcome {
+                success: true,
+                pdf: None,
+                log: None,
+                synctex: None,
+                stderr: String::new(),
+                exit_code: Some(0),
+                duration: Duration::from_millis(1),
+                steps: Default::default(),
+            })
+        }
+    }
+
+    /// R8.10: the engine writes its outputs into the build folder, so through a link at that name they
+    /// land in another folder, over files of the same names. A link is refused with a sentence and the
+    /// engine is never asked.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_build_folder_that_is_a_link_is_refused_and_the_engine_is_never_asked() {
+        let project = tempfile::tempdir().unwrap();
+        let someone_elses = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(project.path().join(".abstract-tex")).unwrap();
+        std::os::unix::fs::symlink(someone_elses.path(), project.path().join(".abstract-tex/build")).unwrap();
+        let builds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let orchestrator = Orchestrator::new(Some(Arc::new(CountingEngine {
+            builds: builds.clone(),
+        })));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        let mut linked = job();
+        linked.project_dir = project.path().to_path_buf();
+        linked.out_dir = project.path().join(".abstract-tex/build");
+        orchestrator.request(linked, None, move |e| {
+            let _ = tx.send(e);
+        });
+
+        match rx.recv().await.unwrap() {
+            CompileEvent::Failed { message, .. } => assert!(message.contains("is a link"), "{message}"),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            builds.load(Ordering::SeqCst),
+            0,
+            "the engine was asked to build through a link"
+        );
+    }
+
+    /// And an ordinary folder still builds: the check is for a link, not for a folder that is not there yet.
+    #[tokio::test]
+    async fn a_build_folder_that_is_a_real_folder_or_not_made_yet_builds() {
+        let project = tempfile::tempdir().unwrap();
+        let builds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let orchestrator = Orchestrator::new(Some(Arc::new(CountingEngine {
+            builds: builds.clone(),
+        })));
+        for made in [false, true] {
+            let out_dir = project.path().join(".abstract-tex/build");
+            if made {
+                std::fs::create_dir_all(&out_dir).unwrap();
+            }
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            let mut ordinary = job();
+            ordinary.project_dir = project.path().to_path_buf();
+            ordinary.out_dir = out_dir;
+            orchestrator.request(ordinary, None, move |e| {
+                let _ = tx.send(e);
+            });
+            let mut finished = false;
+            while let Some(event) = rx.recv().await {
+                if status(&event).0 == "finished" {
+                    finished = true;
+                    break;
+                }
+            }
+            assert!(finished, "made={made}");
+        }
+        assert_eq!(builds.load(Ordering::SeqCst), 2);
     }
 
     // ---- the draft beside the build (S9.9) ----
