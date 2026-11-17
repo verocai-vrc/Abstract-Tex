@@ -188,10 +188,17 @@ fn missing_bib_files(index: &BibliographyIndex) -> Vec<Finding> {
                     severity: HealthSeverity::Warning,
                     // A `\` at the end of a string-literal line continues the string and skips the
                     // next line's leading spaces, so a long sentence can wrap in the source only.
-                    message: format!(
-                        "'{path}' is outside the project folder, so its entries are not read \
-                         and citations to them show as undefined."
-                    ),
+                    message: if is_remote(path) {
+                        format!(
+                            "'{path}' is a remote bibliography, so its entries are not read \
+                             and citations to them show as undefined."
+                        )
+                    } else {
+                        format!(
+                            "'{path}' is outside the project folder, so its entries are not read \
+                             and citations to them show as undefined."
+                        )
+                    },
                     jump: Jump::TexLine {
                         file: tex_file.clone(),
                         line: *line,
@@ -579,7 +586,8 @@ pub struct BibFile {
     /// For a resource that resolves outside the project this is the argument as written.
     pub path: String,
     /// `false` when the document names a file that is not on disk, or one outside the project
-    /// (which this app never reads — the same rule `Project::resolve` applies to every path).
+    /// (which this app never reads — the same rule `Project::resolve` applies to every path), or a
+    /// remote one.
     pub exists: bool,
     /// How many entries parsed. Zero for a missing file.
     pub entry_count: usize,
@@ -598,7 +606,8 @@ pub enum BibOrigin {
     /// this project-relative `.tex` file and 1-based line.
     Named { file: String, line: u32 },
     /// The same, but the argument resolves outside the project folder, which this app never
-    /// reads (the rule `Project::resolve` applies to every path).
+    /// reads (the rule `Project::resolve` applies to every path), or is a URL (a BibLaTeX remote
+    /// resource), which it never fetches.
     Outside { file: String, line: u32 },
     /// `abstract-tex.toml`'s `extra_bib_files` lists it — a linked Zotero collection's export (S8.2).
     Linked,
@@ -1088,11 +1097,22 @@ fn strip_line_comments(source: &str) -> String {
     cleaned
 }
 
+/// Whether a resource argument is a URL (`https://…`, `ftp://…`) rather than a file name.
+fn is_remote(argument: &str) -> bool {
+    argument.contains("://")
+}
+
 /// A resource argument as a project-relative, forward-slash path, or `None` if it climbs out
-/// of the project or is absolute. `.bib` is appended unless the argument already ends in it
+/// of the project, is absolute, or is a URL. `.bib` is appended unless the argument already ends in it
 /// (`\bibliography{refs}` and the wrong but common `\addbibresource{refs}` both mean `refs.bib`,
 /// and `refs.v2` means `refs.v2.bib`).
 fn resolve_bib_argument(base_dir: &Path, argument: &str) -> Option<String> {
+    // A remote resource (`\addbibresource[location=remote]{https://…}`) is not a path at all: split into
+    // components it became `https:/example.com/refs.bib`, a file that is "not in the project folder"
+    // (review finding R8.15). It is a resource this app never reads, like one outside the project.
+    if is_remote(argument) {
+        return None;
+    }
     let joined = base_dir.join(argument.trim());
     let mut normal: Vec<Component> = Vec::new();
     for component in joined.components() {
@@ -1870,6 +1890,33 @@ mod tests {
             "duplicate-doi",
         );
         assert!(findings.is_empty(), "{findings:#?}");
+    }
+
+    // R8.15. `\addbibresource[location=remote]{https://…}` is a valid biblatex resource. The app cannot
+    // read it, but it said the file "is named here but is not in the project folder" (an error), under a
+    // path it had mangled to `https:/example.com/…`. It is a resource the app does not read, and says so.
+    #[test]
+    fn a_remote_bibliography_is_reported_as_remote_and_not_as_a_missing_file() {
+        let dir = scaffold(&[(
+            "main.tex",
+            "\\addbibresource[location=remote]{https://example.com/refs.bib}\n\\cite{a}\n",
+        )]);
+        let index = build_index(dir.path(), Path::new("main.tex"), &[]);
+        assert_eq!(index.files.len(), 1);
+        assert_eq!(index.files[0].path, "https://example.com/refs.bib");
+        assert!(matches!(index.files[0].origin, BibOrigin::Outside { .. }));
+        let finding = index
+            .health(dir.path())
+            .into_iter()
+            .find(|finding| finding.rule == "missing-bib-file")
+            .expect("a finding about the file");
+        assert_eq!(finding.severity, HealthSeverity::Warning);
+        assert!(finding.message.contains("remote"), "{}", finding.message);
+        assert!(
+            !finding.message.contains("not in the project folder"),
+            "{}",
+            finding.message
+        );
     }
 
     // ---- scanners ----
