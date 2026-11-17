@@ -159,16 +159,27 @@ const MAX_DOCUMENT_CHARS: usize = 300_000;
 
 /// The manuscript as one text: every file the root includes, root first, each under a marker line
 /// naming it, so the model can tell where one file ends. Read from disk as it is now. Files that
-/// are missing or not text are skipped (the graph lists targets that do not exist yet).
+/// are missing or not text are skipped (the graph lists targets that do not exist yet), and so are
+/// files that are really somewhere outside the project (R8.11).
 ///
 /// Returns the text and how many files went into it.
 fn document_text(root_dir: &Path, root_file: &Path) -> Result<(String, usize), String> {
     let graph = abstract_tex_includes::build_graph(root_dir, root_file);
+    // The project's real folder, so that a file can be asked whether its real place is inside it.
+    let real_root = std::fs::canonicalize(root_dir).unwrap_or_else(|_| root_dir.to_path_buf());
     let mut text = String::new();
     let mut files = 0;
     let mut characters = 0;
     for node in graph.nodes.iter().filter(|node| node.exists) {
-        let Ok(contents) = std::fs::read_to_string(root_dir.join(&node.path)) else {
+        let path = root_dir.join(&node.path);
+        // This text is sent to someone else's server. The include graph refuses `..` and absolute paths
+        // by how they are spelled, but a link inside the project is a plain relative name that leads
+        // anywhere, and a cloned repository can carry one (R8.11). `canonicalize` follows every link, so
+        // a file whose real place is outside the project is left out, as a missing one is.
+        if !std::fs::canonicalize(&path).is_ok_and(|real| real.starts_with(&real_root)) {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&path) else {
             continue;
         };
         let block = format!("% ==== file: {} ====\n{}\n", node.path, contents.trim_end());
@@ -807,6 +818,60 @@ mod tests {
         assert!(text.find("main.tex").unwrap() < text.find("chapters/one.tex").unwrap());
         assert!(text.contains("% ==== file: chapters/one.tex ====\nChapter one text."));
         assert!(!text.contains("NOT IN THE DOCUMENT"));
+    }
+
+    /// R8.11: the document is read to be sent to someone else's server. The include graph rejects `..`
+    /// and absolute paths by their spelling, but a link inside the project is a plain relative name, so
+    /// a cloned repository could name `\input{notes}` and have `notes.tex` be a link to a private file.
+    /// The author is shown the request first; a file that is not in the project must not be in it.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_is_a_link_out_of_the_project_is_not_put_in_the_document_sent_to_a_model() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "PRIVATE KEY MATERIAL").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("chapters")).unwrap();
+        std::fs::write(
+            dir.path().join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\\input{chapters/one}\n\\input{notes}\n\\input{shared/two}\n\\end{document}\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("chapters/one.tex"), "Chapter one text.\n").unwrap();
+        // A file, and a whole folder, both links to somewhere that is not the project.
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), dir.path().join("notes.tex")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("shared")).unwrap();
+        std::fs::write(outside.path().join("two.tex"), "PRIVATE FOLDER CONTENTS").unwrap();
+
+        let (text, files) = document_text(dir.path(), Path::new("main.tex")).unwrap();
+
+        assert!(
+            !text.contains("PRIVATE KEY MATERIAL"),
+            "a link out of the project was read: {text}"
+        );
+        assert!(
+            !text.contains("PRIVATE FOLDER CONTENTS"),
+            "a folder link out of the project was read: {text}"
+        );
+        assert_eq!(files, 2, "main.tex and chapters/one.tex only");
+    }
+
+    /// The other side: a link that stays inside the project is still the project's own file.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_that_stays_inside_the_project_is_still_read() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("chapters")).unwrap();
+        std::fs::write(dir.path().join("chapters/real.tex"), "The real chapter.\n").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("chapters/real.tex"), dir.path().join("alias.tex"))
+            .unwrap();
+        std::fs::write(
+            dir.path().join("main.tex"),
+            "\\documentclass{article}\n\\begin{document}\n\\input{alias}\n\\end{document}\n",
+        )
+        .unwrap();
+
+        let (text, _) = document_text(dir.path(), Path::new("main.tex")).unwrap();
+        assert!(text.contains("The real chapter."), "{text}");
     }
 
     #[test]
