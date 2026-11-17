@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ProjectInfo } from './ipc';
-import { baseName, isTexSource, listFiles, shouldCompileFor, toRelative } from './paths';
+import { baseName, isCitingSource, isTexSource, listFiles, shouldCompileFor, toRelative } from './paths';
 
 describe('toRelative', () => {
   it('strips the root and normalises separators', () => {
@@ -75,5 +75,27 @@ describe('listFiles', () => {
       { name: 'refs.bib', path: 'refs.bib', isDir: false, children: [] },
     ];
     expect(listFiles(tree)).toEqual(['main.tex', 'sections/intro.tex', 'refs.bib']);
+  });
+});
+
+// Review finding R8.20: the paste-to-cite handler was installed for every open file, so a DOI pasted into
+// the `doi = {...}` field of a `.bib` was replaced by `\cite{key}` and a new entry was appended.
+describe('isCitingSource', () => {
+  it('is true for the files a document is written in', () => {
+    expect(isCitingSource('main.tex')).toBe(true);
+    expect(isCitingSource('chapters/intro.tex')).toBe(true);
+    expect(isCitingSource('MAIN.TEX')).toBe(true);
+    expect(isCitingSource('paper.ltx')).toBe(true);
+  });
+
+  it('is false for a bibliography, where a pasted DOI belongs in a field as text', () => {
+    expect(isCitingSource('refs.bib')).toBe(false);
+    expect(isCitingSource('zotero/My Library.bib')).toBe(false);
+  });
+
+  it('is false for style and class files and for everything that is not LaTeX', () => {
+    for (const path of ['style.sty', 'thesis.cls', 'notes.txt', 'data.csv', 'README.md', 'main.tex.bak', 'tex', '']) {
+      expect(isCitingSource(path), path).toBe(false);
+    }
   });
 });

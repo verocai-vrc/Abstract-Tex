@@ -21,6 +21,7 @@
   import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
   import { diagnosticsForFile } from '../lib/drawer';
+  import { isCitingSource } from '../lib/paths';
   import { citeThenLsp } from '../lib/editor/cite';
   import { lspCompletionSource } from '../lib/editor/completion';
   import { git } from '../lib/git.svelte';
@@ -84,7 +85,8 @@
       // changes into the live view's compartments without rebuilding anything.
       untrack(() => app.focusModeEnabled),
       untrack(() => app.typewriterModeEnabled),
-      pasteCite,
+      // Paste-to-cite only where a citation is being written: in a `.bib` a pasted DOI is a field's text.
+      isCitingSource(path) ? pasteCite : undefined,
       (line) => (placeholders.cursorLine = line),
       (from, to) => reportSelection(path, from, to),
       awareness,

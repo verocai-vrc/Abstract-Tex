@@ -23,6 +23,15 @@ export function isTexSource(path: string): boolean {
   return /\.(tex|bib|sty|cls|bbx|cbx|def|ltx)$/i.test(path);
 }
 
+/** Whether pasting a DOI, arXiv id or ISBN into this file should become a `\cite` (paste-to-cite,
+ * S7.6): only in a LaTeX document, where a citation is what the author is writing. In a `.bib` the
+ * same paste is the `doi = {...}` or `isbn = {...}` of an entry and belongs there as text; the
+ * handler used to be installed for every file and put `\cite{key}` inside the field (review
+ * finding R8.20). */
+export function isCitingSource(path: string): boolean {
+  return /\.(tex|ltx)$/i.test(path);
+}
+
 /** Whether a change to this project-relative path should trigger a recompile (S4.1).
  *
  * A non-`.tex` compile input (`.bib`/`.sty`/`.cls`/…) always does, as before this loop. A `.tex`
