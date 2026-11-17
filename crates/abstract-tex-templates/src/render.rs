@@ -11,8 +11,10 @@ use std::collections::BTreeMap;
 ///
 /// An author who types `R&D costs 50%` into a title box must get a title that says so, not a
 /// document that stops compiling at the `&`. Every character LaTeX treats as a command is
-/// replaced by the command that prints it. Line breaks and tabs become a space: the form fields
-/// are one line, and a stray newline inside `\title{…}` would end a paragraph there.
+/// replaced by the command that prints it. Line breaks, tabs and every other control character
+/// become a space: the form fields are one line, a stray newline inside `\title{…}` would end a
+/// paragraph there, and the engine stops at most control characters with "Text line contains an
+/// invalid character" (R8.5), which a paste from Word or a PDF can carry in.
 pub(crate) fn escape_latex(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
@@ -26,7 +28,9 @@ pub(crate) fn escape_latex(value: &str) -> String {
             }
             '~' => escaped.push_str(r"\textasciitilde{}"),
             '^' => escaped.push_str(r"\textasciicircum{}"),
-            '\n' | '\r' | '\t' => escaped.push(' '),
+            // `char::is_control` is every character in Unicode's "Cc" category: the C0 controls
+            // (which include `\n`, `\r` and `\t`), DEL, and the C1 range.
+            other if other.is_control() => escaped.push(' '),
             other => escaped.push(other),
         }
     }
@@ -107,6 +111,25 @@ mod tests {
     #[test]
     fn line_breaks_become_spaces_and_accents_pass_through() {
         assert_eq!(escape_latex("Ana\nMaría\tSilva"), "Ana María Silva");
+    }
+
+    /// R8.5: the engine stops at a control character with "Text line contains an invalid character".
+    /// Probed against the bundled Tectonic: every C0 control but tab, line feed, form feed and carriage
+    /// return, and DEL. A paste from Word brings `U+000B` (its soft line break) into a one-line box.
+    #[test]
+    fn a_control_character_from_a_paste_becomes_a_space_like_a_line_break_does() {
+        for code in (0x00..=0x1f).chain(0x7f..=0x9f) {
+            let control = char::from_u32(code).unwrap();
+            let escaped = escape_latex(&format!("a{control}b"));
+            assert_eq!(escaped, "a b", "U+{code:04X} came through as {escaped:?}");
+        }
+    }
+
+    /// The rule is for controls, not for anything that merely looks odd: these build, and a title may use them.
+    #[test]
+    fn spaces_dashes_and_invisible_letters_are_left_as_typed() {
+        let typed = "a\u{a0}b\u{200b}c\u{2028}d\u{feff}e \u{e9} \u{65e5}\u{672c} \u{1f600}";
+        assert_eq!(escape_latex(typed), typed);
     }
 
     #[test]
