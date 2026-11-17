@@ -30,6 +30,8 @@ export interface ProjectInfo {
   documentFilesComplete: boolean;
   /** Set when the project's `engine` setting could not be honoured (S9.4), as a sentence. */
   engineNotice: string | null;
+  /** Set when some folders of the project could not be watched for changes other programs make (R8.7). */
+  watchNotice: string | null;
 }
 
 export interface EngineInfo {

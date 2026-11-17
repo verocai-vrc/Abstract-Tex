@@ -2238,7 +2238,9 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
     // The project may have chosen a different engine (S9.4); the status bar names the one that
     // will actually build, and a setting it could not honour says so.
     app.engine = await ipc.engineInfo().catch(() => null);
-    if (info.engineNotice) app.notice = info.engineNotice;
+    // Both can apply at once, and each is its own sentence (R8.7).
+    const openingNotices = [info.engineNotice, info.watchNotice].filter((sentence) => sentence);
+    if (openingNotices.length > 0) app.notice = openingNotices.join(' ');
     // Consent belongs to the folder, so each project reads its own (S9.8). Unknown means no.
     app.shellEscapeAllowed = await ipc.shellEscapeAllowed().catch(() => false);
     if (info.rootFile) {

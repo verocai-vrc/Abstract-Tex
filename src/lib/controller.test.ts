@@ -214,6 +214,7 @@ const project: ProjectInfo = {
   documentFiles: ['main.tex'],
   documentFilesComplete: true,
   engineNotice: null,
+  watchNotice: null,
 };
 
 // `vi.mock` with a factory means the real ./ipc — and with it @tauri-apps/api — is never
@@ -1001,6 +1002,30 @@ describe('a project whose engine setting could not be honoured (S9.4)', () => {
   it('shows no notice when the setting was honoured', async () => {
     await openFolder('/proj');
     expect(app.notice).toBeNull();
+  });
+});
+
+describe('a project whose folders could not all be watched (R8.7)', () => {
+  afterEach(() => {
+    project.watchNotice = null;
+    project.engineNotice = null;
+  });
+  const watchSentence = 'This project has more folders than your system lets programs watch, so changes that other programs make to files in some subfolders may not show up here.';
+
+  it('still opens, and says what will be missed as a notice', async () => {
+    project.watchNotice = watchSentence;
+    await openFolder('/proj');
+    expect(app.notice).toBe(watchSentence);
+    expect(app.activePath).toBe('main.tex');
+    expect(calls.compiles).toBe(1);
+  });
+
+  it('says both when the engine setting could not be honoured as well', async () => {
+    project.watchNotice = watchSentence;
+    project.engineNotice = 'This project asks for pdflatex, but no latexmk with pdflatex was found on this machine.';
+    await openFolder('/proj');
+    expect(app.notice).toContain(watchSentence);
+    expect(app.notice).toContain('asks for pdflatex');
   });
 });
 

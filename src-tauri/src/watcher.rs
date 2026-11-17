@@ -70,6 +70,44 @@ pub enum Change {
 /// Keeps the watcher thread alive. Drop it to stop watching.
 pub struct ProjectWatcher {
     _debouncer: Debouncer<RecommendedWatcher, RecommendedCache>,
+    /// The system's file-watch limit ran out while the folders were being added, so some
+    /// subfolders are not watched (R8.7). What *was* added keeps working.
+    incomplete: bool,
+}
+
+impl ProjectWatcher {
+    /// Whether some subfolders of the project are not being watched.
+    pub fn is_incomplete(&self) -> bool {
+        self.incomplete
+    }
+}
+
+/// The sentence for a project some of whose subfolders could not be watched (R8.7). The limit is
+/// one budget for the whole user, shared with every editor and sync client they run.
+pub fn incomplete_notice() -> String {
+    format!(
+        "This project has more folders than your system lets programs watch, so changes that other programs make to files in some subfolders may not show up here until you reopen the project.{}",
+        raising_the_limit()
+    )
+}
+
+/// The sentence for a project that could not be watched at all (R8.7): it opens anyway, because
+/// the editor, the build and the PDF do not need it. `error` is shown with its whole chain, since
+/// the outer message alone ("could not watch <folder>") says nothing about why.
+pub fn unavailable_notice(error: &anyhow::Error) -> String {
+    format!(
+        "Changes that other programs make to files in this project will not show up here until you reopen it: the folder could not be watched ({error:#}).{}",
+        raising_the_limit()
+    )
+}
+
+/// What to do about it, where there is something to do. Only Linux has a limit a person can raise.
+fn raising_the_limit() -> &'static str {
+    if cfg!(target_os = "linux") {
+        " Raising fs.inotify.max_user_watches (and max_user_instances) in your system settings fixes this."
+    } else {
+        ""
+    }
 }
 
 /// Remember that we wrote these bytes to this path, so the echo can be recognised.
@@ -141,11 +179,23 @@ where
     };
 
     let mut debouncer = new_debouncer(DEBOUNCE, None, handler).context("could not create file watcher")?;
-    debouncer
-        .watch(root, RecursiveMode::Recursive)
-        .with_context(|| format!("could not watch {}", root.display()))?;
+    let incomplete = match debouncer.watch(root, RecursiveMode::Recursive) {
+        Ok(()) => false,
+        // The kernel's watch budget ran out part-way through the folders. The watches that were
+        // added stay in place and the debouncer keeps delivering for them (checked against the real
+        // kernel, `a_full_watch_limit_leaves_a_working_but_incomplete_watcher`), so what is left is
+        // a watcher that is missing some subfolders, which is better than a project that will not open.
+        Err(error) if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) => {
+            warn!(root = %root.display(), "file watch limit reached; some subfolders are not watched");
+            true
+        }
+        Err(error) => {
+            return Err(anyhow::Error::new(error).context(format!("could not watch {}", root.display())));
+        }
+    };
     Ok(ProjectWatcher {
         _debouncer: debouncer,
+        incomplete,
     })
 }
 
@@ -400,5 +450,89 @@ mod tests {
         assert!(!changes_git_status(Path::new("/p/.git/objects/ab/cdef")));
         assert!(!changes_git_status(Path::new("/p/.git/logs/HEAD")));
         assert!(!changes_git_status(Path::new("/p/.git/COMMIT_EDITMSG")));
+    }
+
+    /// R8.7: when the system's file-watch limit runs out, `watch` used to fail, and with it opening
+    /// the project. The kernel's limit is one budget for the whole user, so this really happens.
+    /// Lowering it needs a user namespace (the limit is per namespace there and the machine's own is
+    /// untouched), so this test runs itself again inside `unshare -Ur` and skips where that is not
+    /// allowed. The inner run does the real work.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_full_watch_limit_leaves_a_working_but_incomplete_watcher() {
+        const INNER: &str = "ABSTRACT_TEX_WATCH_LIMIT_INNER_RUN";
+        if std::env::var_os(INNER).is_some() {
+            let dir = tempfile::tempdir().unwrap();
+            for number in 0..60 {
+                std::fs::create_dir(dir.path().join(format!("folder{number}"))).unwrap();
+            }
+            let (tx, rx) = mpsc::channel();
+            let watcher = watch(dir.path(), WrittenHashes::default(), move |e| {
+                let _ = tx.send(e);
+            })
+            .expect("a full watch limit must not be an error");
+            assert!(watcher.is_incomplete());
+            std::thread::sleep(Duration::from_millis(500));
+            while rx.try_recv().is_ok() {} // whatever the walk itself stirred up
+
+            std::fs::write(dir.path().join("main.tex"), "edited outside").unwrap();
+            let event = manuscript(wait_for_change(&rx, Duration::from_secs(5)))
+                .expect("a file in the root folder is still watched");
+            assert!(event.path.ends_with("main.tex"), "{}", event.path);
+            return;
+        }
+
+        let namespaces_allowed = std::process::Command::new("unshare")
+            .args(["-Ur", "true"])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if !namespaces_allowed {
+            eprintln!("skipped: no unprivileged user namespace here, so the watch limit cannot be lowered");
+            return;
+        }
+        // `module_path!()` is `crate::watcher::tests`; the harness names a test without the crate.
+        let this_test = format!(
+            "{}::a_full_watch_limit_leaves_a_working_but_incomplete_watcher",
+            module_path!().split_once("::").unwrap().1
+        );
+        let script = format!(
+            "echo 16 > /proc/sys/user/max_inotify_watches || exit 77; exec '{}' --exact {this_test} --nocapture",
+            std::env::current_exe().unwrap().display()
+        );
+        let output = std::process::Command::new("unshare")
+            .args(["-Ur", "sh", "-c", &script])
+            .env(INNER, "1")
+            .output()
+            .unwrap();
+        if output.status.code() == Some(77) {
+            eprintln!("skipped: the watch limit could not be lowered in the namespace");
+            return;
+        }
+        assert!(
+            output.status.success(),
+            "inner run failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn the_notices_say_what_is_missing_and_a_failure_says_why() {
+        assert!(incomplete_notice().contains("some subfolders"));
+        let error = anyhow::anyhow!("OS file watch limit reached").context("could not watch /work/thesis");
+        let text = unavailable_notice(&error);
+        // The outer message alone is what `to_string` shows; the cause is the part that helps.
+        assert!(text.contains("could not watch /work/thesis"), "{text}");
+        assert!(text.contains("OS file watch limit reached"), "{text}");
+        assert!(text.contains("until you reopen it"), "{text}");
+        if cfg!(target_os = "linux") {
+            assert!(
+                text.contains("fs.inotify.max_user_watches")
+                    && incomplete_notice().contains("fs.inotify.max_user_watches")
+            );
+        } else {
+            assert!(!text.contains("inotify"));
+        }
     }
 }

@@ -102,7 +102,7 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
         .map_err(to_message)?;
 
     let emitter = app.clone();
-    let watcher = watcher::watch(
+    let watching = watcher::watch(
         &project.root_dir,
         state.written.clone(),
         move |change| match change {
@@ -122,8 +122,16 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
             // say. Nothing to tell the editor about: no file in the project changed.
             Change::GitMetadata => git::emit_status_changed(&emitter),
         },
-    )
-    .map_err(to_message)?;
+    );
+    // A folder that cannot be watched, or not all of it, is not a reason to refuse to open it (R8.7):
+    // the editor, the build and the PDF do not depend on it. The author is told what will be missed.
+    let (watcher, watch_notice) = match watching {
+        Ok(watcher) => {
+            let notice = watcher.is_incomplete().then(watcher::incomplete_notice);
+            (Some(watcher), notice)
+        }
+        Err(error) => (None, Some(watcher::unavailable_notice(&error))),
+    };
 
     let mut info = project.info();
     // Each project builds with the engine it asks for (S9.4); a running build of the previous
@@ -133,8 +141,10 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
     state.diff_lane.orchestrator.set_engine(engine.clone());
     state.orchestrator.set_engine(engine);
     info.engine_notice = engine_notice;
-    // Replace the old watcher *after* the new one exists, so there is never a gap.
-    *state.watcher.lock().unwrap() = Some(watcher);
+    info.watch_notice = watch_notice;
+    // Replace the old watcher *after* the new one exists, so there is never a gap. When there is no
+    // new one, the old project's must still go: it would report that project's files as this one's.
+    *state.watcher.lock().unwrap() = watcher;
     *state.project.lock().unwrap() = Some(project);
     Ok(info)
 }

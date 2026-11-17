@@ -113,6 +113,10 @@ pub struct ProjectInfo {
     /// Set only when a project opens, and only when its `engine` setting could not be honoured
     /// (S9.4): the sentence the frontend shows as a notice.
     pub engine_notice: Option<String>,
+    /// Set only when a project opens, and only when its folders could not all be watched for
+    /// changes made by other programs (R8.7): the sentence the frontend shows as a notice. The
+    /// project opens either way.
+    pub watch_notice: Option<String>,
 }
 
 /// An open project: an absolute folder path and its configuration.
@@ -386,6 +390,7 @@ impl Project {
             document_files,
             document_files_complete,
             engine_notice: None,
+            watch_notice: None,
         }
     }
 
