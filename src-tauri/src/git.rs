@@ -105,7 +105,7 @@ pub async fn in_repository_blocking<T: Send + 'static>(
 /// Pure, so the refusals are tested without a window. `name` is typed by the author and joined to
 /// a path, so it must be one folder's name and nothing that walks elsewhere: no separators, no
 /// `..`, and none of the characters Windows refuses in a name, which is also where this
-/// app's projects get synced to.
+/// app's projects get synced to. The same goes for the names Windows reserves (R6.8).
 pub fn clone_destination(parent: &Path, url: &str, name: Option<&str>) -> Result<PathBuf, String> {
     let url = url.trim();
     if url.is_empty() {
@@ -121,11 +121,35 @@ pub fn clone_destination(parent: &Path, url: &str, name: Option<&str>) -> Result
         && chosen != ".."
         && !chosen
             .chars()
-            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'));
+            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        && !windows_would_not_keep(&chosen);
     if !is_one_plain_name {
         return Err(format!("\"{chosen}\" cannot be used as a folder name."));
     }
     Ok(parent.join(chosen))
+}
+
+/// Whether Windows would refuse `name` for a folder, or quietly make a different one (R6.8).
+///
+/// It treats `CON`, `PRN`, `AUX`, `NUL`, `COM0`..`COM9` and `LPT0`..`LPT9` as devices in any case,
+/// and also when an extension follows (`con.txt`), so only the part before the first dot counts.
+/// And it drops a trailing dot or space, so `thesis.` would become `thesis`. A name that merely
+/// begins with one of these (`console`, `com10`) is a different name and is fine.
+fn windows_would_not_keep(name: &str) -> bool {
+    const DEVICES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+    if name.ends_with('.') || name.ends_with(' ') {
+        return true;
+    }
+    let before_the_first_dot = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+    let upper = before_the_first_dot.to_ascii_uppercase();
+    // A closure that borrows `upper`: `strip_prefix` gives what follows the prefix, or `None` when
+    // the name does not start with it, and `is_some_and` turns that into a yes or no.
+    let numbered_device = |prefix: &str| {
+        upper
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.len() == 1 && rest.chars().all(|c| c.is_ascii_digit()))
+    };
+    DEVICES.contains(&upper.as_str()) || numbered_device("COM") || numbered_device("LPT")
 }
 
 /// Download `url` into `destination` on a blocking thread — the same reason
@@ -191,5 +215,47 @@ mod tests {
         }
         // The URL's own name goes through the same check.
         assert!(clone_destination(parent, "https://example.invalid/ada/..", None).is_err());
+    }
+
+    /// R6.8: Windows treats `con`, `nul`, `aux`, `prn`, `com1`..`com9` and `lpt1`..`lpt9` as devices,
+    /// in any case and even with an extension, and drops a trailing dot, so a folder made under such
+    /// a name is not the one that was asked for. Projects are synced to Windows, so every machine
+    /// refuses them (the other Windows-only characters are refused here the same way).
+    #[test]
+    fn a_name_windows_reserves_or_silently_changes_is_refused() {
+        let parent = Path::new("/papers");
+        for bad in [
+            "con", "CON", "Nul", "aux", "PRN", "com1", "COM9", "lpt1", "LPT9", "con.txt", "nul.tex",
+            "thesis.",
+        ] {
+            assert!(
+                clone_destination(parent, "https://github.com/ada/t.git", Some(bad)).is_err(),
+                "{bad} was accepted"
+            );
+        }
+        // Chosen by the address rather than typed: `.../con.git` would clone into `con`.
+        assert!(clone_destination(parent, "https://github.com/ada/con.git", None).is_err());
+    }
+
+    /// The refusal is for the names Windows reserves, not for names that merely begin with one.
+    #[test]
+    fn a_name_that_only_looks_like_a_reserved_one_is_accepted() {
+        let parent = Path::new("/papers");
+        for fine in [
+            "console",
+            "nulls",
+            "auxiliary",
+            "com10",
+            "lpt",
+            "my.thesis",
+            "thesis.v2",
+            "con-paper",
+            "a.con",
+        ] {
+            assert!(
+                clone_destination(parent, "https://github.com/ada/t.git", Some(fine)).is_ok(),
+                "{fine} was refused"
+            );
+        }
     }
 }
