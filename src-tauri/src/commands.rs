@@ -429,13 +429,27 @@ pub async fn comment_add(
     .map_err(to_message)
 }
 
+/// The saved GitHub token, read on a thread from the blocking pool (R5.9).
+///
+/// The read asks the OS keychain, which can stop for a password. On an async worker that wait
+/// would hold up every other async command sharing the worker, so the commands that send the token
+/// to GitHub (`git_push`, `git_sync`, `git_clone`, `comments_sync`) get it through here. The
+/// session is passed as an `Arc` because the closure sent to the pool must own what it uses; a
+/// `State<'_, _>` borrowed from the command cannot be moved into it.
+async fn saved_github_token(github: &Arc<crate::github::GitHubSession>) -> CommandResult<Option<String>> {
+    let github = Arc::clone(github);
+    tauri::async_runtime::spawn_blocking(move || github.token().map_err(to_message))
+        .await
+        .map_err(to_message)?
+}
+
 /// Exchange comments with `origin` (S14.3d): the frontend calls this right after a successful
 /// *Sync*, so one click moves the text and the margin notes together. Reads the saved GitHub token
 /// the same way `git_sync` does; nothing here runs unless the person pressed Sync.
 #[tauri::command]
 pub async fn comments_sync(state: State<'_, AppState>) -> CommandResult<crate::comments::CommentsSync> {
     let root = with_project(&state, |project| Ok(project.root_dir.clone()))?;
-    let token = state.github.token().map_err(to_message)?;
+    let token = saved_github_token(&state.github).await?;
     tauri::async_runtime::spawn_blocking(move || crate::comments::sync(&root, token.as_deref()))
         .await
         .map_err(to_message)?
@@ -1157,7 +1171,7 @@ pub async fn git_clone(
     folder_name: Option<String>,
 ) -> CommandResult<String> {
     let destination = git::clone_destination(Path::new(&parent_dir), &url, folder_name.as_deref())?;
-    let token = state.github.token().map_err(to_message)?;
+    let token = saved_github_token(&state.github).await?;
     let cloned = git::clone_blocking(url.trim().to_string(), destination, token).await?;
     Ok(cloned.to_string_lossy().into_owned())
 }
@@ -1205,7 +1219,7 @@ pub fn git_origin_url(state: State<'_, AppState>) -> CommandResult<Option<String
 /// never silently discard a coauthor's commit (checked by hand, `abstract-tex-git`'s own tests).
 #[tauri::command]
 pub async fn git_push(app: AppHandle, state: State<'_, AppState>) -> CommandResult<()> {
-    let token = state.github.token().map_err(to_message)?;
+    let token = saved_github_token(&state.github).await?;
     git::in_repository_blocking(&state, move |repository| {
         abstract_tex_git::push(repository, token.as_deref())
     })
@@ -1219,7 +1233,7 @@ pub async fn git_push(app: AppHandle, state: State<'_, AppState>) -> CommandResu
 /// call this — the panel turns the answer into the sentence that goes under the button.
 #[tauri::command]
 pub async fn git_sync(app: AppHandle, state: State<'_, AppState>) -> CommandResult<SyncOutcome> {
-    let token = state.github.token().map_err(to_message)?;
+    let token = saved_github_token(&state.github).await?;
     let outcome = git::in_repository_blocking(&state, move |repository| {
         abstract_tex_git::sync(repository, token.as_deref())
     })
@@ -1449,6 +1463,129 @@ mod tests {
             threads[0],
             std::thread::current().id(),
             "the token was cleared on the calling thread"
+        );
+    }
+
+    /// Whether the calling thread is one of the async runtime's workers rather than a thread from
+    /// its blocking pool. Waiting is allowed only on the second kind: starting a runtime inside an
+    /// async worker panics, and inside a blocking-pool thread it does not.
+    fn is_on_an_async_worker() -> bool {
+        std::panic::catch_unwind(|| tauri::async_runtime::block_on(async {})).is_err()
+    }
+
+    /// A token store that notes, for each read, whether it ran on an async worker; and then
+    /// refuses with a sentence, so the command under test stops before it touches a network.
+    struct WorkerNotingStore {
+        reads_on_an_async_worker: Arc<std::sync::Mutex<Vec<bool>>>,
+    }
+
+    impl abstract_tex_github::SecretStore for WorkerNotingStore {
+        fn save(&self, _token: &str) -> Result<(), abstract_tex_github::GitHubError> {
+            Ok(())
+        }
+        fn read(&self) -> Result<Option<String>, abstract_tex_github::GitHubError> {
+            self.reads_on_an_async_worker
+                .lock()
+                .unwrap()
+                .push(is_on_an_async_worker());
+            Err(abstract_tex_github::GitHubError::Keychain(
+                "the test keychain is closed".to_string(),
+            ))
+        }
+        fn clear(&self) -> Result<(), abstract_tex_github::GitHubError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_probe_tells_an_async_worker_from_a_blocking_thread() {
+        let on_a_worker = tauri::async_runtime::block_on(async {
+            tauri::async_runtime::spawn(async { is_on_an_async_worker() })
+                .await
+                .unwrap()
+        });
+        let on_a_blocking_thread = tauri::async_runtime::block_on(async {
+            tauri::async_runtime::spawn_blocking(is_on_an_async_worker)
+                .await
+                .unwrap()
+        });
+        assert!(on_a_worker, "the probe should see an async worker as one");
+        assert!(
+            !on_a_blocking_thread,
+            "the probe should see a blocking thread as one"
+        );
+    }
+
+    // The tidy left over from R5.9. `git_push`, `git_sync`, `git_clone` and `comments_sync` read the
+    // saved token (a keychain call, which can stop for a password) before they hand their work to
+    // a blocking thread, so the wait landed on an async worker, and every other async command
+    // sharing that worker waited with it. `git_push` and `git_sync` take an `AppHandle`, which the
+    // mock runtime cannot supply, so they are covered through the helper they share, below.
+    #[test]
+    fn the_commands_that_send_the_token_to_github_do_not_read_it_on_an_async_worker() {
+        let reads_on_an_async_worker = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let folder = tempfile::tempdir().unwrap();
+        let state = AppState {
+            github: Arc::new(crate::github::GitHubSession::with_store(Box::new(
+                WorkerNotingStore {
+                    reads_on_an_async_worker: Arc::clone(&reads_on_an_async_worker),
+                },
+            ))),
+            project: std::sync::Mutex::new(Some(Project::open(folder.path()).unwrap())),
+            ..AppState::new()
+        };
+        let app = tauri::test::mock_builder()
+            .manage(state)
+            .invoke_handler(tauri::generate_handler![git_clone, comments_sync])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let invoke = |command: &str, body: serde_json::Value| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: command.into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(body),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+            )
+        };
+
+        let clone_error = invoke(
+            "git_clone",
+            serde_json::json!({
+                "url": "https://github.com/ada/thesis.git",
+                "parentDir": folder.path().to_string_lossy(),
+            }),
+        )
+        .expect_err("the closed test keychain should stop the clone");
+        let comments_error = invoke("comments_sync", serde_json::json!({}))
+            .expect_err("the closed test keychain should stop the comments exchange");
+        assert!(clone_error.to_string().contains("the test keychain is closed"));
+        assert!(comments_error.to_string().contains("the test keychain is closed"));
+
+        // The helper `git_push` and `git_sync` use, called the way they call it.
+        let github = Arc::clone(&app.state::<AppState>().github);
+        let helper_error = tauri::async_runtime::block_on(saved_github_token(&github))
+            .expect_err("the closed test keychain should stop the helper");
+        assert!(helper_error.contains("the test keychain is closed"));
+
+        let reads = reads_on_an_async_worker.lock().unwrap();
+        assert_eq!(
+            reads.len(),
+            3,
+            "each of the three callers should read the store once"
+        );
+        assert_eq!(
+            *reads,
+            vec![false, false, false],
+            "the token was read on an async worker (clone, comments, helper in that order)"
         );
     }
 }
