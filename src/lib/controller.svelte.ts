@@ -462,8 +462,11 @@ export async function refreshOutline(): Promise<void> {
     app.outline = scanned;
     return;
   }
+  const epoch = projectEpoch;
   const symbols = await lspDocumentSymbols(path);
   if (app.activePath !== path) return; // a different tab is active now; that call's own refresh owns this
+  // The same path in another project is not the same tab: two projects both have a `main.tex` (R6.6).
+  if (epoch !== projectEpoch) return;
   app.outline = mergeOutline(scanned, symbols);
 }
 
@@ -2159,6 +2162,14 @@ async function whyNotToLeaveProject(): Promise<string | null> {
  * the next checks it, so a file read that finishes late is not opened into the wrong project. */
 let projectEpoch = 0;
 
+/** The newest build generation the window had heard of when the last folder was opened. Rust numbers
+ * builds with one counter for the whole run, and `open_project` does not stop a build that is still
+ * running, so such a build goes on to say `finished` (and `progress`, `draft`, `failed`) about the
+ * project the author has left. Everything numbered at or below this belongs to a project that is no
+ * longer open, and `handleCompileEvent` drops it (R6.6). The new project's own builds are numbered
+ * after it. */
+let newestBuildOfAProjectLeft = 0;
+
 export async function openFolder(path?: string, options: { atFirstPlaceholder?: boolean } = {}): Promise<void> {
   const chosen = path ?? (await ipc.pickFolder());
   if (!chosen) return;
@@ -2170,6 +2181,7 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
   try {
     const info = await ipc.openProject(chosen);
     projectEpoch += 1;
+    newestBuildOfAProjectLeft = app.compile.generation;
     closeAllDocuments();
     app.project = info;
     // The previous project's placeholders are not this one's (S11.12).
@@ -3074,6 +3086,9 @@ function withdrawDraft(): void {
 }
 
 function handleCompileEvent(event: CompileEvent): void {
+  // A build of the project that was open before this one (R6.6): its PDF and its errors are not
+  // this project's, whatever stage it has reached.
+  if (event.generation <= newestBuildOfAProjectLeft) return;
   switch (event.status) {
     case 'started':
       app.compile = {

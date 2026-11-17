@@ -84,6 +84,9 @@ let synctexInverseAnswer: { file: string | null; line: number } | Error = { file
  * `unknown` because that is genuinely what crosses the Tauri event boundary; each test narrows
  * it to whatever shape it is pretending TexLab sent. */
 let lspRequestAnswer: unknown = null;
+/** When set, the *next* `lspRequest` waits for it before answering, then the gate is spent: a test
+ * holds one reply back while later requests pass (R6.6). */
+let lspRequestGate: Promise<void> | null = null;
 /** What `readLog` returns — the `main.log` on the fake disk, for the raw-view tests (S6.3). */
 let logOnDisk = '';
 /** What `bibliographyIndex` answers with — the index Rust would have built from the fake disk. */
@@ -357,7 +360,12 @@ vi.mock('./ipc', () => ({
       if (lspStartError) throw new Error(lspStartError);
       return {};
     },
-    lspRequest: async () => lspRequestAnswer,
+    lspRequest: async () => {
+      const gate = lspRequestGate;
+      lspRequestGate = null;
+      if (gate) await gate;
+      return lspRequestAnswer;
+    },
     lspNotify: async (method: string, params: unknown) => {
       calls.lsp.push({ method, params });
     },
@@ -856,6 +864,7 @@ beforeEach(async () => {
   calls.logReads = 0;
   lspStartError = null;
   lspRequestAnswer = null;
+  lspRequestGate = null;
   logOnDisk = '';
   synctexForwardAnswer = { page: 1, x: 10, y: 20 };
   synctexInverseAnswer = { file: 'main.tex', line: 3 };
@@ -966,6 +975,8 @@ beforeEach(async () => {
   github.creating = false;
   app.conflict = null;
   app.notice = null;
+  // Rust numbers builds from 1 in every fresh process, and these tests send 1 again and again.
+  app.compile = { ...app.compile, generation: 0 };
   await start();
   await openFolder('/proj');
   calls.compiles = 0; // the open triggered one; the tests care about the ones after
@@ -4765,6 +4776,118 @@ describe('a file read that finishes after another folder was opened (R6.3)', () 
 
     expect(app.openTabs).not.toContain('chapter.tex');
     expect(app.openTabs).toEqual(['main.tex']);
+  });
+});
+
+describe('a build of the previous project that finishes after another folder was opened (R6.6)', () => {
+  const oldProjectsError = {
+    title: '_ used outside maths',
+    explanation: '`_` means "subscript" and only works inside maths mode.',
+    line: 3,
+    file: 'main.tex',
+    openFiles: ['main.tex'],
+    severity: 'error' as const,
+    rule: 'missing-dollar',
+    rawMessage: 'Missing $ inserted.',
+    fix: null,
+  };
+  // Rust numbers every build of the run from one counter, so the next project's first build is
+  // numbered after the old project's last (and 5 and 6, not 1 and 2, so that a floor which is one
+  // too high cannot hide behind the numbers the other tests use).
+  const oldBuild = 5;
+  const newBuild = 6;
+  const oldBuildFinished = (success: boolean): CompileEvent => ({
+    status: 'finished',
+    generation: oldBuild,
+    success,
+    pdfPath: success ? '/old/.abstract-tex/build/main.pdf' : null,
+    logPath: null,
+    diagnostics: success ? [] : [oldProjectsError],
+    durationMs: 900,
+    stderr: '',
+  });
+
+  beforeEach(() => {
+    app.drawerOpen = false;
+    // The old project's build is under way when the author opens the other folder.
+    compileHandler({ status: 'started', generation: oldBuild, rootFile: 'main.tex' });
+  });
+
+  it("does not put its PDF on the new project's screen", async () => {
+    await openFolder('/proj');
+    compileHandler(oldBuildFinished(true));
+
+    expect(app.pdfUrl).toBeNull();
+    expect(app.compile.phase).toBe('idle');
+  });
+
+  it("does not put its errors in the new project's drawer", async () => {
+    await openFolder('/proj');
+    compileHandler(oldBuildFinished(false));
+
+    expect(app.compile.diagnostics).toEqual([]);
+    expect(app.compile.phase).toBe('idle');
+    expect(app.drawerOpen).toBe(false);
+  });
+
+  it('ignores its progress lines, its draft and its failure as well', async () => {
+    await openFolder('/proj');
+
+    compileHandler({ status: 'progress', generation: oldBuild, message: 'Downloading amsmath.sty' });
+    expect(app.compile.progress).toBeNull();
+
+    compileHandler({
+      status: 'draft',
+      generation: oldBuild,
+      chapter: 'chapters/03-method',
+      pdfPath: '/old/.abstract-tex/draft/build/main.pdf',
+      durationMs: 2000,
+    });
+    expect(app.pdfUrl).toBeNull();
+    expect(app.pdfDraftOf).toBeNull();
+
+    compileHandler({ status: 'failed', generation: oldBuild, message: 'no engine' });
+    expect(app.compile.phase).toBe('idle');
+    expect(app.drawerOpen).toBe(false);
+  });
+
+  it("still shows the new project's own build", async () => {
+    await openFolder('/proj');
+    compileHandler({ status: 'started', generation: newBuild, rootFile: 'main.tex' });
+    compileHandler({
+      status: 'finished',
+      generation: newBuild,
+      success: true,
+      pdfPath: '/proj/.abstract-tex/build/main.pdf',
+      logPath: null,
+      diagnostics: [],
+      durationMs: 900,
+      stderr: '',
+    });
+
+    expect(app.compile.phase).toBe('ok');
+    expect(app.pdfUrl).toContain('/proj/.abstract-tex/build/main.pdf');
+  });
+});
+
+describe('an outline requested in the previous project (R6.6)', () => {
+  it("is not painted on the new project's tab when both have a main.tex", async () => {
+    type('\\section{Old}');
+    await app.activeDoc!.save();
+    disk.set('main.tex', 'another project, no headings');
+    let release!: () => void;
+    lspRequestGate = new Promise<void>((resolve) => (release = resolve));
+    const slow = refreshOutline(); // asks the old project's server; its answer is held back
+    await vi.advanceTimersByTimeAsync(0);
+
+    await openFolder('/proj'); // the new project's own refresh passes the gate and finds no headings
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.outline).toEqual([]);
+    release();
+    await slow;
+
+    expect(app.activePath).toBe('main.tex'); // the same path in the other project: a path check cannot tell
+    expect(app.outline).toEqual([]);
   });
 });
 
