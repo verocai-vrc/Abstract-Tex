@@ -671,7 +671,10 @@ pub fn read_text(path: &Path) -> Result<String> {
     // LaTeX source has no NUL byte. A file that does is an image, a PDF, or UTF-16 text, and opening
     // it would show garbage that saving then writes back over the original.
     if bytes.contains(&0) {
-        bail!("{name} does not look like a text file (UTF-8 or Latin-1), so it is not opened in the editor.");
+        bail!(
+            "{name} does not look like a plain text file (an image, a PDF or a UTF-16 file, for example), \
+             so it is not opened in the editor."
+        );
     }
     // `String::from_utf8` hands the bytes back on failure, which is how the position is found
     // without reading the file twice.
@@ -1039,6 +1042,10 @@ mod tests {
         fs::write(dir.path().join("figure.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
         let error = read_text(&dir.path().join("figure.png")).unwrap_err();
         assert!(error.to_string().contains("text file"), "{error}");
+        // R8 note: the sentence used to say "(UTF-8 or Latin-1)", offering the author an encoding the
+        // editor refuses (see the test below). It names what a NUL byte really means instead.
+        assert!(!error.to_string().contains("Latin-1"), "{error}");
+        assert!(error.to_string().contains("UTF-16"), "{error}");
 
         fs::write(dir.path().join("main.tex"), "plain").unwrap();
         assert_eq!(read_text(&dir.path().join("main.tex")).unwrap(), "plain");
