@@ -12,7 +12,7 @@
 
 use texbib::Entry;
 
-use crate::bibliography::{BibliographyIndex, EntrySummary};
+use crate::bibliography::{BibOrigin, BibliographyIndex, EntrySummary};
 
 /// What pasting a recognised identifier resolves to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,7 +21,8 @@ pub enum PasteOutcome {
     /// in the index. Nothing is written; the existing key is what gets cited.
     Existing { key: String },
     /// No match. `bib_file` is the project-relative path of the `.bib` the entry should be
-    /// appended to — the first one the document names, matching S7.2's own "first `.bib` file"
+    /// appended to — the first one the index lists that is on disk and inside the project (the
+    /// document's own, before any linked export), matching S7.2's own "first `.bib` file"
     /// convention nothing else in this codebase has needed until now. `keys_in_use` is every key
     /// already in the index, for [`render_new_entry`] to generate a unique one against once the
     /// caller has read `bib_file`'s current text.
@@ -43,6 +44,20 @@ pub enum PasteError {
         "this project has no .bib file yet — add \\bibliography{{...}} or \\addbibresource{{...}} first"
     )]
     NoBibFile,
+    /// The document names a `.bib` that is not in the project folder yet, and no other file the
+    /// document names exists. Appending to it failed in the operating system's own words, "No such
+    /// file or directory", with no file name (review finding R8.16). Not created for the author:
+    /// the file is theirs, and where it belongs is for them to say.
+    #[error(
+        "'{path}' is named in the document but is not in the project folder yet. Create it (an empty file will do) and paste again."
+    )]
+    BibFileNotCreated { path: String },
+    /// Every `.bib` the document names is outside the project folder or a remote file, and this app
+    /// writes only inside the project.
+    #[error(
+        "'{path}' is the only bibliography the document names, and Abstract-Tex does not write outside the project folder or to a remote file. Add a .bib file inside the project and name it with \\bibliography{{...}} or \\addbibresource{{...}}."
+    )]
+    BibFileNotInProject { path: String },
 }
 
 /// Decide what pasting `fetched` (an entry already resolved from a DOI/arXiv id/ISBN, with
@@ -65,11 +80,34 @@ pub fn resolve_paste(fetched: &Entry, index: &BibliographyIndex) -> Result<Paste
     if let Some(hit) = find_by_title_year(fetched, index) {
         return Ok(PasteOutcome::Existing { key: hit.key.clone() });
     }
-    let bib_file = index.files.first().ok_or(PasteError::NoBibFile)?;
-    Ok(PasteOutcome::New {
-        bib_file: bib_file.path.clone(),
-        keys_in_use: index.entries.iter().map(|entry| entry.key.clone()).collect(),
-    })
+    // The first file that is on disk and inside the project (`exists` is false for both a file that is
+    // not there and one outside the project). The first one *listed* was used before, so a document that
+    // named `refs.bib` before it existed, or a shared library outside the project ahead of its own file,
+    // lost the paste to a failed write (review finding R8.16).
+    if let Some(bib_file) = index.files.iter().find(|file| file.exists) {
+        return Ok(PasteOutcome::New {
+            bib_file: bib_file.path.clone(),
+            keys_in_use: index.entries.iter().map(|entry| entry.key.clone()).collect(),
+        });
+    }
+    // Nothing to write to. Say why for the first file the document names; a linked export that is not
+    // on disk is not something the document names, so it does not change what is said.
+    for file in &index.files {
+        match file.origin {
+            BibOrigin::Named { .. } => {
+                return Err(PasteError::BibFileNotCreated {
+                    path: file.path.clone(),
+                })
+            }
+            BibOrigin::Outside { .. } => {
+                return Err(PasteError::BibFileNotInProject {
+                    path: file.path.clone(),
+                })
+            }
+            BibOrigin::Linked => {}
+        }
+    }
+    Err(PasteError::NoBibFile)
 }
 
 /// A generated key and the whole new text of `bib_file`, once the caller has read it — the part
@@ -275,6 +313,94 @@ mod tests {
             resolve_paste(&fetched, &index).unwrap(),
             PasteOutcome::Existing {
                 key: "smith2019".to_string()
+            }
+        );
+    }
+
+    fn named_bib(path: &str, exists: bool) -> BibFile {
+        BibFile {
+            path: path.to_string(),
+            exists,
+            entry_count: 0,
+            problems: Vec::new(),
+            origin: BibOrigin::Named {
+                file: "main.tex".to_string(),
+                line: 1,
+            },
+        }
+    }
+
+    fn outside_bib(path: &str) -> BibFile {
+        BibFile {
+            origin: BibOrigin::Outside {
+                file: "main.tex".to_string(),
+                line: 1,
+            },
+            ..named_bib(path, false)
+        }
+    }
+
+    fn index_of_files(files: Vec<BibFile>) -> BibliographyIndex {
+        BibliographyIndex {
+            files,
+            ..BibliographyIndex::default()
+        }
+    }
+
+    fn a_paper() -> Entry {
+        fetched_entry(vec![
+            braced_field("title", "A Paper"),
+            braced_field("year", "2024"),
+        ])
+    }
+
+    // R8.16. `\bibliography{missing,refs}`: the first file listed is not there, and the paste went to it.
+    #[test]
+    fn a_new_entry_goes_to_the_first_bib_file_that_exists() {
+        let index = index_of_files(vec![named_bib("missing.bib", false), named_bib("refs.bib", true)]);
+        match resolve_paste(&a_paper(), &index).unwrap() {
+            PasteOutcome::New { bib_file, .. } => assert_eq!(bib_file, "refs.bib"),
+            other => panic!("expected New, got {other:?}"),
+        }
+    }
+
+    // R8.16. The same for a first file outside the project, which this app never writes to.
+    #[test]
+    fn a_bib_file_outside_the_project_is_skipped_for_one_inside() {
+        let index = index_of_files(vec![
+            outside_bib("../shared/library.bib"),
+            named_bib("refs.bib", true),
+        ]);
+        match resolve_paste(&a_paper(), &index).unwrap() {
+            PasteOutcome::New { bib_file, .. } => assert_eq!(bib_file, "refs.bib"),
+            other => panic!("expected New, got {other:?}"),
+        }
+    }
+
+    // R8.16. A document that names `refs.bib` before there is one: a sentence that says which file and
+    // what to do, not the operating system's "No such file or directory (os error 2)".
+    #[test]
+    fn a_named_bib_file_that_is_not_there_yet_is_a_sentence_naming_it() {
+        let index = index_of_files(vec![named_bib("refs.bib", false)]);
+        let error = resolve_paste(&a_paper(), &index).unwrap_err();
+        assert_eq!(
+            error,
+            PasteError::BibFileNotCreated {
+                path: "refs.bib".to_string()
+            }
+        );
+        assert!(error.to_string().contains("'refs.bib'"), "{error}");
+        assert!(!error.to_string().contains("os error"), "{error}");
+    }
+
+    #[test]
+    fn a_document_naming_only_files_outside_the_project_is_told_why_nothing_is_written() {
+        let index = index_of_files(vec![outside_bib("../shared/library.bib")]);
+        let error = resolve_paste(&a_paper(), &index).unwrap_err();
+        assert_eq!(
+            error,
+            PasteError::BibFileNotInProject {
+                path: "../shared/library.bib".to_string()
             }
         );
     }
