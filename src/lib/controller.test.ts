@@ -2162,13 +2162,23 @@ describe('syncTexForward (S3.4)', () => {
     expect(app.syncTexScrollRequest!.nonce).not.toBe(first);
   });
 
-  it('is silent when there is nothing typeset for the line yet — not a notice', async () => {
+  // R6.18: the only caller is the Ctrl-Alt-J key, an explicit command, so a miss says why (as
+  // `syncTexInverse` already does for a double-click) rather than leaving the key apparently dead.
+  it('says why when there is nothing typeset for the line, and does not move the PDF', async () => {
     synctexForwardAnswer = new Error('Nothing typeset for main.tex:7 in the last build.');
     app.syncTexScrollRequest = null;
     app.notice = null;
     await syncTexForward('main.tex', 7);
     expect(app.syncTexScrollRequest).toBeNull();
-    expect(app.notice).toBeNull();
+    expect(app.notice).toContain('Nothing typeset for main.tex:7 in the last build.');
+  });
+
+  it('says to build first when there is no SyncTeX data yet', async () => {
+    synctexForwardAnswer = new Error('No SyncTeX data yet. Build the project first.');
+    app.syncTexScrollRequest = null;
+    app.notice = null;
+    await syncTexForward('main.tex', 7);
+    expect(app.notice).toContain('Build the project first');
   });
 
   it('does nothing with no project open', async () => {

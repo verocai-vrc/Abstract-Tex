@@ -2902,18 +2902,20 @@ export function openPdfFind(): void {
 
 /**
  * SyncTeX forward search (S3.4): the cursor's line in the active file to a spot in the PDF.
- * Silent on every failure the author did not cause on purpose — no project, no build yet,
- * nothing typeset for a blank line — because this fires on ordinary cursor movement, not on an
- * explicit action, and a notice on every idle pause over a blank line would be noise DESIGN.md
- * §2 commitment 6 does not ask for. `PdfPane.svelte` is what turns the request into a scroll.
+ * Its one caller is the Ctrl-Alt-J key (`editor/synctex.ts`), an explicit command, so a miss says
+ * why — "Build the project first", or "Nothing typeset for main.tex:7" over a blank line — the
+ * way `syncTexInverse` does for a double-click (R6.18). A key that does nothing and says nothing
+ * looks broken. If forward search is ever run on cursor movement, give that caller its own quiet
+ * entry point; do not make this one silent again. `PdfPane.svelte` is what turns the request into
+ * a scroll.
  */
 export async function syncTexForward(relativePath: string, line: number): Promise<void> {
   if (!app.project) return;
   try {
     const hit = await ipc.synctexForward(relativePath, line, app.pdfDraftOf !== null);
     app.syncTexScrollRequest = { page: hit.page, x: hit.x, y: hit.y, nonce: ++syncTexNonce };
-  } catch {
-    /* no build yet, or nothing typeset for this line — both ordinary, neither worth a notice */
+  } catch (error) {
+    app.notice = String(error);
   }
 }
 
