@@ -113,13 +113,36 @@ const WRAP_COLUMN: usize = 79;
 /// coincidentally 79 characters wide (see `unwrap_lines`'s own test for one, at 73 and 27
 /// characters, correctly left unmerged) — and a resolver built on top of this can always fall
 /// back to the raw log when a rule fails to make sense of what it sees.
+///
+/// A second, different break is undone too: `\PackageError` splits a long message itself (with
+/// `\MessageBreak`) and starts each further physical line with the package's name in parentheses
+/// and a run of spaces, `(fontspec)                found.`. When the logical line being built is
+/// an error, such a line is the rest of its sentence and is joined to it with one space. Only
+/// errors: no rule reads the tail of a warning, and joining warnings would change their text in
+/// every fixture that has one. See [`package_continuation_text`] for what counts as one.
 pub fn unwrap_lines(log: &str) -> Vec<String> {
     let mut logical: Vec<String> = Vec::new();
     let mut previous_raw_len = 0usize;
     for raw in log.lines() {
         if previous_raw_len == WRAP_COLUMN && !starts_a_new_error(raw) {
+            // The 79-column rule goes first, so a `(package)` line that follows a full-width
+            // line is glued on as before, and a continuation that is itself 79 wide still
+            // collects its own remainder on the next pass of this loop.
             if let Some(current) = logical.last_mut() {
                 current.push_str(raw);
+            }
+        } else if let Some(text) = package_continuation_text(raw) {
+            // `match` with a guard: join only when there is a logical line and it is an error.
+            // Anything else (the top of the log, a warning, ordinary text) keeps the line as its
+            // own, exactly as before this branch existed.
+            match logical.last_mut() {
+                Some(current) if current.starts_with("! ") => {
+                    if !current.ends_with(' ') {
+                        current.push(' ');
+                    }
+                    current.push_str(text);
+                }
+                _ => logical.push(raw.to_string()),
             }
         } else {
             logical.push(raw.to_string());
@@ -127,6 +150,34 @@ pub fn unwrap_lines(log: &str) -> Vec<String> {
         previous_raw_len = raw.chars().count();
     }
     logical
+}
+
+/// The text of a `\MessageBreak` continuation line, without its `(package)` prefix:
+/// `(babel)                or the language definition…` → `or the language definition…`.
+///
+/// The shape is deliberately narrow, because a log is full of parentheses. The name between them is
+/// one word of letters, digits, `_`, `@` and `-` (so `(./sections/intro.tex)` and `(babel.sty)` are
+/// file names, not packages), at least three spaces follow (LaTeX pads the prefix to the width of
+/// `Package <name> Error: `, which is far more), and some text follows the spaces.
+fn package_continuation_text(physical_line: &str) -> Option<&str> {
+    const MINIMUM_PADDING: usize = 3;
+    let after_open = physical_line.strip_prefix('(')?;
+    let close = after_open.find(')')?;
+    let name = &after_open[..close];
+    let name_is_one_word = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '@' || c == '-');
+    if !name_is_one_word {
+        return None;
+    }
+    let after_name = &after_open[close + 1..];
+    let text = after_name.trim_start_matches(' ');
+    let padding = after_name.len() - text.len();
+    if padding < MINIMUM_PADDING || text.trim().is_empty() {
+        return None;
+    }
+    Some(text)
 }
 
 /// Whether a physical line opens a TeX error (`! Undefined control sequence.`). Used only to
@@ -295,6 +346,117 @@ mod tests {
             let first: String = "é".repeat(79);
             let log = format!("{first}\ntail\n");
             assert_eq!(unwrap_lines(&log), vec![format!("{first}tail")]);
+        }
+
+        // Item 9 of the ledger's S6.1 note. `\PackageError` breaks a long message itself, with
+        // `\MessageBreak`, and starts the next physical line with the package's name in parentheses.
+        // It is the same sentence; the break stands where a space was. This is the font-not-found
+        // capture's shape (its first line is 75 characters, so the 79-column rule never fires).
+        #[test]
+        fn a_package_error_continues_on_a_line_that_starts_with_the_package_name_in_parentheses() {
+            let log = "! Package fontspec Error: The font \"X\" cannot be\n\
+                       (fontspec)                found.\n\
+                       \n\
+                       For immediate help type H <return>.\n";
+            assert_eq!(
+                unwrap_lines(log),
+                vec![
+                    "! Package fontspec Error: The font \"X\" cannot be found.",
+                    "",
+                    "For immediate help type H <return>."
+                ]
+            );
+        }
+
+        // The babel capture, where both mechanisms meet: the error line wraps at column 79 with
+        // one letter left over ("i" / "t"), the `(babel)` line is a `\MessageBreak`, and it wraps at
+        // column 79 as well ("n" / "ot found."). Before the fix the one-letter line ended the chain
+        // and the second half of the sentence became a line of its own.
+        #[test]
+        fn a_package_continuation_that_wraps_at_79_columns_still_gets_its_remainder() {
+            let first = "! Package babel Error: Unknown option 'nosuchlanguage'. Either you misspelled i";
+            let second = "(babel)                or the language definition file nosuchlanguage.ldf was n";
+            assert_eq!(first.chars().count(), WRAP_COLUMN);
+            assert_eq!(second.chars().count(), WRAP_COLUMN);
+            let log = format!("{first}\nt\n{second}\not found.\n\nSee the babel package documentation.\n");
+            assert_eq!(
+                unwrap_lines(&log),
+                vec![
+                    "! Package babel Error: Unknown option 'nosuchlanguage'. Either you misspelled it \
+                     or the language definition file nosuchlanguage.ldf was not found.",
+                    "",
+                    "See the babel package documentation."
+                ]
+            );
+        }
+
+        // Measured with the bundled Tectonic (`\PackageError{foo}{<58 x's>\MessageBreak found.}`):
+        // when the first part ends exactly at column 79, TeX prints an *empty* line before the
+        // `(foo)` one, so the wrap rule takes the empty line (a no-op) and the continuation must
+        // still be recognised afterwards.
+        #[test]
+        fn a_package_error_whose_first_part_is_exactly_79_wide_is_still_joined() {
+            let first = format!("! Package foo Error: {}", "x".repeat(58));
+            assert_eq!(first.chars().count(), WRAP_COLUMN);
+            let log = format!("{first}\n\n(foo)                found..\n\n");
+            assert_eq!(
+                unwrap_lines(&log),
+                vec![format!("{first} found.."), String::new()]
+            );
+        }
+
+        // Packages write `text \MessageBreak more` with a space before the break, and the log keeps
+        // that trailing space; the join must not double it.
+        #[test]
+        fn a_trailing_space_before_the_break_is_not_doubled() {
+            let log = "! Package foo Error: some text \n(foo)                more text.\n";
+            assert_eq!(
+                unwrap_lines(log),
+                vec!["! Package foo Error: some text more text."]
+            );
+        }
+
+        #[test]
+        fn every_continuation_line_of_a_package_error_is_joined_in_order() {
+            let log = "! Package foo Error: first part\n\
+                       (foo)                second part\n\
+                       (foo)                third part.\n\
+                       \n";
+            assert_eq!(
+                unwrap_lines(log),
+                vec!["! Package foo Error: first part second part third part.", ""]
+            );
+        }
+
+        // Only an error is joined. A warning's continuation (`(hyperref)  removing ...`) is left as
+        // its own line: no rule reads a warning's tail today, and changing the warnings' text would
+        // change every fixture that has one.
+        #[test]
+        fn a_package_continuation_after_a_warning_is_left_alone() {
+            let log = "Package hyperref Warning: Token not allowed in a PDF string (Unicode):\n\
+                       (hyperref)                removing `\\footnote' on input line 12.\n";
+            assert_eq!(unwrap_lines(log).len(), 2);
+        }
+
+        // The shape is `(name)` and then a run of spaces. A file TeX opens or closes right after an
+        // error, and a parenthesis in running text, must not be taken for one.
+        #[test]
+        fn a_file_open_line_or_a_parenthesis_after_an_error_is_not_a_continuation() {
+            for not_a_continuation in [
+                "(./sections/intro.tex)   x",
+                "(babel.sty) (xebabel.def",
+                "(babel) too few spaces",
+                "(two words)        x",
+                "(babel)",
+                "(babel)          ",
+            ] {
+                let log = format!("! Package babel Error: Something.\n{not_a_continuation}\n");
+                assert_eq!(
+                    unwrap_lines(&log),
+                    vec!["! Package babel Error: Something.", not_a_continuation],
+                    "{not_a_continuation:?}"
+                );
+            }
         }
 
         #[test]

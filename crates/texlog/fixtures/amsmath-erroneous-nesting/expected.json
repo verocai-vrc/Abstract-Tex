@@ -7,7 +7,7 @@
     "openFiles": [
       "main.tex"
     ],
-    "rawMessage": "Package amsmath Error: Erroneous nesting of equation structures;",
+    "rawMessage": "Package amsmath Error: Erroneous nesting of equation structures; trying to recover with `aligned'.",
     "rule": "amsmath-erroneous-nesting",
     "severity": "error",
     "title": "One display-maths environment opened inside another"

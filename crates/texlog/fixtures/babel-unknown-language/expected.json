@@ -8,7 +8,7 @@
       "main.tex",
       "babel.sty"
     ],
-    "rawMessage": "Package babel Error: Unknown option 'nosuchlanguage'. Either you misspelled it",
+    "rawMessage": "Package babel Error: Unknown option 'nosuchlanguage'. Either you misspelled it or the language definition file nosuchlanguage.ldf was not found.",
     "rule": "babel-unknown-language",
     "severity": "error",
     "title": "`nosuchlanguage` is not a language babel knows"

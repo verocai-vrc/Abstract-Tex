@@ -7,7 +7,7 @@
     "openFiles": [
       "main.tex"
     ],
-    "rawMessage": "Package fontspec Error: The font \"ThisFontDoesNotExistAnywhere\" cannot be",
+    "rawMessage": "Package fontspec Error: The font \"ThisFontDoesNotExistAnywhere\" cannot be found.",
     "rule": "font-not-found",
     "severity": "error",
     "title": "`ThisFontDoesNotExistAnywhere` is not a font this engine can find"
