@@ -206,7 +206,8 @@ impl Catalog {
 /// Letters and digits (of any script) are kept, lowercased; every run of anything else becomes one
 /// hyphen. That is safe on every filesystem this app runs on, and easy to type in a terminal. A
 /// title with no letters or digits at all falls back to `new-project`, so the answer is always a
-/// usable name and never empty.
+/// usable name and never empty. A title that is a name Windows reserves ("Aux", "Con") gets
+/// `-project` after it (R8.6).
 pub fn folder_name_for_title(title: &str) -> String {
     let mut name = String::new();
     for character in title.chars() {
@@ -222,9 +223,24 @@ pub fn folder_name_for_title(title: &str) -> String {
     let name = name.trim_end_matches('-');
     if name.is_empty() {
         "new-project".to_string()
+    } else if is_windows_device_name(name) {
+        format!("{name}-project")
     } else {
         name.to_string()
     }
+}
+
+/// Whether Windows treats `name` (already lowercase, and with no dot in it) as a device and so
+/// cannot make a folder of that name. The same rule as `windows_would_not_keep` in `src-tauri/src/git.rs`,
+/// which also covers extensions and trailing dots; this crate must not depend on the app, and a name
+/// made here has neither.
+fn is_windows_device_name(name: &str) -> bool {
+    // `matches!` is a `match` that answers yes or no: the pattern list is the set of names.
+    let numbered = |prefix: &str| {
+        name.strip_prefix(prefix)
+            .is_some_and(|rest| rest.len() == 1 && rest.chars().all(|c| c.is_ascii_digit()))
+    };
+    matches!(name, "con" | "prn" | "aux" | "nul") || numbered("com") || numbered("lpt")
 }
 
 /// Add every file under `folder` to `files`, keyed by its path relative to the template's own
@@ -446,6 +462,32 @@ example = "T"
     fn every_shipped_template_passes_every_check() {
         let catalog = Catalog::embedded().expect("a template in templates/ breaks a catalog rule");
         assert!(!catalog.templates().is_empty());
+    }
+
+    /// R8.6: Windows treats these as devices in any case, so a folder cannot be made under them.
+    #[test]
+    fn a_title_that_is_a_windows_device_name_gets_a_suffix() {
+        for title in ["Con", "AUX", "nul", "Prn", "Com1", "lpt9", "COM0", "  con  "] {
+            let name = folder_name_for_title(title);
+            assert!(name.ends_with("-project"), "{title:?} gave {name:?}");
+        }
+        assert_eq!(folder_name_for_title("Aux"), "aux-project");
+    }
+
+    #[test]
+    fn a_title_that_only_starts_like_a_device_name_is_left_alone() {
+        for title in [
+            "Console",
+            "Auxiliary notes",
+            "Com10",
+            "Lpt",
+            "Con Air",
+            "nulls",
+            "a con",
+        ] {
+            assert!(!folder_name_for_title(title).ends_with("-project"), "{title:?}");
+        }
+        assert_eq!(folder_name_for_title("Con Air"), "con-air");
     }
 
     #[test]
