@@ -62,7 +62,9 @@ whoever builds an index on top.
 - `unique_key` makes a `surnameYEARfirstword` key, ASCII-folded, with `a`, `b`, … appended when it
   collides with a key already in use.
 - `health::check` reports two problems a single `.bib` file can show on its own: a required field
-  missing for the entry's type (`@article` without `journal`), and a page range written with a
+  missing for the entry's type (`@article` without `journal`; BibLaTeX's `journaltitle`, `date` and
+  `institution` count, and an entry with a `crossref` or `xdata` parent is not checked, since the parent
+  may hold the field), and a page range written with a
   hyphen (`12-15`) where BibTeX wants an en-dash (`12--15`). Each finding is a sentence, a
   severity, the entry's key and a span (the field's, or the whole entry's). Nothing is fixed automatically.
 

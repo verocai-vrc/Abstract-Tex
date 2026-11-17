@@ -86,17 +86,43 @@ fn has_author_or_editor(entry: &Entry) -> bool {
     entry.field("author").is_some() || entry.field("editor").is_some()
 }
 
+/// BibLaTeX's name for a field next to BibTeX's, for the fields [`REQUIRED_FIELDS`] asks for: an
+/// article with `journaltitle` has its journal, one with `date` has its year, a thesis with
+/// `institution` has its school. The table lists BibTeX's names, so a BibLaTeX bibliography was
+/// reported as missing fields it has, as errors (review finding R8.23).
+const BIBLATEX_NAMES: &[(&str, &str)] = &[
+    ("journal", "journaltitle"),
+    ("year", "date"),
+    ("school", "institution"),
+];
+
+/// Whether `entry` has `name`, or the BibLaTeX name for it.
+fn has_field(entry: &Entry, name: &str) -> bool {
+    entry.field(name).is_some()
+        || BIBLATEX_NAMES
+            .iter()
+            .any(|(bibtex, biblatex)| *bibtex == name && entry.field(biblatex).is_some())
+}
+
 fn missing_required_fields(entry: &Entry) -> Vec<Finding> {
     let Some((_, required)) = REQUIRED_FIELDS.iter().find(|(ty, _)| entry.is_type(ty)) else {
         return Vec::new();
     };
+    // An entry that names a parent (`crossref` in BibTeX and BibLaTeX, `xdata` in BibLaTeX) may take
+    // any field it lacks from it — the usual way to cite several papers of one proceedings leaves
+    // `booktitle` and `year` to the parent. This check reads one file and the parent may be in
+    // another, so it cannot tell what is missing; an entry that names one is not checked, rather than
+    // reported as missing what it inherits (review finding R8.23).
+    if entry.field("crossref").is_some() || entry.field("xdata").is_some() {
+        return Vec::new();
+    }
     required
         .iter()
         .filter(|field| {
             if **field == "author" && has_author_or_editor(entry) {
                 return false;
             }
-            entry.field(field).is_none()
+            !has_field(entry, field)
         })
         .map(|field| Finding {
             rule: "missing-field",
@@ -200,6 +226,59 @@ mod tests {
     fn editor_stands_in_for_author_on_a_book() {
         let bib = parse("@book{k, editor = {E}, title = {T}, year = 2019}");
         assert_eq!(check(&bib), Vec::new());
+    }
+
+    // Review finding R8.23: BibLaTeX's own names (`journaltitle`, `date`, `institution`) and a `crossref`
+    // or `xdata` parent were all reported as missing fields, as errors, in complete entries.
+    #[test]
+    fn a_biblatex_article_with_journaltitle_and_date_is_complete() {
+        let bib = parse("@article{k, author = {A}, title = {T}, journaltitle = {J}, date = {2019-05-01}}");
+        assert_eq!(check(&bib), Vec::new());
+    }
+
+    #[test]
+    fn a_biblatex_thesis_with_institution_is_complete() {
+        let bib = parse("@phdthesis{k, author = {A}, title = {T}, institution = {U}, date = {2019}}");
+        assert_eq!(check(&bib), Vec::new());
+        let bib = parse("@mastersthesis{k, author = {A}, title = {T}, institution = {U}, year = 2019}");
+        assert_eq!(check(&bib), Vec::new());
+    }
+
+    #[test]
+    fn a_name_is_still_missing_when_neither_it_nor_its_biblatex_name_is_there() {
+        let bib = parse("@article{k, author = {A}, title = {T}, journaltitle = {J}}");
+        let findings = check(&bib);
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert!(findings[0].message.contains("'year'"), "{}", findings[0].message);
+        let bib = parse("@article{k, author = {A}, title = {T}, date = {2019}}");
+        let findings = check(&bib);
+        assert_eq!(findings.len(), 1, "{findings:#?}");
+        assert!(
+            findings[0].message.contains("'journal'"),
+            "{}",
+            findings[0].message
+        );
+    }
+
+    #[test]
+    fn an_entry_with_a_crossref_may_take_its_fields_from_the_parent() {
+        // The standard BibTeX way to cite several papers of one proceedings: `booktitle` and `year`
+        // are the parent's. This crate reads one file and cannot see a parent that is in another.
+        let bib = parse("@inproceedings{a, author = {A}, title = {T}, pages = {1--2}, crossref = {conf}}");
+        assert_eq!(check(&bib), Vec::new());
+    }
+
+    #[test]
+    fn an_entry_with_xdata_may_take_its_fields_from_the_parent() {
+        let bib = parse("@article{a, author = {A}, title = {T}, xdata = {ieeetcbb}}");
+        assert_eq!(check(&bib), Vec::new());
+    }
+
+    #[test]
+    fn a_page_range_is_still_checked_on_an_entry_with_a_crossref() {
+        let bib = parse("@inproceedings{a, author = {A}, title = {T}, pages = {1-2}, crossref = {conf}}");
+        let rules: Vec<&str> = check(&bib).iter().map(|finding| finding.rule).collect();
+        assert_eq!(rules, vec!["page-range-dash"]);
     }
 
     #[test]
