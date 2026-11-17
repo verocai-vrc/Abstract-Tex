@@ -19,7 +19,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use abstract_tex_assistant::{
     build_request, Assistant, AssistantError, KeyStore, Message, Prompt, Provider, SystemPart,
@@ -55,6 +55,13 @@ impl Default for SettingsFile {
         }
     }
 }
+
+/// Held while the settings file is read, edited and written back, so two changes made at the same moment
+/// cannot lose each other's edit. It is one lock for the whole process, not one per `AssistantSettings`,
+/// because a command that must move the settings into another thread makes its own copy
+/// (`AssistantSettings::at`) and every copy points at the same file. It guards the file, not the
+/// keychain: nothing that waits for a person is done while it is held.
+static SETTINGS_CHANGE: Mutex<()> = Mutex::new(());
 
 /// Where the settings are kept. One per app; handed to commands as Tauri state.
 #[derive(Debug)]
@@ -101,6 +108,21 @@ impl AssistantSettings {
         let text = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
         write_atomically(&self.file, &text)
             .map_err(|error| format!("Could not save the assistant's settings: {error}"))
+    }
+
+    /// Read the file, let `edit` change it, and write it back, all under [`SETTINGS_CHANGE`]. Since the
+    /// keychain commands run on their own threads (review finding R5.9), a change from the settings
+    /// view can overlap one from the project switch; before this, each did its own read, edit and write
+    /// and the later write could drop the earlier edit, or fail because both used one temporary file.
+    fn change(&self, edit: impl FnOnce(&mut SettingsFile)) -> Result<(), String> {
+        // A poisoned lock means another thread panicked while holding it. The file is still whole
+        // (`write` replaces it atomically), so carry on rather than refuse every later change.
+        let _one_change_at_a_time = SETTINGS_CHANGE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut file = self.read();
+        edit(&mut file);
+        self.write(&file)
     }
 
     /// The settings file's own path: what the app folder's other files for the assistant are placed
@@ -189,9 +211,7 @@ pub fn save_provider(
     if let Some(key) = &key {
         keys.save(&provider.key_slot(), key).map_err(sentence)?;
     }
-    let mut file = settings.read();
-    file.provider = Some(provider);
-    settings.write(&file)
+    settings.change(|file| file.provider = Some(provider))
 }
 
 /// Forget the current provider's key. Not an error when there is none.
@@ -204,20 +224,18 @@ pub fn clear_key(settings: &AssistantSettings, keys: &dyn KeyStore) -> Result<()
 
 /// Switch the assistant on or off for one project folder on this machine.
 pub fn set_enabled(settings: &AssistantSettings, project_dir: &Path, enabled: bool) -> Result<(), String> {
-    let mut file = settings.read();
     let key = key_for(project_dir);
-    file.enabled.retain(|existing| *existing != key);
-    if enabled {
-        file.enabled.push(key);
-    }
-    settings.write(&file)
+    settings.change(|file| {
+        file.enabled.retain(|existing| *existing != key);
+        if enabled {
+            file.enabled.push(key);
+        }
+    })
 }
 
 /// Choose whether each request is shown before it is sent.
 pub fn set_inspect_first(settings: &AssistantSettings, inspect_first: bool) -> Result<(), String> {
-    let mut file = settings.read();
-    file.inspect_first = inspect_first;
-    settings.write(&file)
+    settings.change(|file| file.inspect_first = inspect_first)
 }
 
 /// The one request this file makes: a few tokens to the chosen provider, with the saved key, to say
@@ -663,6 +681,28 @@ mod tests {
             Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock),
             Ok(_) => panic!("something connected without being asked to"),
         }
+    }
+
+    // Found in the self-review of the keychain change (`R5.9`). Changing a setting reads the file,
+    // edits it and writes it back. While every command ran on the window's one thread, two of them could
+    // never overlap; now `assistant_save_provider` runs on another, so a change made at the same moment
+    // could be lost. Eight threads each switch the assistant on for twenty projects; all 160 must be in
+    // the file afterwards, and none of the writes may fail.
+    #[test]
+    fn settings_changed_from_several_threads_at_once_do_not_lose_each_others_changes() {
+        let (_config, settings) = settings();
+        std::thread::scope(|scope| {
+            for thread in 0..8 {
+                let settings = &settings;
+                scope.spawn(move || {
+                    for project in 0..20 {
+                        let folder = PathBuf::from(format!("/projects/{thread}/{project}"));
+                        set_enabled(settings, &folder, true).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(settings.read().enabled.len(), 8 * 20, "a change was lost");
     }
 
     /// A key store that notes which thread each call arrived on. The OS keychain can stop to ask the
