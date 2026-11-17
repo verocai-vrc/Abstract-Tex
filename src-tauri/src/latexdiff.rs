@@ -431,6 +431,17 @@ pub fn plan(
 /// It is cleared too, rather than exported over: an export only ever *adds* files, so a stale one
 /// from a half-finished run could otherwise end up in the next compile.
 pub fn make_room(latexdiff_dir: &Path, plan: &Plan) -> std::io::Result<bool> {
+    // This function deletes what it finds, and `read_dir` and `remove_dir_all` follow a link at the
+    // folder itself. A cloned repository, or a `sync`, can bring `.abstract-tex/latexdiff` as a link
+    // (to `../..`, say: the folder all the author's projects are in), so the check is made here, where
+    // the deleting is, and not only when the project opens (R8.8). `symlink_metadata` looks at the
+    // name itself, not at what it points to.
+    if std::fs::symlink_metadata(latexdiff_dir).is_ok_and(|found| found.file_type().is_symlink()) {
+        return Err(std::io::Error::other(format!(
+            "{} is a link, and Abstract-Tex keeps the files of a comparison there. Remove the link (or rename it) and compare again.",
+            latexdiff_dir.display()
+        )));
+    }
     // A working copy changes between one click and the next, so its PDF is never reusable.
     let reusable = plan.pdf.is_file() && plan.newer != Newer::WorkingTree;
     let Ok(entries) = std::fs::read_dir(latexdiff_dir) else {
@@ -738,6 +749,45 @@ mod tests {
         fs::create_dir_all(&someone_else).unwrap();
         assert!(make_room(&latexdiff_dir, &the_plan).unwrap());
         assert!(the_plan.pdf.is_file() && !someone_else.exists());
+    }
+
+    /// R8.8: a cloned repository (or a later `sync`) can carry `.abstract-tex/latexdiff` as a link, and
+    /// `make_room` deleted everything in a folder it reached through one. `R5.2` guarded the state
+    /// folder itself and not the folders inside it. Nothing at the link's target may be touched.
+    #[cfg(unix)]
+    #[test]
+    fn a_comparison_folder_that_is_a_link_is_refused_and_nothing_behind_it_is_deleted() {
+        let (tmp, repository, first, second) = two_commits();
+        let project = tmp.path().join("paper");
+        let latexdiff_dir = project.join(".abstract-tex/latexdiff");
+        let the_plan = plan(
+            &repository,
+            &project,
+            Path::new("main.tex"),
+            &latexdiff_dir,
+            &first.to_string(),
+            &second.to_string(),
+            Markup::Standard,
+        )
+        .unwrap();
+        let someone_elses = tmp.path().join("someone-elses-folder");
+        fs::create_dir_all(someone_elses.join("precious")).unwrap();
+        fs::write(someone_elses.join("precious/notes.txt"), "mine").unwrap();
+        fs::write(someone_elses.join("thesis.tex"), "mine").unwrap();
+        fs::create_dir_all(project.join(".abstract-tex")).unwrap();
+        std::os::unix::fs::symlink(&someone_elses, &latexdiff_dir).unwrap();
+
+        let result = make_room(&latexdiff_dir, &the_plan);
+
+        assert!(result.is_err(), "a link was treated as the comparison folder");
+        assert!(
+            someone_elses.join("precious/notes.txt").exists(),
+            "a folder was deleted through the link"
+        );
+        assert!(
+            someone_elses.join("thesis.tex").exists(),
+            "a file was deleted through the link"
+        );
     }
 
     // ---- A11: the working copy as the newer side ----
