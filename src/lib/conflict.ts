@@ -6,6 +6,8 @@
 // can render as prose. Pure and Svelte-free, like `outline.ts` and `paths.ts`, so `conflict.test.ts`
 // exercises it with string literals.
 
+import { bufferTextOf, diskFormOf, inDiskForm, type DiskForm } from './disk-form';
+
 /** A run of lines neither side disagreed about. */
 export interface CleanSection {
   kind: 'clean';
@@ -120,4 +122,26 @@ export function reassembleConflictSections(sections: ConflictSection[], resoluti
     if (resolved.length > 0) lines.push(...resolved.split('\n'));
   }
   return lines.join('\n');
+}
+
+/** A conflicted file as read from disk: its sections, and how it spells its text (R8.3). */
+export interface ConflictFile {
+  sections: ConflictSection[];
+  form: DiskForm;
+}
+
+/**
+ * Read a conflicted file from disk. The sections are plain text however the file spells it: no `\r`
+ * on any line and no byte-order mark in front of a first-line hunk, which is what the resolver's
+ * textareas need (they show a lone `\r` as a line break and report every line break as `\n`). The
+ * file's own spelling comes back as `form`, for `writeResolvedFile` to restore.
+ */
+export function readConflictFile(diskText: string): ConflictFile | null {
+  const sections = parseConflictMarkers(bufferTextOf(diskText));
+  return sections ? { sections, form: diskFormOf(diskText) } : null;
+}
+
+/** The file to write once every hunk has its resolution: the sections' text, in the file's own spelling. */
+export function writeResolvedFile(file: ConflictFile, resolutions: readonly string[]): string {
+  return inDiskForm(reassembleConflictSections(file.sections, resolutions), file.form);
 }

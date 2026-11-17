@@ -7,12 +7,15 @@
   // Reads the file itself rather than the tab's own `Y.Doc` — `openFile` still made one, but it
   // holds the raw marker text nobody is meant to see, and `resolveMergeConflict` discards it
   // rather than ever syncing it back to disk.
-  import { hunkCount, parseConflictMarkers, reassembleConflictSections, type ConflictSection } from '../lib/conflict';
+  import { hunkCount, readConflictFile, writeResolvedFile, type ConflictFile, type ConflictSection } from '../lib/conflict';
   import { resolveMergeConflict } from '../lib/controller.svelte';
   import { ipc } from '../lib/ipc';
   import { app } from '../lib/state.svelte';
 
   let sections = $state.raw<ConflictSection[] | null>(null);
+  /** How the file on disk spells its text (its line ending, a byte-order mark), put back when it is
+   * written: the sections and the boxes hold plain text (R8.3). Not state: only `markResolved` reads it. */
+  let form: ConflictFile['form'] = { lineEnding: 'lf', byteOrderMark: false };
   /** One entry per hunk, in order — what each hunk's editable box currently holds. Starts as
    * *Yours*, the same default a plain Git checkout already left in the working tree. */
   let resolutions = $state<string[]>([]);
@@ -43,13 +46,14 @@
     // The tab changed while the file was being read: this text belongs to another file's view, and
     // "Mark Resolved" writes whatever is in `sections` to the *active* path (review finding R6.15).
     if (loadedPath !== path) return;
-    const parsed = parseConflictMarkers(text);
+    const parsed = readConflictFile(text);
     if (!parsed) {
       loadError = `${path} has a conflict this view cannot show as paragraphs — likely a file added or removed on both sides, not a line both sides edited. Resolve it in a terminal, then stage it here.`;
       return;
     }
-    sections = parsed;
-    resolutions = parsed.filter((section) => section.kind === 'conflict').map((hunk) => hunk.ours);
+    sections = parsed.sections;
+    form = parsed.form;
+    resolutions = parsed.sections.filter((section) => section.kind === 'conflict').map((hunk) => hunk.ours);
   }
 
   /** Every section, with each hunk's own index into `resolutions` attached — computed once per
@@ -67,7 +71,7 @@
     if (!sections || !app.activePath || resolving) return;
     resolving = true;
     try {
-      await resolveMergeConflict(app.activePath, reassembleConflictSections(sections, resolutions));
+      await resolveMergeConflict(app.activePath, writeResolvedFile({ sections, form }, resolutions));
     } finally {
       resolving = false; // whatever happened, the button comes back (review finding R6.14)
     }

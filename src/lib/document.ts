@@ -6,8 +6,19 @@
 // It also knows nothing about Tauri: it talks to a `DocumentBackend` so tests can use a fake.
 
 import * as Y from 'yjs';
+import {
+  BYTE_ORDER_MARK,
+  bufferTextOf,
+  hasByteOrderMark,
+  inDiskForm,
+  lineEndingOf,
+  type LineEnding,
+} from './disk-form';
 import { locateFix } from './fix';
 import type { Fix, TextOp } from './ipc';
+
+// The tests, and anyone asking how a file ends its lines, have always found these here.
+export { lineEndingOf, type LineEnding };
 
 /** Transaction origins that are *not* the author typing. */
 export const ORIGIN_LOAD = 'abstract-tex:load';
@@ -23,44 +34,6 @@ export interface DocumentBackend {
   diffOps(oldText: string, newText: string): Promise<TextOp[]>;
   /** Called after a successful write. The controller uses it to trigger a compile. */
   afterSave?(path: string): void;
-}
-
-/** How a file ends its lines. */
-export type LineEnding = 'lf' | 'crlf';
-
-/**
- * Which line ending `text` uses: CRLF when more of its line breaks are `\r\n` than bare `\n`, else
- * LF (which is also the answer for text with no line break at all, and a file made here).
- */
-export function lineEndingOf(text: string): LineEnding {
-  let crlf = 0;
-  let lf = 0;
-  for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) {
-    if (at > 0 && text.charCodeAt(at - 1) === 13) crlf++;
-    else lf++;
-  }
-  return crlf > lf ? 'crlf' : 'lf';
-}
-
-/** `\r\n` as `\n`. The buffer never holds a `\r\n` (see `OpenDocument`). */
-function toLf(text: string): string {
-  return text.includes('\r\n') ? text.replace(/\r\n/g, '\n') : text;
-}
-
-function inLineEnding(text: string, ending: LineEnding): string {
-  return ending === 'crlf' ? text.replace(/\n/g, '\r\n') : text;
-}
-
-/** The byte-order mark, as the character a decoder gives for the three bytes `EF BB BF` (R8.1). */
-const BYTE_ORDER_MARK = '\uFEFF';
-
-function hasByteOrderMark(text: string): boolean {
-  return text.startsWith(BYTE_ORDER_MARK);
-}
-
-/** The text as the buffer holds it: no byte-order mark and `\n` line endings. */
-function asBuffer(diskText: string): string {
-  return toLf(hasByteOrderMark(diskText) ? diskText.slice(1) : diskText);
 }
 
 /** The outcome of the decision table below. */
@@ -159,7 +132,7 @@ export class OpenDocument {
     this.ytext = this.ydoc.getText('content');
     this.lineEnding = lineEndingOf(initialText);
     this.byteOrderMark = hasByteOrderMark(initialText);
-    const text = asBuffer(initialText);
+    const text = bufferTextOf(initialText);
     this.ydoc.transact(() => this.ytext.insert(0, text), ORIGIN_LOAD);
     this.lastSavedText = text;
 
@@ -186,8 +159,7 @@ export class OpenDocument {
 
   /** `bufferText` as the file spells it: its line ending, and its byte-order mark first if it has one. */
   private asOnDisk(bufferText: string): string {
-    const text = inLineEnding(bufferText, this.lineEnding);
-    return this.byteOrderMark ? BYTE_ORDER_MARK + text : text;
+    return inDiskForm(bufferText, { lineEnding: this.lineEnding, byteOrderMark: this.byteOrderMark });
   }
 
   /**
@@ -196,7 +168,7 @@ export class OpenDocument {
    * ending is still this file, and the next save should keep what is on disk now rather than turn it back.
    */
   matchesDisk(diskText: string): boolean {
-    const same = asBuffer(diskText) === this.text();
+    const same = bufferTextOf(diskText) === this.text();
     if (same) {
       this.lineEnding = lineEndingOf(diskText);
       this.byteOrderMark = hasByteOrderMark(diskText);
@@ -337,7 +309,7 @@ export class OpenDocument {
   async applyExternal(rawDiskText: string): Promise<boolean> {
     // The buffer and its diff are `\n`-only and start with no byte-order mark (R7.11, R8.1); only the
     // file on disk has a say in the line ending and the mark.
-    const diskText = asBuffer(rawDiskText);
+    const diskText = bufferTextOf(rawDiskText);
     // The diff is computed asynchronously (in Rust). If the author types in between, the ops
     // would land on the wrong indices, so we re-check and retry a couple of times.
     for (let attempt = 0; attempt < 3; attempt++) {

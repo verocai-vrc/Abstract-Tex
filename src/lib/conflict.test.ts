@@ -1,7 +1,7 @@
 // S11.2b: turning real conflict markers into clean runs and hunks, and back.
 
 import { describe, expect, it } from 'vitest';
-import { hunkCount, parseConflictMarkers, reassembleConflictSections } from './conflict';
+import { hunkCount, parseConflictMarkers, readConflictFile, reassembleConflictSections, writeResolvedFile } from './conflict';
 
 /** A two-paragraph document with one conflict in the middle, exactly as a real `git merge` would
  * leave it — the shape `abstract-tex-git`'s own `against_real_git` fixtures produce. */
@@ -138,5 +138,74 @@ describe('reassembling a resolution (S11.2b)', () => {
     const result = reassembleConflictSections(sections, ['Line one of the rewrite.\nLine two of the rewrite.']);
 
     expect(result).toBe(['Before the conflict.', 'Line one of the rewrite.', 'Line two of the rewrite.', 'After the conflict.'].join('\n'));
+  });
+});
+
+// R8.3. The resolver worked on the file's own text. A file with Windows line endings reached its
+// textareas with a `\r` on the end of every hunk line; a textarea shows a lone `\r` as a line break and
+// reports every line break as `\n`, so editing a hunk put a blank line (a paragraph break) after it and a
+// bare LF in the file. A byte-order mark before a first-line hunk hid the opening marker altogether.
+describe('a conflicted file with its own line endings and byte-order mark (R8.3)', () => {
+  const mark = '\uFEFF';
+  /** What `git merge` leaves in a CRLF file: the markers end in CRLF as well. */
+  const crlfFile = [
+    '\\documentclass{article}',
+    '\\begin{document}',
+    'alpha',
+    '<<<<<<< HEAD',
+    'beta from main',
+    '=======',
+    'beta from other',
+    '>>>>>>> other',
+    'gamma',
+    '\\end{document}',
+    '',
+  ].join('\r\n');
+  const resolvedWith = (beta: string, ending: string) =>
+    ['\\documentclass{article}', '\\begin{document}', 'alpha', beta, 'gamma', '\\end{document}', ''].join(ending);
+
+  it('is read as plain text: no carriage return reaches a hunk or a clean run', () => {
+    const file = readConflictFile(crlfFile)!;
+    expect(file.sections).toEqual([
+      { kind: 'clean', text: '\\documentclass{article}\n\\begin{document}\nalpha' },
+      { kind: 'conflict', ours: 'beta from main', theirs: 'beta from other' },
+      { kind: 'clean', text: 'gamma\n\\end{document}\n' },
+    ]);
+  });
+
+  it('writes a hand-edited hunk back with the file\'s own endings and no extra line', () => {
+    const file = readConflictFile(crlfFile)!;
+    const written = writeResolvedFile(file, ['beta from main EDITED']);
+    expect(written).toBe(resolvedWith('beta from main EDITED', '\r\n'));
+    expect(written).not.toMatch(/(?<!\r)\n/); // not one bare LF
+  });
+
+  it('writes a hunk kept as it was read back exactly as Git would have left it', () => {
+    const file = readConflictFile(crlfFile)!;
+    const theirs = file.sections.find((section) => section.kind === 'conflict')!;
+    expect(writeResolvedFile(file, [theirs.kind === 'conflict' ? theirs.theirs : ''])).toBe(
+      resolvedWith('beta from other', '\r\n'),
+    );
+  });
+
+  it('keeps an LF file LF', () => {
+    const file = readConflictFile(crlfFile.replace(/\r\n/g, '\n'))!;
+    expect(writeResolvedFile(file, ['beta mine'])).toBe(resolvedWith('beta mine', '\n'));
+  });
+
+  it('reads a conflict whose first hunk is the first line of a file with a mark, and puts the mark first again', () => {
+    const text = `${mark}${['<<<<<<< HEAD', 'mine', '=======', 'theirs', '>>>>>>> other', 'tail', ''].join('\n')}`;
+    const file = readConflictFile(text);
+    expect(file).not.toBeNull();
+    expect(writeResolvedFile(file!, ['mine, edited'])).toBe(`${mark}mine, edited\ntail\n`);
+  });
+
+  it('keeps a mark and CRLF endings together', () => {
+    const file = readConflictFile(`${mark}${crlfFile}`)!;
+    expect(writeResolvedFile(file, ['beta mine'])).toBe(`${mark}${resolvedWith('beta mine', '\r\n')}`);
+  });
+
+  it('says nothing can be read, as the parser does, when the markers do not nest', () => {
+    expect(readConflictFile('<<<<<<< HEAD\nmine\n')).toBeNull();
   });
 });
