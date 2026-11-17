@@ -1,6 +1,73 @@
 # Changelog
 
-Versions name the last milestone whose features are all in (see [README → Versions](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#versions)).
+Versions name the last milestone whose features are all in (see [README → Versions](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#versions)),
+with one exception, v0.9.0, explained in its entry.
+
+## v0.9.0 — 17 November 2026
+
+**Source only and pre-release.** There are still no installers; build it as described in the
+README's [Quick start](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#quick-start).
+It is v0.8.0 plus the 28 commits of the eighth review pass, all of them fixes.
+
+### The exception to the version rule
+
+v0.9 was planned as "It ships": signed installers with auto-update, a companion GitHub Action, and a
+stranger installing the app on a clean machine. **None of those three is built.** They need a
+code-signing decision, a second repository, and a person who is not the maintainer, and they move
+to v1.0 together with the internationalisation scaffold. What v0.9.0 contains of v0.9 is the part
+that needed none of those, and was already in v0.8.0: local crash reports that you submit yourself,
+a first accessibility pass, and the contributor guide and issue templates. The number names that
+milestone as cut, not as complete.
+
+### What changed since v0.8.0
+
+Fixes only; no new feature.
+
+- **Your files stay yours.**
+  - A file starting with a byte-order mark no longer lets the caret sit in front of it, which had
+    broken the first build with "Missing \begin{document}".
+  - Resolving a merge conflict by hand in a file with Windows line endings no longer inserts a blank
+    line.
+  - A link inside `.abstract-tex/` (carried by a cloned repository or brought by a sync) can no longer
+    make the app delete, overwrite or create files outside the project. Three places were affected:
+    the comparison folder, the draft preview and the build folder.
+  - A comparison between two versions refuses a file name in an old commit that would write outside
+    the export folder.
+  - The manuscript sent to a model as context leaves out any file that is a link out of the project.
+- **Opening and cloning.**
+  - A project opens when the system's file-watch limit has run out, and says what it will miss.
+  - A build of the project you just left no longer lands on the one you opened.
+  - A clone cannot be named something Windows reserves or silently changes (`con`, `nul`, a trailing
+    dot).
+  - A new project whose title is a Windows device name (`Aux`) gets a folder Windows can keep, and
+    a control character pasted into a title (Word's `U+000B`) no longer breaks the first build.
+- **Citations and the bibliography.**
+  - Paste-to-cite only acts in a LaTeX document, not inside a `.bib` file; it writes to a `.bib` that
+    exists and says so when none does.
+  - A paste is a DOI only if it is one word shaped like one, so "10. Conclusion" is no longer
+    swallowed. A bare number is an ISBN only if its check digit adds up, and `1250.5` is no longer
+    an arXiv id.
+  - Duplicate-DOI findings are whole sentences, and DOIs are compared case-insensitively. A remote
+    bibliography is called remote, not missing; `\cite{#1}` in a macro is not an undefined citation;
+    BibLaTeX's field names count in the required-field check.
+- **Messages.** A forward search that finds nothing says why. A package error's own line break no
+  longer cuts its message short. The "not a text file" sentence no longer offers Latin-1.
+- **The keychain.** The commands that read or write it no longer run on the window's thread, so a
+  keychain prompt cannot freeze the window. Two changes to the assistant's settings made at once can
+  no longer lose one.
+
+### What it does not do yet
+
+- **No installers, no auto-update, no code signing, no pull-request Action, and no stranger test.**
+  These are the 1.0 work.
+- **No internationalisation scaffold.** Also 1.0.
+- **The v0.5 speed target is not met** (3.4 s against 1.2 s for the sixty-page test thesis; see
+  v0.8.0 below).
+- **The v0.6 two-machine demo has not been performed.**
+- **Screen-reader support is unverified:** the accessibility pass was checked by reading the markup,
+  not with a screen reader.
+- The remaining known limitations are listed in the README under
+  [Known limitations](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#known-limitations).
 
 ## v0.8.0 — 16 November 2026
 

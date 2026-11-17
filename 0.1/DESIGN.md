@@ -797,8 +797,15 @@ ten minutes, keeps writing, reconnects, and loses nothing.
 **Exit:** A stranger installs it on a clean machine and compiles their own paper without reading
 anything.
 
+**Re-scoped 17 November 2026.** v0.9.0 was cut with the crash reports, the accessibility pass and
+the documentation, which needed no signing key, second repository or outside tester. The signed
+installers with auto-update, the companion Action and the stranger test were not built; they move
+to v1.0 below, and the exit criterion above is v1.0's.
+
 ### v1.0 — Public release
 
+- Signed installers with auto-update, the companion Action and the stranger test, moved here from
+  v0.9 (above)
 - Hardening against the real-world documents that v0.9 testers broke it with
 - Rule catalog grown from field reports — this never stops
 - Internationalisation scaffold
