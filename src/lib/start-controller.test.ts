@@ -30,11 +30,12 @@ vi.mock('./ipc', () => ({
 
 const { app } = await import('./state.svelte');
 const { startScreen } = await import('./start.svelte');
+const { words } = await import('./words');
 const { newProject } = await import('./templates.svelte');
 const { allCommands } = await import('./commands');
 const {
-  backToDocument, changePlace, chooseTemplate, clearRecents, createProject, findRecent, forgetRecent, goToPage, loadRecents,
-  moveTemplateSelection, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
+  backToDocument, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, createProject, findRecent, forgetRecent, goToPage, loadRecents,
+  moveTemplateSelection, openAnyway, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
   templateFilterChanged,
 } = await import('./start-controller.svelte');
 
@@ -69,6 +70,7 @@ beforeEach(() => {
     documentTitle: () => 'proj',
     bibliographyHealth: () => [],
     compile: () => 1,
+    inspectChoice: (path: string) => ({ kind: 'document', folder: path, file: null }),
     templateList: () => [essay, cv],
     templateCreate: () => '/proj',
     preferences: () => preferences,
@@ -97,6 +99,8 @@ beforeEach(() => {
   startScreen.carryOn = null;
   startScreen.message = null;
   startScreen.preferences = null;
+  startScreen.choice = null;
+  startScreen.looking = null;
   preferences = noPreferences;
   newProject.catalog = null;
   newProject.values = {};
@@ -212,7 +216,7 @@ describe('acting on a recent document', () => {
     answers.pickFolder = () => '/usb/thesis';
     await findRecent('/a');
     expect(only('pickFolder', 'openProject', 'recentMoved')).toEqual([
-      ['pickFolder'], ['openProject', '/usb/thesis'], ['recentMoved', '/a', '/usb/thesis'],
+      ['pickFolder', words.findItTitle], ['openProject', '/usb/thesis'], ['recentMoved', '/a', '/usb/thesis'],
     ]);
   });
 
@@ -533,5 +537,152 @@ describe('a new document (S11.11, S17.6)', () => {
   it('is in the palette with its chord', () => {
     const command = allCommands().find((c) => c.id === 'new-project');
     expect([command?.title, command?.shortcut, command?.withoutDocument]).toEqual(['New document…', 'Ctrl Shift N', true]);
+  });
+});
+
+describe('opening what people already have (S17.8)', () => {
+  const tree = ['main.tex', 'bees.tex', 'chapters/intro.tex'].map((path) => ({ name: path, path, isDir: false, children: [] }));
+  beforeEach(() => {
+    goToPage('open', 'first');
+    answers.openProject = (path: string) => ({
+      ...project, rootDir: path, tree, documentFiles: ['main.tex', 'chapters/intro.tex'],
+    });
+  });
+
+  function chosen(choice: object) {
+    answers.pickFile = () => '/picked';
+    answers.pickFolder = () => '/picked';
+    answers.inspectChoice = () => choice;
+  }
+
+  it('opens the document a chosen chapter belongs to, with the chapter in front', async () => {
+    chosen({ kind: 'document', folder: '/t', file: 'chapters/intro.tex' });
+    await chooseFile();
+    expect(only('inspectChoice')).toEqual([['inspectChoice', '/picked']]);
+    expect([app.project?.rootDir, app.activePath, app.notice]).toEqual(['/t', 'chapters/intro.tex', null]);
+    expect([...app.openTabs]).toContain('main.tex');
+  });
+
+  it('a .tex that is not the main file is shown beside it, and the main file stays', async () => {
+    chosen({ kind: 'document', folder: '/t', file: 'bees.tex' });
+    await chooseFile();
+    expect(app.activePath).toBe('bees.tex');
+    expect(only('setRootFile')).toEqual([]);
+    expect(app.notice).toBe(words.pdfShowsAnother('main.tex', 'bees.tex'));
+  });
+
+  it('says nothing of the sort when not every part of the document is known', async () => {
+    answers.openProject = (path: string) => ({ ...project, rootDir: path, tree, documentFilesComplete: false });
+    chosen({ kind: 'document', folder: '/t', file: 'bees.tex' });
+    await chooseFile();
+    expect(app.notice).toBeNull();
+  });
+
+  it('opens a chosen folder', async () => {
+    chosen({ kind: 'document', folder: '/picked', file: null });
+    await chooseFolder();
+    expect(opened).toEqual(['/picked']);
+  });
+
+  it('refuses a crowded folder and offers to choose again', async () => {
+    chosen({ kind: 'crowdedFolder', place: ['Downloads'] });
+    await chooseFolder();
+    expect(startScreen.choice).toEqual({ kind: 'crowdedFolder', place: ['Downloads'] });
+    expect([opened, startScreen.visible]).toEqual([[], true]);
+  });
+
+  it('opens a folder with no .tex only when asked again', async () => {
+    chosen({ kind: 'noTex', folder: '/empty' });
+    await chooseFolder();
+    expect(opened).toEqual([]);
+    await openAnyway();
+    expect(opened).toEqual(['/empty']);
+    startScreen.choice = { kind: 'zip', file: '/a.zip' };
+    await openAnyway();
+    expect(opened).toEqual(['/empty']);
+  });
+
+  it.each(['word', 'pdf', 'otherArchive', 'otherFile', 'gone', 'strayFile'] as const)('has a sentence for %s', (kind) =>
+    expect(words.refused[kind]).toBeTruthy(),
+  );
+
+  it('a cancelled picker changes nothing', async () => {
+    chosen({ kind: 'word' });
+    await chooseFile();
+    answers.pickFile = () => null;
+    await chooseFile();
+    expect([startScreen.choice, only('inspectChoice').length]).toEqual([{ kind: 'word' }, 1]);
+  });
+
+  it('what is being looked at is said, and an older look that answers late changes nothing', async () => {
+    let answerOlder!: (choice: object) => void;
+    answers.pickFile = () => '/slow/a.tex';
+    answers.inspectChoice = () => new Promise((resolve) => (answerOlder = resolve));
+    const older = chooseFile();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(startScreen.looking).toBe('a.tex');
+    const answer = answerOlder;
+    chosen({ kind: 'word' });
+    await chooseFile();
+    answer({ kind: 'document', folder: '/t', file: null });
+    await older;
+    expect([startScreen.choice, startScreen.looking, opened]).toEqual([{ kind: 'word' }, null, []]);
+  });
+
+  it('an older look that answers does not take down what is said of the newer', async () => {
+    const waiting: Array<(choice: object) => void> = [];
+    answers.inspectChoice = () => new Promise((resolve) => waiting.push(resolve));
+    answers.pickFile = () => '/a.tex';
+    const older = chooseFile();
+    await vi.advanceTimersByTimeAsync(0);
+    answers.pickFile = () => '/b.tex';
+    void chooseFile();
+    await vi.advanceTimersByTimeAsync(0);
+    waiting[0]!({ kind: 'word' });
+    await older;
+    expect([startScreen.looking, startScreen.choice]).toEqual(['b.tex', null]);
+  });
+
+  it('a look that answers after going away changes nothing', async () => {
+    let answer!: (choice: object) => void;
+    answers.pickFile = () => '/slow/a.tex';
+    answers.inspectChoice = () => new Promise((resolve) => (answer = resolve));
+    const looking = chooseFile();
+    await vi.advanceTimersByTimeAsync(0);
+    goToPage('home', 'heading');
+    answer({ kind: 'document', folder: '/t', file: null });
+    await looking;
+    expect([startScreen.looking, opened]).toEqual([null, []]);
+  });
+
+  it('a look that fails is said', async () => {
+    answers.pickFile = () => '/a.tex';
+    answers.inspectChoice = () => {
+      throw 'no';
+    };
+    await chooseFile();
+    expect([startScreen.message?.text, startScreen.looking]).toEqual(['no', null]);
+  });
+
+  it('nothing is chosen while a document is being opened', async () => {
+    app.opening = 'x';
+    chosen({ kind: 'word' });
+    await chooseFile();
+    await chooseFolder();
+    expect(only('pickFile', 'pickFolder')).toEqual([]);
+  });
+
+  it('Find it… asks the same questions, on the Open page', async () => {
+    goToPage('home', 'first');
+    chosen({ kind: 'crowdedFolder', place: ['Downloads'] });
+    await findRecent('/a');
+    expect([startScreen.page, startScreen.choice?.kind, opened]).toEqual(['open', 'crowdedFolder', []]);
+    expect(only('recentMoved')).toEqual([]);
+  });
+
+  it('Ctrl O focuses the Open page’s first button', () => {
+    startScreen.visible = false;
+    showStart('open', false);
+    expect([startScreen.page, startScreen.focusTarget]).toEqual(['open', 'first']);
   });
 });

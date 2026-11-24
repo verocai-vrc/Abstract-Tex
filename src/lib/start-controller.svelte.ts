@@ -3,7 +3,7 @@
 
 import { allCommands, registerCommand, type Command } from './commands';
 import { openFolder, tell, whyNotToLeaveProject } from './controller.svelte';
-import { ipc, type Preferences } from './ipc';
+import { ipc, type Choice, type Preferences } from './ipc';
 import { documentToCarryOn, startScreen, type Presence, type StartPage } from './start.svelte';
 import { app } from './state.svelte';
 import { filterTemplates, neighbour, newProject } from './templates.svelte';
@@ -17,6 +17,8 @@ const CARRY_ON_WAITS_MS = 150;
 export function goToPage(page: StartPage, focus: 'heading' | 'first'): void {
   startScreen.page = page;
   startScreen.message = null;
+  startScreen.choice = null;
+  stopLooking();
   if (page === 'new' && !newProject.creating) startNewAfresh();
   moveFocus(focus);
 }
@@ -108,10 +110,70 @@ export async function openRecent(folder: string): Promise<void> {
  * open: a folder that turns out not to be a document must not take the row's place. */
 export async function findRecent(folder: string): Promise<void> {
   if (app.opening !== null) return;
-  const found = await ipc.pickFolder().catch(() => null);
+  const found = await ipc.pickFolder(words.findItTitle).catch(() => null);
   if (!found) return;
-  if (!(await openFolder(found, { name: titleOf(folder) }))) return;
-  await ipc.recentMoved(folder, found).catch((error) => tell(String(error)));
+  const choice = await look(found);
+  if (choice === null) return;
+  if (choice.kind !== 'document') {
+    goToPage('open', 'first');
+    startScreen.choice = choice;
+    return;
+  }
+  if (!(await openFolder(choice.folder, { name: titleOf(folder) }))) return;
+  await ipc.recentMoved(folder, choice.folder).catch((error) => tell(String(error)));
+}
+
+// ---- Opening what people already have (S17.8) ---------------------------------------------------
+
+/** Bumped at each look and when the page is left, so that what an older one answers changes nothing. */
+let lookEpoch = 0;
+
+function stopLooking(): void {
+  lookEpoch += 1;
+  startScreen.looking = null;
+}
+
+/** Ask Rust what was chosen. `null` when the answer is no longer wanted, or there is none. */
+async function look(path: string): Promise<Choice | null> {
+  stopLooking();
+  const epoch = lookEpoch;
+  startScreen.looking = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  startScreen.message = null;
+  startScreen.choice = null;
+  try {
+    const choice = await ipc.inspectChoice(path);
+    return epoch === lookEpoch ? choice : null;
+  } catch (error) {
+    if (epoch === lookEpoch) tell(String(error));
+    return null;
+  } finally {
+    if (epoch === lookEpoch) startScreen.looking = null;
+  }
+}
+
+/** Open what was chosen if it is a document; else the page says what it is. */
+async function choose(path: string | null): Promise<void> {
+  if (!path) return;
+  const choice = await look(path);
+  if (choice?.kind === 'document') await openFolder(choice.folder, { file: choice.file ?? undefined });
+  else startScreen.choice = choice ?? startScreen.choice;
+}
+
+/** *Choose a file…* */
+export async function chooseFile(): Promise<void> {
+  if (app.opening !== null) return;
+  await choose(await ipc.pickFile(words.chooseFileTitle, words.documentFiles, words.everyFile).catch(() => null));
+}
+
+/** *Choose a folder…* */
+export async function chooseFolder(): Promise<void> {
+  if (app.opening !== null) return;
+  await choose(await ipc.pickFolder(words.chooseFolderTitle).catch(() => null));
+}
+
+/** *Open it anyway*: a folder with no `.tex` in it yet. */
+export async function openAnyway(): Promise<void> {
+  if (startScreen.choice?.kind === 'noTex') await openFolder(startScreen.choice.folder);
 }
 
 async function changeList(change: () => Promise<void>): Promise<void> {

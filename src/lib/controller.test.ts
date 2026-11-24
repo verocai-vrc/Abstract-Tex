@@ -100,6 +100,8 @@ let shellEscapeOnDisk = false;
 let shellEscapeAnswer = false;
 /** Set to a message to make `lsp_start` fail, as a machine with no TexLab would. */
 let lspStartError: string | null = null;
+/** S17.8: when set, `lspStart` waits for it, as one that is slow to start would. */
+let lspStartGate: Promise<void> | null = null;
 /** What `synctexForward`/`synctexInverse` answer with, or throw, for the S3.4/S3.5 tests below. */
 let synctexForwardAnswer: { page: number; x: number; y: number } | Error = { page: 1, x: 10, y: 20 };
 let synctexInverseAnswer: { file: string | null; line: number } | Error = { file: 'main.tex', line: 3 };
@@ -395,6 +397,7 @@ vi.mock('./ipc', () => ({
     },
     lspStart: async () => {
       calls.lspStarts++;
+      if (lspStartGate) await lspStartGate;
       if (lspStartError) throw new Error(lspStartError);
       return {};
     },
@@ -4918,6 +4921,42 @@ describe('launching (S17.4)', () => {
     expect(app.commandPaletteVisible).toBe(true);
     expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository']);
     expect(paletteCommands(true)).toEqual(allCommands());
+  });
+});
+
+describe('a document that is still settling in when another is opened (S17.8)', () => {
+  it('neither ends the other one’s opening nor opens its own files there', async () => {
+    const gate = deferred<void>();
+    lspStartGate = gate.promise;
+    const first = openFolder('/first');
+    await vi.advanceTimersByTimeAsync(0);
+    const answer = deferred<ProjectInfo>();
+    openProjectAnswer = answer.promise;
+    const second = openFolder('/second');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.opening).toBe('second');
+    const compiles = calls.compiles;
+    lspStartGate = null;
+    gate.resolve();
+    await first;
+    expect([app.opening, calls.compiles]).toEqual(['second', compiles]);
+
+    answer.resolve({ ...project, rootDir: '/second' });
+    expect(await second).toBe(true);
+    expect([app.opening, app.project?.rootDir]).toEqual([null, '/second']);
+  });
+
+  it('stops once the other one is open', async () => {
+    const gate = deferred<void>();
+    lspStartGate = gate.promise;
+    const first = openFolder('/first', { file: 'other.tex' });
+    await vi.advanceTimersByTimeAsync(0);
+    lspStartGate = null;
+    await openFolder('/second');
+    const compiles = calls.compiles;
+    gate.resolve();
+    await first;
+    expect([app.activePath, calls.compiles]).toEqual(['main.tex', compiles]);
   });
 });
 

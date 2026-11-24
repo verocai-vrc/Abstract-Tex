@@ -496,6 +496,15 @@ export interface GitHubRepository {
   private: boolean;
 }
 
+/** What was chosen on the Open page (`abstract_tex::start::Choice`). */
+export type Choice =
+  | { kind: 'document'; folder: string; file: string | null }
+  | { kind: 'crowdedFolder'; place: string[] }
+  | { kind: 'strayFile'; file: string; place: string[]; others: number }
+  | { kind: 'noTex'; folder: string }
+  | { kind: 'zip'; file: string }
+  | { kind: 'word' | 'pdf' | 'otherArchive' | 'otherFile' | 'gone' };
+
 /** A PDF that was saved (`abstract_tex::finished_pdf::SavedPdf`). */
 export interface SavedPdf {
   name: string;
@@ -682,8 +691,19 @@ export const ipc = {
   unlinkBibFile: (path: string) => invoke<void>('unlink_bib_file', { path }),
 
   /** Native folder picker. Resolves to null if the user cancels. */
-  pickFolder: async (): Promise<string | null> => {
-    const chosen = await openDialog({ directory: true, multiple: false, title: 'Open a LaTeX project folder' });
+  pickFolder: async (title: string): Promise<string | null> => {
+    const chosen = await openDialog({ directory: true, multiple: false, title });
+    return typeof chosen === 'string' ? chosen : null;
+  },
+
+  /** S17.8: a document's file. Every file can be shown, so that someone who picks a Word file hears why
+   * it cannot be opened instead of not finding it. `null` if cancelled. */
+  pickFile: async (title: string, documents: string, everyFile: string): Promise<string | null> => {
+    const filters = [
+      { name: documents, extensions: ['tex', 'zip'] },
+      { name: everyFile, extensions: ['*'] },
+    ];
+    const chosen = await openDialog({ multiple: false, title, filters });
     return typeof chosen === 'string' ? chosen : null;
   },
 
@@ -827,6 +847,8 @@ export const ipc = {
   savePdf: (destination: string, generation: number) => invoke<SavedPdf>('save_pdf', { destination, generation }),
   openSavedPdf: () => invoke<void>('open_saved_pdf'),
   showSavedPdf: () => invoke<void>('show_saved_pdf'),
+  /** S17.8: what a chosen file or folder is, and what it needs. */
+  inspectChoice: (path: string) => invoke<Choice>('inspect_choice', { path }),
   preferences: () => invoke<Preferences>('preferences'),
   /** Change what is given and leave the rest; answers with all of them. */
   setPreferences: (change: Partial<{ place: string; author: string; textSize: TextSize; colours: Colours }>) =>

@@ -4,7 +4,7 @@
 // Only the controllers write to `startScreen`: `controller.svelte.ts` says whether it is up and what
 // it has to say, `start-controller.svelte.ts` the rest. Components read it.
 
-import type { Preferences, RecentDocument, SavedPdf, TemplateInfo } from './ipc';
+import type { Choice, Preferences, RecentDocument, SavedPdf, TemplateInfo } from './ipc';
 import type { Action } from './shortcuts';
 import { words } from './words';
 
@@ -32,6 +32,11 @@ class StartScreenState {
    * must not change to another document under someone's finger. */
   carryOn = $state<string | null>(null);
   query = $state('');
+
+  /** What was chosen on the Open page, when it cannot simply be opened. */
+  choice = $state.raw<Exclude<Choice, { kind: 'document' }> | null>(null);
+  /** The name of what is being looked at: its disk may be slow. */
+  looking = $state<string | null>(null);
 
   /** `null` until they have been read. */
   preferences = $state.raw<Preferences | null>(null);

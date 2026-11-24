@@ -2099,13 +2099,6 @@ let stopAsked = false;
 /** Whether a build was asked for while a folder was being opened. It is made if the opening is refused. */
 let buildAskedWhileOpening = false;
 
-/** Pick a folder, then open it. */
-export async function pickAndOpenFolder(): Promise<void> {
-  if (app.opening !== null) return;
-  const chosen = await ipc.pickFolder();
-  if (chosen) await openFolder(chosen);
-}
-
 /** Ask Rust to stop the opening that is being read. `openFolder` hears the refusal and tidies up. */
 export async function stopOpening(): Promise<void> {
   if (app.opening === null) return;
@@ -2121,10 +2114,12 @@ export async function stopOpening(): Promise<void> {
  * document is still in it. Three things keep that safe. The shell is `inert`, so nobody types. Every
  * tab's saves are held, so what a live session's other person types is not written to disk: after Rust
  * has swapped the project, such a write would land in the new folder. And a second opening is refused.
+ *
+ * `file` is one of the document's that is put in front once it is open (S17.8).
  */
 export async function openFolder(
   path: string,
-  options: { atFirstPlaceholder?: boolean; name?: string } = {},
+  options: { atFirstPlaceholder?: boolean; name?: string; file?: string } = {},
 ): Promise<boolean> {
   if (app.opening !== null) return false;
   app.opening = options.name ?? folderName(path);
@@ -2147,8 +2142,12 @@ export async function openFolder(
     if (buildAskedWhileOpening) void triggerCompile();
     return false;
   }
+  projectEpoch += 1;
+  const epoch = projectEpoch;
+  /** Another document may be opened before this one has settled in: then the rest is not this one's. */
+  const isStillOpen = () => epoch === projectEpoch;
+  let isBeingOpened = true;
   try {
-    projectEpoch += 1;
     newestBuildOfAProjectLeft = app.compile.generation;
     closeAllDocuments();
     manager.releaseSaves('opening');
@@ -2208,36 +2207,54 @@ export async function openFolder(
     // From here on this is an ordinary open document: what follows may take its time, and must save
     // and build.
     app.opening = null;
+    isBeingOpened = false;
     app.editorFocusRequest += 1;
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
     // compile loop and the PDF all work without it.
     await startLanguageServer();
+    if (!isStillOpen()) return true;
     // The project may have chosen a different engine (S9.4); the status bar names the one that
     // will actually build, and a setting it could not honour says so.
-    app.engine = await ipc.engineInfo().catch(() => null);
+    const engine = await ipc.engineInfo().catch(() => null);
+    if (!isStillOpen()) return true;
+    app.engine = engine;
     // Both can apply at once, and each is its own sentence (R8.7).
     const openingNotices = [info.engineNotice, info.watchNotice].filter((sentence) => sentence);
     if (openingNotices.length > 0) tell(openingNotices.join(' '));
     // Consent belongs to the folder, so each project reads its own (S9.8). Unknown means no.
-    app.shellEscapeAllowed = await ipc.shellEscapeAllowed().catch(() => false);
+    const shellEscapeAllowed = await ipc.shellEscapeAllowed().catch(() => false);
+    if (!isStillOpen()) return true;
+    app.shellEscapeAllowed = shellEscapeAllowed;
     if (info.rootFile) {
       await openFile(info.rootFile);
+      if (!isStillOpen()) return true;
       // A project made from a template opens with the cursor on the first thing to replace
       // (S11.12). Counting waits for the files to be read, so the count is right before the build.
       await refreshPlaceholders();
+      if (!isStillOpen()) return true;
       if (options.atFirstPlaceholder) await goToNextPlaceholder(true);
-      await triggerCompile();
+      if (options.file && options.file !== info.rootFile) await showChosenFile(options.file, info);
+      if (isStillOpen()) await triggerCompile();
     } else {
       void refreshPlaceholders();
+      if (options.file) await openFile(options.file);
       tell('No root .tex file found. Create main.tex, or pick a file and mark it as root.');
     }
   } catch (error) {
-    tell(String(error));
-  } finally {
-    app.opening = null;
+    if (isBeingOpened) app.opening = null; // else it may say that another one is
+    if (isStillOpen()) tell(String(error));
   }
   return true;
+}
+
+/** The file someone chose, in front of the document it was found in. When it is no part of that document
+ * the PDF does not have it, which would otherwise look like a build that went wrong. */
+async function showChosenFile(file: string, info: ProjectInfo): Promise<void> {
+  await openFile(file);
+  if (info.documentFilesComplete && !info.documentFiles.includes(file)) {
+    tell(words.pdfShowsAnother(info.rootFile ?? '', file));
+  }
 }
 
 /**

@@ -72,9 +72,41 @@ export const words = {
   titleNeeded: 'Give the document a title. Its folder is named after it.',
 
   openTitle: 'Open a document',
+  chooseFile: 'Choose a file…',
+  chooseFileHint: 'a .tex file, or a .zip (from Overleaf)',
+  chooseFileTitle: 'Choose a document',
+  documentFiles: 'Documents (.tex, .zip)',
+  everyFile: 'Every file',
   chooseFolder: 'Choose a folder…',
+  chooseFolderTitle: 'Choose a document’s folder',
+  findItTitle: 'Choose the folder it is in now',
   chooseFolderHint: 'if your document is a folder of files',
   getFromGit: 'Get one from GitHub or another Git address…',
+
+  comingFromWord:
+    'Coming from Word? Abstract can’t open Word files. Start a new document and paste your text into it.',
+  newDocument: 'New document',
+
+  looking: (name: string) => `Looking at ${name}…`,
+  crowdedFolder: (folder: string) =>
+    `${folder} holds many different things, so it can’t be opened as one document. Choose the folder of one document, or a .tex file.`,
+  chooseAgain: 'Choose again…',
+  noTex: (folder: string) =>
+    `There is no .tex file in ${folder}, so there is nothing to make a PDF of yet.`,
+  openAnyway: 'Open it anyway',
+  /** What cannot be opened, and what to do about it. */
+  refused: {
+    word: 'That is a word processor’s file, and Abstract can’t open those. Start a new document, then copy your text there and paste it in.',
+    pdf: 'That is a PDF, which can’t be edited. If you have the .tex file it was made from, choose that one.',
+    otherArchive: 'That is an archive Abstract can’t unpack. Unpack it first (often: double-click it), then choose the folder.',
+    otherFile: 'That is not a document Abstract can open. Choose a .tex file, or the folder it is in.',
+    gone: 'It is not there any more. It may have been moved, renamed or deleted, or its drive is not connected.',
+    strayFile:
+      'That file is in a folder with many other things. Put it in a folder of its own, together with the files it uses, then choose it there.',
+  },
+  /** A chosen file that is no part of the document the PDF is made from. */
+  pdfShowsAnother: (main: string, chosen: string) =>
+    `The PDF shows ${main}. ${chosen} is in the same folder, but is not part of that document.`,
 
   opening: (name: string) => `Opening ${name}…`,
   stop: 'Stop',
