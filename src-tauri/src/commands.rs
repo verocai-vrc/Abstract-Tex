@@ -294,7 +294,7 @@ pub fn compile(
     file: Option<String>,
 ) -> CommandResult<u64> {
     // Gather everything under the lock, then release it before the build starts.
-    let (job, draft) = with_project(&state, |project| {
+    let (job, draft, latest_pdf) = with_project(&state, |project| {
         let root_file = project.root_file().ok_or_else(|| {
             anyhow::anyhow!("No root .tex file found. Create main.tex or choose a root file in the tree.")
         })?;
@@ -312,7 +312,7 @@ pub fn compile(
                 chapter,
                 dir: project.draft_dir(),
             });
-        Ok((job, draft))
+        Ok((job, draft, project.latest_pdf()))
     })?;
 
     let emitter = app.clone();
@@ -325,7 +325,8 @@ pub fn compile(
         .request(job, draft, move |event: CompileEvent| {
             let succeeded = matches!(event, CompileEvent::Finished { success: true, .. });
             // The frontend hears first; the snapshot is never something the author waits for.
-            let _ = emitter.emit("compile", event);
+            let _ = emitter.emit("compile", &event);
+            emitter.state::<AppState>().finished_pdf.note(&event, &latest_pdf);
             if succeeded {
                 take_snapshot(snapshot_dir.clone());
             }

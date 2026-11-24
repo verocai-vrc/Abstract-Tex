@@ -24,6 +24,7 @@ pub mod draft;
 pub mod incremental;
 pub mod latexmk;
 mod process;
+pub use process::BUILD_TIME_LIMIT;
 pub mod tectonic;
 
 use std::path::PathBuf;

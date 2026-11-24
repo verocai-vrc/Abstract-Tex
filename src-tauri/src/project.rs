@@ -122,6 +122,8 @@ pub struct ProjectInfo {
     /// changes made by other programs (R8.7): the sentence the frontend shows as a notice. The
     /// project opens either way.
     pub watch_notice: Option<String>,
+    /// Whether a good build has ever kept a PDF of this document (S17.7).
+    pub has_pdf: bool,
 }
 
 /// An open project: an absolute folder path and its configuration.
@@ -238,6 +240,11 @@ impl Project {
     /// the PDF pane is allowed to load from (`open_project`).
     pub fn state_dir(&self) -> PathBuf {
         self.root_dir.join(STATE_DIR)
+    }
+
+    /// The last good build's PDF (S17.7, `finished_pdf`).
+    pub fn latest_pdf(&self) -> PathBuf {
+        self.root_dir.join(STATE_DIR).join("latest.pdf")
     }
 
     /// The root `.tex`, relative to the project. Configured value first, detection second.
@@ -403,6 +410,7 @@ impl Project {
             document_files_complete,
             engine_notice: None,
             watch_notice: None,
+            has_pdf: crate::finished_pdf::is_there(&self.latest_pdf()),
         }
     }
 
@@ -731,6 +739,11 @@ pub fn to_forward_slashes(path: &Path) -> String {
 /// never a truncated mix. Write to a sibling temp file, then rename over the target; rename is
 /// atomic on every filesystem we care about (DESIGN.md §9, first row).
 pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
+    write_bytes_atomically(path, contents.as_bytes())
+}
+
+/// The same for bytes: a PDF (S17.7).
+pub fn write_bytes_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -750,7 +763,7 @@ pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
     // `Write` is what puts `write_all` on `File`; the `use` is local so the one place that needs it says so.
     use std::io::Write;
     let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
-    if let Err(error) = file.write_all(contents.as_bytes()) {
+    if let Err(error) = file.write_all(contents) {
         drop(file);
         let _ = fs::remove_file(&temp); // a half-written temporary file helps nobody
         return Err(error);

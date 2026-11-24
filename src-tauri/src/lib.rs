@@ -29,6 +29,7 @@ pub mod comments;
 pub mod compile;
 pub mod consent;
 pub mod crash;
+pub mod finished_pdf;
 pub mod fragile_command;
 pub mod git;
 pub mod github;
@@ -54,6 +55,7 @@ use tauri::Manager;
 use tracing_subscriber::EnvFilter;
 
 use crate::compile::Orchestrator;
+use crate::finished_pdf::FinishedPdf;
 use crate::github::GitHubSession;
 use crate::latexdiff::DiffLane;
 use crate::lsp::LspSession;
@@ -73,6 +75,8 @@ pub struct AppState {
     pub openings: Openings,
     /// Runs builds. Constructed once with whatever engine was found at startup.
     pub orchestrator: Orchestrator,
+    /// The last good PDF, and saving it (S17.7).
+    pub finished_pdf: FinishedPdf,
     /// Runs change-review builds (S11.4c), beside the live ones and never in their way.
     pub diff_lane: DiffLane,
     /// Keeps the watcher alive; dropping it stops watching.
@@ -102,6 +106,7 @@ impl AppState {
             project: Mutex::new(None),
             openings: Openings::default(),
             orchestrator: Orchestrator::new(engine.clone()),
+            finished_pdf: FinishedPdf::default(),
             diff_lane: DiffLane::new(engine),
             watcher: Mutex::new(None),
             written: WrittenHashes::default(),
@@ -221,6 +226,10 @@ pub fn run() {
             start::recent_moved,
             start::forget_recent,
             start::clear_recents,
+            finished_pdf::suggested_pdf_path,
+            finished_pdf::save_pdf,
+            finished_pdf::open_saved_pdf,
+            finished_pdf::show_saved_pdf,
             start::preferences,
             start::set_preferences,
             start::show_recent_in_folder,
