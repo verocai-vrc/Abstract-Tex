@@ -10,11 +10,14 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 use tokio::sync::watch;
 
+use crate::assistant::AssistantSettings;
 use crate::commands::{to_message, CommandResult};
+use crate::consent::ShellEscapeConsent;
+use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
 use crate::recents::{self, RecentDocument, RecentDocuments};
 use crate::AppState;
 
@@ -37,9 +40,14 @@ pub struct RecentRow {
 /// folder itself is left out, so a document directly in it has no parts at all.
 pub fn place_parts(folder: &Path, home: Option<&Path>) -> Vec<String> {
     let parent = folder.parent().unwrap_or(folder);
+    folder_parts(parent, home)
+}
+
+/// A folder itself, as the names a person would read, from the home folder down.
+fn folder_parts(folder: &Path, home: Option<&Path>) -> Vec<String> {
     let shown = home
-        .and_then(|home| parent.strip_prefix(home).ok())
-        .unwrap_or(parent);
+        .and_then(|home| folder.strip_prefix(home).ok())
+        .unwrap_or(folder);
     names(shown)
 }
 
@@ -253,6 +261,140 @@ pub fn record_opened<R: Runtime>(app: &AppHandle<R>, root_dir: &Path, root_file:
     })
 }
 
+/// The place new documents are kept in, as the window shows it.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PlaceView {
+    path: String,
+    parts: Vec<String>,
+}
+
+/// What the person chose, as the window needs it: the place is always a real one.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreferencesView {
+    place: PlaceView,
+    author: String,
+    text_size: u16,
+    colours: Colours,
+}
+
+/// Only what is to change; the rest is left out.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PreferencesChange {
+    place: Option<String>,
+    author: Option<String>,
+    text_size: Option<u16>,
+    colours: Option<Colours>,
+}
+
+impl PreferencesChange {
+    /// Make the change, or say what in it cannot be kept.
+    fn apply(self, preferences: &PreferencesFile) -> CommandResult<Preferences> {
+        if let Some(size) = self.text_size.filter(|size| !TEXT_SIZES.contains(size)) {
+            return Err(format!("{size}% is not one of the text sizes."));
+        }
+        if let Some(place) = self
+            .place
+            .as_ref()
+            .filter(|place| !Path::new(place).is_absolute())
+        {
+            return Err(format!("{place} is not a folder's whole address."));
+        }
+        preferences
+            .change(|kept| {
+                if self.place.is_some() {
+                    kept.place = self.place;
+                }
+                if let Some(author) = self.author {
+                    kept.author = author;
+                }
+                if let Some(size) = self.text_size {
+                    kept.text_size = size;
+                }
+                if let Some(colours) = self.colours {
+                    kept.colours = colours;
+                }
+            })
+            .map_err(to_message)
+    }
+}
+
+fn place_of<R: Runtime>(app: &AppHandle<R>, preferences: &Preferences) -> PathBuf {
+    match &preferences.place {
+        Some(place) => PathBuf::from(place),
+        None => {
+            let folders = app.path();
+            // A computer with no home folder has no config folder either, and the app does not start.
+            default_place(
+                folders.document_dir().ok(),
+                folders.home_dir().unwrap_or_default(),
+            )
+        }
+    }
+}
+
+/// Where a new document goes: the place that was chosen, else a folder of our own in Documents.
+pub fn new_documents_folder<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    let preferences = match app.try_state::<PreferencesFile>() {
+        Some(file) => file.read(),
+        None => Preferences::default(), // a test without any
+    };
+    place_of(app, &preferences)
+}
+
+fn view<R: Runtime>(app: &AppHandle<R>, preferences: Preferences) -> PreferencesView {
+    let place = place_of(app, &preferences);
+    PreferencesView {
+        place: PlaceView {
+            parts: folder_parts(&place, app.path().home_dir().ok().as_deref()),
+            path: place.to_string_lossy().into_owned(),
+        },
+        author: preferences.author,
+        text_size: preferences.text_size,
+        colours: preferences.colours,
+    }
+}
+
+#[tauri::command]
+pub async fn preferences<R: Runtime>(app: AppHandle<R>) -> CommandResult<PreferencesView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let kept = app.state::<PreferencesFile>().read();
+        view(&app, kept)
+    })
+    .await
+    .map_err(to_message)
+}
+
+#[tauri::command]
+pub async fn set_preferences<R: Runtime>(
+    app: AppHandle<R>,
+    change: PreferencesChange,
+) -> CommandResult<PreferencesView> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let kept = change.apply(&app.state::<PreferencesFile>())?;
+        Ok(view(&app, kept))
+    })
+    .await
+    .map_err(to_message)?
+}
+
+/// A folder that is about to be made starts with no permission, whatever was allowed at that address
+/// before: what was allowed was for a document that is gone (S17.6). Called before the folder exists, so
+/// that a failure leaves nothing behind.
+pub fn forget_permissions<R: Runtime>(app: &AppHandle<R>, folder: &Path) -> CommandResult<()> {
+    // As `Project::open` will spell it, which is how permissions are kept.
+    let folder = std::path::absolute(folder).map_err(to_message)?;
+    // `try_state`: absent in a test that is not about this.
+    if let Some(consent) = app.try_state::<ShellEscapeConsent>() {
+        consent.disallow(&folder).map_err(to_message)?;
+    }
+    if let Some(assistant) = app.try_state::<AssistantSettings>() {
+        assistant.forget(&folder)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -350,5 +492,38 @@ mod tests {
             listed(&recents, "/home/ana/essay").unwrap(),
             PathBuf::from("/home/ana/essay")
         );
+    }
+
+    #[test]
+    fn a_change_that_makes_no_sense_changes_nothing() {
+        let config = tempfile::tempdir().unwrap();
+        let file = PreferencesFile::at(config.path().join("preferences.toml"));
+        let change = |text: &str| {
+            serde_json::from_str::<PreferencesChange>(text)
+                .unwrap()
+                .apply(&file)
+        };
+        assert!(change(r#"{"textSize": 900, "author": "Ana"}"#).is_err());
+        assert!(change(r#"{"place": "Documents"}"#).is_err());
+        assert_eq!(file.read(), Preferences::default());
+
+        change(r#"{"textSize": 150}"#).unwrap();
+        let kept = change(r#"{"colours": "contrast-light"}"#).unwrap();
+        assert_eq!((kept.text_size, kept.colours), (150, Colours::ContrastLight));
+    }
+
+    #[test]
+    fn new_documents_go_to_the_place_that_was_chosen() {
+        let config = tempfile::tempdir().unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(PreferencesFile::at(config.path().join("preferences.toml")))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        assert!(new_documents_folder(app.handle()).ends_with("Abstract-Tex"));
+        let chosen = config.path().join("writing").to_string_lossy().into_owned();
+        app.state::<PreferencesFile>()
+            .change(|kept| kept.place = Some(chosen.clone()))
+            .unwrap();
+        assert_eq!(new_documents_folder(app.handle()), Path::new(&chosen));
     }
 }

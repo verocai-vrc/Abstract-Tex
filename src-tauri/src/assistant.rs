@@ -139,7 +139,20 @@ impl AssistantSettings {
         self.read().inspect_first
     }
 
-    fn is_enabled_for(&self, project_dir: &Path) -> bool {
+    /// After an `Ok`, the assistant is off for this folder. Writes nothing when it was off already, so
+    /// that a new document can be made while the settings cannot be written (S17.6).
+    pub fn forget(&self, project_dir: &Path) -> Result<(), String> {
+        match fs::read_to_string(&self.file) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            // "Off" is only how a file that cannot be read is taken now. It may be readable later.
+            Err(error) => return Err(format!("Could not read the assistant's settings: {error}")),
+            Ok(_) if !self.is_enabled_for(project_dir) => return Ok(()),
+            Ok(_) => {}
+        }
+        set_enabled(self, project_dir, false)
+    }
+
+    pub fn is_enabled_for(&self, project_dir: &Path) -> bool {
         self.read().enabled.contains(&key_for(project_dir))
     }
 }
@@ -394,6 +407,17 @@ mod tests {
     // Review finding R5.9. Opening any project asked the keychain (on the main thread) once a provider
     // had ever been chosen, for a feature that is off for that project. Where the keychain asks for a
     // password, that prompt came with every project the author opened.
+    /// Readable now or not, it may be at the next build, with the folder still in it (S17.6).
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_be_read_is_not_taken_as_off() {
+        let config = tempfile::tempdir().unwrap();
+        let in_the_way = config.path().join("app");
+        std::fs::write(&in_the_way, "a file where the folder should be").unwrap();
+        let settings = AssistantSettings::at(in_the_way.join("kept"));
+        assert!(settings.forget(Path::new("/work/thesis")).is_err());
+    }
+
     #[test]
     fn the_keychain_is_asked_only_when_the_answer_is_needed() {
         let (_config, settings) = settings();

@@ -54,11 +54,24 @@ impl ShellEscapeConsent {
         self.write(&consent)
     }
 
+    /// After an `Ok`, builds of `project_dir` may not run programs.
     pub fn disallow(&self, project_dir: &Path) -> Result<()> {
-        let Some(mut consent) = self.read() else {
-            return Ok(()); // nothing readable means nothing is allowed already
+        let text = match fs::read_to_string(&self.file) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            // Not "nothing is allowed": a file that cannot be read now may well be readable at the next
+            // build, with this folder still in it.
+            Err(error) => {
+                return Err(error).with_context(|| format!("could not read {}", self.file.display()));
+            }
+        };
+        let Ok(mut consent) = toml::from_str::<ConsentFile>(&text) else {
+            return Ok(()); // a file that does not parse allows nothing already
         };
         let key = key_for(project_dir);
+        if !consent.allowed.contains(&key) {
+            return Ok(());
+        }
         consent.allowed.retain(|allowed| *allowed != key);
         self.write(&consent)
     }
@@ -93,6 +106,17 @@ mod tests {
         let config = tempfile::tempdir().unwrap();
         let consent = ShellEscapeConsent::at(config.path().join("app").join("shell-escape.toml"));
         (config, consent)
+    }
+
+    /// Readable now or not, it may be at the next build, with the folder still in it (S17.6).
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_be_read_is_not_taken_as_withdrawn() {
+        let config = tempfile::tempdir().unwrap();
+        let in_the_way = config.path().join("app");
+        std::fs::write(&in_the_way, "a file where the folder should be").unwrap();
+        let consent = ShellEscapeConsent::at(in_the_way.join("kept"));
+        assert!(consent.disallow(Path::new("/work/thesis")).is_err());
     }
 
     #[test]
