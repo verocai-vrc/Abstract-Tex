@@ -35,6 +35,8 @@ export interface ProjectInfo {
   engineNotice: string | null;
   /** Set when some folders of the project could not be watched for changes other programs make (R8.7). */
   watchNotice: string | null;
+  /** Whether a good build has ever kept a PDF of this document (S17.7). */
+  hasPdf: boolean;
 }
 
 export interface EngineInfo {
@@ -494,6 +496,14 @@ export interface GitHubRepository {
   private: boolean;
 }
 
+/** A PDF that was saved (`abstract_tex::finished_pdf::SavedPdf`). */
+export interface SavedPdf {
+  name: string;
+  place: string[];
+  /** Whether it has the newest text, or is the last one that could be made. */
+  isNewest: boolean;
+}
+
 /** The text sizes on offer, in percent (`abstract_tex::preferences::TEXT_SIZES`). */
 export type TextSize = 100 | 115 | 130 | 150 | 175 | 200;
 export type Colours = 'match' | 'light' | 'dark' | 'contrast-light' | 'contrast-dark';
@@ -684,12 +694,12 @@ export const ipc = {
     return typeof chosen === 'string' ? chosen : null;
   },
 
-  /** S11.4d: native *Save as…* for a comparison's PDF (design interview A9). Resolves to null if
-   * the author cancels. */
-  pickSavePath: async (suggestedName: string): Promise<string | null> => {
+  /** S11.4d: native *Save as…* for a PDF (design interview A9). Resolves to null if the author
+   * cancels. */
+  pickSavePath: async (title: string, suggestedPath: string): Promise<string | null> => {
     const chosen = await saveDialog({
-      title: 'Save the comparison as a PDF',
-      defaultPath: suggestedName,
+      title,
+      defaultPath: suggestedPath,
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
     });
     return typeof chosen === 'string' ? chosen : null;
@@ -811,6 +821,12 @@ export const ipc = {
    * and leaves nothing on disk. */
   gitClone: (url: string, parentDir: string, folderName: string | null) =>
     invoke<string>('git_clone', { url, parentDir, folderName }),
+  /** S17.7: where the dialog that saves the PDF starts. */
+  suggestedPdfPath: () => invoke<string>('suggested_pdf_path'),
+  /** Save the open document's newest PDF, once build `generation` has ended. */
+  savePdf: (destination: string, generation: number) => invoke<SavedPdf>('save_pdf', { destination, generation }),
+  openSavedPdf: () => invoke<void>('open_saved_pdf'),
+  showSavedPdf: () => invoke<void>('show_saved_pdf'),
   preferences: () => invoke<Preferences>('preferences'),
   /** Change what is given and leave the rest; answers with all of them. */
   setPreferences: (change: Partial<{ place: string; author: string; textSize: TextSize; colours: Colours }>) =>

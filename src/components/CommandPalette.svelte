@@ -54,7 +54,7 @@
   ]);
   const results = $derived(searchCommands(query, candidates).slice(0, 50));
 
-  /** What had the focus when the palette opened, to have it back if nothing is chosen (S17.5). */
+  /** What had the focus when the palette opened, to have it back (S17.5). */
   let focusedBefore: HTMLElement | null = null;
 
   function close(): void {
@@ -75,7 +75,7 @@
   });
 
   function run(command: Command): void {
-    app.commandPaletteVisible = false;
+    close(); // the focus goes back first, and the entry may then move it on
     runFromPalette(command.id, candidates);
   }
 

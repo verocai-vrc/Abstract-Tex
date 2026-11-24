@@ -3,6 +3,7 @@
   import { app } from './lib/state.svelte';
   import {
     saveNow,
+    savePdf,
     goToNextPlaceholder,
     openPdfFind,
     showActivityView,
@@ -128,6 +129,7 @@
     <span class="title">Abstract-Tex</span>
     <button onclick={() => showStart('home', dialogIsUp())}>{words.pages.home}</button>
     <span class="project-name" title={app.project?.rootDir}>{app.project?.title ?? ''}</span>
+    <button disabled={!app.hasPdf} onclick={() => void savePdf()}>{words.savePdf}</button>
     <button
       class="primary"
       disabled={!app.project || app.compile.phase === 'running'}

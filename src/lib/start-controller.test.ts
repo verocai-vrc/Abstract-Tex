@@ -11,7 +11,7 @@ let answers: Record<string, (...args: any[]) => unknown> = {};
 
 const project: ProjectInfo = {
   rootDir: '/proj', title: 'proj', rootFile: 'main.tex', buildDir: '/proj/.abstract-tex/build', tree: [],
-  documentFiles: ['main.tex'], documentFilesComplete: true, engineNotice: null, watchNotice: null,
+  documentFiles: ['main.tex'], documentFilesComplete: true, engineNotice: null, watchNotice: null, hasPdf: false,
 };
 
 vi.mock('./ipc', () => ({

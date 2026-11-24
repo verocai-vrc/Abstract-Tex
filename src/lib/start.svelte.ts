@@ -4,7 +4,7 @@
 // Only the controllers write to `startScreen`: `controller.svelte.ts` says whether it is up and what
 // it has to say, `start-controller.svelte.ts` the rest. Components read it.
 
-import type { Preferences, RecentDocument, TemplateInfo } from './ipc';
+import type { Preferences, RecentDocument, SavedPdf, TemplateInfo } from './ipc';
 import type { Action } from './shortcuts';
 import { words } from './words';
 
@@ -70,6 +70,11 @@ export function searchRecents(recents: readonly RecentDocument[], query: string)
 
 export function placeText(parts: readonly string[]): string {
   return parts.length === 0 ? words.homeFolder : parts.join(' › ');
+}
+
+export function savedPdfSentence(saved: SavedPdf): string {
+  const sentence = saved.isNewest ? words.savedPdf : words.savedOlderPdf;
+  return sentence(saved.name, placeText(saved.place));
 }
 
 export function homeSections(recentCount: number, hasDocument: boolean): HomeSection[] {

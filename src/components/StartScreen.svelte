@@ -8,6 +8,8 @@
   import { startScreen } from '../lib/start.svelte';
   import { newProject } from '../lib/templates.svelte';
   import { words } from '../lib/words';
+  import { savePdf } from '../lib/controller.svelte';
+  import SavedPdfNotice from './SavedPdfNotice.svelte';
   import StartHome from './StartHome.svelte';
   import StartNew from './StartNew.svelte';
   import StartOpen from './StartOpen.svelte';
@@ -49,6 +51,9 @@
         <button class="back" aria-disabled={app.opening !== null} onclick={backToDocument}>
           <span aria-hidden="true">‹</span> {words.backTo(app.project.title)}
         </button>
+        <button class="back" aria-disabled={!app.hasPdf || app.savingPdf || app.opening !== null} onclick={() => void savePdf()}>
+          {words.savePdf}
+        </button>
       {/if}
       <ul>
         <li>
@@ -77,6 +82,7 @@
       <div role="status">
         {#if startScreen.message?.kind === 'status'}<p class="message">{startScreen.message.text}</p>{/if}
       </div>
+      <SavedPdfNotice />
       {#if startScreen.page === 'open'}
         <StartOpen />
       {:else if startScreen.page === 'new'}

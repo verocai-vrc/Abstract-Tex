@@ -47,6 +47,7 @@ import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
 import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
 import { startScreen } from './start.svelte';
+import { words } from './words';
 import { app, type ActivityView } from './state.svelte';
 
 const backend: DocumentBackend = {
@@ -1478,7 +1479,7 @@ export async function saveComparisonAs(): Promise<void> {
   if (compare.view.phase !== 'ready') return;
   compare.saveError = null;
   try {
-    const destination = await ipc.pickSavePath(`comparison-${older.slice(0, 7)}-${newer.slice(0, 7)}.pdf`);
+    const destination = await ipc.pickSavePath('Save the comparison as a PDF', `comparison-${older.slice(0, 7)}-${newer.slice(0, 7)}.pdf`);
     if (!destination) return;
     await ipc.saveComparisonPdf(older, newer, destination, compare.view.simpler);
   } catch (error) {
@@ -2155,6 +2156,8 @@ export async function openFolder(
     app.launching = false;
     app.project = info;
     nameWindow(info.title);
+    app.hasPdf = info.hasPdf;
+    app.savedPdf = null;
     // The previous project's placeholders are not this one's (S11.12).
     placeholders.byFile = new Map();
     placeholders.cursorLine = 1;
@@ -2455,11 +2458,20 @@ export async function saveNow(): Promise<void> {
   await app.activeDoc?.save();
 }
 
-export async function triggerCompile(): Promise<void> {
-  if (!app.project) return;
+/** The build asked for last: its number, once it is known. `null` when none could be. */
+let buildAskedLast: Promise<number | null> = Promise.resolve(null);
+
+/** Save everything and build. Answers the build's number, or `null` when there is none. */
+export function triggerCompile(): Promise<number | null> {
+  buildAskedLast = saveAndBuild();
+  return buildAskedLast;
+}
+
+async function saveAndBuild(): Promise<number | null> {
+  if (!app.project) return null;
   if (app.opening !== null) {
     buildAskedWhileOpening = true;
-    return;
+    return null;
   }
   // A compile reads whatever is on disk; every open tab's edits have to be there, not only the
   // active tab's (S2.3, save-all on compile).
@@ -2469,12 +2481,61 @@ export async function triggerCompile(): Promise<void> {
   });
   try {
     // The file being edited, so Rust can draft its chapter beside the full build (S9.9).
-    await ipc.compile(app.activePath);
+    return await ipc.compile(app.activePath);
   } catch (error) {
     app.compile = { ...app.compile, phase: 'failed', message: String(error) };
     app.drawerOpen = true;
+    return null;
   }
 }
+
+/** Held from the dialog on, so that the button cannot put up a second one. */
+let isSavingPdf = false;
+
+/**
+ * *Save PDF…* (S17.7). The place is asked for first, because building may take a while and a dialog that
+ * arrives later lands on whatever is being typed by then. Then the newest PDF is waited for: a build of
+ * what is unsaved, or the one already running. Rust copies it, and says whether it is the newest.
+ */
+export async function savePdf(): Promise<void> {
+  if (!app.project || !app.hasPdf || isSavingPdf || app.opening !== null) return;
+  isSavingPdf = true;
+  const epoch = projectEpoch;
+  try {
+    const destination = await ipc.pickSavePath(words.savePdfTitle, await ipc.suggestedPdfPath());
+    if (!destination || epoch !== projectEpoch) return;
+    app.savedPdf = null;
+    app.savingPdf = true;
+    // `idle`: not built since it was opened. `failed`: the last one never ran, so what it was for is unbuilt.
+    const isBuilt = app.compile.phase !== 'idle' && app.compile.phase !== 'failed';
+    const isUpToDate = isBuilt && manager.dirtyPaths().length === 0;
+    const asked = await (isUpToDate ? buildAskedLast : triggerCompile());
+    // Text that could not be saved, or a build that could not be asked for: Rust cannot know of either.
+    const isWhole = manager.dirtyPaths().length === 0 && (isUpToDate || asked !== null);
+    const saved = await ipc.savePdf(destination, Math.max(asked ?? 0, app.compile.generation));
+    if (epoch !== projectEpoch) return;
+    app.savedPdf = { ...saved, isNewest: saved.isNewest && isWhole };
+  } catch (error) {
+    tell(String(error));
+  } finally {
+    isSavingPdf = false;
+    app.savingPdf = false;
+  }
+}
+
+export async function openSavedPdf(): Promise<void> {
+  await ipc.openSavedPdf().catch((error) => tell(String(error)));
+}
+
+export async function showSavedPdf(): Promise<void> {
+  await ipc.showSavedPdf().catch((error) => tell(String(error)));
+}
+
+export function dismissSavedPdf(): void {
+  app.savedPdf = null;
+}
+
+registerCommand({ id: 'save-pdf', title: words.savePdf, category: 'action', run: () => void savePdf() });
 
 /**
  * S9.8: let this folder's documents run programs while they build — what `minted` needs. Asks
@@ -3113,6 +3174,7 @@ function handleCompileEvent(event: CompileEvent): void {
         app.pdfUrl = `${ipc.assetUrl(event.pdfPath)}?v=${event.generation}`;
         fullPdfUrl = app.pdfUrl;
         app.pdfDraftOf = null;
+        app.hasPdf = true;
         void refreshTitle();
       } else {
         withdrawDraft();

@@ -15,6 +15,7 @@
     syncTexForward,
   } from '../lib/controller.svelte';
   import { live } from '../lib/live.svelte';
+  import { startScreen } from '../lib/start.svelte';
   import { createEditor, goToLine, setFocusMode, setTypewriterMode } from '../lib/editor/setup';
   import { applyDiagnostics, applyLspDiagnostics } from '../lib/editor/diagnostics';
   import { diagnosticsForFile } from '../lib/drawer';
@@ -25,6 +26,7 @@
   import { placeholders } from '../lib/placeholders.svelte';
   import { assistant } from '../lib/assistant.svelte';
   import ConflictResolver from './ConflictResolver.svelte';
+  import SavedPdfNotice from './SavedPdfNotice.svelte';
   import Drawer from './Drawer.svelte';
   import Tabs from './Tabs.svelte';
 
@@ -168,6 +170,7 @@
       <button class="primary" onclick={() => void resolveConflict('load-disk')}>Load from disk</button>
     </div>
   {/if}
+  {#if !startScreen.visible}<SavedPdfNotice />{/if}
   {#if app.notice}
     <div class="bar notice" role="status">
       <span>{app.notice}</span>

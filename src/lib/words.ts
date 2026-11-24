@@ -16,6 +16,15 @@ export const words = {
   backTo: (title: string) => `Back to ${title}`,
   openNow: 'Open now',
 
+  savePdf: 'Save PDF…',
+  savePdfTitle: 'Save the PDF',
+  savingPdf: 'Getting the newest PDF ready to save…',
+  savedPdf: (name: string, place: string) => `Saved ${name} in ${place}.`,
+  savedOlderPdf: (name: string, place: string) =>
+    `Saved ${name} in ${place}. It is an earlier version: your newest text could not be made into a PDF.`,
+  openIt: 'Open it',
+  dismiss: 'Close this message',
+
   welcome: 'Welcome to Abstract',
   welcomeLine: 'Choose what you want to write. You get a finished-looking page to write over, and a PDF of it.',
   openOneYouHave: 'Open a document you already have',

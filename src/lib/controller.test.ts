@@ -29,6 +29,7 @@ import type {
   LargeFile,
   LspEvent,
   ProjectInfo,
+  SavedPdf,
   SyncOutcome,
   CommentRow,
   CommentsSync,
@@ -69,6 +70,8 @@ const calls = {
    * time the public confirmation was put to the person. */
   created: [] as string[],
   windowTitles: [] as string[],
+  /** S17.7: the dialogs, builds and saves asked for, in the order they were. */
+  order: [] as string[],
   publicQuestions: [] as string[],
   /** R7.2: every comment the author saved, and every resolve or reopen, against whatever project was open. */
   commentsAdded: [] as Array<{ file: string; text: string; from: number; to: number; body: string }>,
@@ -192,6 +195,9 @@ let compareAnswer: (older: string, newer: string) => Promise<ComparisonStarted> 
   generation: 1,
 });
 let savePathAnswer: string | null = '/out/diff.pdf';
+/** S17.7: what saving the PDF answers, and whether a build is refused. */
+let savePdfAnswer: () => SavedPdf | Promise<SavedPdf>;
+let compileRefused = false;
 /** S11.5b: what the Clone window's calls answer with, and what they were asked. */
 let listAnswer: GitHubRepository[] | Error = [];
 let cloneAnswer: string | Error = '/papers/thesis';
@@ -230,6 +236,7 @@ const project: ProjectInfo = {
   documentFiles: ['main.tex'],
   documentFilesComplete: true,
   engineNotice: null,
+  hasPdf: false,
   watchNotice: null,
 };
 
@@ -281,6 +288,8 @@ vi.mock('./ipc', () => ({
     },
     compile: async (file: string | null) => {
       calls.compileFiles.push(file);
+      calls.order.push('compile');
+      if (compileRefused) throw new Error('No root .tex file found.');
       return ++calls.compiles;
     },
     pasteCite: async (_pasted: string) => pasteCiteAnswer(),
@@ -329,7 +338,15 @@ vi.mock('./ipc', () => ({
       comparisons.simpler.push(simpler === true);
       return compareAnswer(a, b);
     },
-    pickSavePath: async () => savePathAnswer,
+    pickSavePath: async (_title: string, path: string) => {
+      calls.order.push(`pickSavePath ${path}`);
+      return savePathAnswer;
+    },
+    suggestedPdfPath: async () => '/home/ana/Documents/Thesis draft.pdf',
+    savePdf: async (destination: string, generation: number) => {
+      calls.order.push(`savePdf ${destination} ${generation}`);
+      return savePdfAnswer();
+    },
     gitDiffSides: async (path: string, staged: boolean) => {
       diffsAsked.push([path, staged]);
       if (diffAnswer instanceof Error) throw diffAnswer;
@@ -720,6 +737,7 @@ const {
   stopOpening,
   toggleCommandPalette,
   saveNow,
+  savePdf,
   quickOpenPick,
   refreshOutline,
   resolveConflict,
@@ -814,7 +832,8 @@ const { live } = await import('./live.svelte');
 const { LiveSession } = await import('./relay/live-session');
 const { github } = await import('./github.svelte');
 const { allCommands, paletteCommands } = await import('./commands');
-const { startScreen } = await import('./start.svelte');
+const { savedPdfSentence, startScreen } = await import('./start.svelte');
+const { words } = await import('./words');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
 async function fileChanged(relative: string): Promise<void> {
@@ -971,6 +990,8 @@ beforeEach(async () => {
   assistant.message = null;
   assistant.busy = false;
   savePathAnswer = '/out/diff.pdf';
+  savePdfAnswer = () => ({ name: 'a.pdf', place: ['Documents'], isNewest: true });
+  compileRefused = false;
   snapshotRows = [];
   snapshotFilesOnDisk = {};
   snapshotError = null;
@@ -4897,6 +4918,155 @@ describe('launching (S17.4)', () => {
     expect(app.commandPaletteVisible).toBe(true);
     expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository']);
     expect(paletteCommands(true)).toEqual(allCommands());
+  });
+});
+
+describe('saving the PDF (S17.7)', () => {
+  const PICKED = 'pickSavePath /home/ana/Documents/Thesis draft.pdf';
+
+  /** The open document, built and with a PDF. */
+  async function built() {
+    compileHandler({ status: 'started', generation: 6, rootFile: 'main.tex' });
+    compileHandler({
+      status: 'finished', generation: 6, success: true, pdfPath: '/proj/.abstract-tex/build/main.pdf', logPath: null, durationMs: 1, diagnostics: [], stderr: '',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    calls.compiles = 6;
+    calls.order.length = 0;
+    savePathAnswer = '/out/a.pdf';
+    startScreen.visible = false;
+  }
+
+  it('asks where first, then builds what is unsaved, and saves that build', async () => {
+    await built();
+    type('more');
+    await savePdf();
+    expect(calls.order).toEqual([PICKED, 'compile', 'savePdf /out/a.pdf 7']);
+    expect(app.savedPdf).toEqual({ name: 'a.pdf', place: ['Documents'], isNewest: true });
+    expect(savedPdfSentence(app.savedPdf!)).toBe(words.savedPdf('a.pdf', 'Documents'));
+  });
+
+  it('asks for no build when nothing changed', async () => {
+    await built();
+    await savePdf();
+    expect(calls.order).toEqual([PICKED, 'savePdf /out/a.pdf 6']);
+  });
+
+  it('saves the build that is being asked for, when one is', async () => {
+    await built();
+    void triggerCompile(); // its `started` has not been heard yet
+    await savePdf();
+    expect(calls.order.at(-1)).toBe('savePdf /out/a.pdf 7');
+  });
+
+  it('builds first when this document has not been built since it was opened', async () => {
+    await built();
+    app.compile = { ...app.compile, phase: 'idle' };
+    await savePdf();
+    expect(calls.order).toEqual([PICKED, 'compile', 'savePdf /out/a.pdf 7']);
+  });
+
+  it('builds again when the last build could not run at all', async () => {
+    await built();
+    compileHandler({ status: 'failed', generation: 6, message: 'no engine' });
+    await savePdf();
+    expect(calls.order).toEqual([PICKED, 'compile', 'savePdf /out/a.pdf 7']);
+  });
+
+  it('says so when the PDF is an older one', async () => {
+    await built();
+    savePdfAnswer = () => ({ name: 'a.pdf', place: ['Documents'], isNewest: false });
+    await savePdf();
+    expect(savedPdfSentence(app.savedPdf!)).toBe(words.savedOlderPdf('a.pdf', 'Documents'));
+  });
+
+  it('says so when some text could not be saved', async () => {
+    await built();
+    type('more');
+    const working = ipcWriteFile;
+    ipcWriteFile = async () => {
+      throw new Error('No space left on device');
+    };
+    await savePdf();
+    ipcWriteFile = working;
+    expect(app.savedPdf?.isNewest).toBe(false);
+  });
+
+  it('says so when no build could be asked for', async () => {
+    await built();
+    type('more');
+    compileRefused = true;
+    await savePdf();
+    expect([calls.order.at(-1), app.savedPdf?.isNewest]).toEqual(['savePdf /out/a.pdf 6', false]);
+  });
+
+  it('is off until there is a first PDF, and on for a document that has one from before', async () => {
+    await openFolder('/proj');
+    calls.order.length = 0;
+    await savePdf();
+    expect([app.hasPdf, calls.order]).toEqual([false, []]);
+    openProjectAnswer = Promise.resolve({ ...project, hasPdf: true });
+    await openFolder('/proj');
+    expect(app.hasPdf).toBe(true);
+  });
+
+  it('a draft of one chapter is not a first PDF', async () => {
+    await openFolder('/proj');
+    compileHandler({ status: 'started', generation: 99, rootFile: 'main.tex' });
+    compileHandler({ status: 'draft', generation: 99, chapter: 'a', pdfPath: '/d.pdf', durationMs: 1 });
+    expect(app.hasPdf).toBe(false);
+  });
+
+  it('does nothing when the dialog is cancelled', async () => {
+    await built();
+    savePathAnswer = null;
+    await savePdf();
+    expect([app.savedPdf, calls.order]).toEqual([null, [PICKED]]);
+  });
+
+  it('is not asked twice, and says that it is waiting', async () => {
+    await built();
+    const answer = deferred<SavedPdf>();
+    savePdfAnswer = () => answer.promise;
+    const saving = savePdf();
+    await savePdf();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.savingPdf).toBe(true);
+    answer.resolve({ name: 'a.pdf', place: [], isNewest: true });
+    await saving;
+    expect(app.savingPdf).toBe(false);
+    expect(calls.order.filter((entry) => entry === PICKED)).toHaveLength(1);
+  });
+
+  it('a refusal is said, and nothing is claimed to be saved', async () => {
+    await built();
+    savePdfAnswer = () => Promise.reject('There is no PDF yet.');
+    await savePdf();
+    expect([app.savedPdf, app.notice]).toEqual([null, 'There is no PDF yet.']);
+  });
+
+  it('what was saved is not said over another document', async () => {
+    await built();
+    await savePdf();
+    await openFolder('/other');
+    expect(app.savedPdf).toBeNull();
+  });
+
+  it('one that another document overtook is not said there', async () => {
+    await built();
+    const answer = deferred<SavedPdf>();
+    savePdfAnswer = () => answer.promise;
+    const saving = savePdf();
+    await vi.advanceTimersByTimeAsync(0);
+    await openFolder('/other');
+    answer.reject('Another document was opened meanwhile, so nothing was saved.');
+    await saving;
+    expect([app.savedPdf, app.savingPdf]).toEqual([null, false]);
+    expect(app.notice).toContain('Another document');
+  });
+
+  it('is in the palette', () => {
+    expect(allCommands().find((c) => c.id === 'save-pdf')?.title).toBe('Save PDF…');
   });
 });
 

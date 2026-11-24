@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { words } from '../lib/words';
 
 const components = readdirSync(__dirname)
-  .filter((name) => /^(Start\w+|OpeningNotice)\.svelte$/.test(name))
+  .filter((name) => /^(Start\w+|OpeningNotice|SavedPdfNotice)\.svelte$/.test(name))
   .map((name) => ({ name, source: readFileSync(join(__dirname, name), 'utf8') }));
 
 /** What is left of a template once everything that is not its own text is gone. */
@@ -40,7 +40,7 @@ it('finds the components, so these guards cannot pass by matching nothing', () =
 
 describe.each(components)('$name', ({ source }) => {
   it('has no words of its own', () => {
-    expect(ownText(source).replace(/[\s›‹·]/g, '')).toBe('');
+    expect(ownText(source).replace(/[\s›‹·×]/g, '')).toBe('');
     expect(source).not.toMatch(/(aria-label|placeholder|title|alt)="[^"{]+"/);
   });
 

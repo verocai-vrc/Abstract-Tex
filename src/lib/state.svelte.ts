@@ -2,7 +2,7 @@
 // (controller.svelte.ts) writes to it. Keeping writes in one place makes the flows in
 // DESIGN.md §6 traceable: every state change is a named function there.
 
-import type { Diagnostic, EngineInfo, ProjectInfo } from './ipc';
+import type { Diagnostic, EngineInfo, ProjectInfo, SavedPdf } from './ipc';
 import type { OpenDocument } from './document';
 import { DEFAULT_FILTER, type DrawerFilter } from './drawer';
 import type { OutlineItem } from './outline';
@@ -43,6 +43,13 @@ class AppState {
   /** What is being opened right now, by name, or `null` (S17.2). While it is set the editor shell is
    * `inert`, nothing is saved or built, and `OpeningNotice` offers *Stop*. */
   opening = $state<string | null>(null);
+  /** Whether there is a PDF of the open document to save (S17.7). A draft of one chapter is not one. */
+  hasPdf = $state(false);
+  /** The place is chosen, and the PDF is being waited for. */
+  savingPdf = $state(false);
+  /** What was saved last, until it is dismissed or another document is opened. */
+  savedPdf = $state.raw<SavedPdf | null>(null);
+
   /** A counter: bumped to ask the editor to take the keyboard focus, which an `inert` shell lost. */
   editorFocusRequest = $state(0);
 
