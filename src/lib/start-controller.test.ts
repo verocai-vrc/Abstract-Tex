@@ -29,10 +29,11 @@ vi.mock('./ipc', () => ({
 }));
 
 const { app } = await import('./state.svelte');
-const { startScreen } = await import('./start.svelte');
+const { startScreen, UNPACK_REFUSALS } = await import('./start.svelte');
 const { words } = await import('./words');
 const { newProject } = await import('./templates.svelte');
 const { allCommands } = await import('./commands');
+const { stopOpening } = await import('./controller.svelte');
 const {
   backToDocument, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, createProject, findRecent, forgetRecent, goToPage, loadRecents,
   moveTemplateSelection, openAnyway, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
@@ -600,6 +601,64 @@ describe('opening what people already have (S17.8)', () => {
     startScreen.choice = { kind: 'zip', file: '/a.zip' };
     await openAnyway();
     expect(opened).toEqual(['/empty']);
+  });
+
+  describe('a zip (S17.9)', () => {
+    const thesis = '/home/ana/Documents/Abstract-Tex/thesis';
+    beforeEach(() => {
+      answers.pickFile = () => '/d/thesis.zip';
+      answers.inspectChoice = () => ({ kind: 'zip', file: '/d/thesis.zip' });
+      answers.unpackZip = () => ({ kind: 'unpacked', folder: thesis });
+    });
+
+    it.each(UNPACK_REFUSALS)('has a sentence for one refused as %s', (why) =>
+      expect(words.zipRefused[why]('x')).toBeTruthy(),
+    );
+
+    it('opens what was unpacked', async () => {
+      await chooseFile();
+      expect(only('unpackZip')).toEqual([['unpackZip', '/d/thesis.zip']]);
+      expect(opened).toEqual([thesis]);
+      expect(startScreen.visible).toBe(false);
+    });
+
+    it('is being opened while it is unpacked', async () => {
+      let answer!: (unpacked: object) => void;
+      answers.unpackZip = () => new Promise((resolve) => (answer = resolve));
+      const choosing = chooseFile();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(app.opening).toBe('thesis.zip');
+      answer({ kind: 'unpacked', folder: thesis });
+      await choosing;
+      expect([app.opening, opened]).toEqual([null, [thesis]]);
+    });
+
+    it('a refusal is said here, and opens nothing', async () => {
+      const name = 'x'.repeat(500);
+      answers.unpackZip = () => ({ kind: 'refused', why: 'unsafeName', name });
+      await chooseFile();
+      expect(startScreen.message?.text).toBe(words.zipRefused.unsafeName('x'.repeat(80)));
+      expect([opened, app.opening, startScreen.visible, startScreen.page]).toEqual([[], null, true, 'open']);
+    });
+
+    it('a stopped unpacking says nothing and opens nothing', async () => {
+      let answer!: (unpacked: object) => void;
+      answers.unpackZip = () => new Promise((resolve) => (answer = resolve));
+      answers.stopOpening = () => answer({ kind: 'stopped' });
+      const choosing = chooseFile();
+      await vi.advanceTimersByTimeAsync(0);
+      await stopOpening();
+      await choosing;
+      expect([startScreen.message, opened, app.opening]).toEqual([null, [], null]);
+    });
+
+    it('nothing is unpacked while the open document cannot be left', async () => {
+      app.conflict = { path: 'main.tex', diskText: 'theirs' };
+      await chooseFile();
+      app.conflict = null;
+      expect(only('unpackZip')).toEqual([]);
+      expect(startScreen.message?.text).toContain('main.tex');
+    });
   });
 
   it.each(['word', 'pdf', 'otherArchive', 'otherFile', 'gone', 'strayFile'] as const)('has a sentence for %s', (kind) =>

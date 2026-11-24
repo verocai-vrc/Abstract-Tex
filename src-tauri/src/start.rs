@@ -7,10 +7,13 @@
 
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use abstract_tex_import::{document_folder, has_tex, kind_of, Crowd, FileKind};
+use abstract_tex_import::{
+    document_folder, free_name, has_tex, kind_of, unpack, Crowd, FileKind, Limits, UnpackError,
+};
+use abstract_tex_templates::folder_name_for_title;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 use tokio::sync::watch;
@@ -18,6 +21,7 @@ use tokio::sync::watch;
 use crate::assistant::AssistantSettings;
 use crate::commands::{to_message, CommandResult};
 use crate::consent::ShellEscapeConsent;
+use crate::opening::Opening;
 use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
 use crate::project::detect_root;
 use crate::recents::{self, RecentDocument, RecentDocuments};
@@ -523,6 +527,85 @@ pub async fn inspect_choice<R: Runtime>(app: AppHandle<R>, path: String) -> Comm
     .map_err(to_message)?
 }
 
+/// What became of a zip. `Refused` has the name it is about, or of an `Io` what the disk said.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Unpacked {
+    Unpacked { folder: String },
+    Refused { why: WhyRefused, name: String },
+    Stopped,
+}
+
+/// The window has a sentence for each (`UNPACK_REFUSALS` in `src/lib/start.svelte.ts`).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum WhyRefused {
+    NotAZip,
+    Locked,
+    Unsupported,
+    TooMany,
+    TooBig,
+    UnsafeName,
+    SameName,
+    NoTex,
+    Io,
+}
+
+/// What the window is told of an error.
+fn told(error: UnpackError) -> Unpacked {
+    let refused = |why, name| Unpacked::Refused { why, name };
+    match error {
+        UnpackError::Stopped => Unpacked::Stopped,
+        UnpackError::NotAZip => refused(WhyRefused::NotAZip, String::new()),
+        UnpackError::Locked => refused(WhyRefused::Locked, String::new()),
+        UnpackError::Unsupported => refused(WhyRefused::Unsupported, String::new()),
+        UnpackError::TooMany => refused(WhyRefused::TooMany, String::new()),
+        UnpackError::TooBig => refused(WhyRefused::TooBig, String::new()),
+        UnpackError::NoTex => refused(WhyRefused::NoTex, String::new()),
+        UnpackError::UnsafeName(name) => refused(WhyRefused::UnsafeName, name),
+        UnpackError::SameName(_, name) => refused(WhyRefused::SameName, name),
+        // Its kind only: the whole error names a staging folder nobody has heard of.
+        UnpackError::Io(error) => refused(WhyRefused::Io, error.kind().to_string()),
+    }
+}
+
+/// The part of [`unpack_zip`] that touches a disk.
+fn unpack_to_place<R: Runtime>(app: &AppHandle<R>, zip: &Path, opening: &Opening) -> CommandResult<Unpacked> {
+    let place = new_documents_folder(app);
+    let name = folder_name_for_title(&zip.file_stem().unwrap_or_default().to_string_lossy());
+    let folder = free_name(&place, &name);
+    forget_permissions(app, &folder)?;
+    let staged = match unpack(zip, &place, &Limits::default(), &|| opening.is_stopped()) {
+        Ok(staged) => staged,
+        Err(error) => return Ok(told(error)),
+    };
+    // The same claim as for opening a folder: stopped a moment ago, it must not appear after all.
+    if !opening.adopt() {
+        return Ok(Unpacked::Stopped);
+    }
+    Ok(match staged.place(&folder) {
+        Ok(()) => Unpacked::Unpacked {
+            folder: folder.to_string_lossy().into_owned(),
+        },
+        Err(error) => told(UnpackError::Io(error)),
+    })
+}
+
+/// Unpack a zip into a folder of its own in the place new documents go. The zip is left alone.
+#[tauri::command]
+pub async fn unpack_zip<R: Runtime>(app: AppHandle<R>, path: String) -> CommandResult<Unpacked> {
+    let opening = app.state::<AppState>().openings.begin();
+    let unpacking = {
+        let opening = Arc::clone(&opening);
+        tauri::async_runtime::spawn_blocking(move || unpack_to_place(&app, Path::new(&path), &opening))
+    };
+    // Whichever comes first. A stopped unpacking sees for itself that it was, and cleans up.
+    tokio::select! {
+        answer = unpacking => answer.map_err(to_message)?,
+        () = opening.stopped() => Ok(Unpacked::Stopped),
+    }
+}
+
 /// A folder that is about to be made starts with no permission, whatever was allowed at that address
 /// before: what was allowed was for a document that is gone (S17.6). Called before the folder exists, so
 /// that a failure leaves nothing behind.
@@ -541,9 +624,6 @@ pub fn forget_permissions<R: Runtime>(app: &AppHandle<R>, folder: &Path) -> Comm
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::time::Duration;
-
     use super::*;
 
     #[test]
@@ -777,6 +857,133 @@ mod tests {
         std::fs::write(place.join("main.tex"), "").unwrap();
         record_opened(app.handle(), &place, Some(Path::new("main.tex")));
         assert!(app.state::<RecentDocuments>().list().is_empty());
+    }
+
+    /// An app whose new documents go to `writing` in `folder`, and that has permissions to inherit.
+    fn app_that_writes_in(folder: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        let app = tauri::test::mock_builder()
+            .manage(AppState::new())
+            .manage(PreferencesFile::at(folder.join("preferences.toml")))
+            .manage(ShellEscapeConsent::at(folder.join("shell-escape.toml")))
+            .manage(AssistantSettings::at(folder.join("assistant.json")))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let place = folder.join("writing").to_string_lossy().into_owned();
+        app.state::<PreferencesFile>()
+            .change(|kept| kept.place = Some(place))
+            .unwrap();
+        app
+    }
+
+    fn zip_with(folder: &Path, name: &str, files: &[&str]) -> String {
+        let path = folder.join(name);
+        let mut writer = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for file in files {
+            writer
+                .start_file(*file, zip::write::SimpleFileOptions::default())
+                .unwrap();
+        }
+        writer.finish().unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_zip_is_unpacked_into_a_folder_of_its_own() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let zip = zip_with(folder.path(), "My Thesis (1).zip", &["main.tex"]);
+        for name in ["my-thesis-1", "my-thesis-1-2"] {
+            let answer = tauri::async_runtime::block_on(unpack_zip(app.handle().clone(), zip.clone()));
+            let made = folder.path().join("writing").join(name);
+            assert_eq!(
+                answer.unwrap(),
+                Unpacked::Unpacked {
+                    folder: made.to_string_lossy().into_owned()
+                }
+            );
+            assert!(made.join("main.tex").is_file());
+        }
+        assert!(Path::new(&zip).is_file(), "it is left alone");
+    }
+
+    #[test]
+    fn what_is_unpacked_inherits_no_permission() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let made = folder.path().join("writing/thesis");
+        let (consent, settings) = (
+            app.state::<ShellEscapeConsent>(),
+            app.state::<AssistantSettings>(),
+        );
+        consent.allow(&made).unwrap();
+        crate::assistant::set_enabled(&settings, &made, true).unwrap();
+        let zip = zip_with(folder.path(), "thesis.zip", &["main.tex"]);
+        tauri::async_runtime::block_on(unpack_zip(app.handle().clone(), zip)).unwrap();
+        assert!(made.is_dir());
+        assert!(!consent.allows(&made) && !settings.is_enabled_for(&made));
+    }
+
+    #[test]
+    fn a_refused_zip_says_why_and_leaves_nothing() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let refused = |why, name: &str| Unpacked::Refused {
+            why,
+            name: name.into(),
+        };
+        let mut cases = vec![
+            (
+                zip_with(folder.path(), "a.zip", &["../x.tex"]),
+                refused(WhyRefused::UnsafeName, "../x.tex"),
+            ),
+            (
+                zip_with(folder.path(), "b.zip", &["Main.tex", "main.tex"]),
+                refused(WhyRefused::SameName, "main.tex"),
+            ),
+            (
+                zip_with(folder.path(), "c.zip", &["x.txt"]),
+                refused(WhyRefused::NoTex, ""),
+            ),
+        ];
+        std::fs::write(folder.path().join("d.zip"), "hello").unwrap();
+        for (name, answer) in [
+            ("d.zip", refused(WhyRefused::NotAZip, "")),
+            ("gone.zip", refused(WhyRefused::Io, "entity not found")),
+        ] {
+            cases.push((folder.path().join(name).to_string_lossy().into_owned(), answer));
+        }
+        for (zip, expected) in cases {
+            let answer = tauri::async_runtime::block_on(unpack_zip(app.handle().clone(), zip));
+            assert_eq!(answer.unwrap(), expected);
+        }
+        assert!(!folder.path().join("writing").exists());
+    }
+
+    #[test]
+    fn a_stopped_unpacking_makes_nothing() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let zip = zip_with(folder.path(), "thesis.zip", &["main.tex"]);
+        let openings = &app.state::<AppState>().openings;
+        let opening = openings.begin();
+        openings.stop();
+        let answer = unpack_to_place(app.handle(), Path::new(&zip), &opening);
+        assert_eq!(answer.unwrap(), Unpacked::Stopped);
+        // Not even begun: it is asked before anything is written.
+        assert!(!folder.path().join("writing").exists());
+    }
+
+    #[test]
+    fn a_refusal_is_a_tagged_object() {
+        let said = serde_json::to_value(Unpacked::Refused {
+            why: WhyRefused::NotAZip,
+            name: String::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            said,
+            serde_json::json!({"kind": "refused", "why": "notAZip", "name": ""})
+        );
     }
 
     #[cfg(unix)]

@@ -5,6 +5,8 @@
 // Who reads these: people who have only used Word. The thing they work on is a *document*; the folder
 // it is kept in is small print. Nothing here says project, repository or compile.
 
+import type { UnpackRefusal } from './ipc';
+
 export const words = {
   appName: 'Abstract',
   /** The name of the list down the left, for a screen reader. */
@@ -104,6 +106,22 @@ export const words = {
     strayFile:
       'That file is in a folder with many other things. Put it in a folder of its own, together with the files it uses, then choose it there.',
   },
+  /** Why a zip was not unpacked. Each is given the name it is about, though most are about none. */
+  zipRefused: {
+    notAZip: () => 'That zip is damaged, or is not really a zip. Download it again, or ask for it again.',
+    locked: () => 'That zip needs a password, which Abstract can’t ask for. Unpack it first (often: double-click it), then choose the folder.',
+    unsupported: () => 'That zip was made in a way Abstract can’t read. Unpack it first (often: double-click it), then choose the folder.',
+    tooMany: () => 'That zip holds more than 20,000 files, too many for one document. If it is one, unpack it first, then choose the folder.',
+    tooBig: () => 'That zip holds more than 2 GB, too much for one document. If it is one, unpack it first, then choose the folder.',
+    unsafeName: (name: string) =>
+      `That zip was not unpacked, because one thing in it can’t safely be written on this computer: “${name}”. Ask whoever made it for another.`,
+    sameName: (name: string) =>
+      `That zip was not unpacked, because two things in it have the same name but for capital letters: “${name}”. Ask whoever made it to rename one.`,
+    noTex: () => 'There is no .tex file in that zip, so there is no document in it to open.',
+    io: (name: string) =>
+      `That zip could not be unpacked (${name}). The disk may be full, or the place for new documents may not be there.`,
+  } satisfies Record<UnpackRefusal, (name: string) => string>,
+  unpackingStopped: 'Unpacking was stopped.',
   /** A chosen file that is no part of the document the PDF is made from. */
   pdfShowsAnother: (main: string, chosen: string) =>
     `The PDF shows ${main}. ${chosen} is in the same folder, but is not part of that document.`,

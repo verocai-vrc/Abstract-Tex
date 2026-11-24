@@ -51,6 +51,11 @@ impl Opening {
         self.stop_signal.cancelled().await;
     }
 
+    /// Whether it was stopped. For work that looks now and then, such as unpacking an archive.
+    pub fn is_stopped(&self) -> bool {
+        *self.stage.lock().unwrap() == Stage::Stopped
+    }
+
     /// Whether this call is the one that stopped it.
     fn stop(&self) -> bool {
         let mut stage = self.stage.lock().unwrap();
@@ -128,5 +133,15 @@ mod tests {
         tauri::async_runtime::block_on(opening.stopped()); // returns, or the test never ends
         assert!(!opening.adopt());
         assert!(!openings.stop(), "it can be stopped once");
+    }
+
+    #[test]
+    fn an_opening_knows_whether_it_was_stopped() {
+        let openings = Openings::default();
+        let (older, newer) = (openings.begin(), openings.begin());
+        assert!(older.is_stopped());
+        assert!(!newer.is_stopped());
+        newer.adopt();
+        assert!(!newer.is_stopped());
     }
 }

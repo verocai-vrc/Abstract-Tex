@@ -4,13 +4,18 @@
 // Only the controllers write to `startScreen`: `controller.svelte.ts` says whether it is up and what
 // it has to say, `start-controller.svelte.ts` the rest. Components read it.
 
-import type { Choice, Preferences, RecentDocument, SavedPdf, TemplateInfo } from './ipc';
+import type { Choice, Preferences, RecentDocument, SavedPdf, TemplateInfo, UnpackRefusal } from './ipc';
 import type { Action } from './shortcuts';
 import { words } from './words';
 
 export type StartPage = 'home' | 'new' | 'open' | 'look' | 'help';
 export type Presence = 'here' | 'missing';
 export type HomeSection = 'welcome' | 'carry-on' | 'templates' | 'recents' | 'open';
+
+/** Every reason a zip is refused for, so that a test can ask for each one's sentence (S17.9). */
+export const UNPACK_REFUSALS = [
+  'notAZip', 'locked', 'unsupported', 'tooMany', 'tooBig', 'unsafeName', 'sameName', 'noTex', 'io',
+] as const satisfies readonly UnpackRefusal[];
 
 /** The list gets a search box from this many documents up: fewer are read at a glance. */
 export const SEARCH_FROM = 7;

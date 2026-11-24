@@ -505,6 +505,16 @@ export type Choice =
   | { kind: 'zip'; file: string }
   | { kind: 'word' | 'pdf' | 'otherArchive' | 'otherFile' | 'gone' };
 
+/** What became of a zip (`abstract_tex::start::Unpacked`). `name` is the file it is about, if any. */
+export type Unpacked =
+  | { kind: 'unpacked'; folder: string }
+  | { kind: 'refused'; why: UnpackRefusal; name: string }
+  | { kind: 'stopped' };
+
+/** Why a zip was refused (`abstract_tex::start::WhyRefused`). */
+export type UnpackRefusal =
+  | 'notAZip' | 'locked' | 'unsupported' | 'tooMany' | 'tooBig' | 'unsafeName' | 'sameName' | 'noTex' | 'io';
+
 /** A PDF that was saved (`abstract_tex::finished_pdf::SavedPdf`). */
 export interface SavedPdf {
   name: string;
@@ -849,6 +859,7 @@ export const ipc = {
   showSavedPdf: () => invoke<void>('show_saved_pdf'),
   /** S17.8: what a chosen file or folder is, and what it needs. */
   inspectChoice: (path: string) => invoke<Choice>('inspect_choice', { path }),
+  unpackZip: (path: string) => invoke<Unpacked>('unpack_zip', { path }),
   preferences: () => invoke<Preferences>('preferences'),
   /** Change what is given and leave the rest; answers with all of them. */
   setPreferences: (change: Partial<{ place: string; author: string; textSize: TextSize; colours: Colours }>) =>

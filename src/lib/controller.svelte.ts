@@ -2115,14 +2115,16 @@ export async function stopOpening(): Promise<void> {
  * tab's saves are held, so what a live session's other person types is not written to disk: after Rust
  * has swapped the project, such a write would land in the new folder. And a second opening is refused.
  *
- * `file` is one of the document's that is put in front once it is open (S17.8).
+ * `file` is one of the document's that is put in front once it is open (S17.8). A folder that is still to
+ * be made, such as from a zip, is given as what makes it (S17.9): the document now open is asked first
+ * whether it can be left, and *Stop* stops the making too. What that throws is told as it is.
  */
 export async function openFolder(
-  path: string,
+  folder: string | (() => Promise<string>),
   options: { atFirstPlaceholder?: boolean; name?: string; file?: string } = {},
 ): Promise<boolean> {
   if (app.opening !== null) return false;
-  app.opening = options.name ?? folderName(path);
+  app.opening = options.name ?? (typeof folder === 'string' ? folderName(folder) : '');
   stopAsked = false;
   buildAskedWhileOpening = false;
   startScreen.message = null;
@@ -2133,7 +2135,7 @@ export async function openFolder(
     // timer whenever it liked.
     manager.holdSaves('opening');
     if (staying !== null) throw staying;
-    info = await ipc.openProject(path);
+    info = await ipc.openProject(typeof folder === 'string' ? folder : await folder());
   } catch (error) {
     app.opening = null;
     manager.releaseSaves('opening');

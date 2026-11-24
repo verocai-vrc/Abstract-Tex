@@ -128,16 +128,23 @@ export async function findRecent(folder: string): Promise<void> {
 /** Bumped at each look and when the page is left, so that what an older one answers changes nothing. */
 let lookEpoch = 0;
 
+/** A name in an archive can be as long as its maker likes. */
+const LONGEST_NAME_SHOWN = 80;
+
 function stopLooking(): void {
   lookEpoch += 1;
   startScreen.looking = null;
+}
+
+function lastName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 /** Ask Rust what was chosen. `null` when the answer is no longer wanted, or there is none. */
 async function look(path: string): Promise<Choice | null> {
   stopLooking();
   const epoch = lookEpoch;
-  startScreen.looking = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  startScreen.looking = lastName(path);
   startScreen.message = null;
   startScreen.choice = null;
   try {
@@ -156,7 +163,16 @@ async function choose(path: string | null): Promise<void> {
   if (!path) return;
   const choice = await look(path);
   if (choice?.kind === 'document') await openFolder(choice.folder, { file: choice.file ?? undefined });
+  else if (choice?.kind === 'zip') await openFolder(() => unpack(choice.file), { name: lastName(choice.file) });
   else startScreen.choice = choice ?? startScreen.choice;
+}
+
+/** Unpack a zip, and answer its folder. A refusal is thrown as its sentence. */
+async function unpack(zip: string): Promise<string> {
+  const answer = await ipc.unpackZip(zip);
+  if (answer.kind === 'unpacked') return answer.folder;
+  if (answer.kind === 'stopped') throw words.unpackingStopped;
+  throw words.zipRefused[answer.why](answer.name.slice(0, LONGEST_NAME_SHOWN));
 }
 
 /** *Choose a file…* */

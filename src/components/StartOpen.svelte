@@ -18,7 +18,7 @@
       case 'noTex':
         return words.noTex(nameOf(choice.folder));
       case 'zip':
-        return words.refused.otherArchive;
+        return ''; // unpacked at once
       default:
         return words.refused[choice.kind];
     }
