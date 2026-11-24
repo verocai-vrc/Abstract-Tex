@@ -185,21 +185,8 @@
     <div class="editor-host" bind:this={host}></div>
   {:else}
     <div class="empty">
-      {#if app.project}
-        <p>Pick a file on the left, or press <kbd>Ctrl</kbd> <kbd>P</kbd>.</p>
-      {:else}
-        <div>
-          <strong>Abstract-Tex</strong>
-          <p>Start a document, or open one you already have.</p>
-          <div class="doors">
-            <button class="primary" onclick={() => showNewProjectWindow()}>
-              New from template… <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>N</kbd>
-            </button>
-            <button onclick={() => void pickAndOpenFolder()}>Open folder… <kbd>Ctrl</kbd> <kbd>O</kbd></button>
-            <button onclick={() => showCloneWindow()}>Clone a repository…</button>
-          </div>
-        </div>
-      {/if}
+      <!-- With no document at all the start screen covers this (S17.4). -->
+      <p>Pick a file on the left, or press <kbd>Ctrl</kbd> <kbd>P</kbd>.</p>
     </div>
   {/if}
 

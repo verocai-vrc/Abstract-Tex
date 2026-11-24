@@ -2,7 +2,6 @@
   import { onMount } from 'svelte';
   import { app } from './lib/state.svelte';
   import {
-    pickAndOpenFolder,
     saveNow,
     showCloneWindow,
     goToNextPlaceholder,
@@ -15,7 +14,9 @@
     toggleQuickOpen,
     triggerCompile,
   } from './lib/controller.svelte';
-  import { shortcutFor } from './lib/shortcuts';
+  import { openDocument } from './lib/start-controller.svelte';
+  import { startScreen } from './lib/start.svelte';
+  import { shortcutFor, type Action } from './lib/shortcuts';
   import ActivityBar from './components/ActivityBar.svelte';
   import SourceControl from './components/SourceControl.svelte';
   import AssistantView from './components/AssistantView.svelte';
@@ -27,6 +28,7 @@
   import StatusBar from './components/StatusBar.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+  import StartScreen from './components/StartScreen.svelte';
   import OpeningNotice from './components/OpeningNotice.svelte';
   import CloneWindow from './components/CloneWindow.svelte';
   import NewProjectWindow from './components/NewProjectWindow.svelte';
@@ -44,6 +46,9 @@
     void start();
   });
 
+  /** What a chord may ask for while the start screen is up: the rest is about a document (S17.4). */
+  const ON_THE_START_SCREEN: ReadonlySet<Action> = new Set<Action>(['new-project', 'open-folder', 'command-palette']);
+
   // The one place a global key becomes an action (S2.4). The table in shortcuts.ts says which
   // key means what; this only says what each action does. Listening on the window means the
   // chords work with the editor, the tree, the PDF or nothing at all focused.
@@ -52,6 +57,7 @@
     if (!action) return;
     event.preventDefault(); // else the browser offers to save the page, or prints it
     if (app.opening !== null) return; // the document these act on may be about to go (S17.2)
+    if (startScreen.visible && !ON_THE_START_SCREEN.has(action)) return;
     switch (action) {
       case 'save':
         void saveNow();
@@ -67,7 +73,7 @@
         showNewProjectWindow();
         break;
       case 'open-folder':
-        void pickAndOpenFolder();
+        openDocument();
         break;
       case 'quick-open':
         toggleQuickOpen();
@@ -90,13 +96,13 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<!-- `inert`: while another folder is being opened nobody may type into this one, click in it, or Tab
-     into it. `OpeningNotice` is outside it so that *Stop* still works. -->
-<div class="app" inert={app.opening !== null}>
+<!-- `inert`: while the start screen covers this, or another folder is being opened, nobody may type
+     into it, click in it, or Tab into it. `OpeningNotice` is outside it so that *Stop* still works. -->
+<div class="app" inert={app.launching || startScreen.visible || app.opening !== null}>
   <header class="toolbar">
     <span class="title">Abstract-Tex</span>
     <button onclick={() => showNewProjectWindow()}>New…</button>
-    <button onclick={() => void pickAndOpenFolder()}>Open folder…</button>
+    <button onclick={openDocument}>Open folder…</button>
     <button onclick={() => showCloneWindow()}>Clone…</button>
     <span class="project-name">{app.project ? app.project.rootDir : ''}</span>
     <button
@@ -129,6 +135,7 @@
   <StatusBar />
 </div>
 
+<StartScreen />
 <OpeningNotice />
 <SessionCommitOffer />
 <CrashReportWindow />

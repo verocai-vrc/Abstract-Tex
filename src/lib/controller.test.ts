@@ -76,6 +76,9 @@ const calls = {
 };
 /** S17.2: what `openProject` answers with. A test that holds an opening back gives it `deferred()`. */
 let openProjectAnswer: Promise<ProjectInfo> | null = null;
+/** S17.4: the folder on the command line, and whether the engine probe hangs. */
+let initialProjectAnswer: string | null = null;
+let engineNeverAnswers = false;
 /** S17.3: what `documentTitle` answers with. */
 let documentTitleAnswer: string | Promise<string> = 'proj';
 /** Told when the window asks to stop, so a test can refuse the held opening as Rust does. */
@@ -239,8 +242,11 @@ const project: ProjectInfo = {
 // imported, so these tests run under plain Node with no webview.
 vi.mock('./ipc', () => ({
   ipc: {
-    initialProject: async () => null,
-    engineInfo: async () => ({ name: 'Tectonic', version: '0.17.0', path: '/bin/tectonic' }),
+    initialProject: async () => initialProjectAnswer,
+    engineInfo: async () => {
+      if (engineNeverAnswers) await new Promise(() => {});
+      return { name: 'Tectonic', version: '0.17.0', path: '/bin/tectonic' };
+    },
     openProject: async (path: string) => {
       calls.opened.push(path);
       return openProjectAnswer ?? project;
@@ -725,6 +731,7 @@ const {
   pasteCite,
   openFolder,
   stopOpening,
+  toggleCommandPalette,
   saveNow,
   quickOpenPick,
   refreshOutline,
@@ -827,7 +834,8 @@ const { git } = await import('./git.svelte');
 const { live } = await import('./live.svelte');
 const { LiveSession } = await import('./relay/live-session');
 const { github } = await import('./github.svelte');
-const { allCommands } = await import('./commands');
+const { allCommands, paletteCommands } = await import('./commands');
+const { startScreen } = await import('./start.svelte');
 
 /** Pretend the watcher saw `path` change, and let the controller finish reacting. */
 async function fileChanged(relative: string): Promise<void> {
@@ -877,6 +885,8 @@ beforeEach(async () => {
   app.opening = null;
   openProjectAnswer = null;
   documentTitleAnswer = 'proj';
+  initialProjectAnswer = null;
+  engineNeverAnswers = false;
   whenStopped = () => {};
   readGate = null;
   for (const doc of app.docs.values()) {
@@ -5022,6 +5032,53 @@ describe('a selection made in another tab (R7.1)', () => {
     reportSelection('main.tex', 0, 5);
     reportSelection('main.tex', 3, 3);
     expect(assistant.selection).toBeNull();
+  });
+});
+
+describe('launching (S17.4)', () => {
+  beforeEach(() => {
+    app.project = null; // as at launch
+    app.launching = true;
+    startScreen.visible = false;
+    startScreen.message = null;
+  });
+
+  it('starts on the start screen without waiting for the engine', async () => {
+    engineNeverAnswers = true;
+    await start();
+    expect([startScreen.visible, app.launching]).toEqual([true, false]);
+  });
+
+  it('a folder on the command line skips it', async () => {
+    initialProjectAnswer = '/proj';
+    await start();
+    expect([startScreen.visible, app.launching, app.project?.rootDir]).toEqual([false, false, '/proj']);
+  });
+
+  it('one that cannot be opened lands on it, with the sentence', async () => {
+    initialProjectAnswer = '/nowhere';
+    openProjectAnswer = Promise.reject(new Error('/nowhere is not a folder'));
+    openProjectAnswer.catch(() => {});
+    await start();
+    expect([startScreen.visible, app.launching]).toEqual([true, false]);
+    expect(startScreen.message).toEqual({ kind: 'refusal', text: expect.stringContaining('not a folder') });
+  });
+
+  it('a refusal is said on the start screen when that is what is showing', async () => {
+    app.project = project; // Home over an open document says it on Home, not behind it
+    startScreen.visible = true;
+    openProjectAnswer = Promise.reject(new Error('not a folder'));
+    openProjectAnswer.catch(() => {});
+    await openFolder('/nowhere');
+    expect([startScreen.message?.kind, app.notice, startScreen.visible]).toEqual(['refusal', null, true]);
+  });
+
+  it('the palette opens with no document, with only what works without one', () => {
+    app.commandPaletteVisible = false;
+    toggleCommandPalette();
+    expect(app.commandPaletteVisible).toBe(true);
+    expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository', 'new-project', 'open-folder']);
+    expect(paletteCommands(true)).toEqual(allCommands());
   });
 });
 

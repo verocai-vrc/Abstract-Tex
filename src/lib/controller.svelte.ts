@@ -47,6 +47,7 @@ import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
 import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
 import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
+import { startScreen } from './start.svelte';
 import { app, type ActivityView } from './state.svelte';
 
 const backend: DocumentBackend = {
@@ -2121,17 +2122,25 @@ export async function start(): Promise<void> {
   // Who is signed in, asked once. Failure is a sentence in the panel, never a notice: nothing
   // else in the app needs an account.
   void refreshGitHubAccount();
+  // `abstract-tex <folder>` on the command line, or ABSTRACT_TEX_OPEN in the environment. Asked before
+  // anything slower, because until it is answered the window shows nothing (S17.4).
+  const initial = await ipc.initialProject().catch(() => null);
+  const isOpen = initial !== null && (await openFolder(initial));
+  if (!isOpen) startScreen.visible = true;
+  app.launching = false;
+  // Neither of these may keep the start screen waiting.
+  void probeEngine();
+  // S16.3: did the last run crash? Asked once; a failure to ask is not worth a notice.
+  void checkForCrashReport();
+}
+
+async function probeEngine(): Promise<void> {
   try {
     app.engine = await ipc.engineInfo();
   } catch (error) {
     app.engine = null;
     app.notice = `Could not probe the TeX engine: ${String(error)}`;
   }
-  // S16.3: did the last run crash? Asked once; a failure to ask is not worth a notice.
-  void checkForCrashReport();
-  // `abstract-tex <folder>` on the command line, or ABSTRACT_TEX_OPEN in the environment.
-  const initial = await ipc.initialProject();
-  if (initial) await openFolder(initial);
 }
 
 /**
@@ -2170,9 +2179,11 @@ let projectEpoch = 0;
  * after it. */
 let newestBuildOfAProjectLeft = 0;
 
-/** Say a sentence to the person where they are looking. */
+/** Say why something did not happen, where the person is looking: on the start screen when that is up
+ * or when there is nothing else, and above the editor otherwise. */
 export function tell(sentence: string): void {
-  app.notice = sentence;
+  if (startScreen.visible || !app.project) startScreen.message = { kind: 'refusal', text: sentence };
+  else app.notice = sentence;
 }
 
 /** What is on screen for a folder that has no title yet: its own name. */
@@ -2217,6 +2228,7 @@ export async function openFolder(
   app.opening = options.name ?? folderName(path);
   stopAsked = false;
   buildAskedWhileOpening = false;
+  startScreen.message = null;
   let info: ProjectInfo;
   try {
     const staying = await whyNotToLeaveProject();
@@ -2238,6 +2250,8 @@ export async function openFolder(
     newestBuildOfAProjectLeft = app.compile.generation;
     closeAllDocuments();
     manager.releaseSaves('opening');
+    startScreen.visible = false;
+    app.launching = false;
     app.project = info;
     // The previous project's placeholders are not this one's (S11.12).
     placeholders.byFile = new Map();
@@ -2626,7 +2640,6 @@ export async function quickOpenPick(relativePath: string): Promise<void> {
 /** Show or hide the `Ctrl K` command palette (S4.3). Opening it closes quick-open, for the same
  * reason `toggleQuickOpen` closes this one. */
 export function toggleCommandPalette(): void {
-  if (!app.project) return;
   const opening = !app.commandPaletteVisible;
   app.commandPaletteVisible = opening;
   if (opening) app.quickOpenVisible = false;
@@ -2650,6 +2663,7 @@ registerCommand({
   title: 'Open folder…',
   category: 'action',
   shortcut: 'Ctrl O',
+  withoutDocument: true,
   run: () => void pickAndOpenFolder(),
 });
 // S9.8. Both always listed, each a no-op in the state where it means nothing: the registry is
@@ -2800,12 +2814,14 @@ registerCommand({
   title: 'New project from template…',
   category: 'action',
   shortcut: 'Ctrl Shift N',
+  withoutDocument: true,
   run: () => showNewProjectWindow(),
 });
 registerCommand({
   id: 'clone-repository',
   title: 'Clone a repository…',
   category: 'action',
+  withoutDocument: true,
   run: () => showCloneWindow(),
 });
 registerCommand({

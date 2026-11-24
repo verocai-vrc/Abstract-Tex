@@ -4,6 +4,7 @@
   import { app } from '../lib/state.svelte';
   import { stopOpening } from '../lib/controller.svelte';
   import { handledByInputMethod } from '../lib/keys';
+  import { words } from '../lib/words';
 
   /** Most folders open before this, and a notice that flashes is only noise. */
   const SHOWN_AFTER_MS = 300;
@@ -31,8 +32,8 @@
 <div class="place" role="status">
   {#if shown && app.opening !== null}
     <div class="notice">
-      <span>Opening {app.opening}…</span>
-      <button onclick={() => void stopOpening()}>Stop</button>
+      <span>{words.opening(app.opening)}</span>
+      <button onclick={() => void stopOpening()}>{words.stop}</button>
     </div>
   {/if}
 </div>

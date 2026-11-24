@@ -102,7 +102,7 @@
   .backdrop {
     position: fixed;
     inset: 0;
-    z-index: 30;
+    z-index: 50;
     display: flex;
     align-items: flex-start;
     justify-content: center;

@@ -21,6 +21,8 @@ export interface Command {
   /** Shown next to the entry so the palette also teaches the raw keybinding. Actions built from
    * `shortcuts.ts`'s table have one; file and section entries do not. */
   shortcut?: string;
+  /** Set on the few that do something with no document open (S17.4). */
+  withoutDocument?: true;
   run: () => void;
 }
 
@@ -35,6 +37,12 @@ export function registerCommand(cmd: Command): void {
 
 export function allCommands(): Command[] {
   return [...registry.values()];
+}
+
+/** What the palette lists: everything, or with no document open only what works without one. An entry
+ * that would do nothing is not offered to someone who has never seen this list before. */
+export function paletteCommands(hasDocument: boolean): Command[] {
+  return hasDocument ? allCommands() : allCommands().filter((command) => command.withoutDocument);
 }
 
 /**

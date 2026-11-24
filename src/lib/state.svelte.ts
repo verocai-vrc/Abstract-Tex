@@ -36,6 +36,10 @@ export interface Conflict {
 
 class AppState {
   project = $state<ProjectInfo | null>(null);
+  /** Until it is known whether the command line named a folder (S17.4). The window is plain background,
+   * so that neither the start screen nor an empty editor flashes by. */
+  launching = $state(true);
+
   /** What is being opened right now, by name, or `null` (S17.2). While it is set the editor shell is
    * `inert`, nothing is saved or built, and `OpeningNotice` offers *Stop*. */
   opening = $state<string | null>(null);
