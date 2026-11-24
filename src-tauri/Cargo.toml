@@ -53,6 +53,7 @@ abstract-tex-comments = { path = "../crates/abstract-tex-comments" }
 abstract-tex-github = { path = "../crates/abstract-tex-github" }
 abstract-tex-latexdiff = { path = "../crates/abstract-tex-latexdiff" }
 abstract-tex-snapshot = { path = "../crates/abstract-tex-snapshot" }
+abstract-tex-import = { path = "../crates/abstract-tex-import" }
 abstract-tex-includes = { path = "../crates/abstract-tex-includes" }
 abstract-tex-lsp = { path = "../crates/abstract-tex-lsp" }
 abstract-tex-reconcile = { path = "../crates/abstract-tex-reconcile" }

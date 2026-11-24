@@ -11,6 +11,7 @@ dependencies = [
  "abstract-tex-engine",
  "abstract-tex-git",
  "abstract-tex-github",
+ "abstract-tex-import",
  "abstract-tex-includes",
  "abstract-tex-latexdiff",
  "abstract-tex-lsp",
@@ -111,6 +112,14 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "abstract-tex-import"
+version = "0.9.0"
+dependencies = [
+ "abstract-tex-includes",
+ "tempfile",
 ]
 
 [[package]]

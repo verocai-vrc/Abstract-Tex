@@ -71,6 +71,7 @@ The full rationale, including what was rejected and why, is in `DESIGN.md` §4.
 crates/abstract-tex-engine/     Engine trait, Tectonic and latexmk subprocesses (no Tauri, testable alone)
 crates/abstract-tex-reconcile/  text diff → CRDT operations, with property tests
 crates/abstract-tex-includes/   the \input/\include graph
+crates/abstract-tex-import/     what a chosen file is, and which folder its document is in
 crates/abstract-tex-synctex/    .synctex.gz parser, forward and inverse search
 crates/abstract-tex-lsp/        TexLab process and JSON-RPC bridge
 crates/abstract-tex-git/        the project's Git repository on libgit2: status, commit, push, sync, merge

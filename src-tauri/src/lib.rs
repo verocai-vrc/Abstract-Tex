@@ -230,6 +230,7 @@ pub fn run() {
             finished_pdf::save_pdf,
             finished_pdf::open_saved_pdf,
             finished_pdf::show_saved_pdf,
+            start::inspect_choice,
             start::preferences,
             start::set_preferences,
             start::show_recent_in_folder,

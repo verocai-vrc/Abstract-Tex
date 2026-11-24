@@ -1,0 +1,14 @@
+[package]
+name = "abstract-tex-import"
+description = "Opening what people already have: which folder a file's document is in, and which folders are no document at all."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+abstract-tex-includes = { path = "../abstract-tex-includes" }
+
+[dev-dependencies]
+tempfile = { workspace = true }

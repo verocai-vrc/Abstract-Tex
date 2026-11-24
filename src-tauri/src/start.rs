@@ -10,6 +10,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use abstract_tex_import::{document_folder, has_tex, kind_of, Crowd, FileKind};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 use tokio::sync::watch;
@@ -18,6 +19,7 @@ use crate::assistant::AssistantSettings;
 use crate::commands::{to_message, CommandResult};
 use crate::consent::ShellEscapeConsent;
 use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
+use crate::project::detect_root;
 use crate::recents::{self, RecentDocument, RecentDocuments};
 use crate::AppState;
 
@@ -251,8 +253,12 @@ pub fn record_opened<R: Runtime>(app: &AppHandle<R>, root_dir: &Path, root_file:
         .ok()
         .and_then(|source| texwords::title_of(&source));
     let shown = match app.try_state::<RecentDocuments>() {
-        Some(recents) => recents.record(root_dir, root_file, read.as_deref(), now()),
-        None => Ok(read.clone().unwrap_or_else(|| recents::folder_name(root_dir))),
+        // A folder of many things can still be opened, from the command line. It is not a document to
+        // come back to.
+        Some(recents) if !crowd(app).holds(root_dir) => {
+            recents.record(root_dir, root_file, read.as_deref(), now())
+        }
+        _ => Ok(read.clone().unwrap_or_else(|| recents::folder_name(root_dir))),
     };
     shown.unwrap_or_else(|error| {
         // The list is a convenience: the document opens whether or not it can be remembered.
@@ -374,6 +380,144 @@ pub async fn set_preferences<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || {
         let kept = change.apply(&app.state::<PreferencesFile>())?;
         Ok(view(&app, kept))
+    })
+    .await
+    .map_err(to_message)?
+}
+
+/// The folders that are never one document: the ones the system names, the ones new documents go in, the
+/// home folder and everything above it, and drives.
+pub fn crowd<R: Runtime>(app: &AppHandle<R>) -> Crowd {
+    let folders = app.path();
+    let home = folders.home_dir().ok();
+    let named = [
+        folders.desktop_dir(),
+        folders.download_dir(),
+        folders.document_dir(),
+        folders.picture_dir(),
+        folders.audio_dir(),
+        folders.video_dir(),
+        folders.public_dir(),
+        folders.temp_dir(),
+    ];
+    // `flatten` drops the ones this system does not name.
+    let mut listed: Vec<PathBuf> = named.into_iter().flatten().collect();
+    listed.push(new_documents_folder(app));
+    // Documents made before another place was chosen are still in the first one.
+    listed.push(default_place(
+        folders.document_dir().ok(),
+        home.clone().unwrap_or_default(),
+    ));
+    Crowd::new(listed, home, is_mount_point)
+}
+
+/// A folder is where a drive begins when it is on another device than the folder it is in.
+#[cfg(unix)]
+fn is_mount_point(folder: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let device = |path: &Path| std::fs::metadata(path).map(|found| found.dev()).ok();
+    match folder.parent() {
+        Some(parent) => device(folder) != device(parent),
+        None => true,
+    }
+}
+
+/// A Windows drive is a root, which `Crowd` knows without asking.
+#[cfg(not(unix))]
+fn is_mount_point(_folder: &Path) -> bool {
+    false
+}
+
+/// What was chosen on the Open page, and what it needs. The window has the words for each.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Choice {
+    /// Open this folder, with this file (a path inside it) in front.
+    Document {
+        folder: String,
+        file: Option<String>,
+    },
+    /// A folder of many things.
+    CrowdedFolder {
+        place: Vec<String>,
+    },
+    /// A `.tex` among many things. `place` is where a folder of its own would be made, and `others` how
+    /// many files it uses would go with it.
+    StrayFile {
+        file: String,
+        place: Vec<String>,
+        others: usize,
+    },
+    /// A folder with no `.tex` in it.
+    NoTex {
+        folder: String,
+    },
+    Zip {
+        file: String,
+    },
+    Word,
+    Pdf,
+    OtherArchive,
+    OtherFile,
+    Gone,
+}
+
+/// Look at what was chosen. Reads disks that may be slow, so only from a blocking thread.
+fn inspect(path: &Path, crowd: &Crowd, place: &Path, home: Option<&Path>) -> Choice {
+    let Ok(found) = std::fs::metadata(path) else {
+        return Choice::Gone;
+    };
+    let text = |path: &Path| path.to_string_lossy().into_owned();
+    if found.is_dir() {
+        if crowd.holds(path) {
+            return Choice::CrowdedFolder {
+                place: folder_parts(path, home),
+            };
+        }
+        if !path.join("abstract-tex.toml").is_file() && !has_tex(path) {
+            return Choice::NoTex { folder: text(path) };
+        }
+        return Choice::Document {
+            folder: text(path),
+            file: None,
+        };
+    }
+    match kind_of(path) {
+        FileKind::Tex => {
+            match document_folder(path, &|folder| crowd.holds(folder), &|folder| detect_root(folder)) {
+                Some(folder) => Choice::Document {
+                    file: path
+                        .strip_prefix(&folder)
+                        .ok()
+                        .map(crate::project::to_forward_slashes),
+                    folder: text(&folder),
+                },
+                None => Choice::StrayFile {
+                    file: text(path),
+                    place: folder_parts(place, home),
+                    others: 0,
+                },
+            }
+        }
+        FileKind::Zip => Choice::Zip { file: text(path) },
+        FileKind::Word => Choice::Word,
+        FileKind::Pdf => Choice::Pdf,
+        FileKind::OtherArchive => Choice::OtherArchive,
+        FileKind::Other => Choice::OtherFile,
+    }
+}
+
+#[tauri::command]
+pub async fn inspect_choice<R: Runtime>(app: AppHandle<R>, path: String) -> CommandResult<Choice> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = std::path::absolute(&path).map_err(to_message)?;
+        let home = app.path().home_dir().ok();
+        Ok(inspect(
+            &path,
+            &crowd(&app),
+            &new_documents_folder(&app),
+            home.as_deref(),
+        ))
     })
     .await
     .map_err(to_message)?
@@ -525,5 +669,121 @@ mod tests {
             .change(|kept| kept.place = Some(chosen.clone()))
             .unwrap();
         assert_eq!(new_documents_folder(app.handle()), Path::new(&chosen));
+    }
+
+    #[test]
+    fn what_was_chosen_says_what_it_needs() {
+        let home = tempfile::tempdir().unwrap();
+        let write = |path: &str, text: &str| {
+            let path = home.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "thesis/main.tex",
+            "\\documentclass{book}\\include{chapters/intro}",
+        );
+        write("thesis/chapters/intro.tex", "text");
+        write("Downloads/paper.tex", "\\documentclass{article}");
+        write("photos/cat.jpg", "");
+        write("settled/abstract-tex.toml", "");
+        for name in ["essay.docx", "essay.pdf", "essay.zip", "essay.7z", "essay.txt"] {
+            write(name, "");
+        }
+        let downloads = home.path().join("Downloads");
+        let crowd = Crowd::new(vec![downloads.clone()], Some(home.path().into()), |_| false);
+        let place = home.path().join("Documents/Abstract-Tex");
+        let look = |path: &str| inspect(&home.path().join(path), &crowd, &place, Some(home.path()));
+        let text = |path: &str| home.path().join(path).to_string_lossy().into_owned();
+        let document = |folder: &str, file: Option<&str>| Choice::Document {
+            folder: text(folder),
+            file: file.map(str::to_string),
+        };
+
+        assert_eq!(look("thesis"), document("thesis", None));
+        assert_eq!(
+            look("thesis/chapters/intro.tex"),
+            document("thesis", Some("chapters/intro.tex"))
+        );
+        assert_eq!(look("thesis/main.tex"), document("thesis", Some("main.tex")));
+        assert_eq!(look("settled"), document("settled", None));
+        assert_eq!(
+            look("Downloads"),
+            Choice::CrowdedFolder {
+                place: vec!["Downloads".into()]
+            }
+        );
+        assert_eq!(
+            look("Downloads/paper.tex"),
+            Choice::StrayFile {
+                file: text("Downloads/paper.tex"),
+                place: vec!["Documents".into(), "Abstract-Tex".into()],
+                others: 0,
+            }
+        );
+        assert_eq!(
+            look("photos"),
+            Choice::NoTex {
+                folder: text("photos")
+            }
+        );
+        assert_eq!(
+            look("essay.zip"),
+            Choice::Zip {
+                file: text("essay.zip")
+            }
+        );
+        assert_eq!(look("essay.docx"), Choice::Word);
+        assert_eq!(look("essay.pdf"), Choice::Pdf);
+        assert_eq!(look("essay.7z"), Choice::OtherArchive);
+        assert_eq!(look("essay.txt"), Choice::OtherFile);
+        assert_eq!(look("no such file.tex"), Choice::Gone);
+    }
+
+    #[test]
+    fn an_answer_is_a_tagged_object() {
+        let said = serde_json::to_value(Choice::StrayFile {
+            file: "/a".into(),
+            place: vec![],
+            others: 2,
+        })
+        .unwrap();
+        assert_eq!(
+            said,
+            serde_json::json!({"kind": "strayFile", "file": "/a", "place": [], "others": 2})
+        );
+    }
+
+    #[test]
+    fn the_folders_the_system_names_and_the_place_for_new_documents_are_crowded() {
+        let config = tempfile::tempdir().unwrap();
+        let place = config.path().join("writing");
+        std::fs::create_dir(&place).unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(PreferencesFile::at(config.path().join("preferences.toml")))
+            .manage(RecentDocuments::at(config.path().join("recent-documents.toml")))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let default = new_documents_folder(app.handle());
+        app.state::<PreferencesFile>()
+            .change(|kept| kept.place = Some(place.to_string_lossy().into_owned()))
+            .unwrap();
+        let crowd = crowd(app.handle());
+        assert!(crowd.holds(&place) && crowd.holds(&default));
+        assert!(crowd.holds(&app.path().home_dir().unwrap()) && crowd.holds(&std::env::temp_dir()));
+        assert!(!crowd.holds(config.path()));
+
+        // Opened all the same, from the command line: it is not a document to come back to.
+        std::fs::write(place.join("main.tex"), "").unwrap();
+        record_opened(app.handle(), &place, Some(Path::new("main.tex")));
+        assert!(app.state::<RecentDocuments>().list().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_on_its_parents_device_is_no_drive() {
+        let place = tempfile::tempdir().unwrap();
+        assert!(!is_mount_point(place.path()));
+        assert!(is_mount_point(Path::new("/")));
     }
 }
