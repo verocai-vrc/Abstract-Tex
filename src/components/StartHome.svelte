@@ -27,6 +27,7 @@
   const isBusy = $derived(app.opening !== null);
 
   const when = (recent: RecentDocument) => relativeTime(recent.usedAt, Date.now());
+  const isOpenNow = (recent: RecentDocument) => recent.folder === app.project?.rootDir;
   const isMissing = (recent: RecentDocument) => startScreen.presence.get(recent.folder) === 'missing';
 
   let recentsHeading: HTMLHeadingElement | undefined = $state();
@@ -94,7 +95,7 @@
               <li>
                 <button
                   class="template"
-                  data-first={i === 0 && carryOn === null ? '' : undefined}
+                  data-first={i === 0 && !(sections.includes('carry-on') && carryOn) ? '' : undefined}
                   aria-disabled={isBusy}
                   onclick={() => startFromTemplate(template.id)}
                 >
@@ -142,12 +143,12 @@
                 <button
                   class="row"
                   aria-disabled={isBusy}
-                  aria-label={words.row(recent.title, placeText(recent.place), when(recent))}
+                  aria-label={words.row(recent.title, placeText(recent.place), isOpenNow(recent) ? words.openNow : when(recent))}
                   onclick={() => void openRecent(recent.folder)}
                 >
                   <span class="title">{recent.title}</span>
                   <span class="muted">{placeText(recent.place)}</span>
-                  <span class="muted">{when(recent)}</span>
+                  <span class="muted">{isOpenNow(recent) ? words.openNow : when(recent)}</span>
                 </button>
               {/if}
               <div class="actions">

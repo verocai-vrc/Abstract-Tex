@@ -7,6 +7,7 @@
   import { tick } from 'svelte';
   import { app } from '../lib/state.svelte';
   import { assistantPaletteCommands, goToOutlineItem, openFile } from '../lib/controller.svelte';
+  import { runFromPalette } from '../lib/start-controller.svelte';
   import { paletteCommands, searchCommands, type Command } from '../lib/commands';
   import { fuzzyMatch, highlightMatch } from '../lib/fuzzy';
   import { listFiles } from '../lib/paths';
@@ -53,8 +54,17 @@
   ]);
   const results = $derived(searchCommands(query, candidates).slice(0, 50));
 
+  /** What had the focus when the palette opened, to have it back if nothing is chosen (S17.5). */
+  let focusedBefore: HTMLElement | null = null;
+
+  function close(): void {
+    app.commandPaletteVisible = false;
+    if (focusedBefore?.isConnected) focusedBefore.focus();
+  }
+
   $effect(() => {
     if (!app.commandPaletteVisible) return;
+    focusedBefore = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     query = '';
     selected = 0;
     void tick().then(() => input?.focus());
@@ -66,7 +76,7 @@
 
   function run(command: Command): void {
     app.commandPaletteVisible = false;
-    command.run();
+    runFromPalette(command.id, candidates);
   }
 
   function onKeydown(event: KeyboardEvent) {
@@ -88,7 +98,7 @@
       }
       case 'Escape':
         event.preventDefault();
-        app.commandPaletteVisible = false;
+        close();
         break;
     }
   }
@@ -114,7 +124,7 @@
   <div
     class="backdrop"
     role="presentation"
-    onclick={(e) => e.target === e.currentTarget && (app.commandPaletteVisible = false)}
+    onclick={(e) => e.target === e.currentTarget && close()}
   >
     <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
       <input

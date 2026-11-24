@@ -37,6 +37,11 @@ describe('shortcutFor', () => {
     expect(shortcutFor(press('n', { ctrlKey: true }))).toBeNull();
   });
 
+  it('opens Home with Ctrl Shift H (S17.5)', () => {
+    expect(shortcutFor(press('H', { ctrlKey: true, shiftKey: true }))).toBe('home');
+    expect(shortcutFor(press('h', { ctrlKey: true }))).toBeNull();
+  });
+
   it('jumps to the next placeholder with F8 alone (S11.12)', () => {
     expect(shortcutFor(press('F8'))).toBe('next-placeholder');
     expect(shortcutFor(press('F8', { ctrlKey: true }))).toBeNull();

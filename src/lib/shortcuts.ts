@@ -8,6 +8,7 @@
 // so `Ctrl B` pressed inside the editor reached both handlers and compiled twice.
 
 export type Action =
+  | 'home'
   | 'save'
   | 'compile'
   | 'open-folder'
@@ -28,10 +29,12 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
+  // S17.5: the start screen, over the document or not.
+  { action: 'home', keys: 'Mod-Shift-H', label: 'Home' },
   { action: 'save', keys: 'Mod-S', label: 'Save' },
   { action: 'compile', keys: 'Mod-B', label: 'Build' },
   { action: 'compile', keys: 'F5', label: 'Build' },
-  { action: 'open-folder', keys: 'Mod-O', label: 'Open folder…' },
+  { action: 'open-folder', keys: 'Mod-O', label: 'Open a document…' },
   // S11.11: the front door for someone with no .tex yet (DESIGN.md §6).
   // S11.12: F8 is "next problem" in VS Code, and a placeholder is the same kind of thing: a place the
   // document is not finished.

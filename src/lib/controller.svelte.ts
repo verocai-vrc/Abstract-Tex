@@ -2240,7 +2240,7 @@ export async function openFolder(
   } catch (error) {
     app.opening = null;
     manager.releaseSaves('opening');
-    app.editorFocusRequest += 1;
+    if (!startScreen.visible) app.editorFocusRequest += 1; // there, the focus is still on what was pressed
     if (!stopAsked) tell(error instanceof Error ? error.message : String(error));
     if (buildAskedWhileOpening) void triggerCompile();
     return false;
@@ -2253,6 +2253,7 @@ export async function openFolder(
     startScreen.visible = false;
     app.launching = false;
     app.project = info;
+    nameWindow(info.title);
     // The previous project's placeholders are not this one's (S11.12).
     placeholders.byFile = new Map();
     placeholders.cursorLine = 1;
@@ -2648,8 +2649,8 @@ export function toggleCommandPalette(): void {
 // Every action a chord in `shortcuts.ts` reaches gets a matching entry here, run against the
 // same function the chord calls — one action, one callback, so the palette can never drift from
 // what the keyboard does. Registered once at module load: `registerCommand` only writes into a
-// `Map`, so doing it here (rather than from `start()`) needs no project to be open yet, and the
-// palette can list "Open folder…" before there is one.
+// `Map`, so doing it here (rather than from `start()`) needs no project to be open yet.
+// The ones that show a page of the start screen are in `start-controller.svelte.ts`.
 registerCommand({ id: 'save', title: 'Save', category: 'action', shortcut: 'Ctrl S', run: () => void saveNow() });
 registerCommand({
   id: 'compile',
@@ -2657,14 +2658,6 @@ registerCommand({
   category: 'action',
   shortcut: 'Ctrl B',
   run: () => void triggerCompile(),
-});
-registerCommand({
-  id: 'open-folder',
-  title: 'Open folder…',
-  category: 'action',
-  shortcut: 'Ctrl O',
-  withoutDocument: true,
-  run: () => void pickAndOpenFolder(),
 });
 // S9.8. Both always listed, each a no-op in the state where it means nothing: the registry is
 // static by design (commands.ts), and a palette that hides a permission's off switch would be
@@ -3179,6 +3172,12 @@ async function refreshTitle(): Promise<void> {
   const title = await ipc.documentTitle().catch(() => null);
   if (title === null || epoch !== projectEpoch || !app.project || app.project.title === title) return;
   app.project = { ...app.project, title };
+  nameWindow(title);
+}
+
+/** The window is called after the document (S17.5). A window system that refuses loses nothing else. */
+function nameWindow(title: string): void {
+  void ipc.setWindowTitle(`${title} - Abstract-Tex`).catch(() => {});
 }
 
 function handleCompileEvent(event: CompileEvent): void {

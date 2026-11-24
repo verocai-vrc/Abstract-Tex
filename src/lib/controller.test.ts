@@ -69,6 +69,7 @@ const calls = {
   /** Every repository creation asked for, as `'<name> <private|public>'` (S10.5b), and every
    * time the public confirmation was put to the person. */
   created: [] as string[],
+  windowTitles: [] as string[],
   publicQuestions: [] as string[],
   /** R7.2: every comment the author saved, and every resolve or reopen, against whatever project was open. */
   commentsAdded: [] as Array<{ file: string; text: string; from: number; to: number; body: string }>,
@@ -252,6 +253,7 @@ vi.mock('./ipc', () => ({
       return openProjectAnswer ?? project;
     },
     documentTitle: async () => documentTitleAnswer,
+    setWindowTitle: async (title: string) => void calls.windowTitles.push(title),
     stopOpening: async () => {
       calls.openingsStopped++;
       whenStopped();
@@ -5077,7 +5079,7 @@ describe('launching (S17.4)', () => {
     app.commandPaletteVisible = false;
     toggleCommandPalette();
     expect(app.commandPaletteVisible).toBe(true);
-    expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository', 'new-project', 'open-folder']);
+    expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository', 'new-project']);
     expect(paletteCommands(true)).toEqual(allCommands());
   });
 });
@@ -5095,6 +5097,16 @@ describe('the title of the open document (S17.3)', () => {
     compileHandler(finished(true));
     await vi.advanceTimersByTimeAsync(0);
     expect(app.project?.title).toBe('On Bees');
+  });
+
+  it('names the window, and again when it changes (S17.5)', async () => {
+    calls.windowTitles.length = 0;
+    openProjectAnswer = Promise.resolve({ ...project, title: 'Thesis draft' });
+    await openFolder('/proj');
+    documentTitleAnswer = 'Thesis';
+    compileHandler(finished(true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.windowTitles).toEqual(['Thesis draft - Abstract-Tex', 'Thesis - Abstract-Tex']);
   });
 
   it('is not put on a document opened since', async () => {

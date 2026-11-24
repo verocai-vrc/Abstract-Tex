@@ -5,7 +5,7 @@
   import { tick, untrack } from 'svelte';
   import { app } from '../lib/state.svelte';
   import { showNewProjectWindow } from '../lib/controller.svelte';
-  import { goToPage, loadRecents } from '../lib/start-controller.svelte';
+  import { backToDocument, goToPage, loadRecents } from '../lib/start-controller.svelte';
   import { startScreen } from '../lib/start.svelte';
   import { newProject } from '../lib/templates.svelte';
   import { words } from '../lib/words';
@@ -45,6 +45,11 @@
   <div class="start">
     <nav aria-label={words.startNavigation}>
       <p class="name">{words.appName}</p>
+      {#if app.project}
+        <button class="back" aria-disabled={app.opening !== null} onclick={backToDocument}>
+          <span aria-hidden="true">‹</span> {words.backTo(app.project.title)}
+        </button>
+      {/if}
       <ul>
         <li>
           <button aria-current={startScreen.page === 'home' ? 'page' : undefined} onclick={() => goToPage('home', 'heading')}>
@@ -174,6 +179,11 @@
     background: none;
     border-color: transparent;
     border-left: 4px solid transparent;
+  }
+  .back {
+    margin-left: -8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   nav button[aria-current] {
     border-left-color: var(--accent);

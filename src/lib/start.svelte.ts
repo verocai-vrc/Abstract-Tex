@@ -5,6 +5,7 @@
 // it has to say, `start-controller.svelte.ts` the rest. Components read it.
 
 import type { RecentDocument, TemplateInfo } from './ipc';
+import type { Action } from './shortcuts';
 import { words } from './words';
 
 export type StartPage = 'home' | 'new' | 'open' | 'look' | 'help';
@@ -71,6 +72,24 @@ export function placeText(parts: readonly string[]): string {
 export function homeSections(recentCount: number, hasDocument: boolean): HomeSection[] {
   if (hasDocument) return recentCount === 0 ? ['templates'] : ['templates', 'recents'];
   return recentCount === 0 ? ['welcome', 'templates', 'open'] : ['carry-on', 'templates', 'recents'];
+}
+
+/**
+ * What a chord does while the start screen is up (S17.5). One that acts on the document goes back to it
+ * first: nothing may change in a document nobody can see, except *Save*, which changes nothing in it.
+ */
+export function chordOnStartScreen(action: Action, hasDocument: boolean): 'in-place' | 'back-first' | 'nothing' {
+  switch (action) {
+    case 'home':
+    case 'new-project':
+    case 'open-folder':
+    case 'command-palette':
+      return 'in-place';
+    case 'save':
+      return hasDocument ? 'in-place' : 'nothing';
+    default:
+      return hasDocument ? 'back-first' : 'nothing';
+  }
 }
 
 /** The five templates Home shows: the ones most people want, then whatever the catalog has. */

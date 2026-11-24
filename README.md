@@ -205,7 +205,7 @@ pnpm tauri dev        # compiles the app and opens its window
 
 The first `pnpm tauri dev` compiles the Rust core, which takes a few minutes. Then:
 
-1. Press `Ctrl+O` (`⌘O` on macOS) and choose a folder containing a `.tex` file.
+1. Press `Ctrl+O` (`⌘O` on macOS), then *Choose a folder…*, and pick one containing a `.tex` file.
    [`fixtures/paper`](fixtures/paper) in this repository is a good first one.
 2. The PDF appears on the right. The first build of a document downloads the LaTeX packages it
    uses, so it needs a network connection and takes longer than the builds after it.
@@ -229,7 +229,8 @@ ABSTRACT_TEX_OPEN="$PWD/fixtures/paper" pnpm tauri dev
 | --- | --- |
 | `Mod+S` | Save |
 | `Mod+B` or `F5` | Build now |
-| `Mod+O` | Open folder |
+| `Mod+Shift+H` | Home: the start screen, over the open document |
+| `Mod+O` | Open a document |
 | `Mod+P` | Go to file |
 | `Mod+K` | Command palette: every action, file and section |
 | `Ctrl+Alt+J` | Show the cursor's position in the PDF |

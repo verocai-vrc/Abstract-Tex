@@ -31,7 +31,8 @@ vi.mock('./ipc', () => ({
 const { app } = await import('./state.svelte');
 const { startScreen } = await import('./start.svelte');
 const {
-  clearRecents, findRecent, forgetRecent, goToPage, loadRecents, openRecent, showRecentInFolder,
+  backToDocument, clearRecents, findRecent, forgetRecent, goToPage, loadRecents, openRecent, runFromPalette,
+  showRecentInFolder, showStart, startBack,
 } = await import('./start-controller.svelte');
 
 function only(...names: string[]): unknown[][] {
@@ -63,6 +64,8 @@ beforeEach(() => {
     },
   };
   app.project = null;
+  app.launching = false;
+  app.focusModeEnabled = false;
   app.opening = null;
   app.conflict = null;
   app.notice = null;
@@ -224,4 +227,101 @@ it('going to a page clears what the last one said', () => {
   expect([startScreen.page, startScreen.focusTarget, startScreen.message, startScreen.focusNonce]).toEqual([
     'open', 'first', null, before + 1,
   ]);
+});
+
+describe('Home over an open document (S17.5)', () => {
+  beforeEach(() => {
+    app.project = project;
+  });
+
+  it('opens on its page, with the document behind it', () => {
+    startScreen.visible = false;
+    showStart('home', false);
+    expect([startScreen.visible, startScreen.page, app.project]).toEqual([true, 'home', project]);
+  });
+
+  it('does not open while a dialog is up', () => {
+    startScreen.visible = false;
+    showStart('home', true);
+    expect(startScreen.visible).toBe(false);
+  });
+
+  it('does not open while a document is being opened, or before the app knows what to show', () => {
+    startScreen.visible = false;
+    app.opening = 'x';
+    showStart('home', false);
+    app.opening = null;
+    app.launching = true;
+    showStart('home', false);
+    expect(startScreen.visible).toBe(false);
+  });
+
+  it('Esc on any page goes back to the document', () => {
+    startScreen.page = 'open';
+    startBack();
+    expect(startScreen.visible).toBe(false);
+  });
+
+  it('with no document, Esc goes to Home and stays there', () => {
+    app.project = null;
+    startScreen.page = 'open';
+    startBack();
+    startBack();
+    expect([startScreen.visible, startScreen.page]).toEqual([true, 'home']);
+  });
+
+  it('Esc while a document is being opened leaves the screen where it was', () => {
+    // `OpeningNotice` hears it as Stop.
+    startScreen.page = 'open';
+    app.opening = 'x';
+    startBack();
+    expect([startScreen.visible, startScreen.page]).toEqual([true, 'open']);
+    app.project = null;
+    startBack();
+    expect(startScreen.page).toBe('open');
+  });
+
+  it('going back gives the editor the focus, and forgets what was said here', () => {
+    const before = app.editorFocusRequest;
+    startScreen.message = { kind: 'refusal', text: 'x' };
+    backToDocument();
+    expect([app.editorFocusRequest, startScreen.message]).toEqual([before + 1, null]);
+  });
+
+  it('there is no document to go back to when none is open', () => {
+    app.project = null;
+    backToDocument();
+    expect(startScreen.visible).toBe(true);
+  });
+
+  it('the document that is open now is gone back to, not opened again', async () => {
+    await openRecent('/proj');
+    expect([startScreen.visible, opened]).toEqual([false, []]);
+  });
+
+  it('a refused opening does not send the focus to the editor behind', async () => {
+    const before = app.editorFocusRequest;
+    answers.openProject = () => {
+      throw 'no';
+    };
+    await openRecent('/a');
+    expect([app.editorFocusRequest, startScreen.visible]).toEqual([before, true]);
+  });
+
+  it('a palette action about the document goes back to it first', () => {
+    runFromPalette('toggle-focus-mode');
+    expect([startScreen.visible, app.focusModeEnabled]).toEqual([false, true]);
+  });
+
+  it('a palette action that needs no document runs here', () => {
+    const before = app.editorFocusRequest;
+    runFromPalette('open-folder');
+    expect([startScreen.visible, startScreen.page, app.editorFocusRequest]).toEqual([true, 'open', before]);
+  });
+
+  it('Home is in the palette', () => {
+    startScreen.visible = false;
+    runFromPalette('home');
+    expect([startScreen.visible, startScreen.page]).toEqual([true, 'home']);
+  });
 });

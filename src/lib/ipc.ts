@@ -5,6 +5,7 @@
 
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ask, open as openDialog, save as saveDialog } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
@@ -572,6 +573,9 @@ export interface RecentDocument {
 }
 
 export const ipc = {
+  /** What the window is called, in its title bar and in the list of windows (S17.5). */
+  setWindowTitle: (title: string) => getCurrentWindow().setTitle(title),
+
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
   openProject: (path: string) => invoke<ProjectInfo>('open_project', { path }),

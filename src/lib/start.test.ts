@@ -1,7 +1,7 @@
 // S17.4: the start screen's decisions, with literals and no window.
 import { describe, expect, it } from 'vitest';
 import type { RecentDocument } from './ipc';
-import { documentToCarryOn, homeSections, homeTemplates, placeText, searchRecents } from './start.svelte';
+import { chordOnStartScreen, documentToCarryOn, homeSections, homeTemplates, placeText, searchRecents } from './start.svelte';
 import { words } from './words';
 
 function recent(folder: string, title: string, place: string[] = []): RecentDocument {
@@ -53,4 +53,12 @@ it('Home shows five templates, and the first five when those are not there', () 
   const all = ['blank', 'essay', 'report', 'letter', 'paper', 'cv', 'thesis', 'slides'].map(template);
   expect(homeTemplates(all).map((t) => t.id)).toEqual(['blank', 'essay', 'report', 'paper', 'thesis']);
   expect(homeTemplates(all.slice(3)).map((t) => t.id)).toEqual(['paper', 'thesis', 'letter', 'cv', 'slides']);
+});
+
+it('what a chord does while the start screen is up', () => {
+  for (const action of ['home', 'new-project', 'open-folder', 'command-palette'] as const)
+    expect([chordOnStartScreen(action, true), chordOnStartScreen(action, false)]).toEqual(['in-place', 'in-place']);
+  for (const action of ['compile', 'next-placeholder', 'quick-open', 'view-files', 'view-source-control', 'find-in-pdf'] as const)
+    expect([chordOnStartScreen(action, true), chordOnStartScreen(action, false)]).toEqual(['back-first', 'nothing']);
+  expect([chordOnStartScreen('save', true), chordOnStartScreen('save', false)]).toEqual(['in-place', 'nothing']);
 });

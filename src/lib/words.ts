@@ -12,6 +12,10 @@ export const words = {
 
   pages: { home: 'Home', new: 'New', open: 'Open' },
 
+  /** Over an open document: the way back to it. */
+  backTo: (title: string) => `Back to ${title}`,
+  openNow: 'Open now',
+
   welcome: 'Welcome to Abstract',
   welcomeLine: 'Choose what you want to write. You get a finished-looking page to write over, and a PDF of it.',
   openOneYouHave: 'Open a document you already have',

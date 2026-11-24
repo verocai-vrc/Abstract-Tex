@@ -3,7 +3,6 @@
   import { app } from './lib/state.svelte';
   import {
     saveNow,
-    showCloneWindow,
     goToNextPlaceholder,
     showNewProjectWindow,
     openPdfFind,
@@ -14,9 +13,11 @@
     toggleQuickOpen,
     triggerCompile,
   } from './lib/controller.svelte';
-  import { openDocument } from './lib/start-controller.svelte';
-  import { startScreen } from './lib/start.svelte';
-  import { shortcutFor, type Action } from './lib/shortcuts';
+  import { backToDocument, showStart, startBack } from './lib/start-controller.svelte';
+  import { chordOnStartScreen, startScreen } from './lib/start.svelte';
+  import { handledByInputMethod } from './lib/keys';
+  import { shortcutFor } from './lib/shortcuts';
+  import { words } from './lib/words';
   import ActivityBar from './components/ActivityBar.svelte';
   import SourceControl from './components/SourceControl.svelte';
   import AssistantView from './components/AssistantView.svelte';
@@ -46,19 +47,45 @@
     void start();
   });
 
-  /** What a chord may ask for while the start screen is up: the rest is about a document (S17.4). */
-  const ON_THE_START_SCREEN: ReadonlySet<Action> = new Set<Action>(['new-project', 'open-folder', 'command-palette']);
+  /** Every dialog sits on a `.backdrop` (`dialogs.test.ts`). */
+  const dialogIsUp = () => document.querySelector('.backdrop') !== null;
+
+  /**
+   * Whether an Escape now on its way is for the start screen. Asked before anything else hears the key:
+   * a dialog that closes on it is gone by the time it gets to the window, and so is an opening that
+   * stops, and that same key must not go on to leave the page as well.
+   */
+  let escapeIsOurs = false;
+  function onKeydownFirst(event: KeyboardEvent) {
+    escapeIsOurs =
+      event.key === 'Escape' && startScreen.visible && app.opening === null && !handledByInputMethod(event) && !dialogIsUp();
+  }
 
   // The one place a global key becomes an action (S2.4). The table in shortcuts.ts says which
   // key means what; this only says what each action does. Listening on the window means the
   // chords work with the editor, the tree, the PDF or nothing at all focused.
   function onKeydown(event: KeyboardEvent) {
+    if (escapeIsOurs && event.key === 'Escape' && !event.defaultPrevented) {
+      event.preventDefault();
+      startBack();
+      return;
+    }
     const action = shortcutFor(event);
     if (!action) return;
     event.preventDefault(); // else the browser offers to save the page, or prints it
     if (app.opening !== null) return; // the document these act on may be about to go (S17.2)
-    if (startScreen.visible && !ON_THE_START_SCREEN.has(action)) return;
+    if (startScreen.visible) {
+      const answer = chordOnStartScreen(action, app.project !== null);
+      if (answer === 'nothing') return;
+      if (answer === 'back-first') {
+        if (dialogIsUp()) return; // it would be left standing over the document
+        backToDocument();
+      }
+    }
     switch (action) {
+      case 'home':
+        showStart('home', dialogIsUp());
+        break;
       case 'save':
         void saveNow();
         break;
@@ -73,7 +100,7 @@
         showNewProjectWindow();
         break;
       case 'open-folder':
-        openDocument();
+        showStart('open', dialogIsUp());
         break;
       case 'quick-open':
         toggleQuickOpen();
@@ -94,17 +121,15 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydowncapture={onKeydownFirst} onkeydown={onKeydown} />
 
 <!-- `inert`: while the start screen covers this, or another folder is being opened, nobody may type
      into it, click in it, or Tab into it. `OpeningNotice` is outside it so that *Stop* still works. -->
 <div class="app" inert={app.launching || startScreen.visible || app.opening !== null}>
   <header class="toolbar">
     <span class="title">Abstract-Tex</span>
-    <button onclick={() => showNewProjectWindow()}>New…</button>
-    <button onclick={openDocument}>Open folder…</button>
-    <button onclick={() => showCloneWindow()}>Clone…</button>
-    <span class="project-name">{app.project ? app.project.rootDir : ''}</span>
+    <button onclick={() => showStart('home', dialogIsUp())}>{words.pages.home}</button>
+    <span class="project-name" title={app.project?.rootDir}>{app.project?.title ?? ''}</span>
     <button
       class="primary"
       disabled={!app.project || app.compile.phase === 'running'}
