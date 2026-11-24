@@ -1,6 +1,6 @@
 # Manual smoke script — `fixtures/thesis`
 
-Rung 4 of the verification ladder (`0.1/SPRINTS.md` §1). This is the v0.2 exit demo
+Rung 4 of the verification ladder. This is the v0.2 exit demo
 (`DESIGN.md` §7): navigate a six-file thesis entirely from the keyboard, and click any
 paragraph in the PDF to land on the right line of the right file. Run after any loop that
 touches the include graph (S4.1), the document map (S4.2), or the command palette (S4.3).

@@ -3,7 +3,10 @@
 //! This module owns: opening a folder, listing its files, finding the root `.tex`, and reading
 //! and writing `abstract-tex.toml`. It must never write anything into the source tree except
 //! `abstract-tex.toml` and the files the author edits; every other artifact goes under
-//! `.abstract-tex/`, which must be deletable at any moment at the cost of one slow compile.
+//! `.abstract-tex/`. Deleting that folder while the app is closed never harms the source: most of it
+//! rebuilds in one slow compile. Three things in it do not come back: the saved versions
+//! (`snapshots.git`) and unpushed comments (`comments.git`) of a folder that is not itself a Git
+//! repository, and the copies kept before joining a live session (`join-backups/`).
 //!
 //! The app was called Preamble until September 2026, and projects opened by that build carry a
 //! `preamble.toml` and a `.preamble/` folder. The first is read when there is no new config and
@@ -20,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 /// The one configuration file a project may carry. Human-editable, diff-friendly TOML.
 pub const CONFIG_FILE: &str = "abstract-tex.toml";
-/// Disposable per-project state. Gitignored by the file we drop inside it.
+/// Our own per-project state (what deleting it costs: the module comment). Gitignored by the file we drop inside it.
 pub const STATE_DIR: &str = ".abstract-tex";
 /// Where the engine writes `.pdf`, `.log`, `.aux` and friends.
 pub const BUILD_SUBDIR: &str = "build";

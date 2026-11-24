@@ -1,6 +1,6 @@
-//! Started as a spike, before Sprint 14 (`0.1/SPRINTS.md`): can a comment anchored to quoted text
+//! Started as a spike, before Sprint 14: can a comment anchored to quoted text
 //! survive being written into a Git ref, pushed, fetched, and merged — the storage DESIGN.md §5.6
-//! and design-interview.md F5 proposed as the leading candidate for "where do comments go when a
+//! proposed as the leading candidate for "where do comments go when a
 //! live session ends"? It passed, and S14.3a/S14.3b added the two things it deliberately left
 //! open. No Tauri command and no CRDT relative position live here (that is the live session
 //! itself, S14.2/the rest of S14.3's job), no network credentials beyond what a test needs to

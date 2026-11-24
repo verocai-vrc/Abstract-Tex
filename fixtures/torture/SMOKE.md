@@ -1,6 +1,6 @@
 # Manual smoke script — `fixtures/torture`
 
-Rung 4 of the verification ladder (`0.1/SPRINTS.md` §1), and the v0.3 exit demo
+Rung 4 of the verification ladder, and the v0.3 exit demo
 (`DESIGN.md` §7): a purpose-built twenty-error torture document, every error resolving to the
 correct file and line with a plain-language explanation, and no raw log shown by default
 anywhere. `crates/abstract-tex-engine/tests/torture.rs` is this same walk, automated, against the

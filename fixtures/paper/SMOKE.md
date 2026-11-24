@@ -1,6 +1,6 @@
 # Manual smoke script — `fixtures/paper`
 
-Rung 4 of the verification ladder (`0.1/SPRINTS.md` §1). Run after any loop that touches the
+Rung 4 of the verification ladder. Run after any loop that touches the
 compile loop, the editor, or the PDF pane. Each section is a flow from `DESIGN.md` §6.
 
 Launch:

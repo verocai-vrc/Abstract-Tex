@@ -1,6 +1,6 @@
 # Manual smoke script — `fixtures/bibliography-demo`
 
-The v0.4 exit demo (`DESIGN.md` §7, `0.1/SPRINTS.md` S8.4): assemble a forty-reference paper
+The v0.4 exit demo (`DESIGN.md` §7, loop S8.4): assemble a forty-reference paper
 from scratch **without opening a browser once**. `main.tex` starts with no references and
 `references.bib` with none. Bring the reference list of a real paper you know (a thesis
 chapter, a recent article) — its identifiers are the input; nothing here is a canned list.
@@ -60,7 +60,7 @@ Needs Zotero with Better BibTeX installed and a collection holding the rest of t
 
 ## Recording the outcome
 
-Write S8.4's outcome paragraph in `0.1/SPRINTS.md` from your tally: how many references came
+Write S8.4's outcome paragraph from your tally: how many references came
 each way, how long it took, every gap found (with its ledger entry), and whether a browser was
 ever opened. Tick S8.4 `[x]` only if all forty compiled with zero undefined citations and the
 answer to the last question is no.

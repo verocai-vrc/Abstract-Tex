@@ -2,8 +2,8 @@
 # them and pins the dependency versions they share, so every crate compiles the same `serde`.
 #
 # Why a workspace and not one big crate: the engine wrapper, the reconciler and the log parser
-# are all testable with `cargo test` and no window on screen. That is what keeps the agent loops
-# in 0.1/SPRINTS.md fast. The Tauri app crate in src-tauri/ is the only one that links a GUI.
+# are all testable with `cargo test` and no window on screen, which is what keeps a development
+# loop fast. The Tauri app crate in src-tauri/ is the only one that links a GUI.
 
 [workspace]
 resolver = "2"

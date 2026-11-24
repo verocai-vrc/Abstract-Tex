@@ -32,6 +32,14 @@ Move compilation to the machine the author is already sitting at and the entire 
 evaporates. Not improves: evaporates. That is the whole thesis. Everything else in this document
 is a consequence of it.
 
+**Who it is for** (written down 24 November 2026). Everyone who writes a paper, and that includes
+researchers outside computer science who have only ever used Word, many of them decades into a
+career. They are not a lesser audience served by a simpler mode: the first screen, the words on it
+and the size of its text are theirs. The measure is one sentence. *Someone who has only used Word
+makes a document and saves its PDF without help, and finds it again the next day.* So on screen
+the thing they work on is a **document**, never a project, a repository or a build tree, and the
+folder it lives in is small print.
+
 The related mistake is bundling. Overleaf is three products fused into one: an editor, a
 compiler, and a filestore — and you cannot take one without the other two. We unbundle them. The
 editor is local, the compiler is local, and the filestore is **a Git remote you already own**, on
@@ -84,7 +92,8 @@ failure mode that kills projects like this one.
 - **Not a semantic PDF library.** Explicitly deferred. Embedding and indexing a personal paper
   library is a product of its own — revisit after v1.0, if at all.
 - **Not mobile.** No phone, no tablet, no responsive editor. Nobody writes a methods section on a
-  phone.
+  phone. (Folding the three panes to one at a time when text is enlarged, S17.13, is the same
+  desktop app made readable at 200%, not the responsive editor this rules out.)
 
 ---
 
@@ -593,8 +602,12 @@ thesis/
 ├── abstract-tex.toml   # engine, root file, output dir, bib source — never a consent (§5.5)
 ├── .gitignore          # written on init; excludes .abstract-tex/ and build junk
 ├── .git/               # the storage layer — remote is your GitHub repo
-└── .abstract-tex/      # gitignored, disposable, never in the source tree
+└── .abstract-tex/      # gitignored, never in the source tree; see below for what deleting it costs
     ├── build/          # .aux .bbl .pdf .synctex.gz
+    ├── latest.pdf      # the last good PDF, kept whole while build/ is being rewritten (S17.7)
+    ├── snapshots.git/  # saved versions, when the folder is not itself a Git repository
+    ├── comments.git/   # comments, in the same case
+    ├── join-backups/   # copies kept before joining a live session
     ├── draft/          # one-chapter draft: \includeonly wrapper + its own build/ (§5.1 rung 4)
     ├── formats/        # precompiled preamble dumps, keyed by hash
     ├── latexdiff/      # the latest comparison only: <from>-<to>/{old,new,build} (§5.7)
@@ -602,8 +615,21 @@ thesis/
     └── cache/          # diagnostics, bib index, model responses
 ```
 
-Deleting `.abstract-tex/` costs one slow compile and nothing else. That is the test for whether
-anything has crept into it that does not belong.
+Deleting `.abstract-tex/` is not free. Most of it rebuilds in one slow compile, but three things
+in it do not come back: the saved versions and any comments not yet pushed, when the folder is not
+itself a Git repository (`snapshots.git`, `comments.git`), and the copies kept before joining a
+live session (`join-backups/`). An earlier revision of this section called the folder disposable;
+it stopped being so when those three moved in.
+
+Four things belong to the computer rather than to a document, and live in the app's own folders,
+never in a source tree (S17.3 to S17.15):
+
+| File | Where | Holds |
+|---|---|---|
+| `recent-documents.toml` | app config | The thirty documents used last: folder, main file, title, when |
+| `preferences.toml` | app config | Where new documents go, the author's name, text size, colours |
+| `recent-pictures/` | app local data | A small picture of page one of each recent document |
+| shell-escape and assistant consents | app config | What each folder has been allowed to do (§5.5) |
 
 ---
 
@@ -622,7 +648,13 @@ counting changed files), **Assistant** (robot head — the v0.7 home; the author
 or an OpenAI-compatible endpoint, which covers a local model, per §5.5), and **Settings** (gear).
 Copying the layout is deliberate: it is the chrome a large share of the audience already has
 muscle memory for, and there is nothing to gain from a novel one. Shortcuts follow VS Code too —
-`Ctrl Shift E` for Files, `Ctrl Shift G` for Source Control.
+`Ctrl Shift E` for Files, `Ctrl Shift G` for Source Control. That argument covers the activity bar
+and nothing else: the rest of the audience (§1) has never opened VS Code.
+
+**The start screen takes Word's shape** (settled 24 November 2026). A full-window page with a short
+list down the left (Home, New, Open, Text and colours, Help) and *Carry on* first on the right, as
+Word, Google Docs and Overleaf all have. It is what the app opens on, and *Home* brings it back over
+an open document, which stays loaded behind it. It says *document*, with the folder in small print.
 
 **The Source Control view is a 1:1 copy of VS Code's**, because that view is the "authors who
 want Git get the whole thing" half of §5.7, and the one-verb *Sync* is the other half; both
@@ -645,12 +677,16 @@ init so *Changes* never fills with `.aux` files.
 
 | Flow | Trigger | What should happen |
 |---|---|---|
-| **Start a document** | Launch with nothing open, or `Ctrl Shift N` | A gallery of starters — essay, report, paper, letter, CV, thesis, slides — each a finished-looking document, not a skeleton. Pick one, type a title and a name, and a PDF is on screen within seconds, with the cursor on the first thing to replace. The author never chooses a class or writes a preamble; they overwrite sample text. The catalog is inside the binary, so this works offline (§10, "Templates"). |
-| **First run** | Open a folder | Root `.tex` detected automatically, engine present already, PDF within seconds. If Tectonic needs to fetch packages, that is stated plainly with progress — never a silent hang. |
+| **Launch** | Starting the app | The start screen, with the newest document's *Open* button focused: Enter carries on. A folder named on the command line skips it. |
+| **Home** | *Home* in the toolbar, or `Ctrl Shift H` | The start screen over the open document, which stays loaded. Esc goes back, with the cursor where it was. |
+| **Start a document** | A template on Home, or `Ctrl Shift N` | A gallery of starters — essay, report, paper, letter, CV, thesis, slides — each a finished-looking document, not a skeleton. Pick one, type a title and a name, and a PDF is on screen within seconds, with the cursor on the first thing to replace. The author never chooses a class or writes a preamble; they overwrite sample text. No folder is asked for: it goes to *Documents/Abstract-Tex* unless *Change…* said otherwise. The catalog is inside the binary, so this works offline (§10, "Templates"). |
+| **Open a document** | `Ctrl O` | A page that takes a `.tex` file, a `.zip` from Overleaf, or a folder, and says in one sentence what to do with anything else. A chapter opens the document it belongs to. |
+| **First run** | Open a document | Root `.tex` detected automatically, engine present already, PDF within seconds. If Tectonic needs to fetch packages, that is stated plainly with progress — never a silent hang. |
 | **Write loop** | Typing | Compile on 700 ms idle. The PDF pane holds its scroll position and does not flash. A failed compile leaves the last good PDF on screen — never a blank pane. |
 | **Fix an error** | Compile fails | Drawer opens with a sentence, not a log. Click jumps to the line. Where the fix is unambiguous, one action applies it. |
 | **Add a citation** | Paste a DOI | Entry fetched, deduplicated, appended to `.bib`, `\cite` inserted at the cursor. No browser, no dialog. |
 | **Review changes** | Click two Graph rows | A `latexdiff` PDF, older → newer, opens in the preview pane with additions and deletions marked, behind a banner with *Save as…* and *Back to live PDF*. |
+| **Save PDF** | *Save PDF…* in the toolbar or on Home | Asks where, waits for the newest build, saves a copy, and offers *Open it* and *Show in folder*. If the text has an error, the last good PDF is saved and the sentence says so. |
 | **Sync** | One action | Commit, pull, merge, push — reported as a sentence about what moved, not a Git transcript. On another machine, clone from inside the app and everything works, because the project is just files (§5.8). |
 | **Track progress** | Open Source Control | Changed files with status letters, a pre-filled commit message, and a graph of past commits each showing its word-count delta. Committing is a sentence and `Ctrl Enter`. |
 
@@ -804,6 +840,8 @@ to v1.0 below, and the exit criterion above is v1.0's.
 
 ### v1.0 — Public release
 
+- The start screen (Sprint 17), built before the stranger test, so the stranger meets the real
+  front door
 - Signed installers with auto-update, the companion Action and the stranger test, moved here from
   v0.9 (above)
 - Hardening against the real-world documents that v0.9 testers broke it with
@@ -812,7 +850,7 @@ to v1.0 below, and the exit criterion above is v1.0's.
 
 **Exit:** Announced. Backlog: table grid editor (§5.3), semantic PDF library (§1.3), journal
 template gallery (publisher classes and terms; the generic starters are not this, and arrive at
-S11.9–S11.12, `0.1/SPRINTS.md`).
+S11.9–S11.12).
 
 ---
 
@@ -858,7 +896,7 @@ the application is fully functional and makes zero outbound requests.
 ## 10. Still undecided
 
 Questions that do not block sprint 1, and should be settled before the sprint noted against
-each. A settled row says when; the 2 October 2026 design interview (`0.1/design-interview.md`)
+each. A settled row says when; the 2 October 2026 design interview
 settled or re-dated several.
 
 | Question | Decide by | Position |
@@ -873,6 +911,8 @@ settled or re-dated several.
 | **Code signing** | Sprint 14 (re-confirmed 2 October 2026) | Required for v0.9's exit criterion to be honest. Apple Developer ~$99/yr; Azure Trusted Signing is the cheap Windows route. Budget it or accept SmartScreen warnings on every download. |
 | **Relay hosting** | Sprint 14 — position **settled 2 October 2026** | Ship the binary and a Docker image, document a $5 VPS deployment, host nothing ourselves. Hosting anything makes us a service, which §1.3 forbids. A coauthor joins through an invite link carrying the relay URL and a random room secret; updates are end-to-end encrypted with a key derived from that secret, so whoever runs the relay sees only ciphertext. |
 | **Comments after a live session** | Sprint 14 — **settled 4 October 2026**, spike passed | See §5.6. `refs/abstract-tex/comments`, pushed/fetched by an explicit refspec, content-addressed per comment so concurrent additions merge with no hand-written conflict logic (`crates/abstract-tex-comments`). Editing/resolving a comment is still open, left to S14.3. |
+| **Pictures of page one** | Sprint 17 — **settled 24 November 2026** | Pictures of page one are kept on this computer, to make recent documents recognisable. They live in the app's local data, are never sent anywhere, and go when a document is taken off the list. |
+| **Crowded folders** | Sprint 17 — **settled 24 November 2026** | Crowded folders are never opened as a document: home, Desktop, Downloads, Documents and the like, a drive's root, and the place new documents go. Every file in one would be listed, watched and copied into saved versions. A lone `.tex` in one is copied into a folder of its own after asking. The command line remains the way round. |
 | **Updater and crash reports** | Sprint 16 — **settled 2 October 2026** | The updater's manifest is read from GitHub Releases; crash reporting is a local report plus a prefilled GitHub issue the author submits themselves. Neither needs a server of our own (§1.3). |
 
 ---
