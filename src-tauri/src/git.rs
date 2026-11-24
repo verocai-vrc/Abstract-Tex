@@ -16,7 +16,7 @@
 use std::path::{Path, PathBuf};
 
 use abstract_tex_git::{GitError, Repository};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::AppState;
 
@@ -29,7 +29,7 @@ use crate::AppState;
 /// rather than one per button.
 pub const STATUS_CHANGED: &str = "git:status-changed";
 
-pub fn emit_status_changed(app: &AppHandle) {
+pub fn emit_status_changed<R: Runtime>(app: &AppHandle<R>) {
     // A failed emit means the window has gone; there is nobody left to tell.
     let _ = app.emit(STATUS_CHANGED, ());
 }

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { app } from './lib/state.svelte';
   import {
-    openFolder,
+    pickAndOpenFolder,
     saveNow,
     showCloneWindow,
     goToNextPlaceholder,
@@ -27,6 +27,7 @@
   import StatusBar from './components/StatusBar.svelte';
   import QuickOpen from './components/QuickOpen.svelte';
   import CommandPalette from './components/CommandPalette.svelte';
+  import OpeningNotice from './components/OpeningNotice.svelte';
   import CloneWindow from './components/CloneWindow.svelte';
   import NewProjectWindow from './components/NewProjectWindow.svelte';
   import ShareWindow from './components/ShareWindow.svelte';
@@ -50,6 +51,7 @@
     const action = shortcutFor(event);
     if (!action) return;
     event.preventDefault(); // else the browser offers to save the page, or prints it
+    if (app.opening !== null) return; // the document these act on may be about to go (S17.2)
     switch (action) {
       case 'save':
         void saveNow();
@@ -65,7 +67,7 @@
         showNewProjectWindow();
         break;
       case 'open-folder':
-        void openFolder();
+        void pickAndOpenFolder();
         break;
       case 'quick-open':
         toggleQuickOpen();
@@ -88,11 +90,13 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="app">
+<!-- `inert`: while another folder is being opened nobody may type into this one, click in it, or Tab
+     into it. `OpeningNotice` is outside it so that *Stop* still works. -->
+<div class="app" inert={app.opening !== null}>
   <header class="toolbar">
     <span class="title">Abstract-Tex</span>
     <button onclick={() => showNewProjectWindow()}>New…</button>
-    <button onclick={() => void openFolder()}>Open folder…</button>
+    <button onclick={() => void pickAndOpenFolder()}>Open folder…</button>
     <button onclick={() => showCloneWindow()}>Clone…</button>
     <span class="project-name">{app.project ? app.project.rootDir : ''}</span>
     <button
@@ -125,6 +129,7 @@
   <StatusBar />
 </div>
 
+<OpeningNotice />
 <SessionCommitOffer />
 <CrashReportWindow />
 <QuickOpen />

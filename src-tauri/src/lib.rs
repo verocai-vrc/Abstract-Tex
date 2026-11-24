@@ -9,6 +9,7 @@
 //! - [`watcher`]  — filesystem events, with our own writes filtered out.
 //! - [`git`]      — which repository the open project is in, for the Source Control view.
 //! - [`github`]   — the GitHub sign-in session: the waiting, and the events it reports through.
+//! - [`opening`]  — which opening is the current one, and whether it was stopped.
 //! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `abstract-tex-synctex`.
 //! - [`bibliography`] — the `.bib` index: files, entries, citations, rebuilt from disk on change.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
@@ -31,6 +32,7 @@ pub mod github;
 pub mod latexdiff;
 pub mod lfs;
 pub mod lsp;
+pub mod opening;
 pub mod paste;
 pub mod project;
 pub mod snapshots;
@@ -49,6 +51,7 @@ use crate::compile::Orchestrator;
 use crate::github::GitHubSession;
 use crate::latexdiff::DiffLane;
 use crate::lsp::LspSession;
+use crate::opening::Openings;
 use crate::project::Project;
 use crate::watcher::{ProjectWatcher, WrittenHashes};
 
@@ -60,6 +63,8 @@ use crate::watcher::{ProjectWatcher, WrittenHashes};
 pub struct AppState {
     /// The open project, if any. `None` until the user opens a folder.
     pub project: Mutex<Option<Project>>,
+    /// Which opening is being read, so that it can be stopped (S17.2).
+    pub openings: Openings,
     /// Runs builds. Constructed once with whatever engine was found at startup.
     pub orchestrator: Orchestrator,
     /// Runs change-review builds (S11.4c), beside the live ones and never in their way.
@@ -89,6 +94,7 @@ impl AppState {
         };
         Self {
             project: Mutex::new(None),
+            openings: Openings::default(),
             orchestrator: Orchestrator::new(engine.clone()),
             diff_lane: DiffLane::new(engine),
             watcher: Mutex::new(None),
@@ -133,6 +139,7 @@ pub fn run() {
             commands::initial_project,
             commands::engine_info,
             commands::open_project,
+            commands::stop_opening,
             commands::refresh_tree,
             commands::read_file,
             commands::write_file,

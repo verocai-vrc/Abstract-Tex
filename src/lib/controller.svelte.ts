@@ -35,7 +35,7 @@ import { comments } from './comments.svelte';
 import { crash } from './crash.svelte';
 import { sessionCommitMessage } from './session-commit';
 import { lineAt, locateInBuffer } from './comments';
-import { ipc, type AssistantAction, type CommentRow, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type SnapshotRow, type Visibility } from './ipc';
+import { ipc, type AssistantAction, type CommentRow, type CompileEvent, type Diagnostic, type Finding, type FsEvent, type GitHubRepository, type LspEvent, type ProjectInfo, type SnapshotRow, type Visibility } from './ipc';
 import { decideExternalChange, type DocumentBackend } from './document';
 import { DocumentManager } from './documents';
 import { diagnosticPlace, type DrawerFilter } from './drawer';
@@ -2170,19 +2170,74 @@ let projectEpoch = 0;
  * after it. */
 let newestBuildOfAProjectLeft = 0;
 
-export async function openFolder(path?: string, options: { atFirstPlaceholder?: boolean } = {}): Promise<void> {
-  const chosen = path ?? (await ipc.pickFolder());
-  if (!chosen) return;
-  const staying = await whyNotToLeaveProject();
-  if (staying !== null) {
-    app.notice = staying;
-    return;
+/** Say a sentence to the person where they are looking. */
+export function tell(sentence: string): void {
+  app.notice = sentence;
+}
+
+/** What is on screen for a folder that has no title yet: its own name. */
+function folderName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+/** Whether *Stop* was pressed for the opening now being read, so that its refusal is not reported: the
+ * person asked for it and knows. */
+let stopAsked = false;
+/** Whether a build was asked for while a folder was being opened. It is made if the opening is refused. */
+let buildAskedWhileOpening = false;
+
+/** Pick a folder, then open it. */
+export async function pickAndOpenFolder(): Promise<void> {
+  if (app.opening !== null) return;
+  const chosen = await ipc.pickFolder();
+  if (chosen) await openFolder(chosen);
+}
+
+/** Ask Rust to stop the opening that is being read. `openFolder` hears the refusal and tidies up. */
+export async function stopOpening(): Promise<void> {
+  if (app.opening === null) return;
+  stopAsked = true;
+  // Nothing to say if this fails: the opening itself goes on and reports how it ended.
+  await ipc.stopOpening().catch(() => false);
+}
+
+/**
+ * Open a folder as the document. Answers whether it is now open.
+ *
+ * Rust reads the folder on a thread of its own (S17.2), so the window is alive meanwhile and the old
+ * document is still in it. Three things keep that safe. The shell is `inert`, so nobody types. Every
+ * tab's saves are held, so what a live session's other person types is not written to disk: after Rust
+ * has swapped the project, such a write would land in the new folder. And a second opening is refused.
+ */
+export async function openFolder(
+  path: string,
+  options: { atFirstPlaceholder?: boolean; name?: string } = {},
+): Promise<boolean> {
+  if (app.opening !== null) return false;
+  app.opening = options.name ?? folderName(path);
+  stopAsked = false;
+  buildAskedWhileOpening = false;
+  let info: ProjectInfo;
+  try {
+    const staying = await whyNotToLeaveProject();
+    // No `await` between that answer and this line: an edit in the gap would be saved by the 700 ms
+    // timer whenever it liked.
+    manager.holdSaves('opening');
+    if (staying !== null) throw staying;
+    info = await ipc.openProject(path);
+  } catch (error) {
+    app.opening = null;
+    manager.releaseSaves('opening');
+    app.editorFocusRequest += 1;
+    if (!stopAsked) tell(error instanceof Error ? error.message : String(error));
+    if (buildAskedWhileOpening) void triggerCompile();
+    return false;
   }
   try {
-    const info = await ipc.openProject(chosen);
     projectEpoch += 1;
     newestBuildOfAProjectLeft = app.compile.generation;
     closeAllDocuments();
+    manager.releaseSaves('opening');
     app.project = info;
     // The previous project's placeholders are not this one's (S11.12).
     placeholders.byFile = new Map();
@@ -2231,6 +2286,10 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
     forgetWhatTheOldProjectLeftOpen();
     void refreshGitStatus();
     void refreshSnapshots();
+    // From here on this is an ordinary open document: what follows may take its time, and must save
+    // and build.
+    app.opening = null;
+    app.editorFocusRequest += 1;
     // Start the language server before opening the first file, so that file's `didOpen` is the
     // server's first news of it. Failure is a status line, not a notice: the editor, the
     // compile loop and the PDF all work without it.
@@ -2240,7 +2299,7 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
     app.engine = await ipc.engineInfo().catch(() => null);
     // Both can apply at once, and each is its own sentence (R8.7).
     const openingNotices = [info.engineNotice, info.watchNotice].filter((sentence) => sentence);
-    if (openingNotices.length > 0) app.notice = openingNotices.join(' ');
+    if (openingNotices.length > 0) tell(openingNotices.join(' '));
     // Consent belongs to the folder, so each project reads its own (S9.8). Unknown means no.
     app.shellEscapeAllowed = await ipc.shellEscapeAllowed().catch(() => false);
     if (info.rootFile) {
@@ -2252,11 +2311,14 @@ export async function openFolder(path?: string, options: { atFirstPlaceholder?: 
       await triggerCompile();
     } else {
       void refreshPlaceholders();
-      app.notice = 'No root .tex file found. Create main.tex, or pick a file and mark it as root.';
+      tell('No root .tex file found. Create main.tex, or pick a file and mark it as root.');
     }
   } catch (error) {
-    app.notice = String(error);
+    tell(String(error));
+  } finally {
+    app.opening = null;
   }
+  return true;
 }
 
 /**
@@ -2473,11 +2535,16 @@ function setDirty(path: string, isDirty: boolean) {
 }
 
 export async function saveNow(): Promise<void> {
+  if (app.opening !== null) return; // saves are held; the refusal, if it comes, lets them go
   await app.activeDoc?.save();
 }
 
 export async function triggerCompile(): Promise<void> {
   if (!app.project) return;
+  if (app.opening !== null) {
+    buildAskedWhileOpening = true;
+    return;
+  }
   // A compile reads whatever is on disk; every open tab's edits have to be there, not only the
   // active tab's (S2.3, save-all on compile).
   await manager.saveAll().catch(() => {
@@ -2583,7 +2650,7 @@ registerCommand({
   title: 'Open folder…',
   category: 'action',
   shortcut: 'Ctrl O',
-  run: () => void openFolder(),
+  run: () => void pickAndOpenFolder(),
 });
 // S9.8. Both always listed, each a no-op in the state where it means nothing: the registry is
 // static by design (commands.ts), and a palette that hides a permission's off switch would be

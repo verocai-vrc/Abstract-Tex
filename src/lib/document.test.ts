@@ -289,6 +289,20 @@ describe('OpenDocument', () => {
     doc.dispose();
   });
 
+  it('saves only once every reason for holding is gone', async () => {
+    const { backend, writes } = fakeBackend();
+    const doc = new OpenDocument('main.tex', 'abc', backend);
+    doc.ytext.insert(3, 'd');
+    doc.holdSaves('disk');
+    doc.holdSaves('opening');
+    doc.releaseSaves('opening');
+    expect(await doc.save()).toBe(false);
+    doc.releaseSaves('disk');
+    expect(await doc.save()).toBe(true);
+    expect(writes).toEqual([{ path: 'main.tex', contents: 'abcd' }]);
+    doc.dispose();
+  });
+
   it('releasing a hold on a clean buffer does not write anything', async () => {
     const { backend, writes } = fakeBackend();
     const doc = new OpenDocument('main.tex', 'abc', backend);

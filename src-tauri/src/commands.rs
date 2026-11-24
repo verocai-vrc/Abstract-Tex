@@ -16,7 +16,7 @@ use abstract_tex_git::{
 };
 use abstract_tex_github::{Account, NewRepository, Repository as GitHubRepository, Visibility};
 use abstract_tex_reconcile::TextOp;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use crate::bibliography::{self, BibliographyIndex, Finding};
 use crate::compile::CompileEvent;
@@ -24,6 +24,7 @@ use crate::consent::ShellEscapeConsent;
 use crate::git;
 use crate::latexdiff::{self, ComparisonRequest, ComparisonStarted};
 use crate::lsp::LspEvent;
+use crate::opening::Opening;
 use crate::project::{write_atomically, Project, ProjectInfo};
 use crate::synctex::{self, ForwardQuery, ForwardResult, InverseQuery, InverseResult};
 use crate::watcher::{self, remember_write, Change};
@@ -91,16 +92,44 @@ pub async fn engine_info(state: State<'_, AppState>) -> CommandResult<Option<Eng
 }
 
 /// Open a folder: load config, start watching, allow the PDF pane to read the build folder.
+///
+/// The reading happens on a blocking thread, because a folder on a drive that stopped answering never
+/// returns and the window must (S17.2). `select!` waits for whichever comes first: the folder, or the
+/// person's *Stop*. A read that is stuck cannot be interrupted, only left behind: it ends when the
+/// drive answers or the app closes, and `Opening::adopt` then refuses to let it change anything.
+///
+/// Generic over the runtime so that a test can drive it with Tauri's mock one; the app itself only
+/// ever uses the default.
 #[tauri::command]
-pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) -> CommandResult<ProjectInfo> {
-    let mut project = Project::open(Path::new(&path)).map_err(to_message)?;
+pub async fn open_project<R: Runtime>(app: AppHandle<R>, path: String) -> CommandResult<ProjectInfo> {
+    let opening = app.state::<AppState>().openings.begin();
+    let folder = PathBuf::from(path);
+    let reading = {
+        let (app, opening) = (app.clone(), Arc::clone(&opening));
+        tauri::async_runtime::spawn_blocking(move || open_folder(&app, &folder, &opening))
+    };
+    tokio::select! {
+        answer = reading => answer.map_err(to_message)?,
+        () = opening.stopped() => Err(OPENING_STOPPED.to_string()),
+    }
+}
 
-    // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope. The
-    // whole state folder rather than `build/` alone: S9.9's draft PDF is under `draft/` and
-    // S11.4c's comparison under `latexdiff/`, and with only `build/` allowed neither could load.
-    app.asset_protocol_scope()
-        .allow_directory(project.state_dir(), true)
-        .map_err(to_message)?;
+/// Stop the opening that is being read. `false` when it is too late: the document is open.
+#[tauri::command]
+pub fn stop_opening(state: State<'_, AppState>) -> bool {
+    state.openings.stop()
+}
+
+const OPENING_STOPPED: &str = "Opening was stopped.";
+
+/// The part of [`open_project`] that touches a disk.
+fn open_folder<R: Runtime>(
+    app: &AppHandle<R>,
+    folder: &Path,
+    opening: &Opening,
+) -> CommandResult<ProjectInfo> {
+    let mut project = Project::open(folder).map_err(to_message)?;
+    let state = app.state::<AppState>();
 
     let emitter = app.clone();
     let watching = watcher::watch(
@@ -138,15 +167,35 @@ pub fn open_project(app: AppHandle, state: State<'_, AppState>, path: String) ->
     // Each project builds with the engine it asks for (S9.4); a running build of the previous
     // project finishes on the engine it started with.
     let (engine, engine_notice) = crate::compile::engine_for(project.config.project.engine.as_deref());
-    // Both lanes: a comparison compiles with the project's own engine too (design interview A2).
-    state.diff_lane.orchestrator.set_engine(engine.clone());
-    state.orchestrator.set_engine(engine);
     info.engine_notice = engine_notice;
     info.watch_notice = watch_notice;
-    // Replace the old watcher *after* the new one exists, so there is never a gap. When there is no
-    // new one, the old project's must still go: it would report that project's files as this one's.
-    *state.watcher.lock().unwrap() = watcher;
-    *state.project.lock().unwrap() = Some(project);
+
+    // Everything slow is done. From here to the end of the block the project lock is held, so two
+    // openings can never finish in the wrong order, and nothing can be refused after `adopt`.
+    let old_watcher = {
+        let mut open = state.project.lock().unwrap();
+        // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope. The
+        // whole state folder rather than `build/` alone: S9.9's draft PDF is under `draft/` and
+        // S11.4c's comparison under `latexdiff/`, and with only `build/` allowed neither could load.
+        app.asset_protocol_scope()
+            .allow_directory(project.state_dir(), true)
+            .map_err(to_message)?;
+        if !opening.adopt() {
+            return Err(OPENING_STOPPED.to_string());
+        }
+        // Both lanes: a comparison compiles with the project's own engine too (design interview A2).
+        state.diff_lane.orchestrator.set_engine(engine.clone());
+        state.orchestrator.set_engine(engine);
+        // Replace the old watcher *after* the new one exists, so there is never a gap. When there is
+        // no new one, the old project's must still go: it would report that project's files as this
+        // one's.
+        let old_watcher = std::mem::replace(&mut *state.watcher.lock().unwrap(), watcher);
+        *open = Some(project);
+        old_watcher
+    };
+    // Only now, with the lock released: dropping a watcher can wait for its thread, and that thread
+    // takes the project lock to rebuild the bibliography.
+    drop(old_watcher);
     Ok(info)
 }
 
@@ -717,7 +766,7 @@ pub fn unlink_bib_file(app: AppHandle, state: State<'_, AppState>, path: String)
 
 /// Rebuild the index and emit it as `bibliography:changed`. Called from the watcher thread and
 /// from `write_file`; both take the project lock only long enough to copy two paths out.
-fn emit_bibliography(app: &AppHandle) {
+fn emit_bibliography<R: Runtime>(app: &AppHandle<R>) {
     // `app.state()` is how a thread that was not handed `State<'_, AppState>` by Tauri — the
     // watcher's — reaches the same shared state the commands borrow.
     let state = app.state::<AppState>();
@@ -1464,6 +1513,91 @@ mod tests {
             std::thread::current().id(),
             "the token was cleared on the calling thread"
         );
+    }
+
+    // S17.2. `abstract-tex.toml` is a pipe nobody writes to, so reading it never returns: the nearest
+    // thing to a drive that stopped answering. `on_message` runs in a thread of its own, so a command
+    // that reads on the thread that called it fails the first assertion instead of hanging the test.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_never_answers_leaves_the_window_free_and_can_be_stopped() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("main.tex"), "\\documentclass{article}").unwrap();
+        let pipe = folder.path().join(crate::project::CONFIG_FILE);
+        let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
+        assert!(made.success());
+
+        let app = tauri::test::mock_builder()
+            .manage(AppState::new())
+            .invoke_handler(tauri::generate_handler![open_project])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        let (asked, has_asked) = mpsc::channel();
+        let (answer, answered) = mpsc::channel();
+        let path = folder.path().to_string_lossy().into_owned();
+        std::thread::spawn(move || {
+            webview.on_message(
+                tauri::webview::InvokeRequest {
+                    cmd: "open_project".into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(serde_json::json!({ "path": path })),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.to_string(),
+                },
+                Box::new(move |_webview, _command, response, _callback, _error| {
+                    let _ = answer.send(response);
+                }),
+            );
+            let _ = asked.send(());
+        });
+
+        assert!(
+            has_asked.recv_timeout(Duration::from_secs(2)).is_ok(),
+            "the thread that asked did not wait"
+        );
+        assert!(
+            answered.recv_timeout(Duration::from_millis(300)).is_err(),
+            "still reading"
+        );
+        assert!(app.state::<AppState>().openings.stop());
+        assert!(matches!(
+            answered.recv_timeout(Duration::from_secs(2)),
+            Ok(tauri::ipc::InvokeResponse::Err(_))
+        ));
+        assert!(app.state::<AppState>().project.lock().unwrap().is_none());
+        drop(std::fs::OpenOptions::new().write(true).open(&pipe)); // lets the stuck read end
+    }
+
+    // The other half of *Stop*: the read that was left behind can still end, long after, and must then
+    // change nothing.
+    #[test]
+    fn a_folder_that_answers_after_it_was_stopped_does_not_become_the_open_document() {
+        let folder = tempfile::tempdir().unwrap();
+        std::fs::write(folder.path().join("main.tex"), "\\documentclass{article}").unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(AppState::new())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let state = app.state::<AppState>();
+
+        let stopped = state.openings.begin();
+        assert!(state.openings.stop());
+        assert!(open_folder(app.handle(), folder.path(), &stopped).is_err());
+        assert!(state.project.lock().unwrap().is_none());
+        assert!(state.watcher.lock().unwrap().is_none());
+
+        let opening = state.openings.begin();
+        open_folder(app.handle(), folder.path(), &opening).unwrap();
+        assert!(state.project.lock().unwrap().is_some());
     }
 
     /// Whether the calling thread is one of the async runtime's workers rather than a thread from

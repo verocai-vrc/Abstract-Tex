@@ -562,6 +562,8 @@ export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
   openProject: (path: string) => invoke<ProjectInfo>('open_project', { path }),
+  /** S17.2: stop the opening that is being read. `false` when it is too late, or there is none. */
+  stopOpening: () => invoke<boolean>('stop_opening'),
   refreshTree: () => invoke<ProjectInfo>('refresh_tree'),
   readFile: (path: string) => invoke<string>('read_file', { path }),
   writeFile: (path: string, contents: string) => invoke<void>('write_file', { path, contents }),

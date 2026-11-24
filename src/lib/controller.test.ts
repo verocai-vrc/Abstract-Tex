@@ -47,6 +47,9 @@ const calls = {
   /** How often the shell-escape question was put to the person (S9.8). */
   shellEscapeQuestions: 0,
   writes: [] as Array<{ path: string; contents: string }>,
+  /** S17.2: every folder `openProject` was asked for, and how often it was asked to stop. */
+  opened: [] as string[],
+  openingsStopped: 0,
   reads: [] as string[],
   /** Every `textDocument/*` message the controller sent the language server. */
   lsp: [] as Array<{ method: string; params: any }>,
@@ -71,6 +74,18 @@ const calls = {
   commentsAdded: [] as Array<{ file: string; text: string; from: number; to: number; body: string }>,
   commentsResolved: [] as string[],
 };
+/** S17.2: what `openProject` answers with. A test that holds an opening back gives it `deferred()`. */
+let openProjectAnswer: Promise<ProjectInfo> | null = null;
+/** Told when the window asks to stop, so a test can refuse the held opening as Rust does. */
+let whenStopped: () => void = () => {};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => ((resolve = yes), (reject = no)));
+  return { promise, resolve, reject };
+}
+
 let commentRowsOnDisk: CommentRow[] = [];
 /** This machine's shell-escape consent for `/proj` (S9.8), and what the person answers when asked. */
 let shellEscapeOnDisk = false;
@@ -223,7 +238,15 @@ vi.mock('./ipc', () => ({
   ipc: {
     initialProject: async () => null,
     engineInfo: async () => ({ name: 'Tectonic', version: '0.17.0', path: '/bin/tectonic' }),
-    openProject: async () => project,
+    openProject: async (path: string) => {
+      calls.opened.push(path);
+      return openProjectAnswer ?? project;
+    },
+    stopOpening: async () => {
+      calls.openingsStopped++;
+      whenStopped();
+      return true;
+    },
     shellEscapeAllowed: async () => shellEscapeOnDisk,
     allowShellEscape: async () => {
       shellEscapeOnDisk = true;
@@ -697,6 +720,8 @@ const {
   openFile,
   pasteCite,
   openFolder,
+  stopOpening,
+  saveNow,
   quickOpenPick,
   refreshOutline,
   resolveConflict,
@@ -845,9 +870,13 @@ beforeEach(async () => {
   // disk is reset, rather than into the next test's.
   ipcWriteFile = defaultWriteFile;
   app.conflict = null;
+  app.opening = null;
+  openProjectAnswer = null;
+  whenStopped = () => {};
   readGate = null;
   for (const doc of app.docs.values()) {
     doc.releaseSaves();
+    doc.releaseSaves('opening');
     await doc.save(false).catch(() => {});
   }
   disk.clear();
@@ -982,6 +1011,8 @@ beforeEach(async () => {
   await openFolder('/proj');
   calls.compiles = 0; // the open triggered one; the tests care about the ones after
   calls.reads = []; // ditto for the read the open performed
+  calls.opened = ['/proj'];
+  calls.openingsStopped = 0;
 });
 
 afterEach(() => vi.useRealTimers());
@@ -4986,6 +5017,117 @@ describe('a selection made in another tab (R7.1)', () => {
     reportSelection('main.tex', 0, 5);
     reportSelection('main.tex', 3, 3);
     expect(assistant.selection).toBeNull();
+  });
+});
+
+describe('opening a folder leaves the window alive, and can be stopped (S17.2)', () => {
+  /** Start opening another folder whose answer the test holds back. */
+  async function startOpening() {
+    const slow = deferred<ProjectInfo>();
+    openProjectAnswer = slow.promise;
+    const opening = openFolder('/other/essay');
+    await vi.advanceTimersByTimeAsync(0);
+    return { slow, opening };
+  }
+
+  it('an edit made while another folder is being opened is never written', async () => {
+    const { slow, opening } = await startOpening();
+    expect(app.opening).toBe('essay');
+    app.docs.get('main.tex')!.ytext.insert(0, 'late ');
+    await vi.advanceTimersByTimeAsync(5000);
+    slow.resolve({ ...project, rootDir: '/other/essay' });
+    expect(await opening).toBe(true);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls.writes).toEqual([]);
+    expect(app.opening).toBeNull();
+  });
+
+  it('the document that was opened saves its own edits', async () => {
+    const { slow, opening } = await startOpening();
+    slow.resolve({ ...project, rootDir: '/other/essay' });
+    await opening;
+    app.docs.get('main.tex')!.ytext.insert(0, 'new ');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls.writes).toEqual([{ path: 'main.tex', contents: 'new hello' }]);
+  });
+
+  it('a refused opening says why, keeps the document, and lets its saves go', async () => {
+    const focusBefore = app.editorFocusRequest;
+    const { slow, opening } = await startOpening();
+    app.docs.get('main.tex')!.ytext.insert(0, 'late ');
+    slow.reject(new Error('not a folder'));
+    expect(await opening).toBe(false);
+    expect([app.opening, app.notice, app.project?.rootDir]).toEqual([null, expect.stringContaining('not a folder'), '/proj']);
+    expect(app.editorFocusRequest).toBe(focusBefore + 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(calls.writes.map((w) => w.path)).toEqual(['main.tex']); // the edit made meanwhile
+  });
+
+  it('a conflict bar that appeared during a refused opening keeps its own hold', async () => {
+    const { slow, opening } = await startOpening();
+    app.docs.get('main.tex')!.ytext.insert(0, 'mine ');
+    disk.set('main.tex', 'someone else');
+    await fileChanged('main.tex');
+    slow.reject(new Error('not a folder'));
+    await opening;
+    expect(app.conflict?.path).toBe('main.tex');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls.writes).toEqual([]);
+  });
+
+  it('Stop asks Rust, keeps the document, and says nothing', async () => {
+    const { slow, opening } = await startOpening();
+    whenStopped = () => slow.reject('Opening was stopped.');
+    await stopOpening();
+    expect(calls.openingsStopped).toBe(1);
+    expect([await opening, app.notice, app.project?.rootDir]).toEqual([false, null, '/proj']);
+  });
+
+  it('Stop with nothing being opened asks nobody', async () => {
+    await stopOpening();
+    expect(calls.openingsStopped).toBe(0);
+  });
+
+  it('a second request while one is being opened does nothing', async () => {
+    const { slow, opening } = await startOpening();
+    expect(await openFolder('/third')).toBe(false);
+    expect(calls.opened).toEqual(['/proj', '/other/essay']);
+    slow.reject(new Error('over'));
+    await opening;
+  });
+
+  it('saving and building wait until the opening is over', async () => {
+    const { slow, opening } = await startOpening();
+    const compilesBefore = calls.compiles;
+    app.docs.get('main.tex')!.ytext.insert(0, 'late ');
+    await saveNow();
+    await triggerCompile();
+    expect([calls.writes, calls.compiles]).toEqual([[], compilesBefore]);
+    slow.reject(new Error('over'));
+    await opening;
+    await vi.advanceTimersByTimeAsync(0);
+    // The build asked for meanwhile is made now, of the text it was asked for.
+    expect([calls.writes.length, calls.compiles]).toEqual([1, compilesBefore + 1]);
+  });
+
+  it('a tab that opens during it is held like the rest', async () => {
+    disk.set('chapter.tex', 'chapter');
+    const { slow, opening } = await startOpening();
+    await openFile('chapter.tex');
+    app.docs.get('chapter.tex')?.ytext.insert(0, 'late ');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(calls.writes).toEqual([]);
+    slow.reject(new Error('over'));
+    await opening;
+  });
+
+  it('names the document when it is given a name', async () => {
+    const slow = deferred<ProjectInfo>();
+    openProjectAnswer = slow.promise;
+    const opening = openFolder('/other/essay', { name: 'On Bees' });
+    expect(app.opening).toBe('On Bees');
+    slow.reject(new Error('over'));
+    await opening;
   });
 });
 

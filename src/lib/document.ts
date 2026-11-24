@@ -36,6 +36,12 @@ export interface DocumentBackend {
   afterSave?(path: string): void;
 }
 
+/** Why a document is not being written for now. `disk`: an external change is being looked at, or a
+ * conflict bar is waiting for an answer. `opening`: another folder is being opened (S17.2), and once
+ * Rust has swapped the project a write would land in the new one. Two reasons can hold at once, and
+ * the end of one must not let go of the other. */
+export type HoldReason = 'disk' | 'opening';
+
 /** The outcome of the decision table below. */
 export type ExternalChange = 'ignore' | 'apply' | 'conflict' | 'vanished';
 
@@ -121,7 +127,7 @@ export class OpenDocument {
   private saveFailing = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
-  private savesHeld = false;
+  private readonly heldFor = new Set<HoldReason>();
 
   constructor(
     readonly path: string,
@@ -193,7 +199,7 @@ export class OpenDocument {
   }
 
   private scheduleSave(delayMs = this.saveDelayMs) {
-    if (this.savesHeld) return;
+    if (this.heldFor.size > 0) return;
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
@@ -224,24 +230,24 @@ export class OpenDocument {
   }
 
   /**
-   * Stop writing to disk until `releaseSaves`, cancelling any pending debounce. The controller
+   * Stop writing to disk until `releaseSaves` of the same reason, cancelling any pending debounce. The controller
    * holds saves while it decides what an external change means, and keeps them held for as long
    * as a conflict bar is on screen: otherwise the 700 ms timer would fire behind the author's
    * back and answer the question for them, which is exactly the automatic merge DESIGN.md §5.6
    * forbids.
    */
-  holdSaves(): void {
+  holdSaves(reason: HoldReason = 'disk'): void {
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
-    this.savesHeld = true;
+    this.heldFor.add(reason);
   }
 
-  /** Allow writes again, rescheduling the debounce if the buffer is still dirty. */
-  releaseSaves(): void {
-    if (!this.savesHeld) return;
-    this.savesHeld = false;
+  /** This reason is gone. With none left, writes are allowed again, and the debounce is rescheduled if
+   * the buffer is still dirty. */
+  releaseSaves(reason: HoldReason = 'disk'): void {
+    if (!this.heldFor.delete(reason) || this.heldFor.size > 0) return;
     if (this.dirty) this.scheduleSave();
   }
 
@@ -267,7 +273,7 @@ export class OpenDocument {
    * landed can send the same edit to disk twice.
    */
   async save(notify = true): Promise<boolean> {
-    if (this.savesHeld) return false;
+    if (this.heldFor.size > 0) return false;
     if (this.saveTimer) {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;

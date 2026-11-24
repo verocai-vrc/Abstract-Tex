@@ -9,7 +9,7 @@
     lspDiagnosticsFor,
     lspGoToDefinition,
     lspHover,
-    openFolder,
+    pickAndOpenFolder,
     pasteCite,
     reportSelection,
     resolveConflict,
@@ -107,6 +107,15 @@
     if (request && view) goToLine(view, request.line);
   });
 
+  // S17.2: the shell was `inert` while a folder was being opened, which takes the focus away. The
+  // counter is compared with the last one answered, so a new view alone never takes the focus.
+  let focusAnswered = app.editorFocusRequest;
+  $effect(() => {
+    if (!view || app.editorFocusRequest === focusAnswered) return;
+    focusAnswered = app.editorFocusRequest;
+    view.focus();
+  });
+
   // S4.5's two writing modes: the card that defined this loop did not list this file, but the
   // toggle lives in `app` (state.svelte.ts) and something has to push a changed value into the
   // live `EditorView`'s `Compartment` — the same "state changes, an effect applies it to the
@@ -186,7 +195,7 @@
             <button class="primary" onclick={() => showNewProjectWindow()}>
               New from template… <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>N</kbd>
             </button>
-            <button onclick={() => void openFolder()}>Open folder… <kbd>Ctrl</kbd> <kbd>O</kbd></button>
+            <button onclick={() => void pickAndOpenFolder()}>Open folder… <kbd>Ctrl</kbd> <kbd>O</kbd></button>
             <button onclick={() => showCloneWindow()}>Clone a repository…</button>
           </div>
         </div>

@@ -6,12 +6,14 @@
 // Like `document.ts`, this module knows nothing about Svelte or Tauri: `controller.svelte.ts`
 // is the only thing that calls it, and copies what changed into the reactive `app` state.
 
-import { OpenDocument, type DocumentBackend } from './document';
+import { OpenDocument, type DocumentBackend, type HoldReason } from './document';
 
 export class DocumentManager {
   private readonly docs = new Map<string, OpenDocument>();
   /** Tab order, left to right. A `Map` has no order guarantee worth relying on for that. */
   private order: string[] = [];
+  /** Why every tab's saves are held, so that a tab opened meanwhile is held too. */
+  private readonly heldFor = new Set<HoldReason>();
 
   constructor(private readonly backend: DocumentBackend) {}
 
@@ -35,6 +37,7 @@ export class DocumentManager {
    */
   open(path: string, initialText: string): OpenDocument {
     const doc = new OpenDocument(path, initialText, this.backend);
+    for (const reason of this.heldFor) doc.holdSaves(reason);
     this.docs.set(path, doc);
     this.order.push(path);
     return doc;
@@ -62,6 +65,17 @@ export class DocumentManager {
     for (const doc of this.docs.values()) doc.dispose();
     this.docs.clear();
     this.order = [];
+  }
+
+  /** Hold the saves of every tab, and of any tab opened before `releaseSaves`. */
+  holdSaves(reason: HoldReason = 'disk'): void {
+    this.heldFor.add(reason);
+    for (const doc of this.docs.values()) doc.holdSaves(reason);
+  }
+
+  releaseSaves(reason: HoldReason = 'disk'): void {
+    this.heldFor.delete(reason);
+    for (const doc of this.docs.values()) doc.releaseSaves(reason);
   }
 
   /** Paths with edits not yet written to disk, in tab order. */

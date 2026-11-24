@@ -36,6 +36,12 @@ export interface Conflict {
 
 class AppState {
   project = $state<ProjectInfo | null>(null);
+  /** What is being opened right now, by name, or `null` (S17.2). While it is set the editor shell is
+   * `inert`, nothing is saved or built, and `OpeningNotice` offers *Stop*. */
+  opening = $state<string | null>(null);
+  /** A counter: bumped to ask the editor to take the keyboard focus, which an `inert` shell lost. */
+  editorFocusRequest = $state(0);
+
   /** `undefined` = not probed yet; `null` = no engine found. */
   engine = $state<EngineInfo | null | undefined>(undefined);
 
