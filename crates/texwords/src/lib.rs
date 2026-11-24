@@ -30,6 +30,10 @@
 //! assert_eq!(headings[0].title, "Methods");
 //! ```
 
+mod title;
+
+pub use title::title_of;
+
 /// Environments whose bodies are not prose at any word count.
 ///
 /// Maths and verbatim, and nothing else. A `tabular` body *is* counted, which is a deliberate
