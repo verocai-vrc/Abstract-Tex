@@ -99,9 +99,7 @@ pub fn scrub_home(text: &str, home: Option<&str>) -> String {
 /// Whether `next` (the character after a home folder in a path, if any) ends the name: a
 /// separator, whitespace, a quote, a colon or the end of the text, but not more of a name.
 fn breaks_a_name(next: Option<char>) -> bool {
-    next.map_or(true, |next| {
-        !(next.is_alphanumeric() || next == '_' || next == '-' || next == '.')
-    })
+    next.is_none_or(|next| !(next.is_alphanumeric() || next == '_' || next == '-' || next == '.'))
 }
 
 /// Percent-encode for a URL query value: everything but the unreserved characters becomes `%XX`

@@ -772,7 +772,7 @@ fn plain_text_citations(text: &str) -> Vec<(Range<usize>, String)> {
             .or_else(|| et_al_reference(text, year_start, year_end));
         if let Some(span) = span {
             // Two shapes can match the same reference ("(Smith et al., 2019)"): keep the first.
-            if found.last().map_or(true, |(last, _)| span.start >= last.end) {
+            if found.last().is_none_or(|(last, _)| span.start >= last.end) {
                 found.push((span.clone(), text[span].to_string()));
             }
         }

@@ -47,7 +47,7 @@ pub(crate) fn repair_tex_text(text: &str) -> String {
     let characters: Vec<char> = text.chars().collect();
     // An odd number of maths delimiters means one has no partner and there is no telling which, so
     // none of them opens maths: each is escaped and the text is repaired as plain prose.
-    let delimiters_pair_up = count_maths_delimiters(&characters) % 2 == 0;
+    let delimiters_pair_up = count_maths_delimiters(&characters).is_multiple_of(2);
     let mut out = String::with_capacity(text.len() + 8);
     let mut in_maths = false;
     // The character after a backslash is part of that backslash's command (`\&`, `\$`, `\\`), not

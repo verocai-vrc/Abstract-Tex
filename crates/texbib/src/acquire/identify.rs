@@ -165,7 +165,7 @@ fn isbn_10_check_digit_adds_up(isbn: &[u8]) -> bool {
             value * (10 - position as u32)
         })
         .sum();
-    weighted_sum % 11 == 0
+    weighted_sum.is_multiple_of(11)
 }
 
 /// ISBN-13's rule: the digits weighted 1, 3, 1, 3, ... add up to a multiple of 10. `isbn` is already
@@ -179,7 +179,7 @@ fn isbn_13_check_digit_adds_up(isbn: &[u8]) -> bool {
             u32::from(byte - b'0') * weight
         })
         .sum();
-    weighted_sum % 10 == 0
+    weighted_sum.is_multiple_of(10)
 }
 
 #[cfg(test)]

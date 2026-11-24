@@ -1,6 +1,6 @@
 [package]
 name = "abstract-tex-import"
-description = "Opening what people already have: which folder a file's document is in, and which folders are no document at all."
+description = "Opening what people already have: which folder a file's document is in, which folders are no document at all, and unpacking a zip."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,8 @@ rust-version.workspace = true
 
 [dependencies]
 abstract-tex-includes = { path = "../abstract-tex-includes" }
-
-[dev-dependencies]
+# Named beside `zip` for its default feature, which is the decompressor `zip` then uses.
+flate2 = { workspace = true }
 tempfile = { workspace = true }
+thiserror = { workspace = true }
+zip = { workspace = true }

@@ -34,7 +34,7 @@ version = "0.9.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/verocai-vrc/Abstract-Tex"
-rust-version = "1.80"
+rust-version = "1.90"
 
 [workspace.dependencies]
 # Async runtime. Tauri already depends on it, so the app pays nothing extra.
@@ -71,6 +71,9 @@ async-trait = "0.1"
 # Gzip decompression, for reading .synctex.gz (crates/abstract-tex-synctex). Widely used, actively
 # maintained, part of the rust-lang-adjacent ecosystem — not a niche one-person crate.
 flate2 = "1"
+# Reading .zip archives (S17.9). Without its default features, which would bring encryption and five
+# compression methods nobody's document uses: only deflate, done by the `flate2` above.
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # HTTP client for the acquisition features (DESIGN.md §5.4: DOI, arXiv, ISBN, and later Zotero).
 # `rustls-tls` avoids linking system OpenSSL, matching the "bundled, zero setup" story. The
 # blocking client, not the async one: texbib is meant to be callable from a plain script with no

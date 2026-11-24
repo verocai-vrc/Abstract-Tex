@@ -465,7 +465,7 @@ fn inside_project(path: &str) -> Result<(), GitError> {
         && relative
             .components()
             .next()
-            .map_or(true, |first| first.as_os_str() != ".git");
+            .is_none_or(|first| first.as_os_str() != ".git");
     if plain {
         Ok(())
     } else {
