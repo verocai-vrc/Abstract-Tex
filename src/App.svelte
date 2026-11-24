@@ -4,7 +4,6 @@
   import {
     saveNow,
     goToNextPlaceholder,
-    showNewProjectWindow,
     openPdfFind,
     showActivityView,
     start,
@@ -32,7 +31,6 @@
   import StartScreen from './components/StartScreen.svelte';
   import OpeningNotice from './components/OpeningNotice.svelte';
   import CloneWindow from './components/CloneWindow.svelte';
-  import NewProjectWindow from './components/NewProjectWindow.svelte';
   import ShareWindow from './components/ShareWindow.svelte';
   import JoinWindow from './components/JoinWindow.svelte';
   import DiffView from './components/DiffView.svelte';
@@ -97,7 +95,7 @@
         void goToNextPlaceholder();
         break;
       case 'new-project':
-        showNewProjectWindow();
+        showStart('new', dialogIsUp());
         break;
       case 'open-folder':
         showStart('open', dialogIsUp());
@@ -167,7 +165,6 @@
 <QuickOpen />
 <CommandPalette />
 <CloneWindow />
-<NewProjectWindow />
 <ShareWindow />
 <JoinWindow />
 <DiffView />

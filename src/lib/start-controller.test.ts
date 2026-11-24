@@ -1,6 +1,6 @@
 // S17.4: what the start screen does, with a fake Rust that records every call.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProjectInfo, RecentDocument } from './ipc';
+import type { Preferences, ProjectInfo, RecentDocument, TemplateInfo } from './ipc';
 
 /** Every call made to the fake, as `[name, ...arguments]`. */
 const ipcCalls: unknown[][] = [];
@@ -30,9 +30,12 @@ vi.mock('./ipc', () => ({
 
 const { app } = await import('./state.svelte');
 const { startScreen } = await import('./start.svelte');
+const { newProject } = await import('./templates.svelte');
+const { allCommands } = await import('./commands');
 const {
-  backToDocument, clearRecents, findRecent, forgetRecent, goToPage, loadRecents, openRecent, runFromPalette,
-  showRecentInFolder, showStart, startBack,
+  backToDocument, changePlace, chooseTemplate, clearRecents, createProject, findRecent, forgetRecent, goToPage, loadRecents,
+  moveTemplateSelection, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
+  templateFilterChanged,
 } = await import('./start-controller.svelte');
 
 function only(...names: string[]): unknown[][] {
@@ -43,6 +46,17 @@ function recent(folder: string, title = folder.slice(1)): RecentDocument {
 }
 
 let listed: RecentDocument[] = [];
+
+const essay: TemplateInfo = {
+  id: 'essay', name: 'Essay', category: 'essay', description: 'A short essay', previewUrl: 'data:,',
+  fields: [{ id: 'title', label: 'Title', example: '' }, { id: 'author', label: 'Author', example: '' }],
+};
+const cv: TemplateInfo = { ...essay, id: 'cv', name: 'Curriculum vitae', category: 'cv', description: 'One page' };
+const noPreferences: Preferences = {
+  place: { path: '/home/ana/Documents/Abstract-Tex', parts: ['Documents', 'Abstract-Tex'] },
+  author: '', textSize: 100, colours: 'match',
+};
+let preferences = noPreferences;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -55,7 +69,14 @@ beforeEach(() => {
     documentTitle: () => 'proj',
     bibliographyHealth: () => [],
     compile: () => 1,
-    templateList: () => [],
+    templateList: () => [essay, cv],
+    templateCreate: () => '/proj',
+    preferences: () => preferences,
+    setPreferences: (change: { place?: string; author?: string }) => {
+      const { place, ...rest } = change;
+      preferences = { ...preferences, ...rest, ...(place ? { place: { path: place, parts: place.split('/').filter(Boolean) } } : {}) };
+      return preferences;
+    },
     forgetRecent: (folder: string) => {
       listed = listed.filter((r) => r.folder !== folder);
     },
@@ -75,6 +96,15 @@ beforeEach(() => {
   startScreen.presence = new Map();
   startScreen.carryOn = null;
   startScreen.message = null;
+  startScreen.preferences = null;
+  preferences = noPreferences;
+  newProject.catalog = null;
+  newProject.values = {};
+  newProject.error = null;
+  newProject.loadError = null;
+  newProject.creating = false;
+  newProject.step = 'choose';
+  newProject.selectedId = null;
   ipcCalls.length = 0;
   opened.length = 0;
 });
@@ -323,5 +353,185 @@ describe('Home over an open document (S17.5)', () => {
     startScreen.visible = false;
     runFromPalette('home');
     expect([startScreen.visible, startScreen.page]).toEqual([true, 'home']);
+  });
+});
+
+describe('a new document (S11.11, S17.6)', () => {
+  async function showNew() {
+    goToPage('new', 'first');
+    await vi.advanceTimersByTimeAsync(0);
+  }
+  async function fillIn(values: Record<string, string>, id = 'essay') {
+    await showNew();
+    chooseTemplate(id);
+    newProject.values = values;
+  }
+
+  it('opens on the cards with the first one highlighted, and asks Rust for the catalog once', async () => {
+    await showNew();
+    expect([newProject.step, newProject.catalog, newProject.selectedId]).toEqual(['choose', [essay, cv], 'essay']);
+    await showNew();
+    expect(only('templateList')).toHaveLength(1);
+  });
+
+  it('moves the highlight along what the filter leaves, and re-aims it when the filter hides it', async () => {
+    await showNew();
+    moveTemplateSelection(1);
+    expect(newProject.selectedId).toBe('cv');
+    newProject.query = 'essay';
+    templateFilterChanged();
+    expect(newProject.selectedId).toBe('essay');
+  });
+
+  it('Esc steps back once: the questions, the cards, the document', async () => {
+    app.project = project;
+    await fillIn({ title: 'T' });
+    const before = startScreen.focusNonce;
+    startBack();
+    expect([startScreen.visible, newProject.step, startScreen.focusNonce]).toEqual([true, 'choose', before + 1]);
+    startBack();
+    expect(startScreen.visible).toBe(false);
+    expect(only('templateCreate')).toEqual([]);
+  });
+
+  it('creates in the remembered place without asking, and opens the result', async () => {
+    await fillIn({ title: '  My thesis ', author: 'Ada' });
+    await createProject();
+    expect(only('templateCreate')).toEqual([
+      ['templateCreate', 'essay', '/home/ana/Documents/Abstract-Tex', { title: 'My thesis', author: 'Ada' }],
+    ]);
+    expect(only('pickParentFolder')).toEqual([]);
+    expect([startScreen.visible, app.project?.rootDir]).toEqual([false, '/proj']);
+  });
+
+  it('opens at the first thing to fill in', async () => {
+    answers.readFile = () => 'x\n% FILL IN: your text\n';
+    const tree = [{ name: 'main.tex', path: 'main.tex', isDir: false, children: [] }];
+    answers.openProject = () => ({ ...project, tree });
+    await fillIn({ title: 'T' });
+    await createProject();
+    expect(app.jumpRequest?.line).toBe(2);
+  });
+
+  it('reads the place first when Create is pressed before it is known', async () => {
+    await fillIn({ title: 'T' });
+    startScreen.preferences = null;
+    await createProject();
+    expect(only('templateCreate')[0]?.[2]).toBe('/home/ana/Documents/Abstract-Tex');
+  });
+
+  it('sends an empty author as an empty string, because the template declares the field', async () => {
+    await fillIn({ title: 'T' });
+    await createProject();
+    expect(only('templateCreate')[0]?.[3]).toEqual({ title: 'T', author: '' });
+    expect(only('setPreferences')).toEqual([]);
+  });
+
+  it('wants a title, and writes nothing without one', async () => {
+    await fillIn({ title: '   ' });
+    await createProject();
+    expect(newProject.error).toContain('title');
+    expect(only('templateCreate')).toEqual([]);
+  });
+
+  it('a refusal keeps the page and everything typed', async () => {
+    answers.templateCreate = () => {
+      throw 'There is already something called "my-thesis" in /papers. Change the title, or choose another place.';
+    };
+    await fillIn({ title: 'My thesis', author: 'Ada' });
+    await createProject();
+    expect(newProject.error).toContain('already something called');
+    expect([startScreen.page, newProject.step, newProject.values.title]).toEqual(['new', 'fill', 'My thesis']);
+    expect(newProject.creating).toBe(false);
+    expect(only('setPreferences')).toEqual([]);
+  });
+
+  it('creates nothing while the open document cannot be left, and says why here (R6.9)', async () => {
+    app.project = project;
+    app.conflict = { path: 'main.tex' } as typeof app.conflict;
+    await fillIn({ title: 'T' });
+    await createProject();
+    expect(only('templateCreate')).toEqual([]);
+    expect(newProject.error).toContain('main.tex');
+  });
+
+  it('is not made twice, and cannot be stepped back from, while it is being made', async () => {
+    let made!: (folder: string) => void;
+    answers.templateCreate = () => new Promise((resolve) => (made = resolve));
+    await fillIn({ title: 'T' });
+    const creating = createProject();
+    await vi.advanceTimersByTimeAsync(0);
+    await createProject();
+    startBack();
+    expect([newProject.step, startScreen.page]).toEqual(['fill', 'new']);
+    goToPage('new', 'heading');
+    expect(newProject.step).toBe('fill');
+    made('/proj');
+    await creating;
+    expect(only('templateCreate')).toHaveLength(1);
+  });
+
+  it('is not made while another document is being opened', async () => {
+    await fillIn({ title: 'T' });
+    app.opening = 'x';
+    await createProject();
+    expect(only('templateCreate')).toEqual([]);
+  });
+
+  it('remembers the author once a document is made, and offers it next time with an empty title', async () => {
+    await fillIn({ title: 'T', author: 'Ada' });
+    await createProject();
+    expect(ipcCalls).toContainEqual(['setPreferences', { author: 'Ada' }]);
+    await showNew();
+    chooseTemplate('essay');
+    expect(newProject.values).toEqual({ author: 'Ada' });
+  });
+
+  it('does not put back a name someone has just emptied', async () => {
+    preferences = { ...noPreferences, author: 'Ada' };
+    await fillIn({ title: 'T', author: '' });
+    startBack();
+    chooseTemplate('cv');
+    expect(newProject.values).toEqual({ title: 'T', author: '' });
+  });
+
+  it('one that was made but could not be opened says so on the cards', async () => {
+    answers.openProject = () => {
+      throw 'no';
+    };
+    await fillIn({ title: 'T' });
+    await createProject();
+    expect([startScreen.message?.text, newProject.step, newProject.values.title]).toEqual(['no', 'choose', undefined]);
+  });
+
+  it('Change… remembers the place', async () => {
+    await showNew();
+    answers.pickParentFolder = () => '/usb';
+    await changePlace();
+    expect(ipcCalls).toContainEqual(['setPreferences', { place: '/usb' }]);
+    expect(startScreen.preferences?.place.path).toBe('/usb');
+  });
+
+  it('Change… cancelled, or refused, keeps the place', async () => {
+    await showNew();
+    await changePlace();
+    expect(only('setPreferences')).toEqual([]);
+    answers.pickParentFolder = () => '/usb';
+    answers.setPreferences = () => {
+      throw 'the disk is full';
+    };
+    await changePlace();
+    expect([startScreen.preferences?.place, newProject.error]).toEqual([noPreferences.place, 'the disk is full']);
+  });
+
+  it('a template on Home goes straight to its questions', async () => {
+    await loadRecents();
+    startFromTemplate('essay');
+    expect([startScreen.page, newProject.step, newProject.selectedId]).toEqual(['new', 'fill', 'essay']);
+  });
+
+  it('is in the palette with its chord', () => {
+    const command = allCommands().find((c) => c.id === 'new-project');
+    expect([command?.title, command?.shortcut, command?.withoutDocument]).toEqual(['New document…', 'Ctrl Shift N', true]);
   });
 });

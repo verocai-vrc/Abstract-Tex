@@ -1,7 +1,7 @@
-// The New project window's state (S11.11; DESIGN.md §6 "Start a document"): the catalog, which card
+// The New page's state (S11.11, a page since S17.6; DESIGN.md §6 "Start a document"): the catalog, which card
 // is highlighted, what has been typed, and what the last attempt said.
 //
-// Only the controller writes to `newProject`, as with `clone`, `git` and `github`. The filter is a
+// Only `start-controller.svelte.ts` writes to `newProject`. The filter is a
 // plain function so `templates.test.ts` exercises it with literals and no Svelte runtime.
 
 import type { TemplateInfo } from './ipc';
@@ -46,7 +46,6 @@ export function neighbour(shown: readonly TemplateInfo[], current: string | null
 }
 
 class NewProjectState {
-  visible = $state(false);
   /** `choose`: the cards. `fill`: the questions for the highlighted card. Esc steps back. */
   step = $state<'choose' | 'fill'>('choose');
 
@@ -63,9 +62,9 @@ class NewProjectState {
    * because a title typed once is still the title. */
   values = $state<Record<string, string>>({});
 
-  /** True from picking the folder until the project exists, so *Create* cannot be pressed twice. */
+  /** True from *Create* until the document exists, so *Create* cannot be pressed twice. */
   creating = $state(false);
-  /** Why the last attempt did not happen, as a sentence for the window. */
+  /** Why the last attempt did not happen, as a sentence for the page. */
   error = $state<string | null>(null);
 }
 

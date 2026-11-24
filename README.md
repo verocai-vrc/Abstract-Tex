@@ -230,6 +230,7 @@ ABSTRACT_TEX_OPEN="$PWD/fixtures/paper" pnpm tauri dev
 | `Mod+S` | Save |
 | `Mod+B` or `F5` | Build now |
 | `Mod+Shift+H` | Home: the start screen, over the open document |
+| `Mod+Shift+N` | New document |
 | `Mod+O` | Open a document |
 | `Mod+P` | Go to file |
 | `Mod+K` | Command palette: every action, file and section |

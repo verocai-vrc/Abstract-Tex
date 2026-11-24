@@ -100,24 +100,23 @@ pub fn destination_for(
         .unwrap_or(false);
     if destination.exists() && !is_empty_folder {
         return Err(format!(
-            "There is already something called \"{name}\" in {}. Change the title to give this project another folder name, or choose a different place.",
+            "There is already something called \"{name}\" in {}. Change the title, or choose another place.",
             parent.display()
         ));
     }
     Ok(destination)
 }
 
-/// Make a new project from template `template_id` inside `parent`, with `fields` filled in, and
-/// answer with the folder.
+/// Make a new project from template `template_id` at `destination` (see [`destination_for`]), with
+/// `fields` filled in.
 pub fn create(
-    parent: &Path,
+    destination: &Path,
     template_id: &str,
     fields: &BTreeMap<String, String>,
-) -> Result<PathBuf, String> {
+) -> Result<(), String> {
     let catalog = Catalog::embedded().map_err(|error| error.to_string())?;
-    let destination = destination_for(parent, fields, template_id)?;
     catalog
-        .instantiate(template_id, &destination, fields)
+        .instantiate(template_id, destination, fields)
         .map_err(|error| match error {
             // Raced with something else creating the folder since `destination_for` looked.
             TemplateError::DestinationNotEmpty(path) => {
@@ -126,9 +125,17 @@ pub fn create(
                     path.display()
                 )
             }
+            TemplateError::Io(error) => {
+                let place = destination.parent().unwrap_or(destination);
+                // Its kind only: the whole error names a staging folder nobody has heard of.
+                format!(
+                    "A new document could not be made in {} ({}). Choose another place.",
+                    place.display(),
+                    error.kind()
+                )
+            }
             other => other.to_string(),
-        })?;
-    Ok(destination)
+        })
 }
 
 #[cfg(test)]
@@ -140,6 +147,13 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    /// Both steps, as `commands::template_create` takes them.
+    fn create_in(parent: &Path, id: &str, fields: &BTreeMap<String, String>) -> Result<PathBuf, String> {
+        let folder = destination_for(parent, fields, id)?;
+        create(&folder, id, fields)?;
+        Ok(folder)
     }
 
     #[test]
@@ -163,7 +177,7 @@ mod tests {
     #[test]
     fn a_project_lands_in_a_folder_named_after_its_title() {
         let parent = tempfile::tempdir().unwrap();
-        let folder = create(parent.path(), "essay", &answers("My Essay: v2", "Ada")).unwrap();
+        let folder = create_in(parent.path(), "essay", &answers("My Essay: v2", "Ada")).unwrap();
         assert_eq!(folder, parent.path().join("my-essay-v2"));
         let main = std::fs::read_to_string(folder.join("main.tex")).unwrap();
         assert!(main.contains(r"\title{My Essay: v2}") && main.contains(r"\author{Ada}"));
@@ -176,7 +190,7 @@ mod tests {
         std::fs::create_dir(&taken).unwrap();
         std::fs::write(taken.join("notes.txt"), "mine").unwrap();
 
-        let message = create(parent.path(), "essay", &answers("My essay", "Ada")).unwrap_err();
+        let message = create_in(parent.path(), "essay", &answers("My essay", "Ada")).unwrap_err();
 
         assert!(
             message.contains("\"my-essay\"") && message.contains("Change the title"),
@@ -195,13 +209,22 @@ mod tests {
     fn an_existing_empty_folder_is_used() {
         let parent = tempfile::tempdir().unwrap();
         std::fs::create_dir(parent.path().join("my-essay")).unwrap();
-        assert!(create(parent.path(), "essay", &answers("My essay", "Ada")).is_ok());
+        assert!(create_in(parent.path(), "essay", &answers("My essay", "Ada")).is_ok());
     }
 
     #[test]
     fn an_unknown_template_is_a_sentence() {
         let parent = tempfile::tempdir().unwrap();
-        let message = create(parent.path(), "nope", &answers("T", "A")).unwrap_err();
+        let message = create_in(parent.path(), "nope", &answers("T", "A")).unwrap_err();
         assert!(message.contains("no template called `nope`"), "{message}");
+    }
+
+    #[test]
+    fn a_place_that_cannot_be_written_in_is_named() {
+        let parent = tempfile::tempdir().unwrap();
+        let place = parent.path().join("a file");
+        std::fs::write(&place, "").unwrap();
+        let message = create_in(&place, "essay", &answers("T", "A")).unwrap_err();
+        assert!(message.contains(&place.display().to_string()), "{message}");
     }
 }

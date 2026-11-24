@@ -47,6 +47,21 @@ export const words = {
   /** An action on one row: what it does, then to which document. */
   onDocument: (action: string, title: string) => `${action}: ${title}`,
 
+  newTitle: 'New document',
+  newTitleOf: (template: string) => `New document: ${template}`,
+  searchTemplates: 'Search',
+  searchTemplatesLabel: 'Search the kinds of document',
+  kindOfDocument: 'Kind of document',
+  noTemplateMatches: (query: string) => `Nothing matches “${query}”. Try fewer words.`,
+  previewOf: (template: string) => `First page of: ${template}`,
+  keptIn: 'Kept in',
+  change: 'Change…',
+  changePlaceTitle: 'Choose where to keep new documents',
+  back: 'Back',
+  create: 'Create',
+  creating: 'Creating…',
+  titleNeeded: 'Give the document a title. Its folder is named after it.',
+
   openTitle: 'Open a document',
   chooseFolder: 'Choose a folder…',
   chooseFolderHint: 'if your document is a folder of files',

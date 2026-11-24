@@ -1254,7 +1254,10 @@ pub async fn template_create<R: Runtime>(
     fields: std::collections::BTreeMap<String, String>,
 ) -> CommandResult<String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let folder = crate::templates::create(Path::new(&parent_dir), &template_id, &fields)?;
+        let folder = crate::templates::destination_for(Path::new(&parent_dir), &fields, &template_id)?;
+        // Before the folder is made: if this fails, there is nothing that could have them.
+        crate::start::forget_permissions(&app, &folder)?;
+        crate::templates::create(&folder, &template_id, &fields)?;
         // The title as it was typed (S17.3): a letter has no `\title` to read it back from.
         if let Some(recents) = app.try_state::<RecentDocuments>() {
             let root_file = crate::project::detect_root(&folder).unwrap_or_else(|| PathBuf::from("main.tex"));
@@ -1686,6 +1689,62 @@ mod tests {
             info.title, "My request",
             "a letter has no title to read it back from"
         );
+    }
+
+    /// An app that has permissions to inherit, and a letter to make in `parent`.
+    fn app_with_permissions(config: &Path) -> tauri::App<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .manage(AppState::new())
+            .manage(ShellEscapeConsent::at(config.join("shell-escape.toml")))
+            .manage(crate::assistant::AssistantSettings::at(
+                config.join("assistant.json"),
+            ))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap()
+    }
+
+    fn make_letter(app: &tauri::App<tauri::test::MockRuntime>, parent: &Path) -> CommandResult<String> {
+        let fields = [("title", "My request"), ("author", "Ana")]
+            .map(|(id, value)| (id.to_string(), value.to_string()));
+        tauri::async_runtime::block_on(template_create(
+            app.handle().clone(),
+            "letter".into(),
+            parent.to_string_lossy().into_owned(),
+            fields.into(),
+        ))
+    }
+
+    #[test]
+    fn a_new_document_inherits_no_permission_from_a_folder_that_used_to_be_there() {
+        let (config, parent) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let app = app_with_permissions(config.path());
+        let consent = app.state::<ShellEscapeConsent>();
+        let settings = app.state::<crate::assistant::AssistantSettings>();
+        let (folder, other) = (parent.path().join("my-request"), parent.path().join("other"));
+        for allowed in [&folder, &other] {
+            consent.allow(allowed).unwrap();
+            crate::assistant::set_enabled(&settings, allowed, true).unwrap();
+        }
+        // Reached by a path that is not the one it was allowed under, as a picker may answer.
+        make_letter(&app, &parent.path().join(".")).unwrap();
+
+        assert!(!consent.allows(&folder));
+        assert!(!settings.is_enabled_for(&folder));
+        assert!(
+            consent.allows(&other) && settings.is_enabled_for(&other),
+            "only that folder's"
+        );
+    }
+
+    #[cfg(unix)] // Windows says "not found" of a path under a file, and then there is nothing to drop.
+    #[test]
+    fn when_the_permissions_cannot_be_dropped_nothing_is_made() {
+        let (config, parent) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let config_folder = config.path().join("app");
+        std::fs::write(&config_folder, "a file where the folder should be").unwrap();
+        let app = app_with_permissions(&config_folder);
+        assert!(make_letter(&app, parent.path()).is_err());
+        assert_eq!(std::fs::read_dir(parent.path()).unwrap().count(), 0);
     }
 
     /// Whether the calling thread is one of the async runtime's workers rather than a thread from

@@ -39,7 +39,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // S11.12: F8 is "next problem" in VS Code, and a placeholder is the same kind of thing: a place the
   // document is not finished.
   { action: 'next-placeholder', keys: 'F8', label: 'Go to next placeholder' },
-  { action: 'new-project', keys: 'Mod-Shift-N', label: 'New project from template…' },
+  { action: 'new-project', keys: 'Mod-Shift-N', label: 'New document…' },
   { action: 'quick-open', keys: 'Mod-P', label: 'Go to file…' },
   { action: 'command-palette', keys: 'Mod-K', label: 'Command palette…' },
   // S10.3a: the activity bar, bound exactly as VS Code binds it (DESIGN.md §6). These are the

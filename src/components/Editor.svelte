@@ -9,12 +9,9 @@
     lspDiagnosticsFor,
     lspGoToDefinition,
     lspHover,
-    pickAndOpenFolder,
     pasteCite,
     reportSelection,
     resolveConflict,
-    showCloneWindow,
-    showNewProjectWindow,
     syncTexForward,
   } from '../lib/controller.svelte';
   import { live } from '../lib/live.svelte';

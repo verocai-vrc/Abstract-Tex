@@ -18,7 +18,6 @@ import type {
   CompileEvent,
   ComparisonStarted,
   GitHubRepository,
-  TemplateInfo,
   SnapshotRow,
   DiffSides,
   Discarded,
@@ -197,11 +196,6 @@ let savePathAnswer: string | null = '/out/diff.pdf';
 let listAnswer: GitHubRepository[] | Error = [];
 let cloneAnswer: string | Error = '/papers/thesis';
 let parentFolderAnswer: string | null = '/papers';
-/** S11.11: the New project window's catalog, what creating answers with, and every creation asked for. */
-let templatesAnswer: TemplateInfo[] = [];
-let templateCreateAnswer: string | Error = '/papers/my-thesis';
-let templateListCalls = 0;
-const templatesMade: Array<[string, string, Record<string, string>]> = [];
 /** S11.6: the fake snapshot ref's rows, each version's files and text, and every restore asked for. */
 let snapshotRows: SnapshotRow[] = [];
 let snapshotFilesOnDisk: Record<string, Record<string, string>> = {};
@@ -361,15 +355,6 @@ vi.mock('./ipc', () => ({
       return listAnswer;
     },
     pickParentFolder: async () => parentFolderAnswer,
-    templateList: async () => {
-      templateListCalls++;
-      return templatesAnswer;
-    },
-    templateCreate: async (id: string, parent: string, fields: Record<string, string>) => {
-      templatesMade.push([id, parent, fields]);
-      if (templateCreateAnswer instanceof Error) throw templateCreateAnswer;
-      return templateCreateAnswer;
-    },
     gitClone: async (url: string, parent: string, name: string | null) => {
       clones.asked.push([url, parent, name]);
       if (cloneAnswer instanceof Error) throw cloneAnswer;
@@ -796,13 +781,6 @@ const {
   chooseRepositoryToClone,
   cloneRepository,
   closeCloneWindow,
-  showNewProjectWindow,
-  closeNewProjectWindow,
-  newProjectBack,
-  chooseTemplate,
-  createProject,
-  moveTemplateSelection,
-  templateFilterChanged,
   goToNextPlaceholder,
   refreshPlaceholders,
   loadCloneList,
@@ -827,7 +805,6 @@ const { comments } = await import('./comments.svelte');
 const { diffView } = await import('./diffview.svelte');
 const { compare, WORKING_COPY } = await import('./compare.svelte');
 const { clone } = await import('./clone.svelte');
-const { newProject } = await import('./templates.svelte');
 const { placeholders } = await import('./placeholders.svelte');
 const { ipc } = await import('./ipc');
 const { app } = await import('./state.svelte');
@@ -1005,10 +982,6 @@ beforeEach(async () => {
   parentFolderAnswer = '/papers';
   clones.asked = [];
   clones.lists = 0;
-  templatesAnswer = [];
-  templateCreateAnswer = '/papers/my-thesis';
-  templatesMade.length = 0;
-  templateListCalls = 0;
   compareAnswer = async (a, b) => ({ status: 'building', older: a, newer: b, generation: 1 });
   app.activityView = 'files';
   // The stores are module-level singletons, so a test that left a sign-in waiting would make the
@@ -3556,139 +3529,6 @@ describe('cloning a repository (S11.5b)', () => {
 });
 
 
-describe('starting from a template (S11.11)', () => {
-  const field = (id: string, label: string) => ({ id, label, example: '' });
-  const essay: TemplateInfo = {
-    id: 'essay',
-    name: 'Essay',
-    category: 'essay',
-    description: 'A short essay',
-    previewUrl: 'data:image/png;base64,',
-    fields: [field('title', 'Title'), field('author', 'Author')],
-  };
-  const cv: TemplateInfo = { ...essay, id: 'cv', name: 'Curriculum vitae', category: 'cv', description: 'One page' };
-
-  beforeEach(async () => {
-    closeNewProjectWindow();
-    templatesAnswer = [essay, cv];
-    newProject.catalog = null;
-    newProject.values = {};
-    newProject.error = null;
-    newProject.loadError = null;
-    newProject.step = 'choose';
-    newProject.selectedId = null;
-  });
-
-  async function open() {
-    showNewProjectWindow();
-    await vi.advanceTimersByTimeAsync(0);
-  }
-
-  it('opens on the cards with the first one highlighted, and asks Rust for the catalog once', async () => {
-    await open();
-    expect(newProject.visible).toBe(true);
-    expect(newProject.step).toBe('choose');
-    expect(newProject.catalog).toEqual([essay, cv]);
-    expect(newProject.selectedId).toBe('essay');
-    await open();
-    expect(templateListCalls).toBe(1); // the second open reused the catalog
-  });
-
-  it('moves the highlight along what the filter leaves, and re-aims it when the filter hides it', async () => {
-    await open();
-    moveTemplateSelection(1);
-    expect(newProject.selectedId).toBe('cv');
-    newProject.query = 'essay';
-    templateFilterChanged();
-    expect(newProject.selectedId).toBe('essay');
-  });
-
-  it('choosing a card goes on to the questions, and Esc steps back, then closes, writing nothing', async () => {
-    await open();
-    chooseTemplate('cv');
-    expect(newProject.step).toBe('fill');
-    expect(newProject.selectedId).toBe('cv');
-
-    newProjectBack();
-    expect(newProject.step).toBe('choose');
-    expect(newProject.visible).toBe(true);
-
-    newProjectBack();
-    expect(newProject.visible).toBe(false);
-    expect(templatesMade).toEqual([]);
-  });
-
-  it('creates in the chosen folder with the trimmed answers, closes, and opens the result', async () => {
-    await open();
-    chooseTemplate('essay');
-    newProject.values = { title: '  My thesis ', author: 'Ada' };
-    await createProject();
-    expect(templatesMade).toEqual([['essay', '/papers', { title: 'My thesis', author: 'Ada' }]]);
-    expect(newProject.visible).toBe(false);
-    expect(app.project?.rootDir).toBe('/proj'); // the fake `openProject` answers with /proj
-    expect(calls.compiles).toBeGreaterThan(0); // opened like any project, so it builds at once
-  });
-
-  it('sends an empty author as an empty string, because the template declares the field', async () => {
-    await open();
-    chooseTemplate('essay');
-    newProject.values = { title: 'T' };
-    await createProject();
-    expect(templatesMade[0]![2]).toEqual({ title: 'T', author: '' });
-  });
-
-  it('wants a title before it asks where, and writes nothing without one', async () => {
-    await open();
-    chooseTemplate('essay');
-    newProject.values = { title: '   ' };
-    await createProject();
-    expect(newProject.error).toContain('title');
-    expect(templatesMade).toEqual([]);
-    expect(newProject.visible).toBe(true);
-  });
-
-  it('does nothing when the folder picker is cancelled', async () => {
-    await open();
-    chooseTemplate('essay');
-    newProject.values = { title: 'T' };
-    parentFolderAnswer = null;
-    await createProject();
-    expect(templatesMade).toEqual([]);
-    expect(newProject.creating).toBe(false);
-    expect(newProject.error).toBeNull();
-    expect(newProject.visible).toBe(true);
-  });
-
-  it('keeps the window and everything typed when the folder name is taken, and says so', async () => {
-    await open();
-    chooseTemplate('essay');
-    newProject.values = { title: 'My thesis', author: 'Ada' };
-    templateCreateAnswer = new Error('There is already something called "my-thesis" in /papers. Change the title…');
-    await createProject();
-    expect(newProject.error).toContain('already something called');
-    expect(newProject.visible).toBe(true);
-    expect(newProject.step).toBe('fill');
-    expect(newProject.values.title).toBe('My thesis');
-    expect(newProject.creating).toBe(false);
-  });
-
-  it('does not close or step back while a project is being made', async () => {
-    await open();
-    chooseTemplate('essay');
-    newProject.creating = true;
-    newProjectBack();
-    expect(newProject.visible).toBe(true);
-    expect(newProject.step).toBe('fill');
-    newProject.creating = false;
-  });
-
-  it('is in the palette with its chord', () => {
-    const command = allCommands().find((c) => c.id === 'new-project');
-    expect(command?.title).toBe('New project from template…');
-    expect(command?.shortcut).toBe('Ctrl Shift N');
-  });
-});
-
 describe('what is left to fill in (S11.12)', () => {
   const node = (path: string) => ({ name: path.split('/').pop()!, path, isDir: false, children: [] });
   const originalTree = project.tree;
@@ -3762,13 +3602,9 @@ describe('what is left to fill in (S11.12)', () => {
       { 'main.tex': 'no markers here', 'sections/a.tex': 'y\n% FILL IN: first\n' },
       ['main.tex', 'sections/a.tex'],
     );
-    templatesAnswer = [{ id: 'thesis', name: 'Thesis', category: 'thesis', description: '', previewUrl: '', fields: [] }];
-    showNewProjectWindow();
-    await vi.advanceTimersByTimeAsync(0);
-    chooseTemplate('thesis');
     app.activePath = 'main.tex';
 
-    await createProject();
+    await openFolder('/proj', { atFirstPlaceholder: true });
 
     expect([app.activePath, app.jumpRequest?.line]).toEqual(['sections/a.tex', 2]);
   });
@@ -4781,7 +4617,7 @@ describe('pasting a DOI while the answer is on its way (R6.19)', () => {
   });
 });
 
-describe('making or cloning a project while a tab cannot be saved (R6.9)', () => {
+describe('cloning a project while a tab cannot be saved (R6.9)', () => {
   /** A tab that holds text the disk does not: the save is failing. */
   async function leaveAnUnsavableEdit(): Promise<() => void> {
     const working = ipcWriteFile;
@@ -4794,26 +4630,6 @@ describe('making or cloning a project while a tab cannot be saved (R6.9)', () =>
       ipcWriteFile = working;
     };
   }
-
-  it('creates nothing from a template, and says why in the window', async () => {
-    const restore = await leaveAnUnsavableEdit();
-    // The stores are module-level singletons; start from the window as it is when first opened.
-    templatesAnswer = [{ id: 'essay', name: 'Essay', category: 'essay', description: '', previewUrl: '', fields: [] }];
-    newProject.catalog = null;
-    newProject.values = {};
-    newProject.error = null;
-    newProject.creating = false;
-    showNewProjectWindow();
-    await vi.advanceTimersByTimeAsync(0);
-    chooseTemplate('essay');
-
-    await createProject();
-    restore();
-
-    expect(templatesMade).toEqual([]);
-    expect(newProject.visible).toBe(true);
-    expect(newProject.error).toContain('main.tex');
-  });
 
   it('downloads nothing, and says why in the window', async () => {
     const restore = await leaveAnUnsavableEdit();
@@ -5079,7 +4895,7 @@ describe('launching (S17.4)', () => {
     app.commandPaletteVisible = false;
     toggleCommandPalette();
     expect(app.commandPaletteVisible).toBe(true);
-    expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository', 'new-project']);
+    expect(paletteCommands(false).map((c) => c.id).sort()).toEqual(['clone-repository']);
     expect(paletteCommands(true)).toEqual(allCommands());
   });
 });

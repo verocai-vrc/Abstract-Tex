@@ -4,12 +4,12 @@
   // app does not know yet whether the command line named a folder, it is only the plain background.
   import { tick, untrack } from 'svelte';
   import { app } from '../lib/state.svelte';
-  import { showNewProjectWindow } from '../lib/controller.svelte';
   import { backToDocument, goToPage, loadRecents } from '../lib/start-controller.svelte';
   import { startScreen } from '../lib/start.svelte';
   import { newProject } from '../lib/templates.svelte';
   import { words } from '../lib/words';
   import StartHome from './StartHome.svelte';
+  import StartNew from './StartNew.svelte';
   import StartOpen from './StartOpen.svelte';
 
   let page: HTMLElement | undefined = $state();
@@ -57,7 +57,9 @@
           </button>
         </li>
         <li>
-          <button onclick={() => showNewProjectWindow()}>{words.pages.new}</button>
+          <button aria-current={startScreen.page === 'new' ? 'page' : undefined} onclick={() => goToPage('new', 'heading')}>
+            {words.pages.new}
+          </button>
         </li>
         <li>
           <button aria-current={startScreen.page === 'open' ? 'page' : undefined} onclick={() => goToPage('open', 'heading')}>
@@ -77,6 +79,8 @@
       </div>
       {#if startScreen.page === 'open'}
         <StartOpen />
+      {:else if startScreen.page === 'new'}
+        <StartNew />
       {:else}
         <StartHome />
       {/if}

@@ -3,7 +3,7 @@
 //
 // Builds every template on the bundled engine (the ignored test in
 // crates/abstract-tex-engine/tests/templates.rs, which also fails on any diagnostic), then turns
-// page 1 of each PDF into templates/<id>/preview.png with `pdftoppm` (poppler-utils). The picture
+// one page of each PDF into templates/<id>/preview.png with `pdftoppm` (poppler-utils). The picture
 // is never drawn by hand, so it cannot drift from what the template actually produces.
 //
 // Usage: node scripts/template-previews.mjs        (needs `pnpm fetch-engine` and pdftoppm)
@@ -25,6 +25,10 @@ function run(command, args) {
 
 run('cargo', ['test', '-p', 'abstract-tex-engine', '--test', 'templates', '--', '--ignored']);
 
+/** Which page is the picture, where it is not the first: a title page is nearly blank, and at the size
+ * of a card two of those look the same (S17.6). The first page with running text. */
+const PAGE = { report: 3, thesis: 3 };
+
 const pdfFolder = join(root, 'target', 'template-pdfs');
 for (const file of readdirSync(pdfFolder).filter((name) => name.endsWith('.pdf'))) {
   const id = file.slice(0, -'.pdf'.length);
@@ -32,6 +36,7 @@ for (const file of readdirSync(pdfFolder).filter((name) => name.endsWith('.pdf')
   if (!existsSync(folder)) continue; // a template that has since been removed
   // `-singlefile` writes exactly <prefix>.png, with no page number appended to the name.
   const prefix = join(folder, 'preview');
-  run('pdftoppm', ['-png', '-f', '1', '-l', '1', '-r', '50', '-singlefile', join(pdfFolder, file), prefix]);
+  const page = String(PAGE[id] ?? 1);
+  run('pdftoppm', ['-png', '-f', page, '-l', page, '-r', '50', '-singlefile', join(pdfFolder, file), prefix]);
   console.log(`templates/${id}/preview.png`);
 }

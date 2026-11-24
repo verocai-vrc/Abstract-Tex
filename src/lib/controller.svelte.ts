@@ -6,7 +6,6 @@ import { linkAction } from './pdf/geometry';
 import type { EditorView } from '@codemirror/view';
 import { bibliography, lineAtByteOffset } from './bibliography.svelte';
 import { clone } from './clone.svelte';
-import { filterTemplates, neighbour, newProject } from './templates.svelte';
 import { assistant, resetForm, reviewFrom, type PreparedState } from './assistant.svelte';
 import { counts, toggled } from './assistant-review';
 import { providerFromForm } from './assistant';
@@ -1330,104 +1329,6 @@ async function keepCopyBeforeJoin(path: string, text: string): Promise<string | 
   return copyPath;
 }
 
-// ---- Starting from a template (S11.11, DESIGN.md §6 "Start a document") -----------------------
-
-/** Open the New project window on its first step. Nothing is written until *Create*. */
-export function showNewProjectWindow(): void {
-  newProject.visible = true;
-  newProject.step = 'choose';
-  newProject.error = null;
-  newProject.query = '';
-  newProject.category = 'all';
-  if (newProject.catalog === null) void loadTemplates();
-  else newProject.selectedId = newProject.catalog[0]?.id ?? null;
-}
-
-/** Close the window with nothing written. */
-export function closeNewProjectWindow(): void {
-  newProject.visible = false;
-}
-
-/** *Esc*: back from the questions to the cards, and from the cards out of the window. */
-export function newProjectBack(): void {
-  if (newProject.step === 'fill' && !newProject.creating) {
-    newProject.step = 'choose';
-    newProject.error = null;
-  } else if (!newProject.creating) {
-    closeNewProjectWindow();
-  }
-}
-
-/** Ask Rust for the catalog. It is compiled into the app, so a failure here is a broken build and
- * says so in a sentence rather than showing an empty picker. */
-export async function loadTemplates(): Promise<void> {
-  newProject.loadError = null;
-  try {
-    newProject.catalog = await ipc.templateList();
-    newProject.selectedId = newProject.catalog[0]?.id ?? null;
-  } catch (error) {
-    newProject.loadError = String(error);
-  }
-}
-
-/** Move the highlight along the cards that survive the filter, or to the first when the
- * highlighted one has been filtered away. */
-export function moveTemplateSelection(delta: number): void {
-  if (newProject.catalog === null) return;
-  const shown = filterTemplates(newProject.catalog, newProject.category, newProject.query);
-  newProject.selectedId = neighbour(shown, newProject.selectedId, delta);
-}
-
-/** Re-aim the highlight after the filter changed: keep it if the card is still shown. */
-export function templateFilterChanged(): void {
-  if (newProject.catalog === null) return;
-  const shown = filterTemplates(newProject.catalog, newProject.category, newProject.query);
-  if (!shown.some((template) => template.id === newProject.selectedId)) newProject.selectedId = shown[0]?.id ?? null;
-}
-
-/** Choose a card: on to the questions. */
-export function chooseTemplate(id: string): void {
-  newProject.selectedId = id;
-  newProject.step = 'fill';
-  newProject.error = null;
-}
-
-/** *Create*: ask where to put it, make the project there, and open it like any other — which
- * builds it at once, so the first thing the author sees is a PDF. Cancelling the folder picker
- * does nothing; a refusal (a taken folder name above all) is a sentence and the window stays open
- * with everything typed. */
-export async function createProject(): Promise<void> {
-  const template = newProject.catalog?.find((candidate) => candidate.id === newProject.selectedId);
-  if (!template || newProject.creating) return;
-  const answers: Record<string, string> = {};
-  for (const field of template.fields) answers[field.id] = (newProject.values[field.id] ?? '').trim();
-  if ('title' in answers && answers.title === '') {
-    newProject.error = 'Give the project a title; its folder is named after it.';
-    return;
-  }
-  newProject.error = null;
-  try {
-    // Asked before anything is made: the result is opened at once, and opening is refused while a
-    // tab holds text that cannot be saved (R6.9).
-    const staying = await whyNotToLeaveProject();
-    if (staying !== null) {
-      newProject.error = staying;
-      return;
-    }
-    const parent = await ipc.pickParentFolder();
-    if (!parent) return;
-    newProject.creating = true;
-    const folder = await ipc.templateCreate(template.id, parent, answers);
-    newProject.visible = false;
-    newProject.step = 'choose';
-    await openFolder(folder, { atFirstPlaceholder: true });
-  } catch (error) {
-    newProject.error = String(error);
-  } finally {
-    newProject.creating = false;
-  }
-}
-
 // ---- Comparing two commits (S11.4d, DESIGN.md §5.7) --------------------------------------------
 
 /** Which request for a comparison is the latest. `compare_revisions` answers at once, but two
@@ -2152,7 +2053,7 @@ async function probeEngine(): Promise<void> {
  * why not, for the caller to show where the author is looking (R6.9: a window that is about to make
  * or download a project asks first, so nothing is made that cannot then be opened).
  */
-async function whyNotToLeaveProject(): Promise<string | null> {
+export async function whyNotToLeaveProject(): Promise<string | null> {
   if (app.conflict) {
     return `Answer the question about ${app.conflict.path} first: keep your version, or load the one on disk.`;
   }
@@ -2801,14 +2702,6 @@ registerCommand({
   category: 'action',
   shortcut: 'F8',
   run: () => void goToNextPlaceholder(),
-});
-registerCommand({
-  id: 'new-project',
-  title: 'New project from template…',
-  category: 'action',
-  shortcut: 'Ctrl Shift N',
-  withoutDocument: true,
-  run: () => showNewProjectWindow(),
 });
 registerCommand({
   id: 'clone-repository',

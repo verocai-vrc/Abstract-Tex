@@ -494,7 +494,20 @@ export interface GitHubRepository {
   private: boolean;
 }
 
-/** One starter template as the New project window draws it (`abstract_tex::templates::TemplateInfo`). */
+/** The text sizes on offer, in percent (`abstract_tex::preferences::TEXT_SIZES`). */
+export type TextSize = 100 | 115 | 130 | 150 | 175 | 200;
+export type Colours = 'match' | 'light' | 'dark' | 'contrast-light' | 'contrast-dark';
+
+/** What the person chose for the app on this computer (S17.6, `abstract_tex::start::PreferencesView`). */
+export interface Preferences {
+  /** Where new documents are kept: its address, and the names a person reads. */
+  place: { path: string; parts: string[] };
+  author: string;
+  textSize: TextSize;
+  colours: Colours;
+}
+
+/** One starter template as the New page draws it (`abstract_tex::templates::TemplateInfo`). */
 export interface TemplateInfo {
   id: string;
   name: string;
@@ -666,8 +679,8 @@ export const ipc = {
 
   /** S11.5b: the folder a clone goes *into*; the clone makes its own folder inside it. Resolves to
    * null if the author cancels. */
-  pickParentFolder: async (): Promise<string | null> => {
-    const chosen = await openDialog({ directory: true, multiple: false, title: 'Choose where to put the project' });
+  pickParentFolder: async (title = 'Choose where to put the project'): Promise<string | null> => {
+    const chosen = await openDialog({ directory: true, multiple: false, title });
     return typeof chosen === 'string' ? chosen : null;
   },
 
@@ -798,7 +811,11 @@ export const ipc = {
    * and leaves nothing on disk. */
   gitClone: (url: string, parentDir: string, folderName: string | null) =>
     invoke<string>('git_clone', { url, parentDir, folderName }),
-  /** S11.11: the starter templates, for the New project window. */
+  preferences: () => invoke<Preferences>('preferences'),
+  /** Change what is given and leave the rest; answers with all of them. */
+  setPreferences: (change: Partial<{ place: string; author: string; textSize: TextSize; colours: Colours }>) =>
+    invoke<Preferences>('set_preferences', { change }),
+  /** S11.11: the starter templates, for the New page. */
   templateList: () => invoke<TemplateInfo[]>('template_list'),
   /** S11.11: make a project from template `templateId` inside `parentDir`, in a folder named after
    * `fields.title`, and answer with that folder. Rejects with a sentence — a taken name included —

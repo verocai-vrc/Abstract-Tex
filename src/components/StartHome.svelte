@@ -3,7 +3,6 @@
   // with no documents yet sees a welcome, the templates, and the way to open one they already have.
   import { tick } from 'svelte';
   import { app } from '../lib/state.svelte';
-  import { showNewProjectWindow } from '../lib/controller.svelte';
   import type { RecentDocument } from '../lib/ipc';
   import { relativeTime } from '../lib/git.svelte';
   import { newProject } from '../lib/templates.svelte';
@@ -82,7 +81,7 @@
         <header>
           <h2>{words.startSomethingNew}</h2>
           {#if templates.length > 0}
-            <button class="quiet" aria-disabled={isBusy} onclick={() => showNewProjectWindow()}>
+            <button class="quiet" aria-disabled={isBusy} onclick={() => goToPage('new', 'heading')}>
               {words.seeAll(newProject.catalog?.length ?? 0)}
             </button>
           {/if}
