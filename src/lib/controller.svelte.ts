@@ -3156,6 +3156,15 @@ function withdrawDraft(): void {
   app.pdfUrl = fullPdfUrl;
 }
 
+/** Read the document's title again (S17.3): the text that was just built may have a new one. Silent on
+ * failure, as a title is never a reason to interrupt. */
+async function refreshTitle(): Promise<void> {
+  const epoch = projectEpoch;
+  const title = await ipc.documentTitle().catch(() => null);
+  if (title === null || epoch !== projectEpoch || !app.project || app.project.title === title) return;
+  app.project = { ...app.project, title };
+}
+
 function handleCompileEvent(event: CompileEvent): void {
   // A build of the project that was open before this one (R6.6): its PDF and its errors are not
   // this project's, whatever stage it has reached.
@@ -3196,6 +3205,7 @@ function handleCompileEvent(event: CompileEvent): void {
         app.pdfUrl = `${ipc.assetUrl(event.pdfPath)}?v=${event.generation}`;
         fullPdfUrl = app.pdfUrl;
         app.pdfDraftOf = null;
+        void refreshTitle();
       } else {
         withdrawDraft();
       }

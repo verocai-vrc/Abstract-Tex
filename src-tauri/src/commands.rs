@@ -26,6 +26,7 @@ use crate::latexdiff::{self, ComparisonRequest, ComparisonStarted};
 use crate::lsp::LspEvent;
 use crate::opening::Opening;
 use crate::project::{write_atomically, Project, ProjectInfo};
+use crate::recents::RecentDocuments;
 use crate::synctex::{self, ForwardQuery, ForwardResult, InverseQuery, InverseResult};
 use crate::watcher::{self, remember_write, Change};
 use crate::AppState;
@@ -33,9 +34,9 @@ use crate::AppState;
 /// Tauri needs command errors to be serialisable. A `String` is the simplest thing that is, and
 /// every error here is destined for a person anyway, so we flatten `anyhow`/`thiserror` errors
 /// to their message at this edge (see the note in `abstract_tex_engine`).
-type CommandResult<T> = Result<T, String>;
+pub type CommandResult<T> = Result<T, String>;
 
-fn to_message(error: impl Display) -> String {
+pub fn to_message(error: impl Display) -> String {
     error.to_string()
 }
 
@@ -164,6 +165,8 @@ fn open_folder<R: Runtime>(
     };
 
     let mut info = project.info();
+    let root_dir = project.root_dir.clone();
+    let root_file = project.root_file();
     // Each project builds with the engine it asks for (S9.4); a running build of the previous
     // project finishes on the engine it started with.
     let (engine, engine_notice) = crate::compile::engine_for(project.config.project.engine.as_deref());
@@ -196,6 +199,14 @@ fn open_folder<R: Runtime>(
     // Only now, with the lock released: dropping a watcher can wait for its thread, and that thread
     // takes the project lock to rebuild the bibliography.
     drop(old_watcher);
+
+    // Recorded only now that it is open: what was refused or stopped is not a recent document (S17.3).
+    info.title = crate::start::record_opened(app, &root_dir, root_file.as_deref());
+    if let Some(project) = state.project.lock().unwrap().as_mut() {
+        if project.root_dir == root_dir {
+            project.title = info.title.clone();
+        }
+    }
     Ok(info)
 }
 
@@ -1236,13 +1247,26 @@ pub fn template_list() -> CommandResult<Vec<crate::templates::TemplateInfo>> {
 ///
 /// No project needs to be open, and none is touched.
 #[tauri::command]
-pub fn template_create(
+pub async fn template_create<R: Runtime>(
+    app: AppHandle<R>,
     template_id: String,
     parent_dir: String,
     fields: std::collections::BTreeMap<String, String>,
 ) -> CommandResult<String> {
-    let folder = crate::templates::create(Path::new(&parent_dir), &template_id, &fields)?;
-    Ok(folder.to_string_lossy().into_owned())
+    tauri::async_runtime::spawn_blocking(move || {
+        let folder = crate::templates::create(Path::new(&parent_dir), &template_id, &fields)?;
+        // The title as it was typed (S17.3): a letter has no `\title` to read it back from.
+        if let Some(recents) = app.try_state::<RecentDocuments>() {
+            let root_file = crate::project::detect_root(&folder).unwrap_or_else(|| PathBuf::from("main.tex"));
+            let title = fields.get("title").map(String::as_str);
+            if let Err(error) = recents.record(&folder, &root_file, title, crate::start::now()) {
+                tracing::warn!(%error, "could not record the new document");
+            }
+        }
+        Ok(folder.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(to_message)?
 }
 
 /// The URL of this project's `origin`, or `None` when it has no remote — and `None` too when
@@ -1598,6 +1622,70 @@ mod tests {
         let opening = state.openings.begin();
         open_folder(app.handle(), folder.path(), &opening).unwrap();
         assert!(state.project.lock().unwrap().is_some());
+    }
+
+    /// An app with an empty recent list of its own, for the two tests below.
+    fn app_with_recents(config: &tempfile::TempDir) -> tauri::App<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .manage(AppState::new())
+            .manage(RecentDocuments::at(config.path().join("recent-documents.toml")))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap()
+    }
+
+    #[test]
+    fn opening_records_the_document_under_its_title_and_a_stopped_or_rootless_one_is_not_recorded() {
+        let (config, folder, empty) = (
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir().unwrap(),
+        );
+        std::fs::write(
+            folder.path().join("main.tex"),
+            "\\documentclass{article}\\title{On Bees}",
+        )
+        .unwrap();
+        let app = app_with_recents(&config);
+        let state = app.state::<AppState>();
+        let recents = app.state::<RecentDocuments>();
+
+        let stopped = state.openings.begin();
+        state.openings.stop();
+        assert!(open_folder(app.handle(), folder.path(), &stopped).is_err());
+        open_folder(app.handle(), empty.path(), &state.openings.begin()).unwrap();
+        assert_eq!(recents.list(), []);
+
+        let info = open_folder(app.handle(), folder.path(), &state.openings.begin()).unwrap();
+        assert_eq!(info.title, "On Bees");
+        assert_eq!(recents.list()[0].title, "On Bees");
+        // A refreshed tree carries it too.
+        let refreshed = state.project.lock().unwrap().as_mut().unwrap().info();
+        assert_eq!(refreshed.title, "On Bees");
+    }
+
+    #[test]
+    fn a_new_letter_is_recorded_under_the_title_that_was_typed() {
+        let (config, parent) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let app = app_with_recents(&config);
+        let fields = [("title", "My request"), ("author", "Ana")]
+            .map(|(id, value)| (id.to_string(), value.to_string()));
+        let folder = tauri::async_runtime::block_on(template_create(
+            app.handle().clone(),
+            "letter".into(),
+            parent.path().to_string_lossy().into_owned(),
+            fields.into(),
+        ))
+        .unwrap();
+
+        let recents = app.state::<RecentDocuments>();
+        assert_eq!(recents.list()[0].folder, folder);
+        assert_eq!(recents.list()[0].title, "My request");
+        let opening = app.state::<AppState>().openings.begin();
+        let info = open_folder(app.handle(), Path::new(&folder), &opening).unwrap();
+        assert_eq!(
+            info.title, "My request",
+            "a letter has no title to read it back from"
+        );
     }
 
     /// Whether the calling thread is one of the async runtime's workers rather than a thread from

@@ -18,6 +18,8 @@ export interface TreeNode {
 
 export interface ProjectInfo {
   rootDir: string;
+  /** What the document is called on screen (S17.3). */
+  title: string;
   rootFile: string | null;
   buildDir: string;
   tree: TreeNode[];
@@ -558,12 +560,33 @@ export type SyncOutcome =
    * working tree and Source Control lists it as conflicted. */
   | { kind: 'conflicted' };
 
+/** One document of the start screen's list (S17.3). */
+export interface RecentDocument {
+  folder: string;
+  rootFile: string;
+  title: string;
+  /** Where it is kept, from the home folder down. Empty: in the home folder itself. */
+  place: string[];
+  /** Seconds since 1970. */
+  usedAt: number;
+}
+
 export const ipc = {
   initialProject: () => invoke<string | null>('initial_project'),
   engineInfo: () => invoke<EngineInfo | null>('engine_info'),
   openProject: (path: string) => invoke<ProjectInfo>('open_project', { path }),
   /** S17.2: stop the opening that is being read. `false` when it is too late, or there is none. */
   stopOpening: () => invoke<boolean>('stop_opening'),
+  /** S17.3: the documents used last, newest first. */
+  recentDocuments: () => invoke<RecentDocument[]>('recent_documents'),
+  /** Answers within 2 seconds, whatever the drive does. */
+  recentIsHere: (folder: string) => invoke<boolean>('recent_is_here', { folder }),
+  recentMoved: (from: string, to: string) => invoke<void>('recent_moved', { from, to }),
+  forgetRecent: (folder: string) => invoke<void>('forget_recent', { folder }),
+  clearRecents: () => invoke<void>('clear_recents'),
+  showRecentInFolder: (folder: string) => invoke<void>('show_recent_in_folder', { folder }),
+  /** The open document's title as its main file has it now; also records it. */
+  documentTitle: () => invoke<string>('document_title'),
   refreshTree: () => invoke<ProjectInfo>('refresh_tree'),
   readFile: (path: string) => invoke<string>('read_file', { path }),
   writeFile: (path: string, contents: string) => invoke<void>('write_file', { path, contents }),

@@ -12,6 +12,8 @@
 //! - [`opening`]  — which opening is the current one, and whether it was stopped.
 //! - [`synctex`]  — cursor-to-PDF and PDF-to-cursor lookups over `abstract-tex-synctex`.
 //! - [`bibliography`] — the `.bib` index: files, entries, citations, rebuilt from disk on change.
+//! - [`recents`]  — the documents used last, in the app's own config folder.
+//! - [`start`]    — the start screen's commands.
 //! - [`commands`] — the `#[tauri::command]` functions the frontend calls. Thin by design.
 //!
 //! State that lives for the whole app is in [`AppState`], handed to Tauri with `.manage()` and
@@ -35,7 +37,9 @@ pub mod lsp;
 pub mod opening;
 pub mod paste;
 pub mod project;
+pub mod recents;
 pub mod snapshots;
+pub mod start;
 pub mod synctex;
 pub mod templates;
 pub mod watcher;
@@ -125,6 +129,8 @@ pub fn run() {
             let config = app.path().app_config_dir()?;
             // S16.3: from here on, a panic leaves a local report (`crash.rs`); nothing is sent.
             crash::install(config.join("crash-reports"));
+            app.manage(recents::RecentDocuments::at(config.join("recent-documents.toml")));
+            app.manage(start::PresenceChecks::default());
             app.manage(consent::ShellEscapeConsent::at(config.join("shell-escape.toml")));
             // S12.1b: the assistant's settings are per machine, in the same folder and for the same
             // reason; its key goes to the OS keychain and nowhere else (`assistant.rs`).
@@ -207,6 +213,13 @@ pub fn run() {
             commands::git_clone,
             commands::template_list,
             commands::template_create,
+            start::recent_documents,
+            start::recent_is_here,
+            start::recent_moved,
+            start::forget_recent,
+            start::clear_recents,
+            start::show_recent_in_folder,
+            start::document_title,
             commands::git_diff_sides,
             commands::crash_pending,
             commands::crash_dismiss,

@@ -76,6 +76,8 @@ const calls = {
 };
 /** S17.2: what `openProject` answers with. A test that holds an opening back gives it `deferred()`. */
 let openProjectAnswer: Promise<ProjectInfo> | null = null;
+/** S17.3: what `documentTitle` answers with. */
+let documentTitleAnswer: string | Promise<string> = 'proj';
 /** Told when the window asks to stop, so a test can refuse the held opening as Rust does. */
 let whenStopped: () => void = () => {};
 
@@ -220,6 +222,7 @@ let lspHandler: (event: LspEvent) => void = () => {};
 
 const project: ProjectInfo = {
   rootDir: '/proj',
+  title: 'proj',
   rootFile: 'main.tex',
   buildDir: '/proj/.abstract-tex/build',
   tree: [],
@@ -242,6 +245,7 @@ vi.mock('./ipc', () => ({
       calls.opened.push(path);
       return openProjectAnswer ?? project;
     },
+    documentTitle: async () => documentTitleAnswer,
     stopOpening: async () => {
       calls.openingsStopped++;
       whenStopped();
@@ -872,6 +876,7 @@ beforeEach(async () => {
   app.conflict = null;
   app.opening = null;
   openProjectAnswer = null;
+  documentTitleAnswer = 'proj';
   whenStopped = () => {};
   readGate = null;
   for (const doc of app.docs.values()) {
@@ -5017,6 +5022,32 @@ describe('a selection made in another tab (R7.1)', () => {
     reportSelection('main.tex', 0, 5);
     reportSelection('main.tex', 3, 3);
     expect(assistant.selection).toBeNull();
+  });
+});
+
+describe('the title of the open document (S17.3)', () => {
+  const finished = (success: boolean): CompileEvent => ({
+    status: 'finished', generation: 1, success, pdfPath: '/proj/.abstract-tex/build/main.pdf', logPath: null, durationMs: 1, diagnostics: [], stderr: '',
+  });
+
+  it('is read again after a good build, and not after a failed one', async () => {
+    documentTitleAnswer = 'On Bees';
+    compileHandler(finished(false));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.project?.title).toBe('proj');
+    compileHandler(finished(true));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.project?.title).toBe('On Bees');
+  });
+
+  it('is not put on a document opened since', async () => {
+    const late = deferred<string>();
+    documentTitleAnswer = late.promise;
+    compileHandler(finished(true));
+    await openFolder('/other');
+    late.resolve('The old one');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.project?.title).toBe('proj');
   });
 });
 

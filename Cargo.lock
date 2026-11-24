@@ -35,6 +35,7 @@ dependencies = [
  "tempfile",
  "texbib",
  "texlog",
+ "texwords",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",

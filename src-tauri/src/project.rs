@@ -102,6 +102,8 @@ pub struct TreeNode {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectInfo {
     pub root_dir: String,
+    /// What the document is called on screen (S17.3).
+    pub title: String,
     pub root_file: Option<String>,
     pub build_dir: String,
     pub tree: Vec<TreeNode>,
@@ -126,6 +128,9 @@ pub struct ProjectInfo {
 #[derive(Debug)]
 pub struct Project {
     pub root_dir: PathBuf,
+    /// What the document is called on screen: the folder's name until someone reads a better one out of
+    /// the main file (`start::record_opened`).
+    pub title: String,
     pub config: ProjectConfig,
     /// The include graph from the last `info()`, reused while none of its files changed (S9.6).
     graph_cache: Option<GraphCache>,
@@ -205,6 +210,7 @@ impl Project {
         }
 
         Ok(Self {
+            title: crate::recents::folder_name(&root_dir),
             root_dir,
             config,
             graph_cache: None,
@@ -389,6 +395,7 @@ impl Project {
 
         ProjectInfo {
             root_dir: self.root_dir.to_string_lossy().into_owned(),
+            title: self.title.clone(),
             root_file: root_file.map(|p| to_forward_slashes(&p)),
             build_dir: self.build_dir().to_string_lossy().into_owned(),
             tree: list_tree(&self.root_dir),

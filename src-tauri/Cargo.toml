@@ -60,6 +60,7 @@ abstract-tex-synctex = { path = "../crates/abstract-tex-synctex" }
 abstract-tex-templates = { path = "../crates/abstract-tex-templates" }
 texbib = { path = "../crates/texbib", features = ["acquire"] }
 texlog = { path = "../crates/texlog" }
+texwords = { path = "../crates/texwords" }
 
 tokio = { workspace = true }
 tokio-util = { workspace = true }
