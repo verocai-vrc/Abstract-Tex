@@ -526,6 +526,13 @@ export interface SavedPdf {
   isNewest: boolean;
 }
 
+/** What became of saving the PDF (`abstract_tex::finished_pdf::PdfSaving`). */
+export type PdfSaving =
+  | ({ kind: 'saved' } & SavedPdf)
+  /** The document builds, but the PDF that is kept of it is gone: another build makes it. */
+  | { kind: 'notKept' }
+  | { kind: 'noPdf' };
+
 /** The text sizes on offer, in percent (`abstract_tex::preferences::TEXT_SIZES`). */
 export type TextSize = 100 | 115 | 130 | 150 | 175 | 200;
 export type Colours = 'match' | 'light' | 'dark' | 'contrast-light' | 'contrast-dark';
@@ -866,7 +873,8 @@ export const ipc = {
   /** S17.7: where the dialog that saves the PDF starts. */
   suggestedPdfPath: () => invoke<string>('suggested_pdf_path'),
   /** Save the open document's newest PDF, once build `generation` has ended. */
-  savePdf: (destination: string, generation: number) => invoke<SavedPdf>('save_pdf', { destination, generation }),
+  savePdf: (destination: string, generation: number, isRetry: boolean) =>
+    invoke<PdfSaving>('save_pdf', { destination, generation, isRetry }),
   openSavedPdf: () => invoke<void>('open_saved_pdf'),
   showSavedPdf: () => invoke<void>('show_saved_pdf'),
   /** S17.8: what a chosen file or folder is, and what it needs. */

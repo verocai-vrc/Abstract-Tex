@@ -84,6 +84,10 @@ export const words = {
   savedPdf: (name: string, place: string) => `Saved ${name} in ${place}.`,
   savedOlderPdf: (name: string, place: string) =>
     `Saved ${name} in ${place}. It is an earlier version: your newest text could not be made into a PDF.`,
+  noPdfForProblems: 'There is no PDF yet. Correct what the list of problems says first.',
+  noPdf: 'There is no PDF yet, so nothing was saved.',
+  pdfNotKept:
+    'The PDF could not be saved: no copy of it could be kept in the document\'s folder. The disk may be full, or another program may be using that copy. Nothing was saved.',
   openIt: 'Open it',
   dismiss: 'Close this message',
 

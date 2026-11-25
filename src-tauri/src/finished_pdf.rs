@@ -27,6 +27,8 @@ pub enum Kept {
     Newest,
     /// One from before it: the build failed.
     Older,
+    /// That build was good, but the copy of its PDF could not be made.
+    Lost,
     /// No build of this run of the app has made one.
     None,
 }
@@ -37,6 +39,8 @@ struct Builds {
     last_ended: u64,
     /// The newest whose PDF was kept.
     last_kept: Option<u64>,
+    /// The newest that was good and whose PDF could not be copied.
+    last_lost: Option<u64>,
 }
 
 /// How far the builds have got. One per app, in `AppState`.
@@ -71,6 +75,8 @@ impl FinishedPdf {
                 let copied = std::fs::read(pdf).and_then(|bytes| write_bytes_atomically(latest, &bytes));
                 if let Err(error) = &copied {
                     tracing::warn!(%error, "the finished PDF could not be kept");
+                    self.builds
+                        .send_modify(|builds| builds.last_lost = builds.last_lost.max(Some(*generation)));
                 }
                 self.ended(*generation, copied.is_ok());
             }
@@ -97,11 +103,13 @@ impl FinishedPdf {
         let mut builds = self.builds.subscribe();
         // Both errors mean the same: what there is now is all there is.
         let _ = tokio::time::timeout(limit, builds.wait_for(|builds| builds.last_ended >= generation)).await;
-        let last_kept = builds.borrow().last_kept;
-        match last_kept {
-            Some(kept) if kept >= generation => Kept::Newest,
-            Some(_) => Kept::Older,
-            None => Kept::None,
+        // A copy, so that the channel is not held.
+        let builds = *builds.borrow();
+        match (builds.last_kept, builds.last_lost) {
+            (Some(kept), _) if kept >= generation => Kept::Newest,
+            (_, Some(lost)) if lost >= generation => Kept::Lost,
+            (Some(_), _) => Kept::Older,
+            (None, _) => Kept::None,
         }
     }
 }
@@ -186,6 +194,17 @@ pub struct SavedPdf {
     is_newest: bool,
 }
 
+/// What became of saving the PDF. The window has the words for each.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PdfSaving {
+    Saved(SavedPdf),
+    /// The document builds, but the copy of its PDF is gone or could not be made. Another build makes it.
+    NotKept,
+    /// There is none, and the last build made none.
+    NoPdf,
+}
+
 /// Where the save dialog starts: the document's title, in Documents.
 #[tauri::command]
 pub fn suggested_pdf_path<R: Runtime>(
@@ -205,13 +224,15 @@ pub fn suggested_pdf_path<R: Runtime>(
         .into_owned())
 }
 
-/// Save the open document's newest PDF at `destination`, once build `generation` has ended.
+/// Save the open document's newest PDF at `destination`, once build `generation` has ended. `is_retry`
+/// when that build was asked for because of a [`PdfSaving::NotKept`]: then an older PDF is better than none.
 #[tauri::command]
 pub async fn save_pdf<R: Runtime>(
     app: AppHandle<R>,
     destination: String,
     generation: u64,
-) -> CommandResult<SavedPdf> {
+    is_retry: bool,
+) -> CommandResult<PdfSaving> {
     let state = app.state::<AppState>();
     let open_document = || {
         let open = state.project.lock().unwrap();
@@ -229,9 +250,12 @@ pub async fn save_pdf<R: Runtime>(
     let home = app.path().home_dir().ok();
     let saved = tauri::async_runtime::spawn_blocking(move || {
         let destination = destination_of(Path::new(&destination))?;
-        // Not "none was kept": a document's own may be from another day.
-        if !is_there(&latest) {
-            return Err("There is no PDF yet. Correct what the list of problems says first.".to_string());
+        // Not only "none was kept": a document's own may be from another day.
+        match (is_there(&latest), kept) {
+            (true, Kept::Lost) if !is_retry => return Ok((PdfSaving::NotKept, None)),
+            (true, _) => {}
+            (false, Kept::Newest | Kept::Lost) => return Ok((PdfSaving::NotKept, None)),
+            (false, Kept::Older | Kept::None) => return Ok((PdfSaving::NoPdf, None)),
         }
         let name = crate::recents::folder_name(&destination);
         std::fs::read(&latest)
@@ -243,20 +267,20 @@ pub async fn save_pdf<R: Runtime>(
                 )
             })?;
         let place = crate::start::place_parts(&destination, home.as_deref());
-        Ok((
-            SavedPdf {
-                name,
-                place,
-                is_newest: kept == Kept::Newest,
-            },
-            destination,
-        ))
+        let saved = SavedPdf {
+            name,
+            place,
+            is_newest: kept == Kept::Newest,
+        };
+        Ok::<_, String>((PdfSaving::Saved(saved), Some(destination)))
     })
     .await
     .map_err(to_message)?;
-    let (saved, destination) = saved?;
-    *state.finished_pdf.saved.lock().unwrap() = Some(destination);
-    Ok(saved)
+    let (answer, destination) = saved?;
+    if let Some(destination) = destination {
+        *state.finished_pdf.saved.lock().unwrap() = Some(destination);
+    }
+    Ok(answer)
 }
 
 /// Run `work` on the PDF saved last, off the async workers: it starts another program.
@@ -412,7 +436,10 @@ mod tests {
             &finished(1, true, &folder.path().join("gone.pdf")),
             &folder.path().join("latest.pdf"),
         );
-        assert_eq!(tauri::async_runtime::block_on(pdf.wait_for(1, SOON)), Kept::None);
+        assert_eq!(tauri::async_runtime::block_on(pdf.wait_for(1, SOON)), Kept::Lost);
+        // And after a build that failed, it is the failure that counts.
+        pdf.ended(2, false);
+        assert_eq!(tauri::async_runtime::block_on(pdf.wait_for(2, SOON)), Kept::None);
     }
 
     /// An app with a document open in `folder`.
@@ -425,13 +452,53 @@ mod tests {
         app
     }
 
+    fn answer(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        destination: &Path,
+        generation: u64,
+        is_retry: bool,
+    ) -> CommandResult<PdfSaving> {
+        let destination = destination.to_string_lossy().into_owned();
+        tauri::async_runtime::block_on(save_pdf(app.handle().clone(), destination, generation, is_retry))
+    }
+
+    /// What was saved, where the answer must be that something was.
     fn save(
         app: &tauri::App<tauri::test::MockRuntime>,
         destination: &Path,
         generation: u64,
     ) -> CommandResult<SavedPdf> {
-        let destination = destination.to_string_lossy().into_owned();
-        tauri::async_runtime::block_on(save_pdf(app.handle().clone(), destination, generation))
+        answer(app, destination, generation, false).map(|answer| match answer {
+            PdfSaving::Saved(saved) => saved,
+            other => panic!("{other:?}"),
+        })
+    }
+
+    #[test]
+    fn a_kept_pdf_that_is_gone_or_could_not_be_made_is_not_called_a_failed_build() {
+        let (folder, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let app = app_with(folder.path());
+        let builds = &app.state::<AppState>().finished_pdf;
+        let latest = folder.path().join(".abstract-tex/latest.pdf");
+        let destination = out.path().join("a.pdf");
+
+        // Deleted while the document is open.
+        builds.ended(1, true);
+        assert_eq!(answer(&app, &destination, 1, false), Ok(PdfSaving::NotKept));
+        assert_eq!(answer(&app, &destination, 1, true), Ok(PdfSaving::NotKept));
+
+        // Never copied, and an older one is there: that is what there is, but only after another try.
+        builds.note(&finished(2, true, &folder.path().join("gone.pdf")), &latest);
+        std::fs::write(&latest, "older pages").unwrap();
+        assert_eq!(answer(&app, &destination, 2, false), Ok(PdfSaving::NotKept));
+        assert!(!destination.exists());
+        assert!(
+            matches!(answer(&app, &destination, 2, true), Ok(PdfSaving::Saved(saved)) if !saved.is_newest)
+        );
+
+        std::fs::remove_file(&latest).unwrap();
+        builds.ended(3, false);
+        assert_eq!(answer(&app, &destination, 3, false), Ok(PdfSaving::NoPdf));
     }
 
     #[test]
@@ -442,7 +509,11 @@ mod tests {
         let destination = out.path().join("Thesis.pdf");
 
         state.finished_pdf.ended(1, false);
-        assert!(save(&app, &destination, 1).is_err(), "there is none yet");
+        assert_eq!(
+            answer(&app, &destination, 1, false),
+            Ok(PdfSaving::NoPdf),
+            "there is none yet"
+        );
         assert!(!destination.exists());
         assert!(tauri::async_runtime::block_on(open_saved_pdf(app.handle().clone())).is_err());
 
@@ -476,6 +547,7 @@ mod tests {
                 app.handle().clone(),
                 destination.to_string_lossy().into_owned(),
                 5,
+                false,
             ));
             tokio::time::sleep(Duration::from_millis(100)).await;
             let state = app.state::<AppState>();
@@ -516,7 +588,10 @@ mod tests {
         std::os::unix::fs::symlink(out.path().join("secret"), &latest).unwrap();
 
         assert!(!is_there(&latest));
-        assert!(save(&app, &out.path().join("a.pdf"), 0).is_err());
+        assert_eq!(
+            answer(&app, &out.path().join("a.pdf"), 0, false),
+            Ok(PdfSaving::NoPdf)
+        );
         // And a build's copy goes in its place, not through it.
         std::fs::write(folder.path().join("main.pdf"), "pages").unwrap();
         let state = app.state::<AppState>();

@@ -2573,9 +2573,22 @@ export async function savePdf(): Promise<void> {
     // Text that could not be saved, or a build that could not be asked for: Rust cannot know of either.
     const isWhole = manager.dirtyPaths().length === 0 && (isUpToDate || asked !== null);
     pdfSavedAt = destination;
-    const saved = await ipc.savePdf(destination, Math.max(asked ?? 0, app.compile.generation));
+    let answer = await ipc.savePdf(destination, Math.max(asked ?? 0, app.compile.generation), false);
     if (epoch !== projectEpoch) return;
-    app.savedPdf = { ...saved, isNewest: saved.isNewest && isWhole };
+    if (answer.kind === 'notKept') {
+      // The copy is gone or could not be made, of a document that builds. Building makes it again.
+      const again = await triggerCompile();
+      answer = await ipc.savePdf(destination, Math.max(again ?? 0, app.compile.generation), true);
+      if (epoch !== projectEpoch) return;
+    }
+    if (answer.kind === 'saved') {
+      const { name, place, isNewest } = answer;
+      app.savedPdf = { name, place, isNewest: isNewest && isWhole };
+    } else if (answer.kind === 'notKept') {
+      tell(words.pdfNotKept);
+    } else {
+      tell(app.compile.diagnostics.length > 0 ? words.noPdfForProblems : words.noPdf);
+    }
   } catch (error) {
     tell(String(error));
   } finally {

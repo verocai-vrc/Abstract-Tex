@@ -29,6 +29,7 @@ import type {
   LargeFile,
   LspEvent,
   ProjectInfo,
+  PdfSaving,
   SavedPdf,
   SyncOutcome,
   CommentRow,
@@ -200,7 +201,8 @@ let compareAnswer: (older: string, newer: string) => Promise<ComparisonStarted> 
 });
 let savePathAnswer: string | null = '/out/diff.pdf';
 /** S17.7: what saving the PDF answers, and whether a build is refused. */
-let savePdfAnswer: () => SavedPdf | Promise<SavedPdf>;
+type SavingAnswer = SavedPdf | Exclude<PdfSaving, { kind: 'saved' }>;
+let savePdfAnswer: () => SavingAnswer | Promise<SavingAnswer>;
 let compileRefused = false;
 /** S11.5b: what the Clone window's calls answer with, and what they were asked. */
 let listAnswer: GitHubRepository[] | Error = [];
@@ -348,9 +350,10 @@ vi.mock('./ipc', () => ({
       return savePathAnswer;
     },
     suggestedPdfPath: async () => '/home/ana/Documents/Thesis draft.pdf',
-    savePdf: async (destination: string, generation: number) => {
-      calls.order.push(`savePdf ${destination} ${generation}`);
-      return savePdfAnswer();
+    savePdf: async (destination: string, generation: number, isRetry: boolean) => {
+      calls.order.push(`savePdf ${destination} ${generation}${isRetry ? ' again' : ''}`);
+      const answer = await savePdfAnswer();
+      return 'kind' in answer ? answer : { kind: 'saved', ...answer };
     },
     gitDiffSides: async (path: string, staged: boolean) => {
       diffsAsked.push([path, staged]);
@@ -5247,6 +5250,32 @@ describe('saving the PDF (S17.7)', () => {
     savePdfAnswer = () => Promise.reject('There is no PDF yet.');
     await savePdf();
     expect([app.savedPdf, app.notice]).toEqual([null, 'There is no PDF yet.']);
+  });
+
+  it('builds once more when the PDF that is kept is gone, and only once', async () => {
+    await built();
+    const saved: SavedPdf = { name: 'a.pdf', place: [], isNewest: true };
+    const answers: SavingAnswer[] = [{ kind: 'notKept' }, saved];
+    savePdfAnswer = () => answers.shift()!;
+    await savePdf();
+    expect(calls.order).toEqual([PICKED, 'savePdf /out/a.pdf 6', 'compile', 'savePdf /out/a.pdf 7 again']);
+    expect([app.savedPdf, app.notice]).toEqual([saved, null]);
+
+    calls.order.length = 0;
+    savePdfAnswer = () => ({ kind: 'notKept' });
+    await savePdf();
+    expect(calls.order.filter((entry) => entry === 'compile')).toHaveLength(1);
+    expect([app.savedPdf, app.notice]).toEqual([null, words.pdfNotKept]);
+  });
+
+  it('speaks of the list of problems only when there is one', async () => {
+    await built();
+    savePdfAnswer = () => ({ kind: 'noPdf' });
+    await savePdf();
+    expect(app.notice).toBe(words.noPdf);
+    app.compile = { ...app.compile, diagnostics: [{} as (typeof app.compile.diagnostics)[number]] };
+    await savePdf();
+    expect([app.notice, calls.order.includes('compile')]).toEqual([words.noPdfForProblems, false]);
   });
 
   it('what was saved is not said over another document', async () => {
