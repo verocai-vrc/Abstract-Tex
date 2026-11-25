@@ -198,9 +198,14 @@ fn unparsed_through_argument_groups(
     )
 }
 
+/// How far an argument may go, in bytes. One that is never closed is not looked for to the end of the
+/// file: thousands of them would each go through all of it.
+const LONGEST_ARGUMENT: usize = 4_000;
+
 /// Reads a `{...}` group starting at `pos`, which must point at the opening brace. Tracks
 /// nesting depth so a brace inside the argument does not close the group early. Returns the
-/// inner text and the offset just past the closing `}`, or `None` if the braces never balance.
+/// inner text and the offset just past the closing `}`, or `None` if the braces do not balance within
+/// [`LONGEST_ARGUMENT`].
 fn read_braced_argument(text: &str, pos: usize) -> Option<(String, usize)> {
     let bytes = text.as_bytes();
     if bytes.get(pos) != Some(&b'{') {
@@ -208,7 +213,7 @@ fn read_braced_argument(text: &str, pos: usize) -> Option<(String, usize)> {
     }
     let mut depth: u32 = 0;
     let mut i = pos;
-    while i < bytes.len() {
+    while i < bytes.len().min(pos + LONGEST_ARGUMENT) {
         match bytes[i] {
             b'{' => depth += 1,
             b'}' => {
@@ -299,6 +304,29 @@ fn strip_line_comments(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_text_made_to_take_forever_does_not() {
+        for command in ["\\InputIfFileExists{", "\\import{", "\\input{", "\\input "] {
+            let started = std::time::Instant::now();
+            scan_includes(&command.repeat(40_000));
+            assert!(
+                started.elapsed().as_secs() < 5,
+                "{command} {:?}",
+                started.elapsed()
+            );
+        }
+    }
+
+    #[test]
+    fn a_group_that_goes_on_and_on_is_still_reported() {
+        let source = format!(
+            "\\InputIfFileExists{{a}}{{{}\\input{{b}}}}{{}}",
+            "x".repeat(LONGEST_ARGUMENT)
+        );
+        let found = scan_includes(&source);
+        assert!(matches!(&found[0], Directive::Unparsed { .. }));
+    }
 
     #[test]
     fn finds_input_include_and_subfile_with_their_lines() {
