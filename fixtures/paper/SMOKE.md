@@ -41,7 +41,7 @@ folders.
 1. The tree shows `main.tex` with a `root` badge; the editor shows it highlighted; the status
    bar shows `Tectonic 0.17.0`.
 2. Within a few seconds the PDF appears on the right. Status bar: `Built in N.Ns`.
-3. Change a word in the abstract. Stop typing. The status bar shows `Compiling…` after about
+3. Change a word in the abstract. Stop typing. The status bar shows `Making the PDF…` after about
    0.7 s and the PDF updates without flashing or jumping to the top.
 4. Scroll the PDF to page 3, edit again: the PDF stays on page 3 after the rebuild.
 
@@ -67,7 +67,7 @@ folders.
 5. Delete `.abstract-tex/` (or use a document with a package not yet cached) so Tectonic fetches
    packages on the next build (on a machine with a warm cache, start the app with
    `XDG_CACHE_HOME` pointing at an empty folder instead of deleting your real cache). While it
-   runs, the status bar's `Compiling… N.Ns` grows a `· Downloading <file>` suffix that changes as
+   runs, the status bar's `Making the PDF… N.Ns` grows a `· Downloading <file>` suffix that changes as
    each file arrives — never a spinner frozen on the same text for the whole fetch. A cold first
    build took 117 s and fetched about 40 MB on the Linux machine (10 Nov 2026).
 
@@ -137,7 +137,7 @@ with two or more files works the same way.
 2. Type in the second tab's buffer without waiting for the 700 ms save, then click back to the
    first tab: the second tab still shows a dirty dot, and switching to it and back does not
    reset or reload its text — it never touched disk.
-3. With unsaved edits in *both* tabs, press `Ctrl B`: the status bar shows `Compiling…`, and both
+3. With unsaved edits in *both* tabs, press `Ctrl B`: the status bar shows `Making the PDF…`, and both
    files land on disk (check the second file's mtime, or open it in another editor) even though
    only one of them was the active tab.
 4. Click a tab's `×` to close it while it has an unsaved edit: the edit is written to disk first

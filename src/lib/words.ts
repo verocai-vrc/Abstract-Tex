@@ -61,6 +61,8 @@ export const words = {
   /** Where the PDF will be, while the first one is made (S17.14). */
   firstPdf:
     'Getting your document ready. The first time, Abstract fetches the parts of LaTeX it needs: a few minutes and about 40 MB, once. You can start writing now.',
+  /** Where the PDF will be, and in the status bar, while it is made. */
+  makingPdf: 'Making the PDF…',
   firstPdfSoFar: (parts: number, seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const time = minutes === 0 ? `${seconds} s` : `${minutes} min ${seconds % 60} s`;

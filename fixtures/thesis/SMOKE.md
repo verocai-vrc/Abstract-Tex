@@ -24,7 +24,7 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 2. Open `main.tex`: the editor shows `\input{preamble}` followed by four `\include`s. The
    PDF builds and lands on `main.pdf`, nine pages, no drawer (no errors, no warnings).
 3. Open `sections/background.tex` and change a word in the "Distributing the bucket"
-   paragraph. Stop typing. Within about a second the status bar shows `Compiling…` and the
+   paragraph. Stop typing. Within about a second the status bar shows `Making the PDF…` and the
    PDF rebuilds — a change to an `\include`d file, not just the root, triggers the build.
 4. Open `preamble.tex` and change a word in the `\sysname` command's expansion (e.g. rename
    it). Stop typing: this also triggers a rebuild, and the renamed term now appears

@@ -10,6 +10,7 @@
   import { live } from '../lib/live.svelte';
   import { compileAnnouncement } from '../lib/announce';
   import { problemCounts } from '../lib/drawer';
+  import { words } from '../lib/words';
 
   // Clicking the Zotero button probes on the first click (status still `null`); once it reads
   // `ready`, the same button opens the "link a collection" picker (S8.2) instead of re-probing —
@@ -92,7 +93,7 @@
   {/if}
   {#if app.compile.phase === 'running'}
     <span class="warn">
-      <span class="dot pulse"></span>Compiling… {elapsed}s{app.compile.progress ? ` · ${app.compile.progress}` : ''}
+      <span class="dot pulse"></span>{words.makingPdf} {elapsed}s{app.compile.progress ? ` · ${app.compile.progress}` : ''}
     </span>
     {#if app.pdfDraftOf}
       <!-- S9.9: the PDF on screen is one chapter, typeset ahead of the whole document. -->

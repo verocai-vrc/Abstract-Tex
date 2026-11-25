@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { words } from '../lib/words';
   import FirstPdf from './FirstPdf.svelte';
   import { folded } from '../lib/layout';
   import { app } from '../lib/state.svelte';
@@ -116,7 +117,7 @@
   const placeholderText = $derived.by(() => {
     if (loadError || shownUrl) return '';
     if (compare.mode) return compare.view.phase === 'failed' ? 'There is no comparison to show.' : 'The comparison will appear here.';
-    if (app.compile.phase === 'running') return 'Compiling…';
+    if (app.compile.phase === 'running') return words.makingPdf;
     return app.project ? 'The PDF will appear here after the first build.' : 'PDF preview';
   });
 

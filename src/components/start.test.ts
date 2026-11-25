@@ -229,3 +229,23 @@ it('what is chosen can be seen when the system chooses the colours', () => {
   const chosen = ".card.chosen,\n    .kind[aria-pressed='true']";
   expect(declarations(read('src/components/StartNew.svelte'), chosen, forced)).toMatch(/border: 3px solid Highlight/);
 });
+
+// ---- The word for it, in the panes a first document starts in (S17.18) --------------------------
+
+/** As `sentencesIn`, but one-word strings too: "Compiling…" was the first thing the PDF pane said. */
+function textsOf(path: string): string {
+  const source = read(path);
+  const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(source)?.[1] ?? (path.endsWith('.ts') ? source : '');
+  const code = script.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/ .*$/gm, '');
+  const strings = [...code.matchAll(/"([^"\n]*)"|'([^'\n]*)'|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? m[3] ?? '');
+  // What is imported is not shown, nor is what is only a name.
+  return [...strings.filter((text) => !/^[./\w-]*$/.test(text) || /^[A-Z]/.test(text)), path.endsWith('.ts') ? '' : ownText(source)].join('\n');
+}
+
+it('the PDF pane and the status bar make a PDF, and compile nothing', () => {
+  const shown = ['components/PdfPane.svelte', 'components/FirstPdf.svelte', 'components/StatusBar.svelte', 'lib/announce.ts'].map((path) => textsOf(`src/${path}`));
+  expect(shown[0]).toContain('The PDF will appear here'); // and so does not pass by reading nothing
+  expect(shown[2]).toContain('Built in');
+  expect(shown[3]).toContain('Could not build');
+  expect(shown.join('\n')).not.toMatch(/compil/i);
+});
