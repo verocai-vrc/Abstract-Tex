@@ -251,6 +251,26 @@ describe('acting on a recent document', () => {
     expect(only('recentMoved')).toEqual([]);
   });
 
+  it('a second press puts up no second picker', async () => {
+    let pick!: (path: string | null) => void;
+    const picker = () => new Promise((resolve) => (pick = resolve));
+    Object.assign(answers, { pickFile: picker, pickFolder: picker, pickParentFolder: picker });
+    for (const ways of [[chooseFile, chooseFolder], [() => findRecent('/a'), chooseFile], [changePlace, changePlace]]) {
+      ipcCalls.length = 0;
+      const pressed = ways.map((way) => way());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(only('pickFile', 'pickFolder', 'pickParentFolder')).toHaveLength(1);
+      pick(null);
+      await Promise.all(pressed);
+    }
+    answers.pickFile = () => {
+      throw 'no';
+    };
+    await chooseFile();
+    await chooseFile();
+    expect(only('pickFile')).toHaveLength(2);
+  });
+
   it('a cancelled picker changes nothing', async () => {
     await findRecent('/a');
     expect(only('openProject', 'recentMoved')).toEqual([]);

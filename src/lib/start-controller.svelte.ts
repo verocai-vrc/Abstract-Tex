@@ -111,11 +111,24 @@ export async function openRecent(folder: string): Promise<void> {
   await openFolder(folder, { name: titleOf(folder) });
 }
 
+let aPickerIsUp = false;
+
+/** Ask with a window of the system's. A second press, or a double click, must not put up another. */
+async function pick(ask: () => Promise<string | null>): Promise<string | null> {
+  if (aPickerIsUp) return null;
+  aPickerIsUp = true;
+  try {
+    return await ask();
+  } finally {
+    aPickerIsUp = false;
+  }
+}
+
 /** *Find it…*: pick where a missing document is now, open it, and correct its row. Only once it is
  * open: a folder that turns out not to be a document must not take the row's place. */
 export async function findRecent(folder: string): Promise<void> {
   if (app.opening !== null) return;
-  const found = await ipc.pickFolder(words.findItTitle).catch(() => null);
+  const found = await pick(() => ipc.pickFolder(words.findItTitle)).catch(() => null);
   if (!found) return;
   const choice = await look(found);
   if (choice === null) return;
@@ -188,13 +201,13 @@ async function unpack(zip: string): Promise<string> {
 /** *Choose a file…* */
 export async function chooseFile(): Promise<void> {
   if (app.opening !== null) return;
-  await choose(await ipc.pickFile(words.chooseFileTitle, words.documentFiles, words.everyFile).catch(() => null));
+  await choose(await pick(() => ipc.pickFile(words.chooseFileTitle, words.documentFiles, words.everyFile)).catch(() => null));
 }
 
 /** *Choose a folder…* */
 export async function chooseFolder(): Promise<void> {
   if (app.opening !== null) return;
-  await choose(await ipc.pickFolder(words.chooseFolderTitle).catch(() => null));
+  await choose(await pick(() => ipc.pickFolder(words.chooseFolderTitle)).catch(() => null));
 }
 
 /** *Get one from GitHub…*: instead of what is being looked at, which would open underneath that window. */
@@ -326,7 +339,7 @@ const PLACE_IS_A_DOCUMENT = 'placeIsADocument';
 /** *Change…*: keep new documents somewhere else from now on. */
 export async function changePlace(): Promise<void> {
   try {
-    const place = await ipc.pickParentFolder(words.changePlaceTitle);
+    const place = await pick(() => ipc.pickParentFolder(words.changePlaceTitle));
     if (!place) return;
     startScreen.preferences = await ipc.setPreferences({ place });
     newProject.error = null;
