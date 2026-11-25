@@ -238,6 +238,68 @@ kbd {
   grid-column: 1 / -1;
 }
 
+/* Files, Write or PDF: the toolbar's choice where there is room for one (S17.13). */
+.pane-choice {
+  display: none;
+  gap: 4px;
+}
+.pane-choice [aria-pressed='true'] {
+  background: var(--bg-selected);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+/* One pane at a time below the width that three need (44 + 240 + 320 + 320), which a window that shows
+   everything twice as big soon is. The other two are still laid out, in the same place: pdf.js and
+   CodeMirror measure themselves, and the PDF keeps its place. */
+@media (max-width: 923px) {
+  .app {
+    grid-template-rows: auto minmax(0, 1fr) minmax(var(--statusbar-height), auto);
+    grid-template-columns: var(--activity-bar-width) minmax(0, 1fr);
+  }
+  .app > .toolbar {
+    flex-wrap: wrap;
+  }
+  .pane-choice {
+    display: flex;
+  }
+  .app > .statusbar {
+    flex-wrap: wrap;
+    row-gap: 0;
+  }
+  .app > .statusbar > * {
+    flex: none;
+    white-space: nowrap;
+  }
+  .statusbar .hints,
+  .app > .statusbar > .spacer {
+    display: none;
+  }
+  .app > .activity-bar {
+    grid-area: 2 / 1;
+  }
+  .app > .left-pane,
+  .app > .editor-column,
+  .app > .pdf-column {
+    grid-area: 2 / 2;
+    visibility: hidden;
+  }
+  .app[data-pane='files'] > .left-pane,
+  .app[data-pane='write'] > .editor-column,
+  .app[data-pane='pdf'] > .pdf-column {
+    visibility: visible;
+  }
+  /* What the window has to say is said over whichever pane is shown. */
+  .app > .editor-column {
+    position: relative;
+    z-index: 6;
+  }
+  .app > .editor-column > .messages {
+    visibility: visible;
+    background: var(--bg-panel);
+  }
+}
+
 .toolbar {
   display: flex;
   align-items: center;

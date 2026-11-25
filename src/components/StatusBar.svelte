@@ -199,5 +199,5 @@
       {bibIssueCount === 1 ? '1 bibliography issue' : `${bibIssueCount} bibliography issues`}
     </button>
   {/if}
-  <span><kbd>Ctrl</kbd><kbd>S</kbd> save · <kbd>Ctrl</kbd><kbd>B</kbd> build</span>
+  <span class="hints"><kbd>Ctrl</kbd><kbd>S</kbd> save · <kbd>Ctrl</kbd><kbd>B</kbd> build</span>
 </footer>

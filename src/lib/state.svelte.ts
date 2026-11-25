@@ -15,6 +15,8 @@ export type CompilePhase = 'idle' | 'running' | 'ok' | 'error' | 'failed';
  * for a view that does not exist yet. */
 export type ActivityView = 'files' | 'source-control' | 'assistant' | 'comments';
 
+export type Pane = 'files' | 'write' | 'pdf';
+
 export interface CompileState {
   phase: CompilePhase;
   /** Generation of the build this state describes; older events are ignored. */
@@ -124,6 +126,10 @@ class AppState {
   /** Which view the activity bar has chosen for the left pane (S10.3a). `Sidebar.svelte` is the
    * Files view and `SourceControl.svelte` the other; the bar itself owns neither. */
   activityView = $state<ActivityView>('files');
+
+  /** The pane on screen while there is room for one only (S17.13). It is kept up to date, and has no
+   * effect, while there is room for all three. `files` is whatever the left pane shows. */
+  pane = $state<Pane>('write');
 
   drawerOpen = $state(false);
   /** The drawer's severity and "this file" filter (S6.3). Kept for the session, not reset per

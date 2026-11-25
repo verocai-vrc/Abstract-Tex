@@ -7,6 +7,7 @@
     goToNextPlaceholder,
     openPdfFind,
     showActivityView,
+    showPane,
     start,
     toggleCommandPalette,
     toggleDrawer,
@@ -124,11 +125,20 @@
 
 <!-- `inert`: while the start screen covers this, or another folder is being opened, nobody may type
      into it, click in it, or Tab into it. `OpeningNotice` is outside it so that *Stop* still works. -->
-<div class="app" inert={app.launching || startScreen.visible || app.opening !== null}>
+<div class="app" data-pane={app.pane} inert={app.launching || startScreen.visible || app.opening !== null}>
   <header class="toolbar">
     <span class="title">Abstract-Tex</span>
     <button onclick={() => showStart('home', dialogIsUp())}>{words.pages.home}</button>
     <span class="project-name" title={app.project?.rootDir}>{app.project?.title ?? ''}</span>
+    <!-- Drawn only where there is room for one pane (app.css). The left pane has other things in it too,
+         for which the activity bar has the buttons. -->
+    <div class="pane-choice" role="group" aria-label={words.panesLabel}>
+      <button aria-pressed={app.pane === 'files' && app.activityView === 'files'} onclick={() => showActivityView('files')}>
+        {words.panes.files}
+      </button>
+      <button aria-pressed={app.pane === 'write'} onclick={() => showPane('write')}>{words.panes.write}</button>
+      <button aria-pressed={app.pane === 'pdf'} onclick={() => showPane('pdf')}>{words.panes.pdf}</button>
+    </div>
     <button disabled={!app.hasPdf} onclick={() => void savePdf()}>{words.savePdf}</button>
     <button
       class="primary"

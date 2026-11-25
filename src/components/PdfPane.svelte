@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { folded } from '../lib/layout';
   import { app } from '../lib/state.svelte';
   import { handledByInputMethod } from '../lib/keys';
   import { compare } from '../lib/compare.svelte';
@@ -95,6 +96,13 @@
     if (!request || request.nonce === answeredFindRequest) return;
     answeredFindRequest = request.nonce;
     void openFind();
+  });
+
+  // S17.13: where there is room for one pane, what had the focus is out of sight once this one is shown.
+  $effect(() => {
+    if (app.pane !== 'pdf' || !folded()) return;
+    const focused = document.activeElement;
+    if (!focused || focused === document.body || focused.closest('.editor-column, .left-pane')) column?.focus();
   });
 
   /** Show the bar with the cursor in it. Words selected in the PDF become the search; otherwise the

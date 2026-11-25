@@ -760,7 +760,7 @@
   }
   .change-row:hover .change-actions,
   .change-actions:focus-within {
-    visibility: visible;
+    visibility: inherit; /* never shown through a pane that is not (S17.13) */
   }
   .change-actions button {
     padding: 0 4px;

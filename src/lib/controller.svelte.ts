@@ -41,6 +41,7 @@ import { diagnosticPlace, type DrawerFilter } from './drawer';
 import { firstLocation } from './editor/definition';
 import { trackPaste } from './editor/paste';
 import { flattenSymbols, type FlatSymbol } from './editor/symbols';
+import { folded } from './layout';
 import { LspClient, uriToPath } from './lsp';
 import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
 import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
@@ -48,7 +49,7 @@ import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
 import { startScreen } from './start.svelte';
 import { words } from './words';
-import { app, type ActivityView } from './state.svelte';
+import { app, type ActivityView, type Pane } from './state.svelte';
 
 const backend: DocumentBackend = {
   writeFile: (path, contents) => ipc.writeFile(path, contents),
@@ -494,9 +495,18 @@ export function goToOutlineItem(item: OutlineItem): void {
 // S10.3a: the Source Control view's actions.
 // ---------------------------------------------------------------------------------------------
 
+/** Bring a pane to the front (S17.13). Nothing is seen of it where there is room for all three. */
+export function showPane(pane: Pane): void {
+  const comesIntoSight = folded() && app.pane !== pane;
+  app.pane = pane;
+  // What had the focus may be out of sight now, and what is typed next would go nowhere.
+  if (comesIntoSight && pane === 'write') app.editorFocusRequest += 1;
+}
+
 /** Which view the left pane shows. The activity bar and the command palette both call this. */
 export function showActivityView(view: ActivityView): void {
   app.activityView = view;
+  showPane('files');
   if (view === 'assistant') void openAssistantSettings();
   // S11.6: the Snapshots section is read fresh whenever the view comes up; nothing polls.
   if (view === 'source-control') void refreshSnapshots();
@@ -1367,6 +1377,7 @@ async function startComparison(from: string, to: string, simpler = false): Promi
   compare.saveError = null;
   compare.rawLog = null;
   compare.view = startedComparison(simpler);
+  showPane('pdf');
   try {
     const answer = await ipc.compareRevisions(from, to, simpler);
     if (mine !== comparisonRequest) return;
@@ -1399,6 +1410,7 @@ async function startComparison(from: string, to: string, simpler = false): Promi
     compare.view = NO_COMPARISON;
     compare.marks = NO_MARKS;
     compare.refusal = String(error);
+    showPane('files'); // it is said under the Graph
   }
 }
 
@@ -2309,6 +2321,7 @@ async function refreshBibliographyHealth(): Promise<void> {
  * loses an edit, which is what makes it safe to do with no confirmation.
  */
 export async function openFile(relativePath: string): Promise<void> {
+  showPane('write');
   if (app.activePath === relativePath) return;
   // A conflict bar means there are edits in some tab's buffer that exist nowhere else.
   // Switching away would leave it answerable by nobody, and the two buttons that resolve it
@@ -2937,6 +2950,7 @@ export async function goToNextPlaceholder(fromStart = false): Promise<void> {
 }
 
 export function jumpToLine(line: number): void {
+  showPane('write');
   app.jumpRequest = { line, nonce: ++jumpNonce };
 }
 
@@ -2946,6 +2960,7 @@ let pdfFindNonce = 0;
 /** Ask the PDF pane to open its search bar. The pane does the rest (`PdfPane.svelte`); this is the part
  * the shortcut and the palette share. */
 export function openPdfFind(): void {
+  showPane('pdf');
   app.pdfFindRequest = { nonce: ++pdfFindNonce };
 }
 
@@ -2962,6 +2977,7 @@ export async function syncTexForward(relativePath: string, line: number): Promis
   if (!app.project) return;
   try {
     const hit = await ipc.synctexForward(relativePath, line, app.pdfDraftOf !== null);
+    showPane('pdf');
     app.syncTexScrollRequest = { page: hit.page, x: hit.x, y: hit.y, nonce: ++syncTexNonce };
   } catch (error) {
     app.notice = String(error);
@@ -3085,6 +3101,7 @@ export async function toggleRawLog(): Promise<void> {
  * line is shown, and only ever on request (DESIGN.md §2, commitment 3).
  */
 export async function showRawLogFor(diagnostic: Diagnostic): Promise<void> {
+  showPane('write');
   app.drawerOpen = true;
   app.showRawLog = true;
   app.rawLogFocus = { rawMessage: diagnostic.rawMessage, nonce: (app.rawLogFocus?.nonce ?? 0) + 1 };
@@ -3095,7 +3112,10 @@ export async function showRawLogFor(diagnostic: Diagnostic): Promise<void> {
  * flipping `app.drawerOpen` themselves, so a later rule about opening it (say, never over a
  * conflict bar) has one place to live. */
 export function toggleDrawer(): void {
-  app.drawerOpen = !app.drawerOpen;
+  // It is under the text. Where that is out of sight, an open drawer is not there to be closed.
+  const outOfSight = folded() && app.pane !== 'write';
+  app.drawerOpen = outOfSight || !app.drawerOpen;
+  if (app.drawerOpen) showPane('write');
 }
 
 /** Change part of the drawer's filter (S6.3), leaving the rest as it was. */

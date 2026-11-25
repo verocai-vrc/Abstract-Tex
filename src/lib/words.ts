@@ -14,6 +14,10 @@ export const words = {
 
   pages: { home: 'Home', new: 'New', open: 'Open', look: 'Text and colours' },
 
+  /** Where there is room for one pane (S17.13). */
+  panesLabel: 'What to show',
+  panes: { files: 'Files', write: 'Write', pdf: 'PDF' },
+
   /** Over an open document: the way back to it. */
   backTo: (title: string) => `Back to ${title}`,
   openNow: 'Open now',

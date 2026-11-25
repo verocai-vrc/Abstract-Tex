@@ -763,6 +763,8 @@ const {
   syncTexForward,
   syncTexInverse,
   openPdfFind,
+  showPane,
+  jumpToLine,
   toggleDrawer,
   toggleQuickOpen,
   toggleRawLog,
@@ -2193,6 +2195,80 @@ describe('find in the PDF', () => {
   });
 });
 
+describe('the pane on screen, when there is room for one (S17.13)', () => {
+  /** Whether the window is too narrow for three. */
+  let folded = true;
+  beforeEach(() => {
+    folded = true;
+    vi.stubGlobal('matchMedia', () => ({ matches: folded }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    app.drawerOpen = false;
+  });
+
+  it('is the one the action is about', async () => {
+    showActivityView('files');
+    expect(app.pane).toBe('files');
+    await openFile('main.tex');
+    expect(app.pane).toBe('write');
+    openPdfFind();
+    expect(app.pane).toBe('pdf');
+    jumpToLine(3);
+    expect(app.pane).toBe('write');
+    synctexForwardAnswer = { page: 2, x: 100, y: 200 };
+    await syncTexForward('main.tex', 1);
+    expect(app.pane).toBe('pdf');
+    await syncTexInverse(1, 2, 3);
+    expect(app.pane).toBe('write');
+  });
+
+  it('is the text for a file that is already in front', async () => {
+    await openFile('main.tex');
+    showActivityView('files');
+    await openFile('main.tex');
+    expect(app.pane).toBe('write');
+  });
+
+  it('stays where it is when there is nothing typeset to go to', async () => {
+    showPane('write');
+    synctexForwardAnswer = new Error('Nothing typeset for main.tex:7 in the last build.');
+    await syncTexForward('main.tex', 7);
+    expect(app.pane).toBe('write');
+  });
+
+  it('is the text when the list of problems opens, which is under it', () => {
+    showPane('pdf');
+    toggleDrawer();
+    expect([app.pane, app.drawerOpen]).toEqual(['write', true]);
+    // Open, but not on screen: asking for it shows it.
+    showPane('pdf');
+    toggleDrawer();
+    expect([app.pane, app.drawerOpen]).toEqual(['write', true]);
+    toggleDrawer();
+    expect(app.drawerOpen).toBe(false);
+  });
+
+  it('does not keep the list of problems open where it is in sight', () => {
+    folded = false;
+    app.drawerOpen = true;
+    showPane('pdf');
+    toggleDrawer();
+    expect(app.drawerOpen).toBe(false);
+  });
+
+  it('takes the keyboard along to the text, but only where the others go out of sight', () => {
+    showPane('pdf');
+    const before = app.editorFocusRequest;
+    showPane('write');
+    expect(app.editorFocusRequest).toBe(before + 1);
+    folded = false;
+    showPane('pdf');
+    showPane('write');
+    expect(app.editorFocusRequest).toBe(before + 1);
+  });
+});
+
 describe('syncTexForward (S3.4)', () => {
   it('turns a hit into a scroll request the PDF pane can react to', async () => {
     synctexForwardAnswer = { page: 2, x: 100, y: 200 };
@@ -3346,6 +3422,7 @@ describe('comparing two commits (S11.4d)', () => {
     expect(compare.refusal).toContain("latexdiff isn't installed");
     expect(compare.mode).toBe(false);
     expect(compare.marks).toEqual({ from: null, to: null });
+    expect(app.pane).toBe('files');
   });
 
   it('says nothing for a comparison Rust says was superseded', async () => {
@@ -3424,6 +3501,7 @@ describe('comparing two commits (S11.4d)', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(comparisons.asked).toEqual([['b2b2b2b2', 'c3c3c3c3']]);
     expect(app.activityView).toBe('source-control');
+    expect(app.pane).toBe('pdf'); // where it will be (S17.13)
   });
 
   it('the palette entry says so when there is no earlier commit', () => {

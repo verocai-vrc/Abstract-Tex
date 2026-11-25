@@ -162,22 +162,24 @@
 
 <section class="editor-column">
   <Tabs />
-  {#if app.conflict}
-    <div class="bar conflict" role="alert">
-      <strong>{app.conflict.path}</strong> changed on disk while you had unsaved edits. Nothing has been merged.
-      <span class="spacer"></span>
-      <button onclick={() => void resolveConflict('keep-mine')}>Keep mine</button>
-      <button class="primary" onclick={() => void resolveConflict('load-disk')}>Load from disk</button>
-    </div>
-  {/if}
-  {#if !startScreen.visible}<SavedPdfNotice />{/if}
-  {#if app.notice}
-    <div class="bar notice" role="status">
-      <span>{app.notice}</span>
-      <span class="spacer"></span>
-      <button class="ghost" aria-label="Dismiss" onclick={() => (app.notice = null)}>×</button>
-    </div>
-  {/if}
+  <div class="messages">
+    {#if app.conflict}
+      <div class="bar conflict" role="alert">
+        <strong>{app.conflict.path}</strong> changed on disk while you had unsaved edits. Nothing has been merged.
+        <span class="spacer"></span>
+        <button onclick={() => void resolveConflict('keep-mine')}>Keep mine</button>
+        <button class="primary" onclick={() => void resolveConflict('load-disk')}>Load from disk</button>
+      </div>
+    {/if}
+    {#if !startScreen.visible}<SavedPdfNotice />{/if}
+    {#if app.notice}
+      <div class="bar notice" role="status">
+        <span>{app.notice}</span>
+        <span class="spacer"></span>
+        <button class="ghost" aria-label="Dismiss" onclick={() => (app.notice = null)}>×</button>
+      </div>
+    {/if}
+  </div>
 
   {#if activeIsConflicted}
     <ConflictResolver />
