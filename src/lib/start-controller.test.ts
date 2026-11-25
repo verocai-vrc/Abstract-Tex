@@ -622,6 +622,35 @@ describe('opening what people already have (S17.8)', () => {
     expect([...app.openTabs]).toContain('main.tex');
   });
 
+  it('a chapter or the folder of the document that is open keeps its tabs and its undo', async () => {
+    chosen({ kind: 'document', folder: '/proj', file: 'main.tex' });
+    await chooseFile();
+    const doc = app.activeDoc!;
+    doc.ytext.insert(0, 'x');
+    await vi.advanceTimersByTimeAsync(2000);
+    const unchanged = () => [app.docs.get('main.tex') === doc, doc.undo.undoStack.length, opened.length, startScreen.visible];
+
+    chosen({ kind: 'document', folder: '/proj', file: 'chapters/intro.tex' });
+    showStart('open', false);
+    await chooseFile();
+    expect([app.activePath, ...unchanged()]).toEqual(['chapters/intro.tex', true, 1, 1, false]);
+
+    chosen({ kind: 'document', folder: '/proj', file: null });
+    showStart('open', false);
+    await chooseFolder();
+    expect(unchanged()).toEqual([true, 1, 1, false]);
+
+    showStart('home', false);
+    await findRecent('/was');
+    expect(unchanged()).toEqual([true, 1, 1, false]);
+    expect(only('recentMoved')).toEqual([['recentMoved', '/was', '/proj']]);
+
+    chosen({ kind: 'document', folder: '/proj', file: 'bees.tex' });
+    showStart('open', false);
+    await chooseFile();
+    expect([app.notice, ...unchanged()]).toEqual([words.pdfShowsAnother('main.tex', 'bees.tex'), true, 1, 1, false]);
+  });
+
   it('a .tex that is not the main file is shown beside it, and the main file stays', async () => {
     chosen({ kind: 'document', folder: '/t', file: 'bees.tex' });
     await chooseFile();

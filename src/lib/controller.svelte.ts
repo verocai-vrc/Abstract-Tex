@@ -2316,7 +2316,7 @@ async function openFolderNow(
 
 /** The file someone chose, in front of the document it was found in. When it is no part of that document
  * the PDF does not have it, which would otherwise look like a build that went wrong. */
-async function showChosenFile(file: string, info: ProjectInfo): Promise<void> {
+export async function showChosenFile(file: string, info: ProjectInfo): Promise<void> {
   await openFile(file);
   if (info.documentFilesComplete && !info.documentFiles.includes(file)) {
     tell(words.pdfShowsAnother(info.rootFile ?? '', file));

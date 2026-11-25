@@ -2,7 +2,7 @@
 // imports it: the document's flows know nothing of the screen in front of them, except whether it is up.
 
 import { allCommands, registerCommand, type Command } from './commands';
-import { openFolder, showCloneWindow, tell } from './controller.svelte';
+import { openFolder, showChosenFile, showCloneWindow, tell } from './controller.svelte';
 import { ipc, type Choice, type Preferences } from './ipc';
 import { documentToCarryOn, startScreen, type Presence, type StartPage } from './start.svelte';
 import { app } from './state.svelte';
@@ -121,7 +121,8 @@ export async function findRecent(folder: string): Promise<void> {
     startScreen.choice = choice;
     return;
   }
-  if (!(await openFolder(choice.folder, { name: titleOf(folder) }))) return;
+  if (choice.folder === app.project?.rootDir) backToDocument();
+  else if (!(await openFolder(choice.folder, { name: titleOf(folder) }))) return;
   await ipc.recentMoved(folder, choice.folder).catch((error) => tell(String(error)));
 }
 
@@ -160,11 +161,15 @@ async function look(path: string): Promise<Choice | null> {
   }
 }
 
-/** Open what was chosen if it is a document; else the page says what it is. */
+/** Open what was chosen if it is a document; else the page says what it is. The document that is open is
+ * gone back to: opening it again would close its tabs. */
 async function choose(path: string | null): Promise<void> {
   if (!path) return;
   const choice = await look(path);
-  if (choice?.kind === 'document') await openFolder(choice.folder, { file: choice.file ?? undefined });
+  if (choice?.kind === 'document' && app.project && choice.folder === app.project.rootDir) {
+    backToDocument();
+    if (choice.file) await showChosenFile(choice.file, app.project);
+  } else if (choice?.kind === 'document') await openFolder(choice.folder, { file: choice.file ?? undefined });
   else if (choice?.kind === 'zip') await openFolder(() => unpack(choice.file), { name: lastName(choice.file) });
   else startScreen.choice = choice ?? startScreen.choice;
 }
