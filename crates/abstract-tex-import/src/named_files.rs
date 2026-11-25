@@ -61,7 +61,11 @@ fn ordinary_files_in(folder: &Path) -> HashMap<String, Vec<String>> {
         let is_ordinary = entry.file_type().is_ok_and(|kind| kind.is_file());
         // A name that is not Unicode is not one a document can have.
         if let (true, Ok(name)) = (is_ordinary, entry.file_name().into_string()) {
-            files.entry(name.to_lowercase()).or_default().push(name);
+            let key = name.to_lowercase();
+            // Either of these can say that the folder it is in is part of a repository somewhere else.
+            if !matches!(key.as_str(), ".git" | "commondir") {
+                files.entry(key).or_default().push(name);
+            }
         }
     }
     files
@@ -448,6 +452,18 @@ mod tests {
             files_named_by(&place.path().join("paper.tex")),
             Vec::<PathBuf>::new()
         );
+    }
+
+    #[test]
+    fn what_would_make_a_repository_of_the_copy_does_not_travel() {
+        let text = "\\verbatiminput{.git}\\verbatiminput{HEAD}\\verbatiminput{commondir}";
+        let found = named(&[
+            ("paper.tex", text),
+            (".git", "gitdir: x"),
+            ("HEAD", ""),
+            ("CommonDir", "x"),
+        ]);
+        assert_eq!(found, ["HEAD"]);
     }
 
     #[test]

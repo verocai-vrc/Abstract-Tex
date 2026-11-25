@@ -1,10 +1,10 @@
 //! Unpacking a `.zip` from anywhere: Overleaf, a colleague, a stranger.
 //!
 //! **What it must never do:** write outside its own staging folder, believe a size the archive states,
-//! make a link, or bring in a permission, a repository or a build from another computer. An archive is
-//! taken whole or refused whole, and one that is refused leaves nothing behind.
+//! make a link, or bring in a permission, a repository (whatever it is called) or a build from another
+//! computer. An archive is taken whole or refused whole, and one that is refused leaves nothing behind.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -122,9 +122,42 @@ fn windows_keeps(name: &str) -> bool {
 /// (its PDF and its saved versions are not this document's), and what macOS leaves in every zip.
 fn stays_out(path: &Path) -> bool {
     path.components().any(|part| {
-        let name = part.as_os_str().to_string_lossy().to_lowercase();
+        let name = folded(Path::new(part.as_os_str()));
         matches!(name.as_str(), ".git" | ".abstract-tex" | "__macosx" | ".ds_store")
     })
+}
+
+/// A path as a disk compares it that ignores case: to macOS the long `ſ` is an `s` too, and only going by
+/// way of the capital letters says so.
+fn folded(path: &Path) -> String {
+    path.to_string_lossy().to_uppercase().to_lowercase()
+}
+
+/// Leave out every `HEAD` that would make a repository of the folder it is in. Git goes by what is in a
+/// folder and not by its name, and one from a stranger can say that the files it keeps are all those in
+/// the person's home. Without `HEAD` it is no repository, and the rest are only files.
+fn leave_out_hidden_repositories(wanted: &mut Vec<Wanted>, paths: &Paths) {
+    let mut suspects = HashSet::new();
+    for taken in paths.taken.values() {
+        let (Some(folder), Some(name)) = (taken.path.parent(), taken.path.file_name()) else {
+            continue;
+        };
+        // `commondir` is a file that says where the other two are.
+        if matches!(folded(Path::new(name)).as_str(), "objects" | "refs" | "commondir") {
+            suspects.insert(folded(folder));
+        }
+    }
+    wanted.retain(|entry| {
+        let is_head = entry
+            .path
+            .file_name()
+            .is_some_and(|name| folded(Path::new(name)) == "head");
+        let is_suspect = entry
+            .path
+            .parent()
+            .is_some_and(|folder| suspects.contains(&folded(folder)));
+        entry.is_folder || !is_head || !is_suspect
+    });
 }
 
 /// The paths of one archive, told apart as Windows and macOS do: without regard to case.
@@ -256,6 +289,7 @@ fn judge(archive: &ZipArchive<impl Read + io::Seek>, limits: &Limits) -> Result<
     if !has_tex {
         return Err(UnpackError::NoTex);
     }
+    leave_out_hidden_repositories(&mut wanted, &paths);
     Ok(wanted)
 }
 
@@ -711,6 +745,78 @@ mod tests {
             ("sub/x.tex", ""),
         ]);
         assert_eq!(files_of(&bytes), [".gitignore", "main.tex", "sub/x.tex"]);
+    }
+
+    #[test]
+    fn a_repository_by_another_name_stays_out() {
+        // A folder is a repository when it has a file `HEAD`, and `objects` and `refs` or a file that says
+        // where those are; what it is called is nothing to Git. Without its `HEAD` it is only a folder.
+        let hidden = |folder: &str| {
+            vec![
+                (format!("{folder}HEAD"), "ref: refs/heads/main"),
+                (format!("{folder}config"), "[core]\nworktree = ../../.."),
+                (format!("{folder}objects/x"), ""),
+                (format!("{folder}refs/x"), ""),
+            ]
+        };
+        for folder in ["", "sub/", "deep/er/"] {
+            for wrap in ["", "thesis/"] {
+                let mut all: Vec<_> = hidden(folder)
+                    .into_iter()
+                    .map(|(name, text)| (format!("{wrap}{name}"), text))
+                    .collect();
+                // In any order: `HEAD` may come before what makes it one.
+                for _ in 0..all.len() {
+                    all.rotate_left(1);
+                    let mut files: Vec<(&str, &str)> =
+                        all.iter().map(|(name, text)| (name.as_str(), *text)).collect();
+                    let main = format!("{wrap}main.tex");
+                    files.push((&main, TEX));
+                    let found = files_of(&archive(&files));
+                    assert!(found.iter().all(|file| !file.ends_with("HEAD")), "{found:?}");
+                    assert_eq!(found.len(), 4, "the rest is only files: {found:?}");
+                }
+            }
+        }
+        for files in [
+            ["Head", "OBJECTS/", "Refs/"],
+            ["sub\\HEAD", "sub/objects/", "sub/refs/"],
+            ["HEAD", "commondir", "config"],
+            ["HEAD", "CommonDir", "gitdir"],
+            // On macOS the long s is an s.
+            ["HEAD", "object\u{17f}/x", "ref\u{17f}/x"],
+        ] {
+            let found = files_of(&archive(&[
+                ("main.tex", TEX),
+                (files[0], ""),
+                (files[1], ""),
+                (files[2], ""),
+            ]));
+            let has_head = found.iter().any(|file| file.to_lowercase().ends_with("head"));
+            assert!(!has_head, "{found:?}");
+        }
+        // A `.git` that is a file says where the repository is.
+        let elsewhere = archive(&[
+            ("main.tex", TEX),
+            (".git", "gitdir: ../../.."),
+            ("a/.Git", "gitdir: x"),
+        ]);
+        assert_eq!(files_of(&elsewhere), ["main.tex"]);
+    }
+
+    #[test]
+    fn a_file_that_is_only_called_head_is_kept() {
+        let bytes = archive(&[
+            ("main.tex", TEX),
+            ("HEAD", ""),
+            ("a/head", ""),
+            ("b/refs/x", ""),
+            ("c/HEAD/objects", ""),
+        ]);
+        assert_eq!(
+            files_of(&bytes),
+            ["HEAD", "a/head", "b/refs/x", "c/HEAD/objects", "main.tex"]
+        );
     }
 
     #[test]
