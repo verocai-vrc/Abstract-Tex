@@ -743,13 +743,23 @@ pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
     write_bytes_atomically(path, contents.as_bytes())
 }
 
+/// Where a file is written before it takes `path`'s place. The process id, because two windows are two
+/// processes and may write one file at once. A number for the file's name and not the name itself, which
+/// may already be as long as a disk allows. The ending is how `watcher.rs` and the file tree know it.
+fn temporary_beside(path: &Path) -> PathBuf {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut name = DefaultHasher::new();
+    path.file_name().hash(&mut name);
+    path.with_file_name(format!(
+        ".{:016x}-{}.abstract-tex-tmp",
+        name.finish(),
+        std::process::id()
+    ))
+}
+
 /// The same for bytes: a PDF (S17.7).
 pub fn write_bytes_atomically(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let file_name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let temp = path.with_file_name(format!("{file_name}.abstract-tex-tmp"));
+    let temp = temporary_beside(path);
     // `fs::write` opens with "create or truncate", and that follows a link: a cloned repository can
     // carry this very name as a link to any file the author may write, and a save would put the
     // document there (review finding R6.1). So whatever stands at the name is removed first
@@ -973,7 +983,7 @@ mod tests {
         );
     }
 
-    // Review finding R6.1. A save writes to `<name>.abstract-tex-tmp` and renames it over `<name>`;
+    // Review finding R6.1. A save writes to a temporary name and renames it over `<name>`;
     // a cloned repository can carry that temporary name as a link, and `fs::write` followed it, so a
     // save wrote the document into the link's target (and the rename then made `<name>` the link).
     #[cfg(unix)]
@@ -983,7 +993,7 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         let victim = elsewhere.path().join("victim.txt");
         fs::write(&victim, "not the author's to change").unwrap();
-        std::os::unix::fs::symlink(&victim, dir.path().join("main.tex.abstract-tex-tmp")).unwrap();
+        std::os::unix::fs::symlink(&victim, temporary_beside(&dir.path().join("main.tex"))).unwrap();
 
         write_atomically(&dir.path().join("main.tex"), "the new text").unwrap();
 
@@ -1007,7 +1017,8 @@ mod tests {
         let dir = scaffold(&[("main.tex", "the old text")]);
         let elsewhere = tempfile::tempdir().unwrap();
         let would_be_created = elsewhere.path().join("created-by-the-save");
-        std::os::unix::fs::symlink(&would_be_created, dir.path().join("main.tex.abstract-tex-tmp")).unwrap();
+        std::os::unix::fs::symlink(&would_be_created, temporary_beside(&dir.path().join("main.tex")))
+            .unwrap();
 
         write_atomically(&dir.path().join("main.tex"), "the new text").unwrap();
 
@@ -1018,18 +1029,43 @@ mod tests {
         );
     }
 
+    // 255 bytes is the longest name most disks take, and a saved PDF can be called anything up to that.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_with_a_very_long_name_can_be_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(format!("{}.pdf", "x".repeat(246)));
+        write_bytes_atomically(&file, b"a PDF").unwrap();
+        assert_eq!(fs::read(&file).unwrap(), b"a PDF");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_temporary_file_is_one_window_s_own_and_the_watcher_leaves_it_alone() {
+        let name = |file: &str| {
+            let temp = temporary_beside(Path::new("/p").join(file).as_path());
+            temp.file_name().unwrap().to_string_lossy().into_owned()
+        };
+        let (one, other) = (name("main.tex"), name("intro.tex"));
+        assert_ne!(one, other);
+        assert!(one.contains(&std::process::id().to_string()), "{one}");
+        assert!(
+            one.ends_with(".abstract-tex-tmp"),
+            "as `watcher.rs` knows it: {one}"
+        );
+    }
+
     #[test]
     fn a_leftover_temporary_file_from_a_crash_does_not_stop_the_next_save() {
-        let dir = scaffold(&[
-            ("main.tex", "the old text"),
-            ("main.tex.abstract-tex-tmp", "half of a write"),
-        ]);
+        let dir = scaffold(&[("main.tex", "the old text")]);
+        let leftover = temporary_beside(&dir.path().join("main.tex"));
+        fs::write(&leftover, "half of a write").unwrap();
         write_atomically(&dir.path().join("main.tex"), "the new text").unwrap();
         assert_eq!(
             fs::read_to_string(dir.path().join("main.tex")).unwrap(),
             "the new text"
         );
-        assert!(!dir.path().join("main.tex.abstract-tex-tmp").exists());
+        assert!(!leftover.exists());
     }
 
     // Review finding R5.3. `read_file` read whatever the name pointed at, whole, on the main thread.
