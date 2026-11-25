@@ -539,7 +539,7 @@ fn collect_documentclass_files(
             }
             continue;
         }
-        if !path.extension().is_some_and(|e| e == "tex") {
+        if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("tex")) {
             continue;
         }
         // Read once, use twice: the `\documentclass` check below and the include scan both want
@@ -893,6 +893,14 @@ mod tests {
             ("chapters/one.tex", "\\documentclass{standalone}\n"),
         ]);
         assert_eq!(detect_root(dir.path()), Some(PathBuf::from("thesis.tex")));
+    }
+
+    // Found by the review of S17: the start screen takes such a file for a document, and then it opened
+    // with no main file. Old programs on Windows wrote names like this.
+    #[test]
+    fn a_main_file_whose_ending_is_in_capitals_is_found() {
+        let dir = scaffold(&[("THESIS.TEX", "\\documentclass{article}\n")]);
+        assert_eq!(detect_root(dir.path()), Some(PathBuf::from("THESIS.TEX")));
     }
 
     #[test]
