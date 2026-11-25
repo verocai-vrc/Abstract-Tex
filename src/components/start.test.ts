@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { words } from '../lib/words';
 
 const components = readdirSync(__dirname)
-  .filter((name) => /^(Start\w+|OpeningNotice|SavedPdfNotice)\.svelte$/.test(name))
+  .filter((name) => /^(Start\w+|OpeningNotice|SavedPdfNotice|FirstPdf)\.svelte$/.test(name))
   .map((name) => ({ name, source: readFileSync(join(__dirname, name), 'utf8') }));
 
 /** What is left of a template once everything that is not its own text is gone. */
@@ -45,17 +45,62 @@ describe.each(components)('$name', ({ source }) => {
   });
 
   it('sets no text under 16 px and no target under 44 px', () => {
-    const sizes = (property: string) =>
-      [...source.matchAll(new RegExp(`[^-]${property}:\\s*([\\d.]+)px`, 'g'))].map((match) => Number(match[1]));
-    expect(sizes('font-size').filter((px) => px < 16)).toEqual([]);
-    expect(source).not.toMatch(/font-size:\s*[\d.]+(em|rem|%)/);
-    expect(sizes('min-height').filter((px) => px < 44)).toEqual([]);
+    expect(tooSmall(source)).toEqual([]);
   });
 });
 
-it('every button of the start screen is at least 44 px high', () => {
-  const screen = components.find((c) => c.name === 'StartScreen.svelte')!.source;
-  expect(screen).toMatch(/:global\(\.start button\),\s*:global\(\.start input\) \{[^}]*min-height: 44px/);
+/** Each style rule of a component, as its selector and its declarations. */
+function rulesOf(source: string): { selector: string; body: string }[] {
+  const css = (/<style>([\s\S]*)<\/style>/.exec(source)?.[1] ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({ selector: match[1]!.trim().replace(/\s+/g, ' '), body: match[2]! }));
+}
+
+/** What a component's own rules make too small to read or to press. */
+function tooSmall(source: string): string[] {
+  return rulesOf(source).flatMap(({ selector, body }) => {
+    const declared = [...body.matchAll(/([\w-]+):\s*([^;]+)/g)].map((match) => [match[1]!, match[2]!] as const);
+    // Its label is what is pressed, and that has the 44 px (StartLook, and here below).
+    const isTheRoundOfAChoice = selector === 'label input';
+    return declared
+      .filter(([property, value]) => {
+        const px = /([\d.]+)px/.exec(value);
+        if (property === 'font-size' || (property === 'font' && value.trim() !== 'inherit')) return !px || Number(px[1]) < 16;
+        if (!/^(min-|max-)?height$/.test(property) || isTheRoundOfAChoice) return false;
+        return px !== null && Number(px[1]) < 44;
+      })
+      .map(([property, value]) => `${selector} { ${property}: ${value} }`);
+  });
+}
+
+it('finds what is too small, however it is written', () => {
+  const style = (css: string) => `<style>${css}</style>`;
+  for (const css of ['p { font-size: 13px; }', 'p { font: 13px/1.4 serif; }', 'p { font-size: 0.9em; }', 'button { height: 30px; }', 'button { max-height: 40px; }', 'button { min-height: 43px; }'])
+    expect(tooSmall(style(css)), css).toHaveLength(1);
+  expect(tooSmall(style('button { font: inherit; min-height: 44px; } p { font-size: 16px; line-height: 2px; }'))).toEqual([]);
+});
+
+/** Whether the rule with this selector makes it as high as a finger, and its text as large as it has to be. */
+function isLargeEnough(source: string, selector: string): boolean {
+  const bodies = rulesOf(source).filter((rule) => rule.selector.split(', ').includes(selector)).map((rule) => rule.body);
+  const most = (property: string) => Math.max(0, ...bodies.flatMap((body) => [...body.matchAll(new RegExp(`(?:^|\\s)${property}: ([\\d.]+)px`, 'g'))].map((m) => Number(m[1]))));
+  return most('min-height') >= 44 && most('font-size') >= 16;
+}
+
+// The start screen's is one rule for all of its pages; the others are drawn over the editor too, whose buttons
+// are small, and have to say it themselves.
+it.each([
+  ['StartScreen', ':global(.start button)'],
+  ['StartScreen', ':global(.start input)'],
+  ['OpeningNotice', 'button'],
+  ['SavedPdfNotice', 'button'],
+  ['FirstPdf', '.again'],
+])('what is pressed in %s is at least 44 px high, with text of 16 px: %s', (name, selector) => {
+  const source = components.find((c) => c.name === `${name}.svelte`)!.source;
+  expect(isLargeEnough(source, selector)).toBe(true);
+  expect(isLargeEnough(source.replace(/min-height: \d+px;/g, ''), selector)).toBe(false);
+});
+it('a choice on Text and colours is pressed on its label, which is 44 px high', () => {
+  expect(rulesOf(read('src/components/StartLook.svelte')).find((rule) => rule.selector === 'label')!.body).toMatch(/min-height: 44px/);
 });
 
 it('never says project, repository or compile', () => {
