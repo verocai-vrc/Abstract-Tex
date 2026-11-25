@@ -318,6 +318,7 @@
   .about {
     min-width: 0;
     flex: 1 1 240px;
+    overflow-wrap: anywhere;
   }
   .card button {
     min-width: 120px;

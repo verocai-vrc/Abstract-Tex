@@ -294,3 +294,8 @@ it('the PDF pane and the status bar make a PDF, and compile nothing', () => {
   expect(shown[3]).toContain('Could not build');
   expect(shown.join('\n')).not.toMatch(/compil/i);
 });
+
+it('a long name on Home is broken, not written past the edge of the page', () => {
+  const home = read('src/components/StartHome.svelte');
+  for (const selector of ['.title', '.about', '.row .muted']) expect(declarations(home, selector), selector).toMatch(/overflow-wrap: anywhere/);
+});
