@@ -103,9 +103,16 @@ export const words = {
     otherArchive: 'That is an archive Abstract can’t unpack. Unpack it first (often: double-click it), then choose the folder.',
     otherFile: 'That is not a document Abstract can open. Choose a .tex file, or the folder it is in.',
     gone: 'It is not there any more. It may have been moved, renamed or deleted, or its drive is not connected.',
-    strayFile:
-      'That file is in a folder with many other things. Put it in a folder of its own, together with the files it uses, then choose it there.',
   },
+  yourFolder: (name: string) => `your ${name} folder`,
+  /** A `.tex` among other things. `folder` is where it is, `place` where a folder would be made. */
+  strayQuestion: (file: string, folder: string, place: string, others: number) =>
+    `${file} is in ${folder} with other things. Abstract keeps each document in a folder of its own. ` +
+    `Make one in ${place} and copy ${file} there${
+      others === 0 ? '' : others === 1 ? ', with the one file it uses' : `, with the ${others} files it uses`
+    }? What is in ${folder} stays as it is.`,
+  copyAndOpen: 'Copy and open',
+  cancel: 'Cancel',
   /** Why a zip was not unpacked. Each is given the name it is about, though most are about none. */
   zipRefused: {
     notAZip: () => 'That zip is damaged, or is not really a zip. Download it again, or ask for it again.',

@@ -3,8 +3,8 @@
   // opened says what it is and what to do, here under the buttons.
   import { app } from '../lib/state.svelte';
   import { showCloneWindow } from '../lib/controller.svelte';
-  import { chooseFile, chooseFolder, goToPage, openAnyway } from '../lib/start-controller.svelte';
-  import { placeText, startScreen } from '../lib/start.svelte';
+  import { cancelChoice, chooseFile, chooseFolder, copyAndOpen, goToPage, openAnyway } from '../lib/start-controller.svelte';
+  import { placeText, startScreen, strayQuestion } from '../lib/start.svelte';
   import { words } from '../lib/words';
 
   const choice = $derived(startScreen.choice);
@@ -17,6 +17,8 @@
         return words.crowdedFolder(placeText(choice.place));
       case 'noTex':
         return words.noTex(nameOf(choice.folder));
+      case 'strayFile':
+        return strayQuestion(choice);
       case 'zip':
         return ''; // unpacked at once
       default:
@@ -59,6 +61,11 @@
   <button onclick={() => void chooseFolder()}>{words.chooseAgain}</button>
 {:else if choice?.kind === 'noTex'}
   <button aria-disabled={isBusy} onclick={() => void openAnyway()}>{words.openAnyway}</button>
+{:else if choice?.kind === 'strayFile'}
+  <div class="answers">
+    <button class="primary" aria-disabled={isBusy} onclick={() => void copyAndOpen()}>{words.copyAndOpen}</button>
+    <button onclick={cancelChoice}>{words.cancel}</button>
+  </div>
 {:else if choice?.kind === 'word'}
   <button onclick={() => goToPage('new', 'heading')}>{words.newDocument}</button>
 {/if}
@@ -82,6 +89,11 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 16px;
+  }
+  .answers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
   }
   .said {
     max-width: 720px;

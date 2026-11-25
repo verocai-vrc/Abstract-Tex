@@ -12,6 +12,16 @@ export type StartPage = 'home' | 'new' | 'open' | 'look' | 'help';
 export type Presence = 'here' | 'missing';
 export type HomeSection = 'welcome' | 'carry-on' | 'templates' | 'recents' | 'open';
 
+/** What is asked about a `.tex` among other things (S17.10). */
+export function strayQuestion({ file, place, others }: Extract<Choice, { kind: 'strayFile' }>): string {
+  const parts = file.split(/[\\/]/);
+  const name = parts.pop() ?? file;
+  const folder = parts.pop() ?? '';
+  // A drive has no name one could call a folder's: `E:`, or the `/` of everything.
+  const where = /^[A-Za-z]:$/.test(folder) ? folder : folder === '' ? '/' : words.yourFolder(folder);
+  return words.strayQuestion(name, where, placeText(place), others);
+}
+
 /** Every reason a zip is refused for, so that a test can ask for each one's sentence (S17.9). */
 export const UNPACK_REFUSALS = [
   'notAZip', 'locked', 'unsupported', 'tooMany', 'tooBig', 'unsafeName', 'sameName', 'noTex', 'io',

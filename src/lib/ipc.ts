@@ -859,6 +859,7 @@ export const ipc = {
   showSavedPdf: () => invoke<void>('show_saved_pdf'),
   /** S17.8: what a chosen file or folder is, and what it needs. */
   inspectChoice: (path: string) => invoke<Choice>('inspect_choice', { path }),
+  copyStray: (file: string) => invoke<string>('copy_stray', { file }),
   unpackZip: (path: string) => invoke<Unpacked>('unpack_zip', { path }),
   preferences: () => invoke<Preferences>('preferences'),
   /** Change what is given and leave the rest; answers with all of them. */

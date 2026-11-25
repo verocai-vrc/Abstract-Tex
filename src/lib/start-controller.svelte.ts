@@ -192,6 +192,21 @@ export async function openAnyway(): Promise<void> {
   if (startScreen.choice?.kind === 'noTex') await openFolder(startScreen.choice.folder);
 }
 
+/** *Copy and open*: a folder of its own for a `.tex` that is among other things (S17.10). */
+export async function copyAndOpen(): Promise<void> {
+  const choice = startScreen.choice;
+  if (choice?.kind !== 'strayFile') return;
+  const file = lastName(choice.file);
+  await openFolder(() => ipc.copyStray(choice.file), { name: file, file });
+}
+
+/** *Cancel*: forget what was chosen. The button is gone with it, so the focus needs a place. */
+export function cancelChoice(): void {
+  startScreen.choice = null;
+  startScreen.message = null;
+  moveFocus('first');
+}
+
 async function changeList(change: () => Promise<void>): Promise<void> {
   try {
     await change();

@@ -29,13 +29,13 @@ vi.mock('./ipc', () => ({
 }));
 
 const { app } = await import('./state.svelte');
-const { startScreen, UNPACK_REFUSALS } = await import('./start.svelte');
+const { startScreen, strayQuestion, UNPACK_REFUSALS } = await import('./start.svelte');
 const { words } = await import('./words');
 const { newProject } = await import('./templates.svelte');
 const { allCommands } = await import('./commands');
 const { stopOpening } = await import('./controller.svelte');
 const {
-  backToDocument, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, createProject, findRecent, forgetRecent, goToPage, loadRecents,
+  backToDocument, cancelChoice, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, copyAndOpen, createProject, findRecent, forgetRecent, goToPage, loadRecents,
   moveTemplateSelection, openAnyway, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
   templateFilterChanged,
 } = await import('./start-controller.svelte');
@@ -661,7 +661,77 @@ describe('opening what people already have (S17.8)', () => {
     });
   });
 
-  it.each(['word', 'pdf', 'otherArchive', 'otherFile', 'gone', 'strayFile'] as const)('has a sentence for %s', (kind) =>
+  describe('a .tex among other things (S17.10)', () => {
+    const stray = (others: number) => ({
+      kind: 'strayFile' as const, file: '/home/ana/Downloads/paper.tex', place: ['Documents', 'Abstract-Tex'], others,
+    });
+    beforeEach(() => {
+      chosen(stray(3));
+      answers.copyStray = () => '/home/ana/Documents/Abstract-Tex/paper';
+    });
+
+    it('asks before copying, with the number of files', async () => {
+      await chooseFile();
+      expect(startScreen.choice).toEqual(stray(3));
+      expect([only('copyStray'), opened]).toEqual([[], []]);
+      const question = strayQuestion(stray(3));
+      expect(question).toContain('paper.tex is in your Downloads folder');
+      expect(question).toContain('in Documents › Abstract-Tex');
+      expect(question).toContain('with the 3 files it uses?');
+      expect(strayQuestion(stray(1))).toContain('with the one file it uses?');
+      expect(strayQuestion(stray(0))).toContain('copy paper.tex there?');
+    });
+
+    it('names the folder of a Windows path, and the drive it is in when it is in no folder', () => {
+      expect(strayQuestion({ ...stray(0), file: 'C:\\Users\\Ana\\Desktop\\a.tex' })).toContain('a.tex is in your Desktop folder');
+      expect(strayQuestion({ ...stray(0), file: 'E:\\a.tex' })).toContain('a.tex is in E:');
+      expect(strayQuestion({ ...stray(0), file: '/a.tex' })).toContain('a.tex is in /');
+    });
+
+    it('Cancel copies nothing', async () => {
+      await chooseFile();
+      const focused = startScreen.focusNonce;
+      cancelChoice();
+      expect([startScreen.choice, only('copyStray'), opened]).toEqual([null, [], []]);
+      expect([startScreen.focusTarget, startScreen.focusNonce]).toEqual(['first', focused + 1]);
+    });
+
+    it('opens the copy, not the original', async () => {
+      await chooseFile();
+      await copyAndOpen();
+      expect(only('copyStray')).toEqual([['copyStray', '/home/ana/Downloads/paper.tex']]);
+      expect(opened).toEqual(['/home/ana/Documents/Abstract-Tex/paper']);
+    });
+
+    it('puts the chosen file in front when it is not the main one', async () => {
+      answers.openProject = (path: string) => ({
+        ...project, rootDir: path, documentFiles: ['main.tex', 'paper.tex'],
+        tree: ['main.tex', 'paper.tex'].map((name) => ({ name, path: name, isDir: false, children: [] })),
+      });
+      await chooseFile();
+      await copyAndOpen();
+      expect(app.activePath).toBe('paper.tex');
+    });
+
+    it('a copy that cannot be made is said, and the question stays', async () => {
+      answers.copyStray = () => {
+        throw 'the disk is full';
+      };
+      await chooseFile();
+      await copyAndOpen();
+      expect([startScreen.message?.text, startScreen.choice, opened]).toEqual(['the disk is full', stray(3), []]);
+    });
+
+    it('copies nothing that was not asked about', async () => {
+      for (const choice of [null, { kind: 'word' }, { kind: 'zip', file: '/a.zip' }] as const) {
+        startScreen.choice = choice;
+        await copyAndOpen();
+      }
+      expect(only('copyStray')).toEqual([]);
+    });
+  });
+
+  it.each(['word', 'pdf', 'otherArchive', 'otherFile', 'gone'] as const)('has a sentence for %s', (kind) =>
     expect(words.refused[kind]).toBeTruthy(),
   );
 
