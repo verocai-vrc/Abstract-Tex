@@ -70,6 +70,8 @@ const calls = {
    * time the public confirmation was put to the person. */
   created: [] as string[],
   windowTitles: [] as string[],
+  /** S17.15: every picture that was to be kept. */
+  pictures: [] as Array<[string, string]>,
   /** S17.7: the dialogs, builds and saves asked for, in the order they were. */
   order: [] as string[],
   publicQuestions: [] as string[],
@@ -256,6 +258,7 @@ vi.mock('./ipc', () => ({
       return openProjectAnswer ?? project;
     },
     documentTitle: async () => documentTitleAnswer,
+    savePagePicture: async (folder: string, png: string) => void calls.pictures.push([folder, png]),
     setWindowTitle: async (title: string) => void calls.windowTitles.push(title),
     stopOpening: async () => {
       calls.openingsStopped++;
@@ -765,6 +768,7 @@ const {
   openPdfFind,
   showPane,
   jumpToLine,
+  drawsFirstPage,
   toggleDrawer,
   toggleQuickOpen,
   toggleRawLog,
@@ -5240,6 +5244,69 @@ describe('the title of the open document (S17.3)', () => {
     late.resolve('The old one');
     await vi.advanceTimersByTimeAsync(0);
     expect(app.project?.title).toBe('proj');
+  });
+});
+
+describe('the picture of page one (S17.15)', () => {
+  const finished = (generation = 1): CompileEvent => ({
+    status: 'finished', generation, success: true, pdfPath: '/proj/.abstract-tex/build/main.pdf', logPath: null, durationMs: 1, diagnostics: [], stderr: '',
+  });
+  /** What the pane was asked to draw. */
+  let asked: Array<[string, number]> = [];
+  beforeEach(() => {
+    asked = [];
+    calls.pictures.length = 0;
+    drawsFirstPage(async (url, width) => {
+      asked.push([url, width]);
+      return new Blob([new Uint8Array([0x89, 0x50, 0xff])]);
+    });
+  });
+  afterEach(() => drawsFirstPage(null));
+
+  it('is of the PDF that was built, and is kept under its folder', async () => {
+    compileHandler(finished());
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(asked).toEqual([[app.pdfUrl, 320]]);
+    expect(calls.pictures).toEqual([[project.rootDir, btoa('\x89P\xff')]]);
+  });
+
+  it('waits for the keys to stop', async () => {
+    compileHandler(finished());
+    await vi.advanceTimersByTimeAsync(4000);
+    typeInto('main.tex', 'x');
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(asked).toEqual([]);
+  });
+
+  it('is not drawn once another document is open, nor kept if that happens meanwhile', async () => {
+    compileHandler(finished());
+    await openFolder('/other');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(asked).toEqual([]);
+
+    const slow = deferred<Blob>();
+    drawsFirstPage(() => slow.promise);
+    compileHandler(finished(50));
+    await vi.advanceTimersByTimeAsync(5000);
+    await openFolder('/third');
+    slow.resolve(new Blob([]));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls.pictures).toEqual([]);
+  });
+
+  it('is not drawn of a draft, nor while another build runs, nor beside a comparison', async () => {
+    compileHandler(finished());
+    compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
+    await vi.advanceTimersByTimeAsync(6000);
+    compileHandler(finished(2));
+    app.pdfUrl = 'asset://draft.pdf';
+    await vi.advanceTimersByTimeAsync(6000);
+    compileHandler(finished(3));
+    compare.view = { ...compare.view, phase: 'ready', pdfUrl: 'asset://diff.pdf' };
+    expect(compare.mode).toBe(true);
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(asked).toEqual([]);
+    clearComparison();
   });
 });
 

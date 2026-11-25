@@ -7,6 +7,7 @@
   import {
     clearComparison,
     comparisonTitle,
+    drawsFirstPage,
     openPdfLink,
     retryComparisonWithSimplerMarkup,
     saveComparisonAs,
@@ -40,7 +41,9 @@
     });
     created.onFindStatus((status) => (findStatus = status));
     viewer = created;
+    drawsFirstPage((url, width) => created.firstPagePng(url, width));
     return () => {
+      drawsFirstPage(null);
       void viewer?.destroy();
       viewer = null;
     };

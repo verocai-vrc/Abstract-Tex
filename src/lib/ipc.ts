@@ -615,6 +615,8 @@ export interface RecentDocument {
   place: string[];
   /** Seconds since 1970. */
   usedAt: number;
+  /** The address of a picture of its first page, if there is one. */
+  picture: string | null;
 }
 
 export const ipc = {
@@ -627,7 +629,14 @@ export const ipc = {
   /** S17.2: stop the opening that is being read. `false` when it is too late, or there is none. */
   stopOpening: () => invoke<boolean>('stop_opening'),
   /** S17.3: the documents used last, newest first. */
-  recentDocuments: () => invoke<RecentDocument[]>('recent_documents'),
+  recentDocuments: async () => {
+    const rows = await invoke<RecentDocument[]>('recent_documents');
+    // A picture is replaced under the same name, and the webview remembers what it has shown.
+    const asked = Date.now();
+    return rows.map((row) => ({ ...row, picture: row.picture && `${convertFileSrc(row.picture)}?v=${asked}` }));
+  },
+  /** Keep a picture of the first page of a document on the list; `pngBase64` is the PNG itself. */
+  savePagePicture: (folder: string, pngBase64: string) => invoke<void>('save_page_picture', { folder, pngBase64 }),
   /** Answers within 2 seconds, whatever the drive does. */
   recentIsHere: (folder: string) => invoke<boolean>('recent_is_here', { folder }),
   recentMoved: (from: string, to: string) => invoke<void>('recent_moved', { from, to }),

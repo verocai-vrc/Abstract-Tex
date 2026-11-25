@@ -44,7 +44,7 @@ function only(...names: string[]): unknown[][] {
   return ipcCalls.filter((call) => names.includes(call[0] as string));
 }
 function recent(folder: string, title = folder.slice(1)): RecentDocument {
-  return { folder, rootFile: 'main.tex', title, place: [], usedAt: 1 };
+  return { folder, rootFile: 'main.tex', title, place: [], usedAt: 1, picture: null };
 }
 
 let listed: RecentDocument[] = [];

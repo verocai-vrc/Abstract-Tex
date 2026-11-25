@@ -15,6 +15,8 @@ use abstract_tex_import::{
     FileKind, Limits, UnpackError,
 };
 use abstract_tex_templates::folder_name_for_title;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _; // puts `decode` on `BASE64`
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 use tokio::sync::watch;
@@ -23,6 +25,7 @@ use crate::assistant::AssistantSettings;
 use crate::commands::{to_message, CommandResult, OPENING_STOPPED};
 use crate::consent::ShellEscapeConsent;
 use crate::opening::Opening;
+use crate::pictures::Pictures;
 use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
 use crate::project::detect_root;
 use crate::recents::{self, RecentDocument, RecentDocuments};
@@ -41,6 +44,8 @@ pub struct RecentRow {
     /// Where it is kept, from the home folder down: the window puts a sign between the parts.
     place: Vec<String>,
     used_at: i64,
+    /// The file with a picture of its first page, if there is one (S17.15).
+    picture: Option<String>,
 }
 
 /// The folder a document's folder is in, as the names a person would read. Inside the home folder that
@@ -78,6 +83,7 @@ fn rows(documents: Vec<RecentDocument>, home: Option<&Path>) -> Vec<RecentRow> {
             root_file: document.root_file,
             title: document.title,
             used_at: document.used_at,
+            picture: None, // `with_pictures`, which asks a disk
         })
         .collect();
     let mut alike: HashMap<(String, Vec<String>), usize> = HashMap::new();
@@ -88,6 +94,14 @@ fn rows(documents: Vec<RecentDocument>, home: Option<&Path>) -> Vec<RecentRow> {
         if alike[&(row.title.clone(), row.place.clone())] > 1 {
             row.place.push(recents::folder_name(Path::new(&row.folder)));
         }
+    }
+    rows
+}
+
+fn with_pictures(mut rows: Vec<RecentRow>, pictures: &Pictures) -> Vec<RecentRow> {
+    for row in &mut rows {
+        let picture = pictures.path_for(Path::new(&row.folder));
+        row.picture = picture.is_file().then(|| picture.to_string_lossy().into_owned());
     }
     rows
 }
@@ -150,7 +164,30 @@ pub async fn recent_documents<R: Runtime>(
     recents: State<'_, RecentDocuments>,
 ) -> CommandResult<Vec<RecentRow>> {
     let home = app.path().home_dir().ok();
-    with_recents(recents, move |recents| Ok(rows(recents.list(), home.as_deref()))).await
+    let pictures = app.state::<Pictures>().inner().clone();
+    with_recents(recents, move |recents| {
+        Ok(with_pictures(rows(recents.list(), home.as_deref()), &pictures))
+    })
+    .await
+}
+
+/// Keep a picture of the first page of a document on the list. The window draws it, because the window
+/// has the PDF open already (`page-picture.ts`).
+#[tauri::command]
+pub async fn save_page_picture(
+    recents: State<'_, RecentDocuments>,
+    pictures: State<'_, Pictures>,
+    folder: String,
+    png_base64: String,
+) -> CommandResult<()> {
+    let pictures = pictures.inner().clone();
+    with_recents(recents, move |recents| {
+        let png = BASE64.decode(png_base64).map_err(to_message)?;
+        pictures
+            .save(&recents.list(), Path::new(&folder), &png)
+            .map_err(to_message)
+    })
+    .await
 }
 
 /// Whether a listed document is where it was. One command per document, so that one dead drive delays
@@ -176,28 +213,49 @@ pub async fn recent_is_here(
 #[tauri::command]
 pub async fn recent_moved(
     recents: State<'_, RecentDocuments>,
+    pictures: State<'_, Pictures>,
     from: String,
     to: String,
 ) -> CommandResult<()> {
+    let pictures = pictures.inner().clone();
     with_recents(recents, move |recents| {
         recents
             .moved(Path::new(&from), Path::new(&to))
-            .map_err(to_message)
+            .map_err(to_message)?;
+        // The document has just been opened where it is now, and is drawn again there.
+        pictures.forget(Path::new(&from));
+        Ok(())
     })
     .await
 }
 
 #[tauri::command]
-pub async fn forget_recent(recents: State<'_, RecentDocuments>, folder: String) -> CommandResult<()> {
+pub async fn forget_recent(
+    recents: State<'_, RecentDocuments>,
+    pictures: State<'_, Pictures>,
+    folder: String,
+) -> CommandResult<()> {
+    let pictures = pictures.inner().clone();
     with_recents(recents, move |recents| {
-        recents.forget(Path::new(&folder)).map_err(to_message)
+        recents.forget(Path::new(&folder)).map_err(to_message)?;
+        pictures.forget(Path::new(&folder));
+        Ok(())
     })
     .await
 }
 
 #[tauri::command]
-pub async fn clear_recents(recents: State<'_, RecentDocuments>) -> CommandResult<()> {
-    with_recents(recents, |recents| recents.clear().map_err(to_message)).await
+pub async fn clear_recents(
+    recents: State<'_, RecentDocuments>,
+    pictures: State<'_, Pictures>,
+) -> CommandResult<()> {
+    let pictures = pictures.inner().clone();
+    with_recents(recents, move |recents| {
+        recents.clear().map_err(to_message)?;
+        pictures.clear();
+        Ok(())
+    })
+    .await
 }
 
 /// Show a listed document's folder in the system's file manager. Only a listed one: the window can ask
@@ -730,6 +788,57 @@ mod tests {
             places,
             ["Documents/essay", "Documents/essay-2", "Documents", "Desktop"]
         );
+    }
+
+    #[test]
+    fn taking_a_document_off_the_list_removes_its_picture() {
+        let config = tempfile::tempdir().unwrap();
+        let app = tauri::test::mock_builder()
+            .manage(RecentDocuments::at(config.path().join("recent-documents.toml")))
+            .manage(Pictures::at(config.path().join("recent-pictures")))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        for folder in ["/a", "/b", "/c"] {
+            app.state::<RecentDocuments>()
+                .record(Path::new(folder), Path::new("main.tex"), None, 1)
+                .unwrap();
+        }
+        let png = BASE64.encode(b"\x89PNG\r\n\x1a\n and the rest");
+        let save = |folder: &str| {
+            tauri::async_runtime::block_on(save_page_picture(
+                app.state(),
+                app.state(),
+                folder.into(),
+                png.clone(),
+            ))
+        };
+        let drawn = || -> Vec<String> {
+            tauri::async_runtime::block_on(recent_documents(app.handle().clone(), app.state()))
+                .unwrap()
+                .into_iter()
+                .filter(|row| row.picture.as_ref().is_some_and(|path| Path::new(path).is_file()))
+                .map(|row| row.folder)
+                .collect()
+        };
+        assert!(drawn().is_empty());
+        for folder in ["/a", "/b", "/c"] {
+            save(folder).unwrap();
+        }
+        assert_eq!(drawn(), ["/c", "/b", "/a"]);
+        assert!(save("/d").is_err(), "not on the list");
+        let files = || {
+            std::fs::read_dir(config.path().join("recent-pictures"))
+                .unwrap()
+                .count()
+        };
+
+        tauri::async_runtime::block_on(forget_recent(app.state(), app.state(), "/b".into())).unwrap();
+        assert_eq!((drawn(), files()), (vec!["/c".to_string(), "/a".into()], 2));
+        tauri::async_runtime::block_on(recent_moved(app.state(), app.state(), "/a".into(), "/e".into()))
+            .unwrap();
+        assert_eq!((drawn(), files()), (vec!["/c".to_string()], 1));
+        tauri::async_runtime::block_on(clear_recents(app.state(), app.state())).unwrap();
+        assert_eq!((drawn(), files()), (vec![], 0));
     }
 
     #[test]

@@ -41,6 +41,13 @@
   }
 </script>
 
+<!-- A picture says nothing that the title does not: it is for recognising, and has no name of its own. -->
+{#snippet page(recent: RecentDocument)}
+  <span class="page">
+    {#if recent.picture}<img src={recent.picture} alt="" onerror={(e) => (e.currentTarget as HTMLElement).remove()} />{/if}
+  </span>
+{/snippet}
+
 {#if startScreen.recents !== null}
   {#if sections.includes('welcome')}
     <h1 tabindex="-1">{words.welcome}</h1>
@@ -56,6 +63,7 @@
         {#if startScreen.decided && carryOn}
           <h2>{words.carryOn}</h2>
           <div class="card">
+            {@render page(carryOn)}
             <div class="about">
               <p class="title">{carryOn.title}</p>
               <p class="muted">{placeText(carryOn.place)}</p>
@@ -134,9 +142,12 @@
             <li>
               {#if isMissing(recent)}
                 <div class="row">
-                  <span class="title">{recent.title}</span>
-                  <span class="muted">{placeText(recent.place)}</span>
-                  <span class="not-found">{words.notFound}</span>
+                  {@render page(recent)}
+                  <span class="texts">
+                    <span class="title">{recent.title}</span>
+                    <span class="muted">{placeText(recent.place)}</span>
+                    <span class="not-found">{words.notFound}</span>
+                  </span>
                 </div>
               {:else}
                 <button
@@ -145,9 +156,12 @@
                   aria-label={words.row(recent.title, placeText(recent.place), isOpenNow(recent) ? words.openNow : when(recent))}
                   onclick={() => void openRecent(recent.folder)}
                 >
-                  <span class="title">{recent.title}</span>
-                  <span class="muted">{placeText(recent.place)}</span>
-                  <span class="muted">{isOpenNow(recent) ? words.openNow : when(recent)}</span>
+                  {@render page(recent)}
+                  <span class="texts">
+                    <span class="title">{recent.title}</span>
+                    <span class="muted">{placeText(recent.place)}</span>
+                    <span class="muted">{isOpenNow(recent) ? words.openNow : when(recent)}</span>
+                  </span>
                 </button>
               {/if}
               <div class="actions">
@@ -226,8 +240,28 @@
     text-underline-offset: 3px;
   }
 
+  /* A sheet of paper, with the first page on it once there is a picture. Its corner of the list is kept
+     either way, so that the titles line up. */
+  .page {
+    flex: none;
+    width: 36px;
+    height: 51px;
+    overflow: hidden;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+  }
+  .page img {
+    display: block;
+    width: 100%;
+  }
+  .card .page {
+    width: 84px;
+    height: 119px;
+  }
+
   .carry-on {
-    min-height: 152px;
+    min-height: 192px;
   }
   .carry-on.gone {
     display: none;
@@ -288,13 +322,20 @@
     flex: 1 1 420px;
     min-width: 0;
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0 16px;
+    align-items: center;
+    gap: 16px;
     padding: 8px 12px;
     text-align: left;
     background: none;
     border-color: transparent;
+  }
+  .texts {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 16px;
   }
   .row .title {
     flex: 1 1 220px;

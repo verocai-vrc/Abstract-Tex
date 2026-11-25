@@ -5,7 +5,7 @@ import { chordOnStartScreen, documentToCarryOn, homeSections, homeTemplates, pla
 import { words } from './words';
 
 function recent(folder: string, title: string, place: string[] = []): RecentDocument {
-  return { folder, rootFile: 'main.tex', title, place, usedAt: 1 };
+  return { folder, rootFile: 'main.tex', title, place, usedAt: 1, picture: null };
 }
 const a = recent('/a', 'A');
 const b = recent('/b', 'B');

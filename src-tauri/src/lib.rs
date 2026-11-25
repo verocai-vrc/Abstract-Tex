@@ -39,6 +39,7 @@ pub mod lfs;
 pub mod lsp;
 pub mod opening;
 pub mod paste;
+pub mod pictures;
 pub mod preferences;
 pub mod project;
 pub mod recents;
@@ -141,6 +142,10 @@ pub fn run() {
             let preferences = preferences::PreferencesFile::at(config.join("preferences.toml"));
             app.manage(preferences.clone());
             app.manage(start::PresenceChecks::default());
+            let pictures = app.path().app_local_data_dir()?.join("recent-pictures");
+            // The window shows them as images, which only come from folders that are allowed.
+            app.asset_protocol_scope().allow_directory(&pictures, false)?;
+            app.manage(pictures::Pictures::at(pictures));
             app.manage(consent::ShellEscapeConsent::at(config.join("shell-escape.toml")));
             // S12.1b: the assistant's settings are per machine, in the same folder and for the same
             // reason; its key goes to the OS keychain and nowhere else (`assistant.rs`).
@@ -226,6 +231,7 @@ pub fn run() {
             commands::template_list,
             commands::template_create,
             start::recent_documents,
+            start::save_page_picture,
             start::recent_is_here,
             start::recent_moved,
             start::forget_recent,

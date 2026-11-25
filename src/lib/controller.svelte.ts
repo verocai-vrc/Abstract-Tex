@@ -45,6 +45,7 @@ import { folded } from './layout';
 import { LspClient, uriToPath } from './lsp';
 import { LspDiagnosticStore, type EditorDiagnostic } from './lsp-diagnostics';
 import { isPublishDiagnosticsParams, type Hover } from './lsp-protocol';
+import { PagePictures } from './page-picture';
 import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
 import { startScreen } from './start.svelte';
@@ -2163,6 +2164,7 @@ export async function openFolder(
   let isBeingOpened = true;
   try {
     newestBuildOfAProjectLeft = app.compile.generation;
+    pictures.cancel();
     closeAllDocuments();
     manager.releaseSaves('opening');
     startScreen.visible = false;
@@ -2364,6 +2366,7 @@ async function openFileFromDisk(relativePath: string): Promise<void> {
     const doc = manager.open(relativePath, text);
     doc.onDirtyChange = (isDirty) => setDirty(relativePath, isDirty);
     doc.onTextChange = () => {
+      pictures.typed();
       scheduleOutlineRefresh();
       schedulePlaceholderRefresh(relativePath);
     };
@@ -3151,6 +3154,32 @@ export async function resolveConflict(choice: 'keep-mine' | 'load-disk'): Promis
  * for a finished build, so it never outlives the build it was drafted beside. */
 let fullPdfUrl: string | null = null;
 
+// ---- The picture of page one, for Home (S17.15) -------------------------------------------------
+
+/** As wide as it is ever shown, on a screen with two pixels to each CSS one. */
+const PICTURE_WIDTH = 320;
+
+let drawFirstPage: ((url: string, width: number) => Promise<Blob | null>) | null = null;
+
+/** Whoever has the PDF open says how to draw its first page; `null` when it no longer has. */
+export function drawsFirstPage(draw: typeof drawFirstPage): void {
+  drawFirstPage = draw;
+}
+
+const pictures = new PagePictures(
+  async () => {
+    const epoch = projectEpoch;
+    const [folder, url] = [app.project?.rootDir, fullPdfUrl];
+    const png = folder && url ? await drawFirstPage?.(url, PICTURE_WIDTH) : null;
+    if (!folder || !png) return;
+    const bytes = new Uint8Array(await png.arrayBuffer());
+    if (epoch !== projectEpoch) return; // it may be the new document that was drawn
+    // `btoa` takes a string with one character to each byte.
+    await ipc.savePagePicture(folder, btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')));
+  },
+  () => app.pdfUrl !== null && app.pdfUrl === fullPdfUrl && !compare.mode && app.compile.phase === 'ok',
+);
+
 /** Put the last full build back on screen, if a draft is standing in for it. */
 function withdrawDraft(): void {
   if (app.pdfDraftOf === null) return;
@@ -3219,6 +3248,7 @@ function handleCompileEvent(event: CompileEvent): void {
         app.pdfDraftOf = null;
         app.hasPdf = true;
         void refreshTitle();
+        pictures.buildFinished();
       } else {
         withdrawDraft();
       }

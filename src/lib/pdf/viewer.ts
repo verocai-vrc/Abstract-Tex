@@ -178,6 +178,19 @@ class Surface {
     return initialised;
   }
 
+  /** The first page, `width` pixels wide, as a PNG. */
+  async firstPagePng(width: number): Promise<Blob | null> {
+    const page = await this.document?.getPage(1);
+    if (!page) return null;
+    const viewport = page.getViewport({ scale: width / page.getViewport({ scale: 1 }).width });
+    const canvas = window.document.createElement('canvas');
+    canvas.width = width;
+    // Of a poster a kilometre high, the top.
+    canvas.height = Math.min(Math.round(viewport.height), width * 2);
+    await page.render({ canvas, viewport }).promise;
+    return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  }
+
   /** Draw the pages again at the same size. */
   redraw(): void {
     if (this.document) this.pdfViewer.refresh();
@@ -238,6 +251,8 @@ class Surface {
 export class PdfViewer {
   private active: Surface | null = null;
   private renderToken = 0;
+  /** What is on show, as `load` was given it. */
+  private shown: string | null = null;
   private zoom = 1;
   /** What the reader is searching for, kept here so a new PDF can be searched for the same thing. */
   private findRequest: FindRequest | null = null;
@@ -338,6 +353,7 @@ export class PdfViewer {
 
     next.setHidden(false);
     this.active = next;
+    this.shown = url;
     if (previous) previous.findStatusListener = null;
     next.findStatusListener = (status) => this.findStatusHandler?.(status);
     // The reader's search carries over to the new PDF. The view is held still: they are reading wherever
@@ -386,6 +402,11 @@ export class PdfViewer {
     this.active?.applyZoom(this.zoom);
   }
 
+  /** The first page of the PDF at `url`, `width` pixels wide; `null` when another one is on show. */
+  async firstPagePng(url: string, width: number): Promise<Blob | null> {
+    return this.shown === url ? (this.active?.firstPagePng(width) ?? null) : null;
+  }
+
   /** Draw the pages again: the pixel ratio has changed (see `drawAtPixelRatio`). */
   redraw(): void {
     this.active?.redraw();
@@ -400,6 +421,7 @@ export class PdfViewer {
    * the "Compiling…" note. */
   async clear(): Promise<void> {
     this.renderToken++;
+    this.shown = null;
     const previous = this.active;
     this.active = null;
     // The search stays asked for, and runs again when a PDF arrives; until then there is nothing to count.
