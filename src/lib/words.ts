@@ -139,7 +139,7 @@ export const words = {
   back: 'Back',
   create: 'Create',
   creating: 'Creating…',
-  titleNeeded: 'Give the document a title. Its folder is named after it.',
+  titleNeeded: (field: string) => `Fill in “${field}”. The document’s folder is named after it.`,
 
   openTitle: 'Open a document',
   chooseFile: 'Choose a file…',

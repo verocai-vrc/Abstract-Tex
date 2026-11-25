@@ -346,7 +346,7 @@ export async function createProject(): Promise<void> {
   const answers: Record<string, string> = {};
   for (const field of template.fields) answers[field.id] = (newProject.values[field.id] ?? '').trim();
   if ('title' in answers && answers.title === '') {
-    newProject.error = words.titleNeeded;
+    newProject.error = words.titleNeeded(template.fields.find((field) => field.id === 'title')?.label ?? '');
     moveFocus('first');
     return;
   }

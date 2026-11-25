@@ -54,7 +54,7 @@ const essay: TemplateInfo = {
   id: 'essay', name: 'Essay', category: 'essay', description: 'A short essay', previewUrl: 'data:,',
   fields: [{ id: 'title', label: 'Title', example: '' }, { id: 'author', label: 'Author', example: '' }],
 };
-const cv: TemplateInfo = { ...essay, id: 'cv', name: 'Curriculum vitae', category: 'cv', description: 'One page' };
+const cv: TemplateInfo = { ...essay, id: 'cv', name: 'Curriculum vitae', category: 'cv', description: 'One page', fields: [{ id: 'title', label: 'Heading', example: '' }] };
 const noPreferences: Preferences = {
   place: { path: '/home/ana/Documents/Abstract-Tex', parts: ['Documents', 'Abstract-Tex'] },
   author: '', textSize: 100, colours: 'match',
@@ -463,8 +463,15 @@ describe('a new document (S11.11, S17.6)', () => {
   it('wants a title, and writes nothing without one', async () => {
     await fillIn({ title: '   ' });
     await createProject();
-    expect(newProject.error).toContain('title');
+    expect(newProject.error).toContain('Title');
     expect(only('templateCreate')).toEqual([]);
+  });
+
+  it('a title that is asked for is called what its field is called', async () => {
+    newProject.catalog = [essay, cv];
+    chooseTemplate('cv');
+    await createProject();
+    expect(newProject.error).toBe('Fill in “Heading”. The document’s folder is named after it.');
   });
 
   it('a refusal keeps the page and everything typed', async () => {
