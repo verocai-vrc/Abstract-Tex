@@ -82,13 +82,16 @@
     if (!url) {
       // Nothing to show (another project just opened, or a comparison is still being built):
       // the pages of whatever was here before must not stay on screen under the placeholder.
+      // Nor may what went wrong with it: this is no file of its, and `FirstPdf` may have more to say.
+      loadError = null;
       void viewer.clear();
       return;
     }
     loadError = null;
     viewer.load(url).catch((error: unknown) => {
       console.error('[pdf] load failed', url, error);
-      loadError = String(error);
+      // Not if it is of what was shown before.
+      if (url === shownUrl) loadError = String(error);
     });
   });
 
