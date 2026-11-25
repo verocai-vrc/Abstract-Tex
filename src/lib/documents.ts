@@ -91,11 +91,15 @@ export class DocumentManager {
    *
    * Saves with `notify = false`: the caller (`triggerCompile`) is about to compile once every
    * tab is flushed, so a per-tab `afterSave` here would only queue up redundant recompiles.
+   *
+   * A file someone else deleted is written back when its document is left, but not for a build nobody
+   * may have asked for (`withGone`).
    */
-  async saveAll(): Promise<void> {
+  async saveAll(withGone = true): Promise<void> {
     let firstError: unknown;
     await Promise.all(
       this.order.map(async (path) => {
+        if (!withGone && this.docs.get(path)!.isOnlyGone) return;
         try {
           await this.docs.get(path)!.save(false);
         } catch (error) {

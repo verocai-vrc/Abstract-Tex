@@ -5585,6 +5585,62 @@ describe('opening a folder leaves the window alive, and can be stopped (S17.2)',
     expect(app.opening).toBeNull();
   });
 
+  it('a file deleted elsewhere meanwhile is not written back unasked when the opening is refused', async () => {
+    const { slow, opening } = await startOpening();
+    disk.delete('main.tex');
+    await fileChanged('main.tex');
+    slow.reject(new Error('over'));
+    await opening;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect([calls.writes, app.dirty]).toEqual([[], true]);
+    type(' more');
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('main.tex')).toBe('hello more');
+  });
+
+  it('one that had unsaved words is written back, once saves are let go', async () => {
+    const { slow, opening } = await startOpening();
+    type(' late');
+    disk.delete('main.tex');
+    await fileChanged('main.tex');
+    expect(calls.writes).toEqual([]);
+    slow.reject(new Error('over'));
+    await opening;
+    await vi.advanceTimersByTimeAsync(700);
+    expect(disk.get('main.tex')).toBe('hello late');
+  });
+
+  describe('*Stop* while the open document is still being saved', () => {
+    async function stopDuringSave(save: () => Promise<void>) {
+      calls.opened.length = 0;
+      startScreen.visible = true;
+      type('x');
+      ipcWriteFile = save;
+      const opening = openFolder('/other/essay');
+      await vi.advanceTimersByTimeAsync(0);
+      await stopOpening();
+      return opening;
+    }
+
+    it('opens nothing, and says nothing', async () => {
+      const saved = deferred<void>();
+      const opening = stopDuringSave(() => saved.promise);
+      await vi.advanceTimersByTimeAsync(0);
+      saved.resolve();
+      expect([await opening, calls.opened, startScreen.message]).toEqual([false, [], null]);
+      startScreen.visible = false;
+    });
+
+    it('does not hide that the save failed', async () => {
+      const saved = deferred<void>();
+      const opening = stopDuringSave(() => saved.promise);
+      await vi.advanceTimersByTimeAsync(0);
+      saved.reject('disk full');
+      expect([await opening, startScreen.message?.text]).toEqual([false, expect.stringContaining('main.tex could not be saved')]);
+      startScreen.visible = false;
+    });
+  });
+
   it('the document that was opened saves its own edits', async () => {
     const { slow, opening } = await startOpening();
     slow.resolve({ ...project, rootDir: '/other/essay' });

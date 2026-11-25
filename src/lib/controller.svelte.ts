@@ -2194,7 +2194,11 @@ async function openFolderNow(
     // No `await` between that answer and this line: an edit in the gap would be saved by the 700 ms
     // timer whenever it liked.
     manager.holdSaves('opening');
-    if (staying !== null) throw staying;
+    if (staying !== null) {
+      stopAsked = false; // not what keeps it here
+      throw staying;
+    }
+    if (stopAsked) throw ''; // Rust had no opening to stop yet
     info = await ipc.openProject(typeof folder === 'string' ? folder : await folder());
   } catch (error) {
     app.opening = null;
@@ -2572,7 +2576,7 @@ async function saveAndBuild(): Promise<number | null> {
   }
   // A compile reads whatever is on disk; every open tab's edits have to be there, not only the
   // active tab's (S2.3, save-all on compile).
-  await manager.saveAll().catch(() => {
+  await manager.saveAll(false).catch(() => {
     /* the tab that failed to save is still dirty and will retry on its own debounce; a build
      * against a slightly stale version of one file beats not building at all. */
   });

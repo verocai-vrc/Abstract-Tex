@@ -125,6 +125,9 @@ export class OpenDocument {
   private byteOrderMark: boolean;
   /** Whether the last autosave failed and has not yet been followed by one that worked. */
   private saveFailing = false;
+  /** The file was deleted by something else while nothing here was unsaved, and nothing was typed since.
+   * The buffer is dirty, but it must not be written back unasked. */
+  isOnlyGone = false;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
   private readonly heldFor = new Set<HoldReason>();
@@ -188,6 +191,7 @@ export class OpenDocument {
     // dirty/save path below cares which origin this was.
     this.onTextChange?.();
     if (origin === ORIGIN_LOAD || origin === ORIGIN_EXTERNAL) return;
+    this.isOnlyGone = false;
     this.setDirty(true);
     this.scheduleSave();
   }
@@ -250,7 +254,7 @@ export class OpenDocument {
    * the buffer is still dirty. */
   releaseSaves(reason: HoldReason = 'disk'): void {
     if (!this.heldFor.delete(reason) || this.heldFor.size > 0) return;
-    if (this.dirty) this.scheduleSave();
+    if (this.dirty && !this.isOnlyGone) this.scheduleSave();
   }
 
   /**
@@ -260,6 +264,7 @@ export class OpenDocument {
    */
   forgetDiskState(): void {
     this.lastSavedText = null;
+    if (!this.dirty) this.isOnlyGone = true;
     this.setDirty(true);
   }
 
@@ -296,6 +301,7 @@ export class OpenDocument {
       throw error;
     }
     this.lastSavedText = snapshot;
+    this.isOnlyGone = false;
     // Typing may have continued during the write. If so, stay dirty and let the debounce
     // timer (already restarted by onChange) take care of it.
     if (this.text() === snapshot) this.setDirty(false);
@@ -335,6 +341,7 @@ export class OpenDocument {
       this.lineEnding = lineEndingOf(rawDiskText);
       this.byteOrderMark = hasByteOrderMark(rawDiskText);
       this.lastSavedText = diskText;
+      this.isOnlyGone = false;
       this.setDirty(this.text() !== diskText);
       return true;
     }
