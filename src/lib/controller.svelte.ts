@@ -2186,7 +2186,7 @@ export async function openFolder(
     app.pdfUrl = null;
     app.pdfDraftOf = null;
     fullPdfUrl = null;
-    app.compile = { ...app.compile, phase: 'idle', diagnostics: [], message: null };
+    app.compile = { ...app.compile, phase: 'idle', diagnostics: [], message: null, reason: null };
     // The previous project's log must not be what the raw view shows for this one.
     app.showRawLog = false;
     app.rawLog = '';
@@ -2539,7 +2539,7 @@ async function saveAndBuild(): Promise<number | null> {
     return await ipc.compile(app.activePath);
   } catch (error) {
     changedSinceBuild ||= wasChanged;
-    app.compile = { ...app.compile, phase: 'failed', message: String(error) };
+    app.compile = { ...app.compile, phase: 'failed', message: String(error), reason: null };
     app.drawerOpen = true;
     return null;
   }

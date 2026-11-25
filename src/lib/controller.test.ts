@@ -1313,6 +1313,18 @@ describe('compile progress (S2.2)', () => {
     expect(app.compile.partsFetched).toBe(1);
   });
 
+  it('a later refusal is not given the reason of an earlier one', async () => {
+    compileHandler({ status: 'failed', generation: 6, message: 'x', reason: 'needsInternetOnce' });
+    compileRefused = true;
+    await triggerCompile();
+    expect([app.compile.phase, app.compile.reason]).toEqual(['failed', null]);
+    compileRefused = false;
+    compileHandler({ status: 'failed', generation: 7, message: 'x', reason: 'needsInternetOnce' });
+    openProjectAnswer = Promise.resolve({ ...project, rootFile: null });
+    await openFolder('/other');
+    expect(app.compile.reason).toBeNull();
+  });
+
   it('says the internet is needed once, and shows no engine message (S17.14)', () => {
     compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
     compileHandler({ status: 'failed', generation: 1, message: 'The first PDF needs the internet.', reason: 'needsInternetOnce' });
