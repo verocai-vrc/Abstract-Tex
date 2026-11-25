@@ -622,6 +622,9 @@ describe('opening what people already have (S17.8)', () => {
       expect(words.zipRefused[why]('x')).toBeTruthy(),
     );
 
+    it('names nothing when two things have the very same name', () =>
+      expect(words.zipRefused.sameName('')).not.toMatch(/“”|capital/));
+
     it('opens what was unpacked', async () => {
       await chooseFile();
       expect(only('unpackZip')).toEqual([['unpackZip', '/d/thesis.zip']]);

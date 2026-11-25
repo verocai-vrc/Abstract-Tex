@@ -182,8 +182,11 @@ export const words = {
     tooBig: () => 'That zip holds more than 2 GB, too much for one document. If it is one, unpack it first, then choose the folder.',
     unsafeName: (name: string) =>
       `That zip was not unpacked, because one thing in it can’t safely be written on this computer: “${name}”. Ask whoever made it for another.`,
+    /** Without a name when they are the very same: then nothing says which. */
     sameName: (name: string) =>
-      `That zip was not unpacked, because two things in it have the same name but for capital letters: “${name}”. Ask whoever made it to rename one.`,
+      name
+        ? `That zip was not unpacked, because two things in it have the same name but for capital letters: “${name}”. Ask whoever made it to rename one.`
+        : 'That zip was not unpacked, because two things in it have the same name. Ask whoever made it to rename one.',
     noTex: () => 'There is no .tex file in that zip, so there is no document in it to open.',
     io: (name: string) =>
       `That zip could not be unpacked (${name}). The disk may be full, or the place for new documents may not be there.`,
