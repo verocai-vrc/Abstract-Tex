@@ -137,8 +137,9 @@ pub fn file_name_for(title: &str) -> String {
         .collect();
     let words: Vec<&str> = allowed.split_whitespace().collect();
     let mut name: String = words.join(" ").chars().take(LONGEST_NAME).collect();
-    // A name may be 255 *bytes* long, and a letter is up to four.
-    while name.len() > 240 {
+    // A name may be 255 *bytes* long, and a letter is up to four. It is written beside itself first, under
+    // a name that may be longer (`write_bytes_atomically`), and ".pdf" and a word may be added below.
+    while name.len() > 225 {
         name.pop();
     }
     let mut name = name.trim_matches(|c| c == '.' || c == ' ').to_string();
@@ -146,7 +147,7 @@ pub fn file_name_for(title: &str) -> String {
         name = "Document".to_string();
     }
     if is_device_name(&name) {
-        name.push_str(" document");
+        name.insert_str(0, "Document ");
     }
     name + ".pdf"
 }
@@ -326,15 +327,40 @@ mod tests {
             ("My Essay: v2", "My Essay v2.pdf"),
             ("Q1/Q2 <now>?", "Q1 Q2 now.pdf"),
             ("São Paulo", "São Paulo.pdf"),
-            ("CON", "CON document.pdf"),
-            ("com1.notes", "com1.notes document.pdf"),
+            ("CON", "Document CON.pdf"),
+            ("Con. Law outline", "Document Con. Law outline.pdf"),
             ("Common sense", "Common sense.pdf"),
             ("  ... ", "Document.pdf"),
         ] {
             assert_eq!(file_name_for(title), name);
         }
         assert_eq!(file_name_for(&"a".repeat(300)).chars().count(), 124); // 120 and ".pdf"
-        assert!(file_name_for(&"語".repeat(300)).len() <= 255);
+    }
+
+    #[test]
+    fn the_name_on_offer_for_a_long_title_can_be_saved_under() {
+        let (folder, out) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let app = app_with(folder.path());
+        std::fs::write(folder.path().join(".abstract-tex/latest.pdf"), "pages").unwrap();
+        for letter in ["語", "Ж", "𝒜", "a"] {
+            save(&app, &out.path().join(file_name_for(&letter.repeat(300))), 0).unwrap();
+        }
+    }
+
+    /// Windows looks at what stands before the first dot, so a word at the end does not help.
+    #[test]
+    fn no_name_on_offer_is_one_windows_keeps_for_itself() {
+        for title in [
+            "CON",
+            "Con. Law outline",
+            "com1.notes",
+            "nul . x",
+            "LPT9.1.2",
+            "aux",
+        ] {
+            let name = file_name_for(title);
+            assert!(!is_device_name(&name), "{name}");
+        }
     }
 
     fn finished(generation: u64, success: bool, pdf: &Path) -> CompileEvent {
