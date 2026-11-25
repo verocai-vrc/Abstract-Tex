@@ -106,7 +106,7 @@ export class OpenDocument {
    * touches anything expensive, keeping it off the <16 ms keystroke path (DESIGN.md §2). */
   onTextChange?: () => void;
 
-  /** Called once when an autosave fails, not on every retry: the text is still in the buffer and
+  /** Called once when an autosave fails (or a save that was asked for, each time), not on every retry: the text is still in the buffer and
    * still dirty, and the author should hear that it is not on disk (review finding R4.5). */
   onSaveError?: (error: unknown) => void;
   /** Called when a save works again after `onSaveError`, so the message can be taken back. */
@@ -203,7 +203,7 @@ export class OpenDocument {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      void this.autosave();
+      void this.saveOrSay();
     }, delayMs);
   }
 
@@ -211,13 +211,15 @@ export class OpenDocument {
    * The timer's save. A failed write used to be an unhandled rejection: nobody was told and nothing
    * tried again until the next keystroke (review finding R4.5). Now the first failure is reported,
    * the buffer stays dirty, and the save is tried again every few seconds until it lands.
+   *
+   * Never rejects. `asked` is for a save someone pressed a key for: its failure is said each time.
    */
-  private async autosave(): Promise<void> {
+  async saveOrSay(asked = false): Promise<void> {
     try {
       await this.save();
     } catch (error) {
       if (this.disposed) return;
-      if (!this.saveFailing) {
+      if (asked || !this.saveFailing) {
         this.saveFailing = true;
         this.onSaveError?.(error);
       }
@@ -287,7 +289,7 @@ export class OpenDocument {
       await this.backend.writeFile(this.path, this.asOnDisk(snapshot));
     } catch (error) {
       // The timer was cancelled above, so whoever is saving, a failed write has to leave one behind:
-      // `autosave` used to be the only caller that re-armed it, and a build's save-all, a closing tab
+      // `saveOrSay` used to be the only caller that re-armed it, and a build's save-all, a closing tab
       // or a New-project check that failed took the retry with it (R6.23). A debounce already waiting
       // (typing went on during the write) is sooner than the retry and is left alone.
       if (!this.disposed && !this.saveTimer) this.scheduleSave(RETRY_AFTER_FAILED_SAVE_MS);

@@ -76,6 +76,9 @@ export const words = {
 
   /** Over an open document: the way back to it. */
   backTo: (title: string) => `Back to ${title}`,
+  /** Of the open document, whose own question is out of sight. */
+  changedElsewhere: (file: string) =>
+    `Something else changed ${file} while it had words of yours that are not saved. Go back to the document and choose which of the two to keep.`,
   openNow: 'Open now',
 
   savePdf: 'Save PDF…',

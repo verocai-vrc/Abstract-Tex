@@ -50,7 +50,7 @@ import { mergeOutline, scanOutline, type OutlineItem } from './outline';
 import { shouldCompileFor, toRelative } from './paths';
 import { startScreen } from './start.svelte';
 import { words } from './words';
-import { app, type ActivityView, type Pane } from './state.svelte';
+import { app, type ActivityView, type Conflict, type Pane } from './state.svelte';
 
 const backend: DocumentBackend = {
   writeFile: async (path, contents) => {
@@ -2129,6 +2129,13 @@ export function tell(sentence: string): void {
   else app.notice = sentence;
 }
 
+/** Say what has become of a file's text: above the editor, where it stays, and on the start screen too
+ * while that is up, for the window may be closed from there. */
+function tellOfText(sentence: string): void {
+  app.notice = sentence;
+  if (startScreen.visible) tell(sentence);
+}
+
 /** What is on screen for a folder that has no title yet: its own name. */
 function folderName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -2416,10 +2423,11 @@ async function openFileFromDisk(relativePath: string): Promise<void> {
     // A save that fails is said once, in words, and taken back when one works (R4.5).
     const unsavedNotice = `Could not save ${relativePath}`;
     doc.onSaveError = (error) => {
-      app.notice = `${unsavedNotice}: ${String(error)}. The text is still in the editor and will be saved as soon as it can be.`;
+      tellOfText(`${unsavedNotice}: ${String(error)}. The text is still in the editor and will be saved as soon as it can be.`);
     };
     doc.onSaveRecovered = () => {
       if (app.notice?.startsWith(unsavedNotice)) app.notice = null;
+      if (startScreen.message?.text.startsWith(unsavedNotice)) startScreen.message = null;
     };
     syncTabs();
     app.activePath = relativePath;
@@ -2533,7 +2541,8 @@ function setDirty(path: string, isDirty: boolean) {
 
 export async function saveNow(): Promise<void> {
   if (app.opening !== null) return; // saves are held; the refusal, if it comes, lets them go
-  await app.activeDoc?.save();
+  if (app.conflict && startScreen.visible) return tell(words.changedElsewhere(app.conflict.path));
+  await app.activeDoc?.saveOrSay(true);
 }
 
 /** The build asked for last: its number, once it is known. `null` when none could be. */
@@ -3429,7 +3438,7 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
         // the text from before, which the next save would write over what arrived on disk. Rust's
         // sentence for it contains "not saved as UTF-8" (`project::read_text`; a Rust test pins it).
         if (String(error).includes('not saved as UTF-8')) {
-          app.notice = `${relative} changed on disk and was not reloaded. ${String(error)} The tab still holds the text from before; saving it will replace the file on disk.`;
+          tellOfText(`${relative} changed on disk and was not reloaded. ${String(error)} The tab still holds the text from before; saving it will replace the file on disk.`);
         }
         return;
       }
@@ -3457,8 +3466,7 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
             // The author typed through every attempt, so the buffer is no longer clean and the
             // change cannot be folded in under them: the same question as a dirty buffer, asked
             // the same way, with saves held so nothing answers it for them (R4.6).
-            app.conflict = { path: relative, diskText };
-            app.activePath = relative;
+            askWhichToKeep({ path: relative, diskText });
             keepHeldForConflict = true;
           }
         }
@@ -3467,8 +3475,7 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
         // Stop the loop here; the author decides (DESIGN.md §5.6). Bring the tab to the front
         // so the bar is not about to ask a question over a file nobody is looking at.
         if (diskText !== null) {
-          app.conflict = { path: relative, diskText };
-          app.activePath = relative;
+          askWhichToKeep({ path: relative, diskText });
           keepHeldForConflict = true;
         }
         break;
@@ -3479,12 +3486,19 @@ async function reconcileOpenDocument(relative: string, existsOnDisk: boolean): P
         // and waits for Ctrl S instead of silently resurrecting a file someone just deleted.
         doc.releaseSaves();
         doc.forgetDiskState();
-        app.notice = `${relative} is no longer on disk. The text is still in the editor — save it to write the file back.`;
+        tellOfText(`${relative} is no longer on disk. The text is still in the editor — save it to write the file back.`);
         break;
     }
   } finally {
     if (!keepHeldForConflict) doc.releaseSaves();
   }
+}
+
+/** Put the question up, with its tab in front. On the start screen it is said that there is one. */
+function askWhichToKeep(conflict: Conflict): void {
+  app.conflict = conflict;
+  app.activePath = conflict.path;
+  if (startScreen.visible) tell(words.changedElsewhere(conflict.path));
 }
 
 function scheduleTreeRefresh() {

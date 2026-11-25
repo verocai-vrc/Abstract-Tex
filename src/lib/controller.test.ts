@@ -4837,6 +4837,64 @@ describe('pasting a DOI while the answer is on its way (R6.19)', () => {
   });
 });
 
+describe('what happens to the open document while Home is up', () => {
+  beforeEach(() => {
+    startScreen.visible = true;
+    startScreen.message = null;
+    app.notice = null;
+  });
+  afterEach(() => {
+    startScreen.visible = false;
+    startScreen.message = null;
+  });
+
+  async function diskIsFull(during: () => Promise<unknown>): Promise<void> {
+    ipcWriteFile = async () => {
+      throw 'disk full';
+    };
+    await during();
+    ipcWriteFile = defaultWriteFile;
+  }
+
+  it('a save that fails is said there and above the editor, and taken back from both', async () => {
+    type('late ');
+    await diskIsFull(() => vi.advanceTimersByTimeAsync(700));
+    expect([startScreen.message?.kind, startScreen.message?.text]).toEqual(['refusal', app.notice]);
+    expect(app.notice).toContain('Could not save main.tex: disk full');
+    await vi.advanceTimersByTimeAsync(5000);
+    expect([disk.get('main.tex'), startScreen.message, app.notice]).toEqual(['hellolate ', null, null]);
+  });
+
+  it('Ctrl S that fails says the same, each time it is pressed', async () => {
+    type('late ');
+    await diskIsFull(async () => {
+      await saveNow();
+      startScreen.message = null;
+      await saveNow();
+    });
+    expect([startScreen.message?.text, app.dirty]).toEqual([expect.stringContaining('main.tex'), true]);
+    await saveNow();
+    expect([startScreen.message, app.notice, app.dirty]).toEqual([null, null, false]);
+  });
+
+  it('a question about a file changed elsewhere is said there, and again by Ctrl S', async () => {
+    type('late ');
+    disk.set('main.tex', 'theirs');
+    await fileChanged('main.tex');
+    expect(startScreen.message?.text).toBe(words.changedElsewhere('main.tex'));
+    startScreen.message = null;
+    await saveNow();
+    expect(startScreen.message).toEqual({ kind: 'refusal', text: words.changedElsewhere('main.tex') });
+    expect([app.notice, app.conflict?.path]).toEqual([null, 'main.tex']);
+  });
+
+  it('a file deleted elsewhere is said there and above the editor', async () => {
+    disk.delete('main.tex');
+    await fileChanged('main.tex');
+    expect([startScreen.message?.text, app.notice]).toEqual([app.notice, expect.stringContaining('no longer on disk')]);
+  });
+});
+
 describe('cloning a project while a tab cannot be saved (R6.9)', () => {
   /** A tab that holds text the disk does not: the save is failing. */
   async function leaveAnUnsavableEdit(): Promise<() => void> {
