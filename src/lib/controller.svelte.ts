@@ -1064,9 +1064,13 @@ export function showCloneWindow(): void {
   if (github.account) void loadCloneList();
 }
 
+/** *Cancel* of a download under way too, though it cannot be stopped: what arrives is not opened. */
 export function closeCloneWindow(): void {
   clone.visible = false;
+  cloneIsGivenUp = true;
 }
+
+let cloneIsGivenUp = false;
 
 /** Ask GitHub what the account can clone. A rejected sign-in is forgotten by Rust; asking for the
  * account again is how the window learns that, so it offers sign-in rather than an empty list. */
@@ -1099,6 +1103,7 @@ export function chooseRepositoryToClone(repository: GitHubRepository): void {
 export async function cloneRepository(): Promise<void> {
   if (clone.cloning || clone.url.trim() === '') return;
   clone.error = null;
+  cloneIsGivenUp = false;
   try {
     // Asked before the download, for the same reason as in `createProject` (R6.9).
     const staying = await whyNotToLeaveProject();
@@ -1107,20 +1112,39 @@ export async function cloneRepository(): Promise<void> {
       return;
     }
     const parent = await ipc.pickParentFolder();
-    if (!parent) return buildWhatChanged();
+    if (!parent || cloneIsGivenUp) return buildWhatChanged();
     clone.cloning = true;
     const folderName = clone.folderName.trim();
     const folder = await ipc.gitClone(clone.url.trim(), parent, folderName === '' ? null : folderName);
-    clone.visible = false;
     clone.url = '';
     clone.folderName = '';
-    await openFolder(folder);
+    if (cloneIsGivenUp) {
+      await tellOfClone(words.cloneCancelled(folder));
+    } else if (app.opening !== null) {
+      clone.visible = false;
+      await tellOfClone(words.cloneNotOpened(folder));
+    } else {
+      clone.visible = false;
+      await openFolder(folder);
+    }
   } catch (error) {
-    clone.error = String(error);
-    buildWhatChanged();
+    if (cloneIsGivenUp) await tellOfClone(words.cloneFailed(String(error)));
+    else {
+      clone.error = String(error);
+      buildWhatChanged();
+    }
   } finally {
     clone.cloning = false;
   }
+}
+
+/** What became of a download nobody is waiting for any more. Said once no document is being opened: one
+ * that opens takes down what was said of the one before. */
+async function tellOfClone(sentence: string): Promise<void> {
+  await lastOpening;
+  if (clone.visible) clone.error = sentence;
+  else tell(sentence);
+  buildWhatChanged();
 }
 
 // ---- Live co-editing (S14.2c, DESIGN.md §5.6/§10, design-interview.md F6) ----------------------
@@ -2136,11 +2160,23 @@ export async function stopOpening(): Promise<void> {
  * be made, such as from a zip, is given as what makes it (S17.9): the document now open is asked first
  * whether it can be left, and *Stop* stops the making too. What that throws is told as it is.
  */
-export async function openFolder(
+export function openFolder(
   folder: string | (() => Promise<string>),
   options: { atFirstPlaceholder?: boolean; name?: string; file?: string } = {},
 ): Promise<boolean> {
-  if (app.opening !== null) return false;
+  if (app.opening !== null) return Promise.resolve(false);
+  const opening = openFolderNow(folder, options);
+  lastOpening = opening;
+  return opening;
+}
+
+/** Ends when what was opened last has settled in, or was refused. */
+let lastOpening: Promise<unknown> = Promise.resolve();
+
+async function openFolderNow(
+  folder: string | (() => Promise<string>),
+  options: { atFirstPlaceholder?: boolean; name?: string; file?: string },
+): Promise<boolean> {
   app.opening = options.name ?? (typeof folder === 'string' ? folderName(folder) : '');
   stopAsked = false;
   buildAskedWhileOpening = false;

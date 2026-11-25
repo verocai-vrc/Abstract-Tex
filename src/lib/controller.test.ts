@@ -207,7 +207,7 @@ let savePdfAnswer: () => SavingAnswer | Promise<SavingAnswer>;
 let compileRefused = false;
 /** S11.5b: what the Clone window's calls answer with, and what they were asked. */
 let listAnswer: GitHubRepository[] | Error = [];
-let cloneAnswer: string | Error = '/papers/thesis';
+let cloneAnswer: string | Error | Promise<string> = '/papers/thesis';
 let parentFolderAnswer: string | null = '/papers';
 /** S11.6: the fake snapshot ref's rows, each version's files and text, and every restore asked for. */
 let snapshotRows: SnapshotRow[] = [];
@@ -3641,6 +3641,76 @@ describe('cloning a repository (S11.5b)', () => {
     expect(clone.visible).toBe(false);
     expect(clone.url).toBe('');
     expect(app.project?.rootDir).toBe('/proj'); // the fake `openProject` answers with /proj
+  });
+
+  describe('given up while it is being downloaded', () => {
+    let arrive: (folder: string) => void;
+    let fail: (error: unknown) => void;
+    let cloning: Promise<void>;
+
+    beforeEach(async () => {
+      await openFolder('/proj');
+      calls.opened.length = 0;
+      cloneAnswer = new Promise((resolve, reject) => ([arrive, fail] = [resolve, reject]));
+      showCloneWindow();
+      clone.url = 'https://github.com/ada/thesis.git';
+      cloning = cloneRepository();
+      await vi.advanceTimersByTimeAsync(0);
+      closeCloneWindow();
+    });
+
+    it('replaces nothing, and says where it was put', async () => {
+      type('more ');
+      arrive('/papers/thesis');
+      await cloning;
+      expect([calls.opened, app.notice, clone.url]).toEqual([[], words.cloneCancelled('/papers/thesis'), '']);
+    });
+
+    it('a failure is said outside the closed window', async () => {
+      fail('no such address');
+      await cloning;
+      expect([clone.error, app.notice]).toEqual([null, words.cloneFailed('no such address')]);
+    });
+
+    it('is said once another opening, under way when it arrives, has ended', async () => {
+      const other = openFolder('/proj');
+      arrive('/papers/thesis');
+      await cloning;
+      await other;
+      expect([calls.opened, app.notice]).toEqual([['/proj'], words.cloneCancelled('/papers/thesis')]);
+    });
+
+    it('is said in the window when that is up again', async () => {
+      showCloneWindow();
+      arrive('/papers/thesis');
+      await cloning;
+      expect([clone.visible, clone.error, calls.opened]).toEqual([true, words.cloneCancelled('/papers/thesis'), []]);
+    });
+  });
+
+  it('given up before a folder was picked, downloads nothing', async () => {
+    showCloneWindow();
+    clone.url = 'https://github.com/ada/thesis.git';
+    const cloning = cloneRepository();
+    closeCloneWindow();
+    await cloning;
+    expect([clones.asked, clone.visible]).toEqual([[], false]);
+  });
+
+  it('one that arrives while another document is being opened says where it is', async () => {
+    let arrive!: (folder: string) => void;
+    cloneAnswer = new Promise((resolve) => (arrive = resolve));
+    showCloneWindow();
+    clone.url = 'https://github.com/ada/thesis.git';
+    const cloning = cloneRepository();
+    await vi.advanceTimersByTimeAsync(0);
+    const other = openFolder('/proj');
+    calls.opened.length = 0;
+    arrive('/papers/thesis');
+    await cloning;
+    await other;
+    expect(app.notice).toBe(words.cloneNotOpened('/papers/thesis'));
+    expect(calls.opened).not.toContain('/papers/thesis');
   });
 
   it('passes a typed folder name on, and an empty one as null', async () => {

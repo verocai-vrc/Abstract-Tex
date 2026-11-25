@@ -150,6 +150,12 @@ export const words = {
   chooseFolderHint: 'if your document is a folder of files',
   getFromGit: 'Get one from GitHub or another Git address…',
 
+  cloneCancelled: (folder: string) =>
+    `What you cancelled had been fetched by then. It is in ${folder}: open it from there, or delete that folder.`,
+  cloneNotOpened: (folder: string) =>
+    `The document was fetched, but another one was being opened. It is in ${folder}: open it from there.`,
+  cloneFailed: (why: string) => `The document could not be fetched: ${why}`,
+
   comingFromWord:
     'Coming from Word? Abstract can’t open Word files. Start a new document and paste your text into it.',
   newDocument: 'New document',
