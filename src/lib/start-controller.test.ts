@@ -384,6 +384,16 @@ describe('Home over an open document (S17.5)', () => {
     expect([app.editorFocusRequest, startScreen.visible]).toEqual([before, true]);
   });
 
+  it('a palette entry shows no page beneath a window, and leaves none standing over the document', () => {
+    app.project = project;
+    startScreen.visible = false;
+    for (const id of ['home', 'new-project', 'open-folder', 'look', 'help']) runFromPalette(id, allCommands(), true);
+    expect(startScreen.visible).toBe(false);
+    startScreen.visible = true;
+    runFromPalette('toggle-focus-mode', allCommands(), true);
+    expect([startScreen.visible, app.focusModeEnabled]).toEqual([true, false]);
+  });
+
   it('a palette action about the document goes back to it first', () => {
     runFromPalette('toggle-focus-mode');
     expect([startScreen.visible, app.focusModeEnabled]).toEqual([false, true]);

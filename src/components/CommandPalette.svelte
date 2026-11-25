@@ -59,7 +59,12 @@
 
   function close(): void {
     app.commandPaletteVisible = false;
+    giveFocusBack();
+  }
+
+  function giveFocusBack(): void {
     if (focusedBefore?.isConnected) focusedBefore.focus();
+    focusedBefore = null;
   }
 
   $effect(() => {
@@ -68,6 +73,12 @@
     query = '';
     selected = 0;
     void tick().then(() => input?.focus());
+    // Ctrl K again closes it without `close`. Only what has gone nowhere is given back: what closed the
+    // palette may have moved the focus on.
+    return () => {
+      if (document.activeElement === null || document.activeElement === document.body) giveFocusBack();
+      focusedBefore = null;
+    };
   });
 
   $effect(() => {
@@ -75,8 +86,9 @@
   });
 
   function run(command: Command): void {
+    const modalIsUp = [...document.querySelectorAll('.backdrop')].some((other) => !other.contains(input ?? null));
     close(); // the focus goes back first, and the entry may then move it on
-    runFromPalette(command.id, candidates);
+    runFromPalette(command.id, candidates, modalIsUp);
   }
 
   function onKeydown(event: KeyboardEvent) {

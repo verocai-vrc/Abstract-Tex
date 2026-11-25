@@ -63,10 +63,11 @@ export function startBack(): void {
   else if (startScreen.page !== 'home') goToPage('home', 'heading');
 }
 
-/** Run a palette entry. One that is about the document goes back to it first. */
-export function runFromPalette(id: string, entries: readonly Command[] = allCommands()): void {
+/** Run a palette entry. One that is about the document goes back to it first. `modalIsUp`: another window
+ * than the palette, which would be left standing over the one or the other. */
+export function runFromPalette(id: string, entries: readonly Command[] = allCommands(), modalIsUp = false): void {
   const command = entries.find((entry) => entry.id === id);
-  if (!command) return;
+  if (!command || (modalIsUp && (startScreen.visible || command.withoutDocument))) return;
   stopLooking();
   if (startScreen.visible && !command.withoutDocument) backToDocument();
   command.run();
@@ -401,7 +402,7 @@ async function rememberAuthor(author: string): Promise<void> {
   startScreen.preferences = await ipc.setPreferences({ author }).catch(() => startScreen.preferences);
 }
 
-// The palette is gone by the time its entry runs, so there is no dialog for these to be wary of.
+// `runFromPalette` has seen to it that there is no dialog for these to be wary of.
 registerCommand({
   id: 'look',
   title: 'Text and colours…',
