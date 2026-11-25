@@ -9,11 +9,16 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::project::write_atomically;
+
+/// Held around every read-change-write, as in `recents.rs`: a permission that was just withdrawn must not
+/// be written back by a change that read the file before.
+static CHANGE: Mutex<()> = Mutex::new(());
 
 /// The file's shape: a list, so a person reading it sees exactly which folders they allowed.
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -44,6 +49,8 @@ impl ShellEscapeConsent {
     }
 
     pub fn allow(&self, project_dir: &Path) -> Result<()> {
+        // Poisoned: another thread panicked while holding it. The file is still whole, so carry on.
+        let _one_change_at_a_time = CHANGE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         // A file that does not parse is replaced rather than trusted: it could only ever have
         // meant "no", and the person is now saying "yes" to one folder.
         let mut consent = self.read().unwrap_or_default();
@@ -56,24 +63,26 @@ impl ShellEscapeConsent {
 
     /// After an `Ok`, builds of `project_dir` may not run programs.
     pub fn disallow(&self, project_dir: &Path) -> Result<()> {
-        let text = match fs::read_to_string(&self.file) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            // Not "nothing is allowed": a file that cannot be read now may well be readable at the next
-            // build, with this folder still in it.
-            Err(error) => {
-                return Err(error).with_context(|| format!("could not read {}", self.file.display()));
-            }
-        };
-        let Ok(mut consent) = toml::from_str::<ConsentFile>(&text) else {
-            return Ok(()); // a file that does not parse allows nothing already
-        };
+        let _one_change_at_a_time = CHANGE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut allowed = self.allowed_folders()?;
         let key = key_for(project_dir);
-        if !consent.allowed.contains(&key) {
+        if !allowed.contains(&key) {
             return Ok(());
         }
-        consent.allowed.retain(|allowed| *allowed != key);
-        self.write(&consent)
+        allowed.retain(|allowed| *allowed != key);
+        self.write(&ConsentFile { allowed })
+    }
+
+    /// The folders whose builds may run programs, as they were spelled when they were allowed.
+    pub fn allowed_folders(&self) -> Result<Vec<String>> {
+        match fs::read_to_string(&self.file) {
+            // A file that does not parse allows nothing already.
+            Ok(text) => Ok(toml::from_str::<ConsentFile>(&text).unwrap_or_default().allowed),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            // Not "nothing is allowed": a file that cannot be read now may well be readable at the next
+            // build, with this folder still in it.
+            Err(error) => Err(error).with_context(|| format!("could not read {}", self.file.display())),
+        }
     }
 
     fn read(&self) -> Option<ConsentFile> {
@@ -153,5 +162,30 @@ mod tests {
         consent.allow(Path::new("/work/paper")).unwrap();
         assert!(consent.allows(Path::new("/work/paper")));
         assert!(!consent.allows(Path::new("/work/thesis")));
+    }
+
+    // Found by the review of S17: a withdrawn permission could be written back by a change that had read
+    // the file before it was withdrawn.
+    #[test]
+    fn two_changes_at_once_are_both_kept() {
+        let (_config, consent) = consent();
+        let (gone, new) = (Path::new("/work/gone"), Path::new("/work/new"));
+        for round in 0..50 {
+            consent.allow(gone).unwrap();
+            consent.disallow(new).unwrap();
+            // Two threads that set off together, so that they really overlap.
+            let start = std::sync::Barrier::new(2);
+            std::thread::scope(|threads| {
+                threads.spawn(|| {
+                    start.wait();
+                    consent.disallow(gone).unwrap();
+                });
+                threads.spawn(|| {
+                    start.wait();
+                    consent.allow(new).unwrap();
+                });
+            });
+            assert!(!consent.allows(gone) && consent.allows(new), "round {round}");
+        }
     }
 }
