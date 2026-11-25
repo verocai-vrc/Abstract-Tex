@@ -57,7 +57,7 @@
           {words.savePdf}
         </button>
       {/if}
-      <ul>
+      <ul role="list">
         <li>
           <button aria-current={startScreen.page === 'home' ? 'page' : undefined} onclick={() => goToPage('home', 'heading')}>
             {words.pages.home}
@@ -173,7 +173,7 @@
     font-size: 20px;
     font-weight: 600;
   }
-  :global(.start h1:focus) {
+  :global(.start h1[tabindex='-1']:focus) {
     outline: none;
   }
   :global(.start .muted) {

@@ -32,7 +32,7 @@
 </script>
 
 <h1 tabindex="-1">{words.openTitle}</h1>
-<ul class="ways">
+<ul class="ways" role="list">
   <li>
     <button data-first aria-disabled={isBusy} aria-describedby="start-open-file" onclick={() => void chooseFile()}>
       {words.chooseFile}

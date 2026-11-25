@@ -3,6 +3,40 @@
 Versions name the last milestone whose features are all in (see [README → Versions](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#versions)),
 with one exception, v0.9.0, explained in its entry.
 
+## Unreleased
+
+### A start screen
+
+Written for someone who has only used Word. Nothing in the files or the engine changes.
+
+- **Home** comes up when the app starts with no document: *Carry on* with the last one (Enter does it),
+  *Start something new*, and the recent documents with a picture of their first page. One that has been
+  moved or is on a drive that is not there says so and can be found again. `Ctrl+Shift+H` shows it over
+  an open document, and Esc goes back.
+- **New** asks for a title and not for a folder: documents go in `Documents/Abstract-Tex`, or where you
+  say once. Your name is remembered.
+- **Open** takes a `.tex`, a folder, a `.zip`, or a Git address. A chapter opens its thesis. Downloads
+  and Desktop are never opened as if they were a document; a `.tex` among other things is copied out
+  with the files it uses. An archive that would write outside its folder is refused. A Word file is
+  told apart and explained.
+- **Save PDF…** copies the newest PDF to a place you choose, then *Open it* or *Show in folder*.
+- **Text and colours**: 100 to 200%, light, dark, and two with high contrast, kept for next time.
+- **Help** answers the first eight questions.
+- Where three panes do not fit, one is shown at a time, so 200% works in a 1366 × 768 window.
+- The first PDF's wait says what is being fetched, and a first build with no internet says that rather
+  than showing a failure of the engine.
+
+### Also
+
+- Opening a folder no longer stops the window, and can be stopped. Nothing is saved into the wrong
+  folder while it happens.
+- On screen it is a *document*. The assistant, Git and live-session panes still say *project*.
+- *New…*, *Open folder…* and *Clone…* are gone from the toolbar; they are pages of the start screen, with
+  the shortcuts they had.
+- A new document starts with no permission that was given to another folder at the same address.
+
+Tried on Linux; not yet on Windows or macOS.
+
 ## v0.9.0 — 17 November 2026
 
 **Source only and pre-release.** There are still no installers; build it as described in the

@@ -8,7 +8,7 @@ touches the include graph (S4.1), the document map (S4.2), or the command palett
 Launch:
 
 ```
-pnpm tauri dev                        # then Ctrl+O and pick fixtures/thesis
+pnpm tauri dev                        # then Open, Choose a folder…, and pick fixtures/thesis
 ABSTRACT_TEX_OPEN="$PWD/fixtures/thesis" pnpm tauri dev    # opens it on start (bash / CI)
 $env:ABSTRACT_TEX_OPEN="$PWD\fixtures\thesis"; pnpm tauri dev   # PowerShell
 ```

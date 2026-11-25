@@ -80,6 +80,10 @@ describe.each(Object.entries(palettes))('%s', (name, palette) => {
     expect(contrast(rgb(palette['accent-fg']!), rgb(palette['accent']!))).toBeGreaterThanOrEqual(enough);
   });
 
+  it('selected text in the editor reads at 4.5:1', () => {
+    expect(contrast(rgb(palette['fg']!), over(palette['selection']!, palette['bg-editor']!))).toBeGreaterThanOrEqual(4.5);
+  });
+
   if (!isHighContrast) return;
 
   it('every text colour also reads on a chosen row, and the text on a selection', () => {
@@ -112,6 +116,15 @@ it('says of each palette whether it is dark, so that the scrollbars and the boxe
     (selector) => /color-scheme:\s*(\w+)/.exec(css.split('}').find((rule) => rule.split('{')[0]!.trim() === selector)!)?.[1],
   );
   expect(schemes).toEqual(['light', 'dark', 'light', 'dark']);
+});
+
+// CodeMirror paints a selection in an editor that has the focus a pale lilac, with a selector as particular
+// as this; a shorter one of ours loses to it, and the text of a dark look is then pale on pale (S17.17).
+it('the colour of a selection is ours also while the editor has the focus', () => {
+  const selector = '.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground';
+  const library = readFileSync(path.resolve('node_modules/@codemirror/view/dist/index.js'), 'utf8');
+  expect(library).toContain(`"&light${selector}"`); // else it is another one that has to be beaten now
+  expect(readFileSync(path.resolve('src/lib/editor/setup.ts'), 'utf8')).toContain(`&${selector}`);
 });
 
 it('no component has a colour of its own', () => {

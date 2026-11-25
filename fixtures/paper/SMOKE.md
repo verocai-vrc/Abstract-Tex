@@ -6,13 +6,35 @@ compile loop, the editor, or the PDF pane. Each section is a flow from `DESIGN.m
 Launch:
 
 ```
-pnpm tauri dev                       # then Ctrl+O and pick fixtures/paper
+pnpm tauri dev                       # then Open, Choose a folder…, and pick fixtures/paper
 ABSTRACT_TEX_OPEN="$PWD/fixtures/paper" pnpm tauri dev    # opens it on start (bash / CI)
 $env:ABSTRACT_TEX_OPEN="$PWD\fixtures\paper"; pnpm tauri dev   # PowerShell
 ```
 
 On the maintainer's machine Tectonic needs the DNS workaround the first time a package is
 fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1:3128`.
+
+## §0 From launch to a saved PDF (S17)
+
+On a machine where the app has never run, or with `XDG_CONFIG_HOME` and `XDG_DATA_HOME` pointing at empty
+folders.
+
+1. Start with no folder. The window says *Home*: five templates, and no recent documents.
+2. Press *Essay*. Type a title and your name. The page says where it will be kept. Press *Create*: no
+   folder is asked for, the essay opens, and the first placeholder is selected.
+3. While the first PDF is made the right-hand pane says so and, on a cold cache, that parts of LaTeX are
+   being fetched. Pulling the network then says that the first PDF needs the internet, once.
+4. Type. *Save PDF…* asks where; the name is the title. When it is saved, *Open it* shows it.
+5. Quit, start again: *Carry on* has the essay and the focus. Enter opens it. `Ctrl Shift H` shows Home
+   over it, Esc goes back with the cursor where it was.
+6. *Open* → *Choose a file…*: a `.tex` in a folder of its own opens it; a chapter opens its thesis; one in
+   Downloads offers *Copy and open*; a `.zip` is unpacked; a `.docx` gets a sentence and *New document*.
+   *Choose a folder…* on Downloads is refused with a sentence.
+7. Rename the document's folder while the app is shut: its row says it is not there, and *Find it…*
+   mends it.
+8. *Text and colours*: 200% in a 1366 × 768 window shows one pane at a time, nothing scrolls sideways,
+   and the PDF keeps its place. Both high-contrast looks. It is all there after a restart.
+9. Every page with the keyboard alone: Tab reaches everything, the ring is always in sight, Esc goes back.
 
 ## §1 First run and the write loop (S1.10, v0.1 exit)
 
@@ -52,7 +74,7 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 ## §4 Keyboard (S2.4)
 
 1. `Ctrl S` writes immediately (dirty dot disappears). `Ctrl B` and `F5` save and build. `Ctrl O`
-   opens the folder picker. `Ctrl Z` undoes your edit but never an external change.
+   shows the Open page of the start screen, and Esc goes back. `Ctrl Z` undoes your edit but never an external change.
 2. Each of those works with the editor focused, with the file tree focused (click a row first),
    and with the PDF pane focused. Pressing `Ctrl B` once inside the editor starts exactly one
    build — watch the status bar's generation not tick twice.

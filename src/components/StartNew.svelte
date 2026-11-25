@@ -78,7 +78,7 @@
   {:else if newProject.catalog !== null && shown.length === 0}
     <p>{words.noTemplateMatches(newProject.query)}</p>
   {/if}
-  <ul class="cards">
+  <ul class="cards" role="list">
     {#each shown as template (template.id)}
       <li>
         <button class="card" class:chosen={template.id === newProject.selectedId} onclick={() => chooseTemplate(template.id)}>

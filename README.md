@@ -69,8 +69,16 @@ converting anything.
 
 ### Start a document, keep its history
 
+- **A start screen** for people who have never seen LaTeX: carry on with the last document, start a
+  new one, or open one, with no folder to choose and nothing to set up. Each recent document shows
+  its first page.
 - **New from template**: a paper, thesis, report, essay, letter, CV, slides or a blank page,
   compiled on your machine, with the fill-in-the-blanks parts marked so you can jump between them.
+- **Open what you have**: a `.tex` file, a folder, a `.zip` from Overleaf, or a Git address. A `.tex`
+  lying among other things is copied, with the files it uses, into a folder of its own.
+- **Save PDF…** puts the newest PDF where you choose, and says so if it is not the newest.
+- **Text from 100 to 200%**, light, dark or high contrast. Where three panes do not fit, one is shown
+  at a time.
 - **Every successful build is remembered.** A hidden snapshot is taken after each one, as real Git
   objects that never touch your branch, so an earlier version of a file can be read and restored
   from inside the app, even in a folder that is not a Git repository.
@@ -117,13 +125,20 @@ converting anything.
 - No account and no telemetry. After a document's packages are cached, writing and compiling
   work offline. The network is used only when you ask: looking up a pasted DOI, arXiv ID or ISBN;
   signing in to or syncing with GitHub or another remote; an assistant request; a live session
-  with a relay you chose. A test in the repository pins which parts of the program can reach the
+  with a relay you chose. Once you have signed in to GitHub, the app asks it whose account that is at
+  each start. A test in the repository pins which parts of the program can reach the
   network at all.
 - If the app ever crashes, it writes a report on your machine and, the next time it starts, shows
   you the whole text and offers to open a prefilled GitHub issue that you read and submit
   yourself. It never uploads anything.
 - Build output goes to a hidden `.abstract-tex/` folder inside the project. Settings, if you
   need any, go in one small `abstract-tex.toml`.
+- What the app remembers about *you* is kept apart from your documents and stays on the machine: the
+  list of recent documents and your choices in the app's configuration folder
+  (`recent-documents.toml`, `preferences.toml`), the pictures of first pages in its data folder
+  (`recent-pictures`). *Clear this list* on Home empties the list and the pictures, and touches no
+  document. New documents go in `Abstract-Tex` in your Documents folder unless you choose another
+  place.
 
 ---
 
@@ -205,11 +220,13 @@ pnpm tauri dev        # compiles the app and opens its window
 
 The first `pnpm tauri dev` compiles the Rust core, which takes a few minutes. Then:
 
-1. Press `Ctrl+O` (`⌘O` on macOS), then *Choose a folder…*, and pick one containing a `.tex` file.
-   [`fixtures/paper`](fixtures/paper) in this repository is a good first one.
+1. The start screen opens. Press **Essay** under *Start something new*, type a title and press
+   *Create*: the document is made in `Documents/Abstract-Tex`. Or press *Open*, then *Choose a
+   folder…*, and pick [`fixtures/paper`](fixtures/paper) in this repository.
 2. The PDF appears on the right. The first build of a document downloads the LaTeX packages it
    uses, so it needs a network connection and takes longer than the builds after it.
 3. Edit some text, pause, and watch the PDF update. `Ctrl+B` or `F5` builds straight away.
+4. *Save PDF…* puts a copy where you choose. The next start offers the document under *Carry on*.
 
 To open a folder at launch, give its **absolute** path:
 
@@ -232,6 +249,7 @@ ABSTRACT_TEX_OPEN="$PWD/fixtures/paper" pnpm tauri dev
 | `Mod+Shift+H` | Home: the start screen, over the open document |
 | `Mod+Shift+N` | New document |
 | `Mod+O` | Open a document |
+| `Esc` on the start screen | One step back, to the document if one is open |
 | `Mod+P` | Go to file |
 | `Mod+K` | Command palette: every action, file and section |
 | `Ctrl+Alt+J` | Show the cursor's position in the PDF |
@@ -273,7 +291,10 @@ the bundled engine instead.
   real machines.
 - Signing in to GitHub from a source build needs a GitHub OAuth app's client ID in the
   `ABSTRACT_TEX_GITHUB_CLIENT_ID` environment variable; without one, the app says so.
-- Screen-reader support has been checked by reading the markup, not yet with a screen reader.
+- Screen-reader support has been checked by reading the markup, and on the start screen by reading
+  the accessible tree on Linux; not yet with a screen reader.
+- The start screen, text size and colours have been tried on Linux; Windows and macOS not yet. A `.zip`
+  must be an ordinary one: no password, and stored or deflated.
 
 ---
 

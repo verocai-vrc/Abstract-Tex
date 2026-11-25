@@ -92,7 +92,8 @@ const theme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'var(--bg-active-line)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--bg-active-line)' },
   '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--accent)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
+  // The long one is CodeMirror's own selector for the editor that has the focus: a shorter one loses to it.
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection': {
     backgroundColor: 'var(--selection)',
   },
   '.cm-matchingBracket': { outline: '1px solid var(--syn-bracket)', backgroundColor: 'transparent' },

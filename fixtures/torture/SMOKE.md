@@ -10,7 +10,7 @@ where the criterion is finally about what an author *sees*.
 Launch:
 
 ```
-pnpm tauri dev                          # then Ctrl+O and pick fixtures/torture
+pnpm tauri dev                          # then Open, Choose a folder…, and pick fixtures/torture
 ABSTRACT_TEX_OPEN="$PWD/fixtures/torture" pnpm tauri dev
 ```
 

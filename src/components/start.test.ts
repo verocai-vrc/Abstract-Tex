@@ -125,3 +125,21 @@ it('Help has eight questions, each with an answer', () => {
   expect(screen).toContain('<StartHelp />');
   expect(words.help.filter((h) => !h.question.endsWith('?') || h.answer.length < 40)).toEqual([]);
 });
+
+// ---- The accessible tree (S17.17) ---------------------------------------------------------------
+
+// WebKit stops calling a `<ul>` a list when it has `list-style: none`, unless its role says so. Seen in the
+// tree itself: the recent documents were a "panel".
+it('a list without bullets still says it is a list', () => {
+  const lists = components.flatMap(({ name, source }) => (source.match(/<[uo]l\b[^>]*>/g) ?? []).map((tag) => `${name} ${tag}`));
+  expect(lists.length).toBeGreaterThan(3);
+  expect(lists.filter((tag) => !tag.includes('role="list"'))).toEqual([]);
+});
+
+// Keys scroll what holds the focus, and Help has nothing to press: without a stop in it, one Tab from its title
+// left a keyboard nothing that could move the page.
+it('Help can be reached and scrolled with the keyboard alone', () => {
+  expect(read('src/components/StartHelp.svelte')).toMatch(/<h1 tabindex="0"/);
+  // And where the focus is can be seen there: only a title that Tab never stops at goes without its ring.
+  expect(read('src/components/StartScreen.svelte')).toMatch(/h1\[tabindex='-1'\]:focus\)/);
+});

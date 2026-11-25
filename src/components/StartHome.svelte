@@ -97,7 +97,7 @@
         {#if newProject.loadError}
           <p>{words.templatesCannotBeShown} {newProject.loadError}</p>
         {:else}
-          <ul class="templates">
+          <ul class="templates" role="list">
             {#each templates as template, i (template.id)}
               <li>
                 <button
@@ -137,7 +137,7 @@
         {#if shown.length === 0}
           <p>{words.noRecentMatches(startScreen.query)}</p>
         {/if}
-        <ul class="recents">
+        <ul class="recents" role="list">
           {#each shown as recent (recent.folder)}
             <li>
               {#if isMissing(recent)}
