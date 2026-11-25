@@ -3,8 +3,57 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use tempfile::TempDir;
+
+/// What a staging folder's name begins with. `tempfile` puts six letters or digits behind it.
+const PREFIX: &str = ".abstract-tex-new-";
+/// The name of the folder in it that is the document.
+const DOCUMENT: &str = "document";
+const A_DAY: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Remove the staging folders in `place` that a crash left a day ago or more. Only what is surely ours: a
+/// folder and no link, with such a name, and with nothing in it but a folder `document`. What cannot be
+/// removed stays.
+fn remove_abandoned(place: &Path, now: SystemTime) {
+    let Ok(entries) = fs::read_dir(place) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if is_abandoned(&entry, now) {
+            // It removes the links it meets, and never what they lead to.
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn is_abandoned(entry: &fs::DirEntry, now: SystemTime) -> bool {
+    let name = entry.file_name();
+    let is_ours = name
+        .to_str()
+        .and_then(|name| name.strip_prefix(PREFIX))
+        .is_some_and(|end| end.len() == 6 && end.chars().all(|c| c.is_ascii_alphanumeric()));
+    // Neither this nor `metadata` follows a link.
+    let is_folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
+    if !is_ours || !is_folder {
+        return false;
+    }
+    // `duration_since` fails for a time to come: a clock that was set back says nothing.
+    let is_old = entry
+        .metadata()
+        .and_then(|found| found.modified())
+        .is_ok_and(|made| now.duration_since(made).is_ok_and(|age| age >= A_DAY));
+    let Ok(mut inside) = fs::read_dir(entry.path()) else {
+        return false;
+    };
+    is_old
+        && inside.all(|inner| {
+            inner.is_ok_and(|inner| {
+                inner.file_name() == DOCUMENT && inner.file_type().is_ok_and(|kind| kind.is_dir())
+            })
+        })
+}
 
 /// A folder that is ready to be put in its place. Dropping it removes it.
 #[derive(Debug)]
@@ -20,12 +69,11 @@ impl Staged {
     /// An empty one, in a hidden folder in `beside`, so that putting it in its place is one rename.
     pub(crate) fn begin(beside: &Path) -> io::Result<Self> {
         fs::create_dir_all(beside)?;
-        let staging = tempfile::Builder::new()
-            .prefix(".abstract-tex-new-")
-            .tempdir_in(beside)?;
+        remove_abandoned(beside, SystemTime::now());
+        let staging = tempfile::Builder::new().prefix(PREFIX).tempdir_in(beside)?;
         // A folder in the staging folder, because `tempfile` makes that one readable by its owner only,
         // and a folder keeps its permissions when it is renamed.
-        let document = staging.path().join("document");
+        let document = staging.path().join(DOCUMENT);
         fs::create_dir(&document)?;
         Ok(Self {
             _staging: staging,
@@ -101,6 +149,89 @@ mod tests {
         assert!(staged.document().starts_with(place.path()));
         drop(staged);
         assert_eq!(fs::read_dir(place.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn what_a_crash_left_is_removed_after_a_day_and_nothing_else() {
+        let place = tempfile::tempdir().unwrap();
+        let make = |name: &str| {
+            fs::create_dir_all(place.path().join(name)).unwrap();
+            fs::write(place.path().join(name).join("x.tex"), "").unwrap();
+        };
+        // Ours, made and never removed.
+        make(".abstract-tex-new-a1B2c3/document");
+        // Not ours: another name, something else in it, or a file.
+        make(".abstract-tex-new-a1B2c3 copy/document");
+        make(".abstract-tex-new-thesis-2/document");
+        make(".abstract-tex/document");
+        make(".abstract-tex-new-d1B2c3/thesis");
+        make(".abstract-tex-new-e1B2c3/document");
+        make(".abstract-tex-new-e1B2c3/thesis");
+        fs::write(place.path().join(".abstract-tex-new-f1B2c3"), "").unwrap();
+        let mut kept = names_in(place.path());
+        let hour = Duration::from_secs(60 * 60);
+
+        remove_abandoned(place.path(), SystemTime::now() + 23 * hour);
+        assert_eq!(names_in(place.path()), kept, "it may still be at work");
+        remove_abandoned(place.path(), SystemTime::now() - 48 * hour);
+        assert_eq!(names_in(place.path()), kept, "a clock that was set back");
+        remove_abandoned(place.path(), SystemTime::now() + 25 * hour);
+        kept.retain(|name| name != ".abstract-tex-new-a1B2c3");
+        assert_eq!(names_in(place.path()), kept);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removing_what_a_crash_left_follows_no_link() {
+        use std::os::unix::fs::symlink;
+        let place = tempfile::tempdir().unwrap();
+        let theirs = tempfile::tempdir().unwrap();
+        fs::create_dir(theirs.path().join("document")).unwrap();
+        fs::write(theirs.path().join("document/thesis.tex"), "").unwrap();
+        // The folder itself, the one in it, and one deeper.
+        symlink(theirs.path(), place.path().join(".abstract-tex-new-a1B2c3")).unwrap();
+        for name in [".abstract-tex-new-b1B2c3", ".abstract-tex-new-c1B2c3/document"] {
+            fs::create_dir_all(place.path().join(name)).unwrap();
+        }
+        symlink(
+            theirs.path(),
+            place.path().join(".abstract-tex-new-b1B2c3/document"),
+        )
+        .unwrap();
+        symlink(
+            theirs.path(),
+            place.path().join(".abstract-tex-new-c1B2c3/document/in"),
+        )
+        .unwrap();
+        remove_abandoned(place.path(), SystemTime::now() + 2 * A_DAY);
+        assert_eq!(
+            names_in(place.path()),
+            [".abstract-tex-new-a1B2c3", ".abstract-tex-new-b1B2c3"]
+        );
+        assert!(theirs.path().join("document/thesis.tex").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn beginning_one_removes_what_a_crash_left() {
+        let place = tempfile::tempdir().unwrap();
+        let left = place.path().join(".abstract-tex-new-a1B2c3");
+        fs::create_dir_all(left.join("document")).unwrap();
+        fs::File::open(&left)
+            .unwrap()
+            .set_modified(SystemTime::now() - 2 * A_DAY)
+            .unwrap();
+        drop(Staged::begin(place.path()).unwrap());
+        assert_eq!(names_in(place.path()), Vec::<String>::new());
+    }
+
+    fn names_in(folder: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
     }
 
     #[test]
