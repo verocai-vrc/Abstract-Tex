@@ -718,7 +718,7 @@ pub async fn unpack_zip<R: Runtime>(app: AppHandle<R>, path: String) -> CommandR
 
 /// Make a document's folder as the first part of opening it, so that *Stop* works on both alike. `None`
 /// when it was stopped: what is being made then sees so for itself, and cleans up.
-async fn make_folder<R: Runtime, T: Send + 'static>(
+pub async fn make_folder<R: Runtime, T: Send + 'static>(
     app: AppHandle<R>,
     work: impl FnOnce(&AppHandle<R>, &Opening) -> CommandResult<T> + Send + 'static,
 ) -> Option<CommandResult<T>> {

@@ -1265,7 +1265,8 @@ pub fn template_list() -> CommandResult<Vec<crate::templates::TemplateInfo>> {
 }
 
 /// Make a new project from a starter template inside `parent_dir`, in a folder named after the
-/// title, and answer with the folder for the window to open (S11.11).
+/// title, and answer with the folder for the window to open (S11.11). It is the first part of opening
+/// it, so *Stop* works here too: the place may be on a drive that stopped answering.
 ///
 /// No project needs to be open, and none is touched.
 #[tauri::command]
@@ -1275,24 +1276,35 @@ pub async fn template_create<R: Runtime>(
     parent_dir: String,
     fields: std::collections::BTreeMap<String, String>,
 ) -> CommandResult<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let folder = crate::templates::destination_for(Path::new(&parent_dir), &fields, &template_id)?;
-        // Before the folder is made: if this fails, there is nothing that could have them.
-        crate::start::forget_permissions(&app, &folder)?;
-        crate::templates::create(&folder, &template_id, &fields)?;
-        crate::start::forget_listing(&app, &folder);
-        // The title as it was typed (S17.3): a letter has no `\title` to read it back from.
-        if let Some(recents) = app.try_state::<RecentDocuments>() {
-            let root_file = crate::project::detect_root(&folder).unwrap_or_else(|| PathBuf::from("main.tex"));
-            let title = fields.get("title").map(String::as_str);
-            if let Err(error) = recents.record(&folder, &root_file, title, crate::start::now()) {
-                tracing::warn!(%error, "could not record the new document");
-            }
-        }
-        Ok(folder.to_string_lossy().into_owned())
+    crate::start::make_folder(app, move |app, opening| {
+        create_from_template(app, &template_id, Path::new(&parent_dir), &fields, opening)
     })
     .await
-    .map_err(to_message)?
+    .unwrap_or_else(|| Err(OPENING_STOPPED.to_string()))
+}
+
+/// The part of [`template_create`] that touches a disk.
+fn create_from_template<R: Runtime>(
+    app: &AppHandle<R>,
+    template_id: &str,
+    parent_dir: &Path,
+    fields: &std::collections::BTreeMap<String, String>,
+    opening: &Opening,
+) -> CommandResult<String> {
+    let folder = crate::templates::destination_for(parent_dir, fields, template_id)?;
+    // Before the folder is made: if this fails, there is nothing that could have them.
+    crate::start::forget_permissions(app, &folder)?;
+    crate::templates::create(&folder, template_id, fields, opening)?;
+    crate::start::forget_listing(app, &folder);
+    // The title as it was typed (S17.3): a letter has no `\title` to read it back from.
+    if let Some(recents) = app.try_state::<RecentDocuments>() {
+        let root_file = crate::project::detect_root(&folder).unwrap_or_else(|| PathBuf::from("main.tex"));
+        let title = fields.get("title").map(String::as_str);
+        if let Err(error) = recents.record(&folder, &root_file, title, crate::start::now()) {
+            tracing::warn!(%error, "could not record the new document");
+        }
+    }
+    Ok(folder.to_string_lossy().into_owned())
 }
 
 /// The URL of this project's `origin`, or `None` when it has no remote — and `None` too when
@@ -1774,6 +1786,22 @@ mod tests {
             info.title, "My request",
             "a letter has no title to read it back from"
         );
+    }
+
+    #[test]
+    fn a_new_document_that_was_stopped_is_not_made() {
+        let (config, parent) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let app = app_with_recents(&config);
+        let openings = &app.state::<AppState>().openings;
+        let opening = openings.begin();
+        openings.stop();
+        let fields = [("title", "My request"), ("author", "Ana")]
+            .map(|(id, value)| (id.to_string(), value.to_string()))
+            .into();
+        let answer = create_from_template(app.handle(), "letter", parent.path(), &fields, &opening);
+        assert_eq!(answer, Err(OPENING_STOPPED.to_string()));
+        assert_eq!(std::fs::read_dir(parent.path()).unwrap().count(), 0);
+        assert!(app.state::<RecentDocuments>().list().is_empty());
     }
 
     /// An app that has permissions to inherit, and a letter to make in `parent`.

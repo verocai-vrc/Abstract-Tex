@@ -24,6 +24,18 @@ impl Template {
         destination: &Path,
         fields: &BTreeMap<String, String>,
     ) -> Result<(), TemplateError> {
+        self.instantiate_if(destination, fields, &|| true)
+    }
+
+    /// The same, asking `may_finish` once everything is written and nothing is in place yet: for someone
+    /// who may have stopped it meanwhile. `&dyn Fn` (any closure, behind a pointer) and not a generic
+    /// parameter, as nothing here is gained from a copy of this function for each closure.
+    pub fn instantiate_if(
+        &self,
+        destination: &Path,
+        fields: &BTreeMap<String, String>,
+        may_finish: &dyn Fn() -> bool,
+    ) -> Result<(), TemplateError> {
         for declared in &self.fields {
             if !fields.contains_key(&declared.id) {
                 return Err(TemplateError::MissingField(declared.id.clone()));
@@ -65,6 +77,9 @@ impl Template {
             fs::write(target, bytes)?;
         }
 
+        if !may_finish() {
+            return Err(TemplateError::Stopped);
+        }
         // `keep` stops the automatic deletion: from here the folder is the project.
         let staged = staging.keep();
         let moved = fs::remove_dir(destination)
@@ -203,6 +218,17 @@ example = "A"
             .instantiate("test", &project, &answers("T", "A"))
             .unwrap();
         assert_eq!(listing(&project), ["main.tex", "sections"]);
+    }
+
+    #[test]
+    fn one_that_was_stopped_leaves_nothing_behind() {
+        let parent = tempfile::tempdir().unwrap();
+        let catalog = catalog();
+        let template = catalog.get("test").unwrap();
+        let project = parent.path().join("essay");
+        let result = template.instantiate_if(&project, &answers("T", "A"), &|| false);
+        assert!(matches!(result, Err(TemplateError::Stopped)));
+        assert_eq!(listing(parent.path()), [""; 0]);
     }
 
     #[test]

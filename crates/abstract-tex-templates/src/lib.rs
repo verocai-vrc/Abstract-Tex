@@ -144,6 +144,8 @@ pub enum TemplateError {
     UnknownField(String),
     #[error("`{}` already has something in it", .0.display())]
     DestinationNotEmpty(std::path::PathBuf),
+    #[error("it was stopped before it was made")]
+    Stopped,
     #[error("{0}")]
     Io(#[from] std::io::Error),
 }

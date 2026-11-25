@@ -20,6 +20,9 @@ use abstract_tex_templates::{Catalog, Category, Field, Template, TemplateError};
 use base64::Engine as _;
 use serde::Serialize;
 
+use crate::commands::OPENING_STOPPED;
+use crate::opening::Opening;
+
 /// One template as the window draws it: a card (preview, name, one line) and the questions the
 /// form asks once it is chosen.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -108,16 +111,20 @@ pub fn destination_for(
 }
 
 /// Make a new project from template `template_id` at `destination` (see [`destination_for`]), with
-/// `fields` filled in.
+/// `fields` filled in, unless `opening` was stopped before it is in place.
 pub fn create(
     destination: &Path,
     template_id: &str,
     fields: &BTreeMap<String, String>,
+    opening: &Opening,
 ) -> Result<(), String> {
     let catalog = Catalog::embedded().map_err(|error| error.to_string())?;
     catalog
-        .instantiate(template_id, destination, fields)
+        .get(template_id)
+        .ok_or_else(|| TemplateError::NoSuchTemplate(template_id.to_string()))
+        .and_then(|template| template.instantiate_if(destination, fields, &|| opening.adopt()))
         .map_err(|error| match error {
+            TemplateError::Stopped => OPENING_STOPPED.to_string(),
             // Raced with something else creating the folder since `destination_for` looked.
             TemplateError::DestinationNotEmpty(path) => {
                 format!(
@@ -152,7 +159,7 @@ mod tests {
     /// Both steps, as `commands::template_create` takes them.
     fn create_in(parent: &Path, id: &str, fields: &BTreeMap<String, String>) -> Result<PathBuf, String> {
         let folder = destination_for(parent, fields, id)?;
-        create(&folder, id, fields)?;
+        create(&folder, id, fields, &crate::opening::Openings::default().begin())?;
         Ok(folder)
     }
 

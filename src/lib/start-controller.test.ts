@@ -454,7 +454,7 @@ describe('a new document (S11.11, S17.6)', () => {
     await createProject();
     expect(newProject.error).toContain('already something called');
     expect([startScreen.page, newProject.step, newProject.values.title]).toEqual(['new', 'fill', 'My thesis']);
-    expect(newProject.creating).toBe(false);
+    expect([newProject.creating, startScreen.message]).toEqual([false, null]); // said once
     expect(only('setPreferences')).toEqual([]);
   });
 
@@ -481,6 +481,26 @@ describe('a new document (S11.11, S17.6)', () => {
     made('/proj');
     await creating;
     expect(only('templateCreate')).toHaveLength(1);
+  });
+
+  it('can be stopped like any opening, and keeps everything typed', async () => {
+    let refuse!: (error: string) => void;
+    answers.templateCreate = () => new Promise((_resolve, reject) => (refuse = reject));
+    answers.stopOpening = () => {
+      refuse('Opening was stopped.'); // as Rust answers the command that was stopped
+      return true;
+    };
+    await fillIn({ title: 'My thesis' });
+    const creating = createProject();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(app.opening).toBe('My thesis');
+    const before = startScreen.focusNonce;
+    await stopOpening();
+    await creating;
+    expect([app.opening, newProject.creating, newProject.error, startScreen.message]).toEqual([null, false, null, null]);
+    expect([startScreen.page, newProject.step, newProject.values.title]).toEqual(['new', 'fill', 'My thesis']);
+    expect(startScreen.focusNonce).toBe(before + 1); // the Stop button that had it is gone
+    expect(only('openProject')).toEqual([]);
   });
 
   it('is not made while another document is being opened', async () => {
@@ -512,8 +532,10 @@ describe('a new document (S11.11, S17.6)', () => {
       throw 'no';
     };
     await fillIn({ title: 'T' });
+    const before = startScreen.focusNonce;
     await createProject();
     expect([startScreen.message?.text, newProject.step, newProject.values.title]).toEqual(['no', 'choose', undefined]);
+    expect(startScreen.focusNonce).toBe(before + 1); // Create, which had the focus, is gone
   });
 
   it('Change… remembers the place', async () => {

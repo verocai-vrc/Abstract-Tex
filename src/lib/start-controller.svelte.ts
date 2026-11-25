@@ -2,7 +2,7 @@
 // imports it: the document's flows know nothing of the screen in front of them, except whether it is up.
 
 import { allCommands, registerCommand, type Command } from './commands';
-import { openFolder, tell, whyNotToLeaveProject } from './controller.svelte';
+import { openFolder, tell } from './controller.svelte';
 import { ipc, type Choice, type Preferences } from './ipc';
 import { documentToCarryOn, startScreen, type Presence, type StartPage } from './start.svelte';
 import { app } from './state.svelte';
@@ -330,27 +330,35 @@ export async function createProject(): Promise<void> {
   }
   newProject.error = null;
   newProject.creating = true;
-  let folder: string;
-  try {
-    // Asked before anything is made: the result is opened at once, and opening is refused while a
-    // tab holds text that cannot be saved (R6.9).
-    const staying = await whyNotToLeaveProject();
-    if (staying !== null) throw staying;
-    const preferences = startScreen.preferences ?? (await loadPreferences());
-    folder = await ipc.templateCreate(template.id, preferences.place.path, answers);
-    if (answers.author && answers.author !== preferences.author) void rememberAuthor(answers.author);
-  } catch (error) {
-    newProject.error = String(error);
-    return;
-  } finally {
-    newProject.creating = false;
+  // Made as the first part of opening it, so that the notice and its Stop are there for a place that does
+  // not answer, and nothing is made while the open document cannot be left (R6.9).
+  let isMade = false;
+  const make = async (): Promise<string> => {
+    try {
+      const preferences = startScreen.preferences ?? (await loadPreferences());
+      const folder = await ipc.templateCreate(template.id, preferences.place.path, answers);
+      isMade = typedIsSpent = true;
+      if (answers.author && answers.author !== preferences.author) void rememberAuthor(answers.author);
+      return folder;
+    } finally {
+      newProject.creating = false; // not only once it is open: the next one can be started before that
+    }
+  };
+  const isOpen = await openFolder(make, { atFirstPlaceholder: true, name: answers.title ?? template.name });
+  newProject.creating = false; // it may have been refused before it was begun
+  if (isOpen) return;
+  if (isMade) {
+    // It is listed on Home. *Create* again would only say that its name is taken.
+    newProject.values = {};
+    typedIsSpent = false;
+    newProject.step = 'choose';
+  } else {
+    // A refusal is said next to what was typed. With none it was stopped.
+    newProject.error = startScreen.message?.text ?? null;
+    startScreen.message = null;
+    if (newProject.error !== null) return; // the focus is still on *Create*
   }
-  typedIsSpent = true;
-  if (await openFolder(folder, { atFirstPlaceholder: true, name: answers.title })) return;
-  // It is made, and listed on Home. *Create* again would only say that its name is taken.
-  newProject.values = {};
-  typedIsSpent = false;
-  newProject.step = 'choose';
+  moveFocus('first');
 }
 
 /** A convenience, so a failure is not worth a word. */
