@@ -131,7 +131,7 @@ pub struct ProjectInfo {
 pub struct Project {
     pub root_dir: PathBuf,
     /// What the document is called on screen: the folder's name until someone reads a better one out of
-    /// the main file (`start::record_opened`).
+    /// the main file (`start::title_to_show`).
     pub title: String,
     pub config: ProjectConfig,
     /// The include graph from the last `info()`, reused while none of its files changed (S9.6).

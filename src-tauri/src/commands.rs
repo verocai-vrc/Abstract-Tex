@@ -173,16 +173,22 @@ fn open_folder<R: Runtime>(
     info.engine_notice = engine_notice;
     info.watch_notice = watch_notice;
 
-    // Everything slow is done. From here to the end of the block the project lock is held, so two
-    // openings can never finish in the wrong order, and nothing can be refused after `adopt`.
+    let read_title = crate::start::read_title(&root_dir, root_file.as_deref());
+    info.title = crate::start::title_to_show(app, &root_dir, root_file.as_deref(), read_title.as_deref());
+    project.title = info.title.clone();
+    // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope. The
+    // whole state folder rather than `build/` alone: S9.9's draft PDF is under `draft/` and
+    // S11.4c's comparison under `latexdiff/`, and with only `build/` allowed neither could load.
+    // Here and not below: Tauri looks on the disk where the folder really is.
+    app.asset_protocol_scope()
+        .allow_directory(project.state_dir(), true)
+        .map_err(to_message)?;
+
+    // Everything slow is done, and nothing after `adopt` may touch a disk: *Stop* no longer works then,
+    // and the window waits for the answer. From here to the end of the block the project lock is held,
+    // so two openings can never finish in the wrong order, and nothing can be refused after `adopt`.
     let old_watcher = {
         let mut open = state.project.lock().unwrap();
-        // pdf.js loads the PDF over asset://, which only serves paths inside an allowed scope. The
-        // whole state folder rather than `build/` alone: S9.9's draft PDF is under `draft/` and
-        // S11.4c's comparison under `latexdiff/`, and with only `build/` allowed neither could load.
-        app.asset_protocol_scope()
-            .allow_directory(project.state_dir(), true)
-            .map_err(to_message)?;
         if !opening.adopt() {
             return Err(OPENING_STOPPED.to_string());
         }
@@ -196,17 +202,15 @@ fn open_folder<R: Runtime>(
         *open = Some(project);
         old_watcher
     };
-    // Only now, with the lock released: dropping a watcher can wait for its thread, and that thread
-    // takes the project lock to rebuild the bibliography.
-    drop(old_watcher);
-
     // Recorded only now that it is open: what was refused or stopped is not a recent document (S17.3).
-    info.title = crate::start::record_opened(app, &root_dir, root_file.as_deref());
-    if let Some(project) = state.project.lock().unwrap().as_mut() {
-        if project.root_dir == root_dir {
-            project.title = info.title.clone();
-        }
-    }
+    // On a thread that nobody waits for, because it asks other drives.
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::start::record(&app, &root_dir, root_file.as_deref(), read_title.as_deref())
+    });
+    // Nor is this waited for: a watcher's thread may be reading the old document's drive, and dropping
+    // the watcher can wait for it. Not under the lock either: that thread takes it.
+    tauri::async_runtime::spawn_blocking(move || drop(old_watcher));
     Ok(info)
 }
 
@@ -1674,10 +1678,72 @@ mod tests {
 
         let info = open_folder(app.handle(), folder.path(), &state.openings.begin()).unwrap();
         assert_eq!(info.title, "On Bees");
-        assert_eq!(recents.list()[0].title, "On Bees");
+        assert_eq!(listed_after_a_while(&app, 1)[0].title, "On Bees");
         // A refreshed tree carries it too.
         let refreshed = state.project.lock().unwrap().as_mut().unwrap().info();
         assert_eq!(refreshed.title, "On Bees");
+    }
+
+    /// The place for new documents can be on a drive that stopped answering, while the document is not.
+    #[test]
+    fn a_dead_drive_elsewhere_does_not_hold_up_an_opening() {
+        use std::time::{Duration, Instant};
+        let (config, folder) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        std::fs::write(
+            folder.path().join("main.tex"),
+            "\\documentclass{article}\\title{On Bees}",
+        )
+        .unwrap();
+        let preferences = crate::preferences::PreferencesFile::at(config.path().join("preferences.toml"));
+        let dead = config.path().join("network");
+        preferences
+            .change(|kept| kept.place = Some(dead.to_string_lossy().into_owned()))
+            .unwrap();
+        let app = app_with_recents(&config);
+        app.manage(preferences);
+        app.manage(abstract_tex_import::SlowPlaces::asking(move |place| {
+            if place == dead {
+                std::thread::sleep(Duration::from_secs(20));
+            }
+            place.canonicalize().ok()
+        }));
+        let asked = Instant::now();
+        let opening = app.state::<AppState>().openings.begin();
+        let info = open_folder(app.handle(), folder.path(), &opening).unwrap();
+        assert!(
+            asked.elapsed() < Duration::from_millis(800),
+            "{:?}",
+            asked.elapsed()
+        );
+        assert_eq!(info.title, "On Bees");
+        assert_eq!(listed_after_a_while(&app, 1)[0].title, "On Bees");
+        // Nor does what is asked after every build, or a file somebody chose.
+        let asked = Instant::now();
+        let file = folder.path().join("main.tex").to_string_lossy().into_owned();
+        tauri::async_runtime::block_on(async {
+            for _ in 0..5 {
+                crate::start::document_title(app.handle().clone()).await.unwrap();
+                crate::start::inspect_choice(app.handle().clone(), file.clone())
+                    .await
+                    .unwrap();
+            }
+        });
+        assert!(asked.elapsed() < Duration::from_secs(1), "{:?}", asked.elapsed());
+    }
+
+    /// The list, once it has `wanted` documents: they are recorded after the opening has answered.
+    fn listed_after_a_while(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        wanted: usize,
+    ) -> Vec<crate::recents::RecentDocument> {
+        for _ in 0..500 {
+            let listed = app.state::<RecentDocuments>().list();
+            if listed.len() == wanted {
+                return listed;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("{wanted} documents were never listed");
     }
 
     #[test]

@@ -142,6 +142,7 @@ pub fn run() {
             let preferences = preferences::PreferencesFile::at(config.join("preferences.toml"));
             app.manage(preferences.clone());
             app.manage(start::PresenceChecks::default());
+            app.manage(abstract_tex_import::SlowPlaces::default());
             let pictures = app.path().app_local_data_dir()?.join("recent-pictures");
             // The window shows them as images, which only come from folders that are allowed.
             app.asset_protocol_scope().allow_directory(&pictures, false)?;

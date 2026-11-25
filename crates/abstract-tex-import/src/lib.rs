@@ -13,7 +13,7 @@ pub mod staged;
 pub mod unpack;
 
 pub use choose::{document_folder, has_tex, kind_of, FileKind};
-pub use crowd::Crowd;
+pub use crowd::{cloud_folders, Crowd, Question, SlowPlaces};
 pub use named_files::{copy_document, files_named_by, CopyError};
 pub use staged::{free_name, Staged};
 pub use unpack::{safe_path, unpack, Limits, Platform, UnpackError};

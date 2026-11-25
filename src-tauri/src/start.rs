@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use abstract_tex_import::{
-    copy_document, document_folder, files_named_by, free_name, has_tex, kind_of, unpack, CopyError, Crowd,
-    FileKind, Limits, UnpackError,
+    cloud_folders, copy_document, document_folder, files_named_by, free_name, has_tex, kind_of, unpack,
+    CopyError, Crowd, FileKind, Limits, Question, SlowPlaces, UnpackError,
 };
 use abstract_tex_templates::folder_name_for_title;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -306,28 +306,54 @@ pub async fn document_title<R: Runtime>(app: AppHandle<R>) -> CommandResult<Stri
     .map_err(to_message)?
 }
 
-/// Record a document that is open, and answer its title. With no main file there is nothing to come
-/// back to, so nothing is recorded; in a test with no list, neither (`try_state`).
-pub fn record_opened<R: Runtime>(app: &AppHandle<R>, root_dir: &Path, root_file: Option<&Path>) -> String {
-    let Some(root_file) = root_file else {
-        return recents::folder_name(root_dir);
+/// Record a document that is open, and answer its title.
+fn record_opened<R: Runtime>(app: &AppHandle<R>, root_dir: &Path, root_file: Option<&Path>) -> String {
+    let read = read_title(root_dir, root_file);
+    let title = title_to_show(app, root_dir, root_file, read.as_deref());
+    record(app, root_dir, root_file, read.as_deref());
+    title
+}
+
+/// The `\title` in a document's main file.
+pub fn read_title(root_dir: &Path, root_file: Option<&Path>) -> Option<String> {
+    let source = crate::project::read_text(&root_dir.join(root_file?)).ok()?;
+    texwords::title_of(&source).filter(|title| !title.trim().is_empty())
+}
+
+/// What a document is called: what its main file says, else what it was called last time (a letter has no
+/// `\title`; it was typed when the letter was made), else the name of its folder.
+pub fn title_to_show<R: Runtime>(
+    app: &AppHandle<R>,
+    root_dir: &Path,
+    root_file: Option<&Path>,
+    read: Option<&str>,
+) -> String {
+    let known = || {
+        root_file?; // with no main file it was never recorded
+        let recents = app.try_state::<RecentDocuments>()?;
+        listed_document(&recents, &root_dir.to_string_lossy()).map(|document| document.title)
     };
-    let read = crate::project::read_text(&root_dir.join(root_file))
-        .ok()
-        .and_then(|source| texwords::title_of(&source));
-    let shown = match app.try_state::<RecentDocuments>() {
-        // A folder of many things can still be opened, from the command line. It is not a document to
-        // come back to.
-        Some(recents) if !crowd(app).holds(root_dir) => {
-            recents.record(root_dir, root_file, read.as_deref(), now())
-        }
-        _ => Ok(read.clone().unwrap_or_else(|| recents::folder_name(root_dir))),
+    read.map(|title| title.trim().to_string())
+        .or_else(known)
+        .unwrap_or_else(|| recents::folder_name(root_dir))
+}
+
+/// Put a document that is open on the list. With no main file there is nothing to come back to, so
+/// nothing is recorded; in a test with no list, neither (`try_state`). It asks other drives than the
+/// document's own (`crowd`), so nobody who is waiting may call it.
+pub fn record<R: Runtime>(app: &AppHandle<R>, root_dir: &Path, root_file: Option<&Path>, read: Option<&str>) {
+    let (Some(root_file), Some(recents)) = (root_file, app.try_state::<RecentDocuments>()) else {
+        return;
     };
-    shown.unwrap_or_else(|error| {
+    // A folder of many things can still be opened, from the command line. It is not a document to come
+    // back to.
+    if crowd(app).holds(root_dir) {
+        return;
+    }
+    if let Err(error) = recents.record(root_dir, root_file, read, now()) {
         // The list is a convenience: the document opens whether or not it can be remembered.
         tracing::warn!(%error, "could not record the document");
-        read.unwrap_or_else(|| recents::folder_name(root_dir))
-    })
+    }
 }
 
 /// The place new documents are kept in, as the window shows it.
@@ -466,27 +492,42 @@ pub fn apply_text_size<R: Runtime>(window: WebviewWindow<R>, size: u16) -> Comma
 /// The folders that are never one document: the ones the system names, the ones new documents go in, the
 /// home folder and everything above it, and drives.
 pub fn crowd<R: Runtime>(app: &AppHandle<R>) -> Crowd {
-    let folders = app.path();
-    let home = folders.home_dir().ok();
-    let named = [
-        folders.desktop_dir(),
-        folders.download_dir(),
-        folders.document_dir(),
-        folders.picture_dir(),
-        folders.audio_dir(),
-        folders.video_dir(),
-        folders.public_dir(),
-        folders.temp_dir(),
+    /// How one of them is found. A plain `fn`, so that a table can hold different ones.
+    type Find<R> = fn(&AppHandle<R>) -> Option<PathBuf>;
+    let found: [(&str, Find<R>); 10] = [
+        ("desktop", |app| app.path().desktop_dir().ok()),
+        ("downloads", |app| app.path().download_dir().ok()),
+        ("documents", |app| app.path().document_dir().ok()),
+        ("pictures", |app| app.path().picture_dir().ok()),
+        ("music", |app| app.path().audio_dir().ok()),
+        ("videos", |app| app.path().video_dir().ok()),
+        ("public", |app| app.path().public_dir().ok()),
+        ("temporary", |app| app.path().temp_dir().ok()),
+        ("place", |app| Some(new_documents_folder(app))),
+        // Documents made before another place was chosen are still in the first one.
+        ("default place", |app| {
+            let folders = app.path();
+            Some(default_place(
+                folders.document_dir().ok(),
+                folders.home_dir().ok()?,
+            ))
+        }),
     ];
-    // `flatten` drops the ones this system does not name.
-    let mut listed: Vec<PathBuf> = named.into_iter().flatten().collect();
-    listed.push(new_documents_folder(app));
-    // Documents made before another place was chosen are still in the first one.
-    listed.push(default_place(
-        folders.document_dir().ok(),
-        home.clone().unwrap_or_default(),
-    ));
-    Crowd::new(listed, home, is_mount_point)
+    // Windows looks whether a folder is there before it names it, and Documents can be on a network.
+    let ask = |(name, find): (&str, Find<R>)| -> (PathBuf, Question) {
+        let app = app.clone();
+        (name.into(), Box::new(move || find(&app)))
+    };
+    let places = match app.try_state::<SlowPlaces>() {
+        Some(places) => places.inner().clone(),
+        None => SlowPlaces::default(), // a test that is not about this
+    };
+    let home = app.path().home_dir().ok();
+    // `flatten` drops the ones this system does not name, or not in time.
+    let mut listed: Vec<PathBuf> = places.ask(found.map(ask).into()).into_iter().flatten().collect();
+    let variable = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    listed.extend(cloud_folders(home.as_deref(), variable));
+    Crowd::new(listed, home, is_mount_point, places)
 }
 
 /// A folder is where a drive begins when it is on another device than the folder it is in.
@@ -541,7 +582,7 @@ pub enum Choice {
 }
 
 /// Look at what was chosen. Reads disks that may be slow, so only from a blocking thread.
-fn inspect(path: &Path, crowd: &Crowd, place: &Path, home: Option<&Path>) -> Choice {
+fn inspect(path: &Path, crowd: &Crowd, place: impl Fn() -> PathBuf, home: Option<&Path>) -> Choice {
     let Ok(found) = std::fs::metadata(path) else {
         return Choice::Gone;
     };
@@ -572,7 +613,7 @@ fn inspect(path: &Path, crowd: &Crowd, place: &Path, home: Option<&Path>) -> Cho
                 },
                 None => Choice::StrayFile {
                     file: text(path),
-                    place: folder_parts(place, home),
+                    place: folder_parts(&place(), home),
                     others: files_named_by(path).len(),
                 },
             }
@@ -593,7 +634,7 @@ pub async fn inspect_choice<R: Runtime>(app: AppHandle<R>, path: String) -> Comm
         Ok(inspect(
             &path,
             &crowd(&app),
-            &new_documents_folder(&app),
+            || new_documents_folder(&app), // asked only when it is needed: it can be slow to name
             home.as_deref(),
         ))
     })
@@ -963,9 +1004,21 @@ mod tests {
             write(name, "");
         }
         let downloads = home.path().join("Downloads");
-        let crowd = Crowd::new(vec![downloads.clone()], Some(home.path().into()), |_| false);
+        let crowd = Crowd::new(
+            vec![downloads.clone()],
+            Some(home.path().into()),
+            |_| false,
+            SlowPlaces::default(),
+        );
         let place = home.path().join("Documents/Abstract-Tex");
-        let look = |path: &str| inspect(&home.path().join(path), &crowd, &place, Some(home.path()));
+        let look = |path: &str| {
+            inspect(
+                &home.path().join(path),
+                &crowd,
+                || place.clone(),
+                Some(home.path()),
+            )
+        };
         let text = |path: &str| home.path().join(path).to_string_lossy().into_owned();
         let document = |folder: &str, file: Option<&str>| Choice::Document {
             folder: text(folder),
@@ -1102,7 +1155,7 @@ mod tests {
     fn what_is_unpacked_inherits_no_permission() {
         let folder = tempfile::tempdir().unwrap();
         let app = app_that_writes_in(folder.path());
-        let made = folder.path().join("writing/thesis");
+        let made = folder.path().join("writing").join("thesis");
         let (consent, settings) = (
             app.state::<ShellEscapeConsent>(),
             app.state::<AssistantSettings>(),
@@ -1189,7 +1242,7 @@ mod tests {
     fn a_copy_inherits_no_permission() {
         let folder = tempfile::tempdir().unwrap();
         let app = app_that_writes_in(folder.path());
-        let made = folder.path().join("writing/paper");
+        let made = folder.path().join("writing").join("paper");
         let (consent, settings) = (
             app.state::<ShellEscapeConsent>(),
             app.state::<AssistantSettings>(),
