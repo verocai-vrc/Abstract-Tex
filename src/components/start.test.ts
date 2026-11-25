@@ -185,3 +185,17 @@ it('no style of ours uses :is()', () => {
   const ours = readdirSync(__dirname).filter((name) => name.endsWith('.svelte')).map((name) => `src/components/${name}`);
   expect(['src/app.css', 'src/App.svelte', ...ours].filter((path) => /:is\(/.test(read(path)))).toEqual([]);
 });
+
+// ---- Where the focus goes when what was pressed is gone (S17.18) --------------------------------
+
+it('what is pressed and then gone hands the focus on', () => {
+  const home = read('src/components/StartHome.svelte');
+  expect(home, 'Clear this list').toMatch(/isAskingToClear = true;\s*await tick\(\);\s*keepButton\?\.focus\(\)/);
+  expect(home, 'No, keep it').toMatch(/isAskingToClear = false;\s*await tick\(\);\s*clearButton\?\.focus\(\)/);
+  expect(home, 'the question is said with the answer that has the focus').toMatch(/bind:this=\{keepButton\} aria-describedby="start-clear-question"/);
+  expect(home, 'the last one off the list, and the list with it').toMatch(/else moveFocus\('heading'\)/);
+  expect(home, 'a row found missing').toMatch(/\$effect\.pre\([\s\S]*startScreen\.presence[\s\S]*querySelector\('button'\)\?\.focus\(\)/);
+  expect(read('src/components/StartOpen.svelte'), 'Choose again…').toMatch(/folderButton\?\.focus\(\);\s*void chooseFolder\(\)/);
+  expect(read('src/components/SavedPdfNotice.svelte'), '×').toContain('onclick={closeSavedPdf}');
+  expect(read('src/components/FirstPdf.svelte'), 'Try again').toMatch(/closest<HTMLElement>\('\.pdf-column'\)\?\.focus\(\);\s*void triggerCompile\(\)/);
+});

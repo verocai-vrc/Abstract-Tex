@@ -2,7 +2,8 @@
   // What *Save PDF…* did (S17.7): above the editor, or on the start screen when that is up. The region
   // is always in the page, because one that appears together with its text is often not read out.
   import { app } from '../lib/state.svelte';
-  import { dismissSavedPdf, openSavedPdf, showSavedPdf } from '../lib/controller.svelte';
+  import { openSavedPdf, showSavedPdf } from '../lib/controller.svelte';
+  import { closeSavedPdf } from '../lib/start-controller.svelte';
   import { savedPdfSentence } from '../lib/start.svelte';
   import { words } from '../lib/words';
 </script>
@@ -16,7 +17,7 @@
       <div class="actions">
         <button onclick={() => void openSavedPdf()}>{words.openIt}</button>
         <button onclick={() => void showSavedPdf()}>{words.showInFolder}</button>
-        <button class="close" aria-label={words.dismiss} onclick={dismissSavedPdf}><span aria-hidden="true">×</span></button>
+        <button class="close" aria-label={words.dismiss} onclick={closeSavedPdf}><span aria-hidden="true">×</span></button>
       </div>
     </div>
   {/if}

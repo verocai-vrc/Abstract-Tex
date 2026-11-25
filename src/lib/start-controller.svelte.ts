@@ -2,7 +2,7 @@
 // imports it: the document's flows know nothing of the screen in front of them, except whether it is up.
 
 import { allCommands, registerCommand, type Command } from './commands';
-import { openFolder, showChosenFile, showCloneWindow, tell } from './controller.svelte';
+import { dismissSavedPdf, openFolder, showChosenFile, showCloneWindow, tell } from './controller.svelte';
 import { ipc, type Choice, type Preferences } from './ipc';
 import { documentToCarryOn, startScreen, type Presence, type StartPage } from './start.svelte';
 import { app } from './state.svelte';
@@ -24,9 +24,17 @@ export function goToPage(page: StartPage, focus: 'heading' | 'first'): void {
   moveFocus(focus);
 }
 
-function moveFocus(target: 'heading' | 'first'): void {
+/** Give the focus a place: what had it is gone, or the page is another. */
+export function moveFocus(target: 'heading' | 'first'): void {
   startScreen.focusTarget = target;
   startScreen.focusNonce += 1;
+}
+
+/** × on "Saved…", which is gone with it. */
+export function closeSavedPdf(): void {
+  dismissSavedPdf();
+  if (startScreen.visible) moveFocus('heading');
+  else app.editorFocusRequest += 1;
 }
 
 /**

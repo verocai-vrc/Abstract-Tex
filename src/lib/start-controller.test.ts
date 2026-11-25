@@ -36,7 +36,7 @@ const { newProject } = await import('./templates.svelte');
 const { allCommands } = await import('./commands');
 const { stopOpening } = await import('./controller.svelte');
 const {
-  backToDocument, cancelChoice, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, copyAndOpen, createProject, findRecent, forgetRecent, getFromGit, goToPage, loadRecents,
+  backToDocument, cancelChoice, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, closeSavedPdf, copyAndOpen, createProject, findRecent, forgetRecent, getFromGit, goToPage, loadRecents,
   moveTemplateSelection, openAnyway, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
   templateFilterChanged,
 } = await import('./start-controller.svelte');
@@ -980,4 +980,15 @@ describe('opening what people already have (S17.8)', () => {
     showStart('open', false);
     expect([startScreen.page, startScreen.focusTarget]).toEqual(['open', 'first']);
   });
+});
+
+// S17.18: what is pressed must not take the focus with it when it goes.
+it('closing "Saved…" puts the focus on the page, or back in the document', () => {
+  app.savedPdf = { name: 'a.pdf', place: [], isNewest: true };
+  const [page, editor] = [startScreen.focusNonce, app.editorFocusRequest];
+  closeSavedPdf();
+  expect([app.savedPdf, startScreen.focusNonce, app.editorFocusRequest]).toEqual([null, page + 1, editor]);
+  startScreen.visible = false;
+  closeSavedPdf();
+  expect([startScreen.focusNonce, app.editorFocusRequest]).toEqual([page + 1, editor + 1]);
 });

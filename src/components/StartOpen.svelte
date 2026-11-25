@@ -25,6 +25,14 @@
     }
   });
 
+  let folderButton: HTMLButtonElement | undefined = $state();
+
+  /** *Choose again…* is gone as soon as another is chosen; the button it stands for is not. */
+  function chooseAgain() {
+    folderButton?.focus();
+    void chooseFolder();
+  }
+
   // The answer is under the buttons, which fill the window when the text is enlarged. After the frame: where
   // the focus goes then is settled, and scrolling to that would undo this.
   let answer: HTMLElement | undefined = $state();
@@ -47,7 +55,7 @@
     <span id="start-open-file" class="muted">{words.chooseFileHint}</span>
   </li>
   <li>
-    <button aria-disabled={isBusy} aria-describedby="start-open-folder" onclick={() => void chooseFolder()}>
+    <button bind:this={folderButton} aria-disabled={isBusy} aria-describedby="start-open-folder" onclick={() => void chooseFolder()}>
       {words.chooseFolder}
     </button>
     <span id="start-open-folder" class="muted">{words.chooseFolderHint}</span>
@@ -66,7 +74,7 @@
     {#if sentence}<p class="said">{sentence}</p>{/if}
   </div>
   {#if choice?.kind === 'crowdedFolder'}
-    <button onclick={() => void chooseFolder()}>{words.chooseAgain}</button>
+    <button onclick={chooseAgain}>{words.chooseAgain}</button>
   {:else if choice?.kind === 'noTex'}
     <button aria-disabled={isBusy} onclick={() => void openAnyway()}>{words.openAnyway}</button>
   {:else if choice?.kind === 'strayFile'}

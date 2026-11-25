@@ -11,6 +11,7 @@
     findRecent,
     forgetRecent,
     goToPage,
+    moveFocus,
     openRecent,
     showRecentInFolder,
     startFromTemplate,
@@ -34,13 +35,40 @@
   let recentsHeading: HTMLHeadingElement | undefined = $state();
   let isAskingToClear = $state(false);
 
-  /** What was focused is gone from the list, so the focus goes to the list's heading rather than nowhere. */
+  let clearButton: HTMLButtonElement | undefined = $state();
+  let keepButton: HTMLButtonElement | undefined = $state();
+
+  /** What was focused is gone from the list, so the focus goes to the list's heading rather than nowhere;
+   * or to the page's, when the list is gone as well. */
   async function change(action: Promise<void>): Promise<void> {
     isAskingToClear = false;
     await action;
     await tick();
-    recentsHeading?.focus();
+    if (recentsHeading) recentsHeading.focus();
+    else moveFocus('heading');
   }
+
+  async function askToClear(): Promise<void> {
+    isAskingToClear = true;
+    await tick();
+    keepButton?.focus();
+  }
+  async function keepTheList(): Promise<void> {
+    isAskingToClear = false;
+    await tick();
+    clearButton?.focus();
+  }
+
+  // A row that is found missing, or found again, has other buttons from then on. If one of those that go has
+  // the focus, the row's first one gets it. Before the change: afterwards nothing says where the focus was.
+  $effect.pre(() => {
+    void startScreen.presence;
+    const row = document.activeElement?.closest<HTMLElement>('.recents > li');
+    if (!row) return;
+    void tick().then(() => {
+      if (document.activeElement === document.body) row.querySelector('button')?.focus();
+    });
+  });
 </script>
 
 <!-- A picture says nothing that the title does not: it is for recognising, and has no name of its own. -->
@@ -199,11 +227,13 @@
         </ul>
         <div class="clear">
           {#if isAskingToClear}
-            <p>{words.clearListQuestion(recents.length)}</p>
+            <p id="start-clear-question">{words.clearListQuestion(recents.length)}</p>
             <button onclick={() => void change(clearRecents())}>{words.clearListYes}</button>
-            <button onclick={() => (isAskingToClear = false)}>{words.clearListNo}</button>
+            <button bind:this={keepButton} aria-describedby="start-clear-question" onclick={() => void keepTheList()}>
+              {words.clearListNo}
+            </button>
           {:else}
-            <button class="quiet" onclick={() => (isAskingToClear = true)}>{words.clearList}</button>
+            <button class="quiet" bind:this={clearButton} onclick={() => void askToClear()}>{words.clearList}</button>
           {/if}
         </div>
       </section>

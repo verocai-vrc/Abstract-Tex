@@ -20,6 +20,12 @@
     const timer = setInterval(() => (now = Date.now()), 1000);
     return () => clearInterval(timer);
   });
+
+  /** The button is gone once the build runs, so the focus goes to the pane it is in. */
+  function tryAgain(event: MouseEvent & { currentTarget: HTMLElement }) {
+    event.currentTarget.closest<HTMLElement>('.pdf-column')?.focus();
+    void triggerCompile();
+  }
   const seconds = $derived(Math.max(0, Math.floor((now - app.compile.startedAt) / 1000)));
 </script>
 
@@ -35,7 +41,7 @@
 {#if fetching}
   <p class="so-far">{words.firstPdfSoFar(app.compile.partsFetched, seconds)}</p>
 {:else if offline}
-  <button class="again" onclick={() => void triggerCompile()}>{words.tryAgain}</button>
+  <button class="again" onclick={tryAgain}>{words.tryAgain}</button>
 {/if}
 
 <style>
