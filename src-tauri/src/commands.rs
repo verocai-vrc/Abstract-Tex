@@ -943,8 +943,8 @@ pub fn lsp_respond(
 
 /// What has changed, in the three lists DESIGN.md §6 draws them in.
 #[tauri::command]
-pub fn git_status(state: State<'_, AppState>) -> CommandResult<Option<GitStatus>> {
-    git::with_repository(&state, abstract_tex_git::status)
+pub async fn git_status(state: State<'_, AppState>) -> CommandResult<Option<GitStatus>> {
+    git::with_repository_blocking(&state, abstract_tex_git::status).await
 }
 
 /// S11.3c: large-file candidates for the Source Control view's "track with Git LFS" banner.

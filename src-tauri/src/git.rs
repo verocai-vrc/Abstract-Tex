@@ -86,17 +86,31 @@ pub async fn in_repository_blocking<T: Send + 'static>(
     state: &AppState,
     f: impl FnOnce(&Repository) -> Result<T, GitError> + Send + 'static,
 ) -> Result<T, String> {
+    with_repository_blocking(state, f)
+        .await?
+        .ok_or_else(|| GitError::NotARepository.to_string())
+}
+
+/// The same for a question, answered `None` where there is no repository, as [`with_repository`] does.
+pub async fn with_repository_blocking<T: Send + 'static>(
+    state: &AppState,
+    f: impl FnOnce(&Repository) -> Result<T, GitError> + Send + 'static,
+) -> Result<Option<T>, String> {
     let root = {
         let guard = state.project.lock().unwrap();
         let project = guard.as_ref().ok_or_else(|| "No document is open.".to_string())?;
         project.root_dir.clone()
     };
-    tauri::async_runtime::spawn_blocking(move || {
+    let answer = tauri::async_runtime::spawn_blocking(move || {
         abstract_tex_git::open(&root).and_then(|repository| f(&repository))
     })
     .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())?;
+    match answer {
+        Ok(value) => Ok(Some(value)),
+        Err(GitError::NotARepository) => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 /// Where a clone of `url` goes: a folder named `name` (or, when the author gave none, the one
