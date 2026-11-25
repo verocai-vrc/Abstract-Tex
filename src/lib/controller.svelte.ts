@@ -252,6 +252,15 @@ export async function pasteCite(pasted: string, view: EditorView, from: number, 
   }
 }
 
+let wordPasteSpokenOf = false;
+
+/** Text from a word processor was written as LaTeX (`editor/word-paste.ts`). Said once a session. */
+export function toldOfWordPaste(): void {
+  if (wordPasteSpokenOf) return;
+  wordPasteSpokenOf = true;
+  app.notice = words.pastedFromWord;
+}
+
 /**
  * Probe once for a running Zotero + Better BibTeX (S8.1) and record the answer in
  * `bibliography.zoteroStatus`. Not called automatically — DESIGN.md §5.4's Zotero integration

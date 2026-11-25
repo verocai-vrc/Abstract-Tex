@@ -1,4 +1,4 @@
-import { EditorSelection, EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState, type TransactionSpec } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -100,7 +100,7 @@ describe('pasting it', () => {
         selection: EditorSelection.create(ranges.map(([from, to]) => EditorSelection.range(from, to))),
         extensions: [EditorState.allowMultipleSelections.of(true), EditorState.readOnly.of(readOnly)],
       }),
-      dispatch(...specs: Parameters<EditorState['update']>) {
+      dispatch(...specs: TransactionSpec[]) {
         const transaction = view.state.update(...specs);
         view.state = transaction.state;
         ytext.doc!.transact(() => {

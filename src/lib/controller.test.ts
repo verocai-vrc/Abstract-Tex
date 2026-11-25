@@ -744,6 +744,7 @@ const {
   lspHover,
   openFile,
   pasteCite,
+  toldOfWordPaste,
   openFolder,
   stopOpening,
   toggleCommandPalette,
@@ -4892,6 +4893,17 @@ describe('what happens to the open document while Home is up', () => {
     disk.delete('main.tex');
     await fileChanged('main.tex');
     expect([startScreen.message?.text, app.notice]).toEqual([app.notice, expect.stringContaining('no longer on disk')]);
+  });
+});
+
+describe('text pasted from a word processor', () => {
+  it('is spoken of above the editor, once', () => {
+    app.notice = null;
+    toldOfWordPaste();
+    expect(app.notice).toBe(words.pastedFromWord);
+    app.notice = null;
+    toldOfWordPaste();
+    expect(app.notice).toBeNull();
   });
 });
 

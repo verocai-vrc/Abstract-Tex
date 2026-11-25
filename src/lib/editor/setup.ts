@@ -40,6 +40,7 @@ import { placeholderMarks } from './placeholders';
 import { pasteCiteHandler, pasteTracking, type PasteCiteRequester } from './paste';
 import { forwardSearchKeymap, type ForwardSearchRequester } from './synctex';
 import { typewriterModeExtension } from './typewriter';
+import { wordPasteHandler } from './word-paste';
 
 // `Compartment` is CodeMirror's slot for an extension that needs to change after the editor is
 // built, without tearing the whole `EditorView` down: `compartment.reconfigure(newExtension)` is
@@ -149,6 +150,8 @@ export function createEditor(
   // S14.2c: set only while a live session is open on this document. `null` is `yCollab`'s own
   // "nobody else is here" state — the same one every call made before this loop, implicitly.
   awareness: Awareness | null = null,
+  // S17.18: where prose is written, text from a word processor is pasted as LaTeX; called when it was.
+  onWordPaste?: () => void,
 ): EditorView {
   const state = EditorState.create({
     // y-codemirror requires the initial CodeMirror document to equal the Y.Text content.
@@ -200,6 +203,10 @@ export function createEditor(
         ? [EditorView.domEventHandlers({ mousedown: definitionClickHandler(definitionRequest) })]
         : []),
       ...(pasteCiteRequest ? [pasteTracking, EditorView.domEventHandlers({ paste: pasteCiteHandler(pasteCiteRequest) })] : []),
+      // After the one above: a DOI copied from Word is still a DOI.
+      ...(onWordPaste
+        ? [EditorView.domEventHandlers({ paste: wordPasteHandler(() => doc.undo.stopCapturing(), onWordPaste) })]
+        : []),
       // `yCollab` renders a remote cursor itself (its own `yRemoteSelectionsTheme`) once given a
       // real `Awareness`; the undo manager stays the document's own either way.
       yCollab(doc.ytext, awareness, { undoManager: doc.undo }),

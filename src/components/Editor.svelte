@@ -10,6 +10,7 @@
     lspGoToDefinition,
     lspHover,
     pasteCite,
+    toldOfWordPaste,
     reportSelection,
     resolveConflict,
     syncTexForward,
@@ -89,6 +90,7 @@
       (line) => (placeholders.cursorLine = line),
       (from, to) => reportSelection(path, from, to),
       awareness,
+      isCitingSource(path) ? toldOfWordPaste : undefined,
     );
     view = created;
     created.focus();

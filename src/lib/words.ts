@@ -39,7 +39,7 @@ export const words = {
     {
       question: 'Can I open a Word file?',
       answer:
-        'No. Start a new document here, copy the text in Word, and paste it in. Words and paragraphs come along; headings, footnotes, tables and pictures do not, and are made again here.',
+        'No. Start a new document here, copy the text in Word, LibreOffice or Google Docs, and paste it in. Words and paragraphs come along; bold and italics, headings, footnotes, formulas, tables and pictures do not, and are made again here.',
     },
     {
       question: 'Why does the first PDF take minutes?',
@@ -162,6 +162,9 @@ export const words = {
   comingFromWord:
     'Coming from Word? Abstract can’t open Word files. Start a new document and paste your text into it.',
   newDocument: 'New document',
+  /** The first time in a session that text from a word processor was changed on its way in. */
+  pastedFromWord:
+    'Signs such as % were written the way LaTeX needs, and paragraphs were kept apart. Ctrl Z (⌘ Z on a Mac) puts the text back as you copied it.',
 
   looking: (name: string) => `Looking at ${name}…`,
   crowdedFolder: (folder: string) =>
