@@ -3,7 +3,7 @@
 //!
 //! Kept in the app's own config folder (`recent-documents.toml`), never in a document: the list belongs
 //! to this computer. It must never be a reason that something else fails. A file that cannot be read is
-//! an empty list, and taking a document off the list deletes nothing but its line.
+//! shown as an empty list, but not replaced by one, and taking a document off the list deletes nothing but its line.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ impl RecentDocuments {
 
     /// Newest first. Empty when there is no list, or none that can be read.
     pub fn list(&self) -> Vec<RecentDocument> {
-        self.read().documents
+        self.read().unwrap_or_default().documents
     }
 
     /// Put a document first, and answer the title it is now shown under: the one given, else the one
@@ -125,7 +125,10 @@ impl RecentDocuments {
     fn change<T>(&self, edit: impl FnOnce(&mut Vec<RecentDocument>) -> T) -> Result<T> {
         // Poisoned: another thread panicked while holding it. The file is still whole, so carry on.
         let _one_change_at_a_time = CHANGE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut file = self.read();
+        // A file that could not be read just now must not become an empty one.
+        let mut file = self
+            .read()
+            .with_context(|| format!("could not read {}", self.file.display()))?;
         let answer = edit(&mut file.documents);
         if let Some(folder) = self.file.parent() {
             fs::create_dir_all(folder).with_context(|| format!("could not create {}", folder.display()))?;
@@ -135,11 +138,17 @@ impl RecentDocuments {
         Ok(answer)
     }
 
-    fn read(&self) -> RecentsFile {
-        fs::read_to_string(&self.file)
-            .ok()
-            .and_then(|text| toml::from_str(&text).ok())
-            .unwrap_or_default()
+    /// What cannot be understood is an empty list, as is no file. What cannot be *read* is an error: it may
+    /// well be readable the next time.
+    fn read(&self) -> std::io::Result<RecentsFile> {
+        match fs::read(&self.file) {
+            Ok(bytes) => Ok(std::str::from_utf8(&bytes)
+                .ok()
+                .and_then(|text| toml::from_str(text).ok())
+                .unwrap_or_default()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(RecentsFile::default()),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -341,5 +350,38 @@ mod tests {
     fn folders_differing_only_in_case_are_one_on_windows() {
         assert!(same_folder(r"C:\A", r"c:\a", true));
         assert!(!same_folder("/A", "/a", false));
+    }
+
+    // A virus scanner or a sync program can hold a file for a moment. A folder at its name, because a file
+    // without permissions is still readable by root, which is who runs the tests in some containers.
+    #[test]
+    fn a_list_that_cannot_be_read_just_now_is_not_replaced() {
+        let config = tempfile::tempdir().unwrap();
+        let recents = list_in(&config);
+        fs::create_dir_all(&recents.file).unwrap();
+        assert!(recents.list().is_empty());
+        let refused = recents.record(Path::new("/a"), Path::new("main.tex"), None, 1);
+        assert!(format!("{:#}", refused.unwrap_err()).contains("could not read"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_list_without_permission_to_be_read_keeps_what_is_in_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let config = tempfile::tempdir().unwrap();
+        let recents = list_in(&config);
+        for number in 0..25 {
+            record(&recents, &format!("/d/{number}"), None);
+        }
+        let allow = |mode| fs::set_permissions(&recents.file, fs::Permissions::from_mode(mode)).unwrap();
+        allow(0);
+        if fs::read(&recents.file).is_ok() {
+            return; // root reads everything
+        }
+        assert!(recents
+            .record(Path::new("/new"), Path::new("main.tex"), None, 1)
+            .is_err());
+        allow(0o600);
+        assert_eq!(recents.list().len(), 25);
     }
 }

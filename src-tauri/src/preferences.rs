@@ -3,7 +3,8 @@
 //!
 //! Kept in the app's own config folder (`preferences.toml`), never in a document. It must never be a
 //! reason that the app does not start: a file that cannot be read is the defaults, and one value that
-//! makes no sense is its own default and does not cost the others.
+//! makes no sense is its own default and does not cost the others. Nor may it be lost: a file that cannot
+//! be read is not replaced, and one that cannot be understood is kept beside the new one.
 
 use std::fs;
 use std::path::PathBuf;
@@ -65,33 +66,17 @@ impl PreferencesFile {
     }
 
     pub fn read(&self) -> Preferences {
-        let Some(table) = fs::read_to_string(&self.file)
-            .ok()
-            .and_then(|text| text.parse::<toml::Table>().ok())
-        else {
-            return Preferences::default();
-        };
-        // Value by value, rather than the whole struct at once: serde would refuse all of them over
-        // one that somebody mistyped.
-        let text = |name: &str| {
-            table
-                .get(name)
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-        };
-        Preferences {
-            place: text("place").filter(|place| !place.is_empty()),
-            author: text("author").unwrap_or_default(),
-            text_size: table
-                .get("textSize")
-                .and_then(|value| value.as_integer())
-                .and_then(|size| u16::try_from(size).ok())
-                .filter(|size| TEXT_SIZES.contains(size))
-                .unwrap_or(TEXT_SIZES[0]),
-            colours: table
-                .get("colours")
-                .and_then(|value| value.clone().try_into().ok())
-                .unwrap_or_default(),
+        self.table().ok().flatten().map(understood).unwrap_or_default()
+    }
+
+    /// `None` for a file that is not TOML.
+    fn table(&self) -> std::io::Result<Option<toml::Table>> {
+        match fs::read(&self.file) {
+            Ok(bytes) => Ok(std::str::from_utf8(&bytes)
+                .ok()
+                .and_then(|text| text.parse().ok())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Some(toml::Table::new())),
+            Err(error) => Err(error),
         }
     }
 
@@ -99,14 +84,50 @@ impl PreferencesFile {
     pub fn change(&self, edit: impl FnOnce(&mut Preferences)) -> Result<Preferences> {
         // Poisoned: another thread panicked while holding it. The file is still whole, so carry on.
         let _one_change_at_a_time = CHANGE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut preferences = self.read();
+        // A file that could not be read just now must not become one with the defaults.
+        let table = self
+            .table()
+            .with_context(|| format!("could not read {}", self.file.display()))?;
+        let is_toml = table.is_some();
+        let mut preferences = table.map(understood).unwrap_or_default();
         edit(&mut preferences);
         if let Some(folder) = self.file.parent() {
             fs::create_dir_all(folder).with_context(|| format!("could not create {}", folder.display()))?;
         }
+        if !is_toml {
+            // Somebody wrote it by hand, and one wrong quote makes the whole of it no TOML.
+            let aside = self.file.with_extension("toml.unreadable");
+            fs::rename(&self.file, &aside)
+                .with_context(|| format!("could not rename {}", self.file.display()))?;
+        }
         write_atomically(&self.file, &toml::to_string(&preferences)?)
             .with_context(|| format!("could not write {}", self.file.display()))?;
         Ok(preferences)
+    }
+}
+
+fn understood(table: toml::Table) -> Preferences {
+    // Value by value, rather than the whole struct at once: serde would refuse all of them over
+    // one that somebody mistyped.
+    let text = |name: &str| {
+        table
+            .get(name)
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+    };
+    Preferences {
+        place: text("place").filter(|place| !place.is_empty()),
+        author: text("author").unwrap_or_default(),
+        text_size: table
+            .get("textSize")
+            .and_then(|value| value.as_integer())
+            .and_then(|size| u16::try_from(size).ok())
+            .filter(|size| TEXT_SIZES.contains(size))
+            .unwrap_or(TEXT_SIZES[0]),
+        colours: table
+            .get("colours")
+            .and_then(|value| value.clone().try_into().ok())
+            .unwrap_or_default(),
     }
 }
 
@@ -160,6 +181,30 @@ mod tests {
         assert_eq!(answered, file.read());
         assert_eq!(answered.place.as_deref(), Some("/usb/writing"));
         assert_eq!(answered.colours, Colours::ContrastLight);
+    }
+
+    // A virus scanner or a sync program can hold a file for a moment.
+    #[test]
+    fn preferences_that_cannot_be_read_just_now_are_not_replaced() {
+        let folder = tempfile::tempdir().unwrap();
+        let file = PreferencesFile::at(folder.path().join("preferences.toml"));
+        fs::create_dir(&file.file).unwrap(); // a folder at its name cannot be read as a file
+        assert_eq!(file.read(), Preferences::default());
+        let refused = file.change(|p| p.author = "Ana".into());
+        assert!(format!("{:#}", refused.unwrap_err()).contains("could not read"));
+    }
+
+    #[test]
+    fn a_file_that_is_not_toml_is_kept_aside() {
+        let folder = tempfile::tempdir().unwrap();
+        let file = PreferencesFile::at(folder.path().join("preferences.toml"));
+        let typed = "textSize = 200\nplace = \"C:\\Users\\Ana\"";
+        fs::write(&file.file, typed).unwrap();
+        let kept = file.change(|p| p.author = "Ana".into()).unwrap();
+        assert_eq!(kept, file.read());
+        let aside = folder.path().join("preferences.toml.unreadable");
+        assert_eq!(fs::read_to_string(aside).unwrap(), typed);
+        assert_eq!(fs::read_dir(folder.path()).unwrap().count(), 2);
     }
 
     #[test]
