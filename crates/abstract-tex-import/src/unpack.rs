@@ -72,6 +72,11 @@ impl Platform {
     };
 }
 
+/// The longest name an entry may have, in bytes, and how deep it may lie. No disk takes much longer ones,
+/// and removing very deep folders again can fail, for want of so many open ones at a time.
+const LONGEST_NAME: usize = 1_000;
+const DEEPEST: usize = 60;
+
 /// The path inside the folder that an entry's name means, or `None` if it must not be written.
 ///
 /// Not `zip`'s own `enclosed_name`: that quietly turns `/a.tex` into `a.tex`. A name that leads elsewhere
@@ -79,10 +84,11 @@ impl Platform {
 pub fn safe_path(name: &str, platform: Platform) -> Option<PathBuf> {
     // Old Windows programs write `\` between the parts, whatever the rules say.
     let is_separator = |character| matches!(character, '/' | '\\');
-    if name.is_empty() || name.starts_with(is_separator) {
+    if name.is_empty() || name.len() > LONGEST_NAME || name.starts_with(is_separator) {
         return None;
     }
     let mut path = PathBuf::new();
+    let mut depth = 0;
     for part in name.split(is_separator) {
         if matches!(part, "" | ".") {
             continue;
@@ -90,9 +96,23 @@ pub fn safe_path(name: &str, platform: Platform) -> Option<PathBuf> {
         if part == ".." || part.contains('\0') || (platform == Platform::Windows && !windows_keeps(part)) {
             return None;
         }
+        depth += 1;
+        if depth > DEEPEST {
+            return None;
+        }
         path.push(part);
     }
     Some(path)
+}
+
+/// A name as it is said to the person. A refused one can be as long as a page.
+fn said(name: &str) -> String {
+    const MOST: usize = 100;
+    let mut short: String = name.chars().take(MOST).collect();
+    if short.len() < name.len() {
+        short.push('…');
+    }
+    short
 }
 
 /// Whether Windows makes a file of exactly this name. It forbids some characters, drops a dot or a space
@@ -252,7 +272,7 @@ fn judge(archive: &ZipArchive<impl Read + io::Seek>, limits: &Limits) -> Result<
         let entry = archive.by_index_data(index).map_err(unreadable)?;
         let name = entry.name().map_err(unreadable)?;
         let Some(path) = safe_path(&name, Platform::HERE) else {
-            return Err(UnpackError::UnsafeName(name.into_owned()));
+            return Err(UnpackError::UnsafeName(said(&name)));
         };
         let is_folder = entry.is_dir();
         if stays_out(&path) || (is_folder && path.as_os_str().is_empty()) {
@@ -261,7 +281,7 @@ fn judge(archive: &ZipArchive<impl Read + io::Seek>, limits: &Limits) -> Result<
         // A link would be a way out of the folder; a pipe or a device has no business in a document.
         let kind = entry.unix_mode().unwrap_or(0) & 0o170_000;
         if path.as_os_str().is_empty() || !matches!(kind, 0 | 0o040_000 | 0o100_000) {
-            return Err(UnpackError::UnsafeName(name.into_owned()));
+            return Err(UnpackError::UnsafeName(said(&name)));
         }
         if entry.encrypted() {
             return Err(UnpackError::Locked);
@@ -476,6 +496,22 @@ mod tests {
         ] {
             assert_eq!(safe_path(name, Platform::Windows), None, "{name:?}");
             assert!(safe_path(name, Platform::Other).is_some(), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn a_name_that_is_too_long_or_too_deep_is_not_written() {
+        for platform in [Platform::Windows, Platform::Other] {
+            assert!(safe_path(&"a/".repeat(60), platform).is_some());
+            assert_eq!(safe_path(&"a/".repeat(61), platform), None);
+            assert!(safe_path(&"a".repeat(1_000), platform).is_some());
+            assert_eq!(safe_path(&"a".repeat(1_001), platform), None);
+        }
+        // And refused at once: every folder it is in would be kept in memory with its whole path.
+        let bytes = archive(&[("main.tex", TEX), (&("a/".repeat(32_000) + "x"), "")]);
+        match refused(&bytes) {
+            UnpackError::UnsafeName(said) => assert!(said.chars().count() <= 101, "{}", said.len()),
+            other => panic!("{other:?}"),
         }
     }
 
