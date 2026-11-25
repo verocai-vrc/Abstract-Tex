@@ -3241,12 +3241,16 @@ function nameWindow(title: string): void {
   void ipc.setWindowTitle(`${title} - Abstract-Tex`).catch(() => {});
 }
 
+/** What this build has said it is fetching. A part that does not come is said again for each attempt. */
+const partsSaid = new Set<string>();
+
 function handleCompileEvent(event: CompileEvent): void {
   // A build of the project that was open before this one (R6.6): its PDF and its errors are not
   // this project's, whatever stage it has reached.
   if (event.generation <= newestBuildOfAProjectLeft) return;
   switch (event.status) {
     case 'started':
+      partsSaid.clear();
       app.compile = {
         phase: 'running',
         generation: event.generation,
@@ -3264,7 +3268,8 @@ function handleCompileEvent(event: CompileEvent): void {
       // Superseded builds keep streaming lines after a newer one has already started; a stale
       // line would flash "Downloading…" from a build nobody is waiting on any more.
       if (event.generation !== app.compile.generation) return;
-      app.compile = { ...app.compile, progress: event.message, partsFetched: app.compile.partsFetched + 1 };
+      partsSaid.add(event.message);
+      app.compile = { ...app.compile, progress: event.message, partsFetched: partsSaid.size };
       break;
     case 'finished': {
       if (event.generation < app.compile.generation) return; // superseded

@@ -189,10 +189,12 @@ pub fn progress_from_line(line: &str) -> Option<String> {
 }
 
 /// Whether a build failed because nothing has been fetched yet and there is no network to fetch it
-/// from. Tectonic has no exit code for that: it panics, before there is a log, and this sentence is
-/// in the panic. Only worth asking of a build that failed and has nothing else to say for itself.
+/// from. Tectonic has no exit code for that. With nothing at all it panics, before there is a log, and
+/// the first sentence is in the panic; with the connection lost part-way it says the second one of each
+/// part, and goes on without it for as long as it can. Only worth asking of a build that failed and has nothing else to say for itself.
 pub fn first_build_needs_the_internet(stderr: &str) -> bool {
     stderr.contains("this bundle isn't cached, and we couldn't get it from the internet")
+        || stderr.contains("please check your network connection")
 }
 
 /// Drain an engine's stderr a line at a time. A line that is progress (see [`progress_from_line`])
@@ -332,6 +334,11 @@ mod tests {
     fn needing_the_internet_once_is_recognised() {
         assert!(first_build_needs_the_internet(include_str!(
             "../tests/fixtures/offline-first-build.stderr"
+        )));
+        // The connection lost part-way: the list of parts is cached, and the parts are not (captured 25
+        // Nov 2026, the same way). No panic, and no log either.
+        assert!(first_build_needs_the_internet(include_str!(
+            "../tests/fixtures/connection-lost.stderr"
         )));
         assert!(!first_build_needs_the_internet("error: something else"));
         assert!(!first_build_needs_the_internet(""));

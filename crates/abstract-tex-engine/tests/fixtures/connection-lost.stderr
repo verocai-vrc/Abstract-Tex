@@ -1,0 +1,18 @@
+warning: failure fetching "tectonic-format-latex.tex" from network (1/3)
+caused by: error sending request for url (https://relay.fullyjustified.net/default_bundle_v33.tar)
+caused by: client error (Connect)
+caused by: dns error
+caused by: failed to lookup address information: Try again
+warning: failure fetching "tectonic-format-latex.tex" from network (2/3)
+caused by: error sending request for url (https://relay.fullyjustified.net/default_bundle_v33.tar)
+caused by: client error (Connect)
+caused by: dns error
+caused by: failed to lookup address information: Try again
+warning: failure fetching "tectonic-format-latex.tex" from network (3/3)
+caused by: error sending request for url (https://relay.fullyjustified.net/default_bundle_v33.tar)
+caused by: client error (Connect)
+caused by: dns error
+caused by: failed to lookup address information: Try again
+warning: open of input tectonic-format-latex.tex failed
+caused by: failed to download "tectonic-format-latex.tex"; please check your network connection.
+error: failed to open input file "tectonic-format-latex.tex"

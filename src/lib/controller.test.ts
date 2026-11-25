@@ -1300,8 +1300,14 @@ describe('compile progress (S2.2)', () => {
     compileHandler({ status: 'progress', generation: 1, message: 'Downloading a.sty' });
     compileHandler({ status: 'progress', generation: 1, message: 'Downloading b.sty' });
     expect(app.compile.partsFetched).toBe(2);
+    // Said again for each attempt at a part that does not come.
+    compileHandler({ status: 'progress', generation: 1, message: 'Downloading b.sty' });
+    compileHandler({ status: 'progress', generation: 1, message: 'Downloading b.sty' });
+    expect(app.compile.partsFetched).toBe(2);
     compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
     expect(app.compile.partsFetched).toBe(0);
+    compileHandler({ status: 'progress', generation: 2, message: 'Downloading b.sty' });
+    expect(app.compile.partsFetched).toBe(1);
   });
 
   it('says the internet is needed once, and shows no engine message (S17.14)', () => {
