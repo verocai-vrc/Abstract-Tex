@@ -1225,13 +1225,26 @@ pub async fn github_list_repositories(state: State<'_, AppState>) -> CommandResu
 ///
 /// No project needs to be open, and none is touched: the window decides to open the result.
 #[tauri::command]
-pub async fn git_clone(
+pub async fn git_clone<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     url: String,
     parent_dir: String,
     folder_name: Option<String>,
 ) -> CommandResult<String> {
     let destination = git::clone_destination(Path::new(&parent_dir), &url, folder_name.as_deref())?;
+    let about_to_be_made = destination.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // A folder with something in it is refused below, and keeps what it was allowed.
+        let holds_something =
+            std::fs::read_dir(&about_to_be_made).is_ok_and(|mut inside| inside.next().is_some());
+        if holds_something {
+            return Ok(());
+        }
+        crate::start::forget_permissions(&app, &about_to_be_made)
+    })
+    .await
+    .map_err(to_message)??;
     let token = saved_github_token(&state.github).await?;
     let cloned = git::clone_blocking(url.trim().to_string(), destination, token).await?;
     Ok(cloned.to_string_lossy().into_owned())
@@ -1734,6 +1747,47 @@ mod tests {
         assert!(
             consent.allows(&other) && settings.is_enabled_for(&other),
             "only that folder's"
+        );
+    }
+
+    // Found by the sprint's final review: what arrives from a Git address is the least known of all.
+    #[test]
+    fn a_clone_inherits_no_permission_and_one_that_is_refused_takes_none_away() {
+        let (config, parent) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        // A keychain that refuses, so that nothing is fetched: what is asked here happens before.
+        let state = AppState {
+            github: Arc::new(crate::github::GitHubSession::with_store(Box::new(
+                WorkerNotingStore {
+                    reads_on_an_async_worker: Arc::default(),
+                },
+            ))),
+            ..AppState::new()
+        };
+        let app = tauri::test::mock_builder()
+            .manage(state)
+            .manage(ShellEscapeConsent::at(config.path().join("shell-escape.toml")))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let consent = app.state::<ShellEscapeConsent>();
+        let (gone, kept) = (parent.path().join("gone"), parent.path().join("kept"));
+        std::fs::create_dir(&kept).unwrap();
+        std::fs::write(kept.join("main.tex"), "mine").unwrap();
+        for folder in [&gone, &kept] {
+            consent.allow(folder).unwrap();
+            let name = crate::recents::folder_name(folder);
+            let answer = tauri::async_runtime::block_on(git_clone(
+                app.handle().clone(),
+                app.state::<AppState>(),
+                "https://github.com/ada/thesis.git".into(),
+                parent.path().to_string_lossy().into_owned(),
+                Some(name),
+            ));
+            assert!(answer.is_err());
+        }
+        assert!(!consent.allows(&gone));
+        assert!(
+            consent.allows(&kept),
+            "a folder with something in it is not cloned into"
         );
     }
 
