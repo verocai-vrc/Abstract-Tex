@@ -223,7 +223,9 @@ pub async fn recent_moved(
             .moved(Path::new(&from), Path::new(&to))
             .map_err(to_message)?;
         // The document has just been opened where it is now, and is drawn again there.
-        pictures.forget(Path::new(&from));
+        if !recents::same_folder(&from, &to, recents::IGNORING_CASE) {
+            pictures.forget(Path::new(&from));
+        }
         Ok(())
     })
     .await
@@ -938,6 +940,10 @@ mod tests {
 
         tauri::async_runtime::block_on(forget_recent(app.state(), app.state(), "/b".into())).unwrap();
         assert_eq!((drawn(), files()), (vec!["/c".to_string(), "/a".into()], 2));
+        // Found where it was: its drive is back.
+        tauri::async_runtime::block_on(recent_moved(app.state(), app.state(), "/a".into(), "/a/".into()))
+            .unwrap();
+        assert_eq!(drawn(), ["/c", "/a"]);
         tauri::async_runtime::block_on(recent_moved(app.state(), app.state(), "/a".into(), "/e".into()))
             .unwrap();
         assert_eq!((drawn(), files()), (vec!["/c".to_string()], 1));
