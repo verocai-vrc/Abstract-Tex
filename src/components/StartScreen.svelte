@@ -24,6 +24,18 @@
     if (startScreen.visible && startScreen.page === 'home') untrack(() => void loadRecents());
   });
 
+  /** Most disks answer before this, and a sentence that flashes moves the page for nothing. */
+  const LOOKING_SHOWN_AFTER_MS = 300;
+  let isLookingLong = $state(false);
+  $effect(() => {
+    if (startScreen.looking === null) return;
+    const timer = setTimeout(() => (isLookingLong = true), LOOKING_SHOWN_AFTER_MS);
+    return () => {
+      clearTimeout(timer);
+      isLookingLong = false;
+    };
+  });
+
   // Put the focus where this page wants it: its heading, so that a screen reader says where one is, or
   // the first thing to press. Home's first thing is only known once *Carry on* has been decided.
   const isReady = $derived(
@@ -95,6 +107,9 @@
       </div>
       <div role="status">
         {#if startScreen.message?.kind === 'status'}<p class="message">{startScreen.message.text}</p>{/if}
+        {#if isLookingLong && startScreen.looking !== null}
+          <p class="message">{words.looking(startScreen.looking)}</p>
+        {/if}
       </div>
       <SavedPdfNotice />
     </div>
@@ -309,6 +324,14 @@
     .message {
       margin: 8px 16px 0;
       padding: 8px 12px;
+    }
+  }
+
+  /* The borders that are transparent elsewhere are all drawn when the system chooses the colours. */
+  @media (forced-colors: active) {
+    nav button[aria-current] {
+      border: 3px solid Highlight;
+      border-left-width: 8px;
     }
   }
 </style>

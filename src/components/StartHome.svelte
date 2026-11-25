@@ -164,9 +164,11 @@
             />
           {/if}
         </header>
-        {#if shown.length === 0}
-          <p>{words.noRecentMatches(startScreen.query)}</p>
-        {/if}
+        <div role="status">
+          {#if shown.length === 0}
+            <p>{words.noRecentMatches(startScreen.query)}</p>
+          {/if}
+        </div>
         <ul class="recents" role="list">
           {#each shown as recent (recent.folder)}
             <li>

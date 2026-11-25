@@ -66,10 +66,7 @@
 </ul>
 
 <div class="answer" bind:this={answer}>
-  <!-- Both regions are always here: one that appears together with its text is often not read out. -->
-  <div role="status">
-    {#if startScreen.looking !== null}<p class="said">{words.looking(startScreen.looking)}</p>{/if}
-  </div>
+  <!-- Always here: a region that appears together with its text is often not read out. -->
   <div role="alert">
     {#if sentence}<p class="said">{sentence}</p>{/if}
   </div>

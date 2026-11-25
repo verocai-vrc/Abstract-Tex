@@ -199,3 +199,33 @@ it('what is pressed and then gone hands the focus on', () => {
   expect(read('src/components/SavedPdfNotice.svelte'), '×').toContain('onclick={closeSavedPdf}');
   expect(read('src/components/FirstPdf.svelte'), 'Try again').toMatch(/closest<HTMLElement>\('\.pdf-column'\)\?\.focus\(\);\s*void triggerCompile\(\)/);
 });
+
+// ---- Said, shown, and not there (S17.18) --------------------------------------------------------
+
+it('a search that finds nothing says so to a screen reader', () => {
+  for (const [file, sentence] of [['StartHome', 'noRecentMatches'], ['StartNew', 'noTemplateMatches']]) {
+    const region = new RegExp(`<div role="status">\\s*\\{#if [^}]*\\}\\s*<p>\\{words\\.${sentence}`);
+    expect(read(`src/components/${file}.svelte`), file).toMatch(region);
+  }
+});
+
+// Find it… on Home looks at a disk too, and the disk may be slow.
+it('what is being looked at is said on whichever page it was asked on', () => {
+  expect(startScreenSource).toContain('words.looking(startScreen.looking)');
+  expect(read('src/components/StartOpen.svelte')).not.toContain('words.looking');
+});
+
+it('nothing of the document can be reached while the start screen is in front of it', () => {
+  const covered = 'inert={app.launching || startScreen.visible || app.opening !== null}';
+  expect(read('src/App.svelte')).toContain(covered);
+  // In the window and not in the shell, and not on a backdrop either.
+  expect(read('src/components/SessionCommitOffer.svelte')).toContain(covered);
+});
+
+// The system's own few colours (Windows): a tint, a shadow and a border's colour are all gone there.
+it('what is chosen can be seen when the system chooses the colours', () => {
+  const forced = '@media (forced-colors: active)';
+  expect(declarations(startScreenSource, 'nav button[aria-current]', forced)).toMatch(/border: 3px solid Highlight/);
+  const chosen = ".card.chosen,\n    .kind[aria-pressed='true']";
+  expect(declarations(read('src/components/StartNew.svelte'), chosen, forced)).toMatch(/border: 3px solid Highlight/);
+});

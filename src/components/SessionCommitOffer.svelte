@@ -1,10 +1,13 @@
 <script lang="ts">
   // The card offered when a live session ends and the shared file has uncommitted changes
   // (S15.2). One click commits that file and nothing else; the message is editable and pre-filled.
-  // Dismissing it changes nothing: the work stays an ordinary uncommitted change.
+  // Dismissing it changes nothing: the work stays an ordinary uncommitted change. `inert` when the shell is
+  // (App.svelte): the start screen is in front of it, and Enter in a field nobody can see would commit.
   import { acceptCommitOffer, dismissCommitOffer } from '../lib/controller.svelte';
+  import { app } from '../lib/state.svelte';
   import { live } from '../lib/live.svelte';
   import { handledByInputMethod } from '../lib/keys';
+  import { startScreen } from '../lib/start.svelte';
 
   const offer = $derived(live.commitOffer);
 
@@ -14,7 +17,12 @@
 </script>
 
 {#if offer}
-  <div class="offer" role="dialog" aria-label="Commit this session's changes">
+  <div
+    class="offer"
+    role="dialog"
+    aria-label="Commit this session's changes"
+    inert={app.launching || startScreen.visible || app.opening !== null}
+  >
     <p class="title">Commit this session's changes to {offer.path}?</p>
     <input
       type="text"

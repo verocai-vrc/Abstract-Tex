@@ -75,9 +75,12 @@
 
   {#if newProject.loadError}
     <p>{words.templatesCannotBeShown} {newProject.loadError}</p>
-  {:else if newProject.catalog !== null && shown.length === 0}
-    <p>{words.noTemplateMatches(newProject.query)}</p>
   {/if}
+  <div role="status">
+    {#if newProject.catalog !== null && shown.length === 0}
+      <p>{words.noTemplateMatches(newProject.query)}</p>
+    {/if}
+  </div>
   <ul class="cards" role="list">
     {#each shown as template (template.id)}
       <li>
@@ -224,5 +227,14 @@
     display: flex;
     gap: 12px;
     margin-top: 20px;
+  }
+
+  /* Shadows, and what colour a border has, are the system's there. A border and not an outline, which is the
+     sign of the focus. */
+  @media (forced-colors: active) {
+    .card.chosen,
+    .kind[aria-pressed='true'] {
+      border: 3px solid Highlight;
+    }
   }
 </style>
