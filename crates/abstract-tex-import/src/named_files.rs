@@ -9,8 +9,6 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use abstract_tex_includes::{scan_includes, Directive};
-
 use crate::staged::Staged;
 
 /// Why a copy was not made.
@@ -105,40 +103,44 @@ struct Wanted {
 /// What the graphics package looks for when a picture is named without its ending.
 const PICTURES: &[&str] = &["pdf", "eps", "ps", "png", "jpg", "jpeg", "mps", "bmp", "svg"];
 
-/// Every command that names a file: which of its arguments does, and the endings it may leave out. The
-/// include commands are `scan_includes`'s, except the ones it only recognises.
+/// Every command that names a file: which of its arguments does, and the endings it may leave out. Not
+/// `scan_includes`, which is for what a document is made of and takes code for one piece: here a file that
+/// may be used is one that travels.
 fn names_a_file(command: &str) -> Option<(usize, &'static [&'static str])> {
     Some(match command {
-        "InputIfFileExists" => (0, &["tex"]),
-        "includegraphics" | "includesvg" => (0, PICTURES),
+        "input" | "include" | "subfile" | "subfileinclude" | "InputIfFileExists" => (0, &["tex"]),
+        "includestandalone" => (0, &["tex", "pdf"]),
+        "includegraphics" | "includesvg" | OVERPIC => (0, PICTURES),
         "includepdf" => (0, &["pdf"]),
         "bibliography" | "addbibresource" | "addglobalbib" | "addsectionbib" => (0, &["bib"]),
         "bibliographystyle" => (0, &["bst"]),
         "documentclass" | "LoadClass" | "LoadClassWithOptions" => (0, &["cls"]),
         "usepackage" | "RequirePackage" | "RequirePackageWithOptions" => (0, &["sty"]),
+        "usetheme" | "usecolortheme" | "usefonttheme" | "useinnertheme" | "useoutertheme" => (0, &["sty"]),
         "lstinputlisting" | "verbatiminput" | "VerbatimInput" => (0, &["tex"]),
         "inputminted" | "import" | "subimport" => (1, &["tex"]),
         _ => return None,
     })
 }
 
+/// The one environment that names a file. It is taken for a command of this name.
+const OVERPIC: &str = "overpic";
+
+/// What beamer puts in front of a theme's name to have its file's.
+fn theme_prefix(command: &str) -> &'static str {
+    match command {
+        "usetheme" => "beamertheme",
+        "usecolortheme" => "beamercolortheme",
+        "usefonttheme" => "beamerfonttheme",
+        "useinnertheme" => "beamerinnertheme",
+        "useoutertheme" => "beameroutertheme",
+        _ => "",
+    }
+}
+
 /// Every name a text has, whether or not there is such a file.
 fn names_in(text: &str) -> Vec<Wanted> {
     let mut wanted = Vec::new();
-    for directive in scan_includes(text) {
-        let name = match directive {
-            Directive::Include { argument, .. } => argument,
-            // `\input intro`, without braces. Of the rest nothing is the name of a file.
-            Directive::Unparsed { raw, .. } => match raw.split_once(' ') {
-                Some((_, word)) => word.to_string(),
-                None => continue,
-            },
-        };
-        wanted.push(Wanted {
-            name,
-            endings: &["tex"],
-        });
-    }
     for (command, arguments) in commands_in(&without_comments(text)) {
         let Some((which, endings)) = names_a_file(command) else {
             continue;
@@ -151,9 +153,13 @@ fn names_in(text: &str) -> Vec<Wanted> {
             "import" | "subimport" => arguments[0].trim(),
             _ => "",
         };
-        for name in argument.split(',') {
+        // A list of names, or one with a comma in it.
+        let names = argument
+            .split(',')
+            .chain(argument.contains(',').then_some(*argument));
+        for name in names {
             let name = name.replace(['"', '{', '}'], "");
-            let path = Path::new(folder).join(name.trim());
+            let path = Path::new(folder).join(format!("{}{}", theme_prefix(command), name.trim()));
             wanted.push(Wanted {
                 name: path.to_string_lossy().into_owned(),
                 endings,
@@ -233,34 +239,67 @@ fn commands_in(text: &str) -> Vec<(&str, Vec<&str>)> {
             continue;
         }
         rest = &rest[command.len()..];
-        if names_a_file(command).is_none() {
-            continue;
-        }
-        rest = rest.strip_prefix('*').unwrap_or(rest);
-        let mut arguments = Vec::new();
-        while let Some(close) = closing(rest.trim_start()) {
-            let open = rest.trim_start();
-            if open.starts_with('{') {
-                arguments.push(&open[1..close]);
+        let command = match rest.strip_prefix("{overpic}") {
+            Some(behind) if command == "begin" => {
+                rest = behind;
+                OVERPIC
             }
-            rest = &open[close + 1..];
+            _ => command,
+        };
+        let Some((which, _)) = names_a_file(command) else {
+            continue;
+        };
+        rest = rest.strip_prefix('*').unwrap_or(rest);
+        // `<2->` in beamer: on which slides.
+        if let Some(end) = closing(rest, '<', '>') {
+            rest = &rest[end + 1..];
+        }
+        let mut arguments = Vec::new();
+        // Only up to the one that is the name: what follows it is looked through like the rest.
+        while arguments.len() <= which {
+            let open = rest.trim_start();
+            if let Some(end) = closing(open, '{', '}') {
+                arguments.push(&open[1..end]);
+                rest = &open[end + 1..];
+            } else if let Some(end) = closing(open, '[', ']') {
+                rest = &open[end + 1..];
+            } else {
+                break;
+            }
+        }
+        if command == "input" && arguments.is_empty() {
+            arguments.extend(name_without_braces(rest.trim_start()));
         }
         found.push((command, arguments));
     }
     found
 }
 
+/// The name in `\input intro` or `\input "my intro"`.
+fn name_without_braces(text: &str) -> Option<&str> {
+    let quoted = text.strip_prefix('"');
+    let text = quoted.unwrap_or(text);
+    let ends_it = |character: char| match quoted {
+        Some(_) => character == '"',
+        None => character.is_whitespace() || matches!(character, '\\' | '{' | '}'),
+    };
+    let mut characters = text.char_indices().take(LONGEST_ARGUMENT);
+    match characters.find(|(_, character)| ends_it(*character)) {
+        Some((end, _)) => Some(&text[..end]),
+        // It goes to the end of the text; or on and on, and is no name.
+        None => (text.len() < LONGEST_ARGUMENT).then_some(text),
+    }
+}
+
 /// How far an argument may go. One that is never closed is not looked for to the end of the file: a file
 /// with thousands of them would never be done with.
 const LONGEST_ARGUMENT: usize = 2_000;
 
-/// Where the bracket that opens `text` closes, if one does.
-fn closing(text: &str) -> Option<usize> {
-    let (open, close) = match text.chars().next()? {
-        '{' => ('{', '}'),
-        '[' => ('[', ']'),
-        _ => return None,
-    };
+/// Where the bracket that opens `text` closes, if `text` starts with one and it is closed.
+fn closing(text: &str, open: char, close: char) -> Option<usize> {
+    if !text.starts_with(open) {
+        return None;
+    }
     let mut depth = 0;
     for (at, character) in text.char_indices().take(LONGEST_ARGUMENT) {
         if character == open {
@@ -367,6 +406,23 @@ mod tests {
             ("\\verbatiminput{a.txt}", "a.txt"),
             ("\\VerbatimInput{a.txt}", "a.txt"),
             ("\\inputminted{python}{a.py}", "a.py"),
+            ("\\includegraphics<1>{a}", "a.png"),
+            ("\\includegraphics<2->[width=3cm]{a}", "a.png"),
+            ("\\input{\"my chapter\"}", "my chapter.tex"),
+            ("\\input \"my chapter\"", "my chapter.tex"),
+            ("\\include{a,b}", "a,b.tex"),
+            ("{\\input a}", "a.tex"),
+            ("\\input a\\relax", "a.tex"),
+            ("\\input\n  a", "a.tex"),
+            ("\\subfileinclude{a}", "a.tex"),
+            ("\\includestandalone[width=1cm]{a}", "a.tex"),
+            ("\\includestandalone{a}", "a.pdf"),
+            ("\\begin{overpic}[width=1cm]{a}", "a.png"),
+            ("\\usetheme[progress]{Mine}", "beamerthemeMine.sty"),
+            ("\\usecolortheme{Mine}", "beamercolorthemeMine.sty"),
+            ("\\usefonttheme{Mine}", "beamerfontthemeMine.sty"),
+            ("\\useinnertheme{Mine}", "beamerinnerthemeMine.sty"),
+            ("\\useoutertheme{Mine}", "beamerouterthemeMine.sty"),
             ("\\inputminted[linenos]{python}{a.py}", "a.py"),
         ] {
             let found = named(&[
@@ -376,6 +432,21 @@ mod tests {
                 ("other.tex", ""),
             ]);
             assert_eq!(found, [name], "{text}");
+        }
+    }
+
+    #[test]
+    fn what_follows_a_files_name_is_looked_through_too() {
+        for text in [
+            "\\includegraphics[width=2cm]{a}\n\n{\\Large University \\includegraphics{b}}",
+            "\\bibliography{x}\n{\\small \\includegraphics{a}\\includegraphics{b}}",
+            "\\InputIfFileExists{x}{\\includegraphics{a}}{\\includegraphics{b}}",
+            "\\InputIfFileExists{x}{\\input{a.pdf}}{\\input{b.pdf}}",
+            "\\includegraphics{a}[\\includegraphics{b}]",
+            "\\begin{figure}[h]\n{\\includegraphics{a}}\\input b.pdf",
+        ] {
+            let found = named(&[("paper.tex", text), ("a.pdf", ""), ("b.pdf", "")]);
+            assert_eq!(found, ["a.pdf", "b.pdf"], "{text}");
         }
     }
 
@@ -521,6 +592,12 @@ mod tests {
             "\\includegraphics[",
             "\\input{x}",
             "\\input{",
+            "\\input ",
+            "\\input \"",
+            "\\includegraphics<",
+            "\\InputIfFileExists{",
+            "\\import{",
+            "\\begin{overpic}[",
         ] {
             let text = text.repeat(20_000) + "\\includegraphics{a}";
             let others: Vec<String> = (0..500).map(|number| format!("{number}.txt")).collect();
