@@ -18,6 +18,7 @@ export function goToPage(page: StartPage, focus: 'heading' | 'first'): void {
   startScreen.page = page;
   startScreen.message = null;
   startScreen.choice = null;
+  startScreen.query = '';
   stopLooking();
   if (page === 'new' && !newProject.creating) startNewAfresh();
   moveFocus(focus);
@@ -84,7 +85,9 @@ export async function loadRecents(): Promise<void> {
   const recents = await ipc.recentDocuments().catch(() => []);
   if (epoch !== loadEpoch) return;
   startScreen.recents = recents;
-  startScreen.presence = new Map();
+  // What was known of a folder stands until it has answered: a row must not be a button for a moment.
+  const isListed = new Set(recents.map((recent) => recent.folder));
+  startScreen.presence = new Map([...startScreen.presence].filter(([folder]) => isListed.has(folder)));
   const checks = recents.map(async ({ folder }) => {
     const isHere = await ipc.recentIsHere(folder).catch(() => false);
     if (epoch !== loadEpoch) return;

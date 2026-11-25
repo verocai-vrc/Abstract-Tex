@@ -116,6 +116,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
+it('a search left behind on Home is not there on the next visit', () => {
+  startScreen.query = 'zebra';
+  goToPage('home', 'heading');
+  expect(startScreen.query).toBe('');
+});
+
 describe('loading the recent documents', () => {
   it('decides Carry on after 150 ms at most, and never changes it', async () => {
     let answerA!: (here: boolean) => void;
@@ -129,6 +135,20 @@ describe('loading the recent documents', () => {
     answerA(false);
     await vi.advanceTimersByTimeAsync(0);
     expect([startScreen.carryOn, startScreen.presence.get('/a')]).toEqual(['/a', 'missing']);
+  });
+
+  it('what was known of a folder stands until it is known anew, and goes with its row', async () => {
+    startScreen.presence = new Map([['/a', 'missing'], ['/gone', 'missing']]);
+    let answerA!: (here: boolean) => void;
+    answers.recentIsHere = (folder: string) => (folder === '/a' ? new Promise((r) => (answerA = r)) : true);
+    const loading = loadRecents();
+    await vi.advanceTimersByTimeAsync(150);
+    await loading;
+    expect([...startScreen.presence].sort()).toEqual([['/a', 'missing'], ['/b', 'here']]);
+    expect(startScreen.carryOn).toBe('/b');
+    answerA(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(startScreen.presence.get('/a')).toBe('here');
   });
 
   it('decides at once when every check has answered, skipping a missing one', async () => {

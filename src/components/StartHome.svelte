@@ -21,7 +21,9 @@
   const recents = $derived(startScreen.recents ?? []);
   const sections = $derived(homeSections(recents.length, app.project !== null));
   const carryOn = $derived(recents.find((recent) => recent.folder === startScreen.carryOn) ?? null);
-  const shown = $derived(searchRecents(recents, startScreen.query));
+  const hasSearch = $derived(recents.length >= SEARCH_FROM);
+  // Nothing may be left out by a search that has no box any more.
+  const shown = $derived(hasSearch ? searchRecents(recents, startScreen.query) : recents);
   const templates = $derived(homeTemplates(newProject.catalog ?? []));
   const isBusy = $derived(app.opening !== null);
 
@@ -123,7 +125,7 @@
       <section>
         <header>
           <h2 bind:this={recentsHeading} tabindex="-1">{words.recentDocuments}</h2>
-          {#if recents.length >= SEARCH_FROM}
+          {#if hasSearch}
             <input
               type="search"
               placeholder={words.search}
