@@ -34,6 +34,12 @@ Written for someone who has only used Word. Nothing in the files or the engine c
 - *New…*, *Open folder…* and *Clone…* are gone from the toolbar. The first two are pages of the start screen,
   with the shortcuts they had; *Clone…* is now a button on its Open page.
 - A new document starts with no permission that was given to another folder at the same address.
+- Text pasted from Word, LibreOffice or Google Docs keeps its paragraphs, and a `%` in it no longer takes the
+  rest of the paragraph out of the PDF. `Ctrl+Z` gives it back as it was copied.
+- The thesis template no longer loses typed curly quotes and dashes from the PDF.
+- A folder inside a document that is made to look like a Git repository is never taken for one.
+- *Cancel* while cloning: what arrives is not opened over what you are writing.
+- A build does not write back a file that something else deleted while it had no unsaved changes.
 
 Tried on Linux; not yet on Windows or macOS.
 
