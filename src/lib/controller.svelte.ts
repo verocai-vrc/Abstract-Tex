@@ -2509,7 +2509,7 @@ let buildAskedLast: Promise<number | null> = Promise.resolve(null);
 let changedSinceBuild = false;
 
 /** For where text was saved on the way to another document, and this one stays open after all. */
-export function buildWhatChanged(): void {
+function buildWhatChanged(): void {
   if (changedSinceBuild) void triggerCompile();
 }
 
