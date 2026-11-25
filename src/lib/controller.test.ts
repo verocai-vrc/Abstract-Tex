@@ -5641,6 +5641,21 @@ describe('opening a folder leaves the window alive, and can be stopped (S17.2)',
     });
   });
 
+  it('a file of the same name still being read in the one before does not keep it without a tab', async () => {
+    await closeTab('main.tex');
+    const read = deferred<void>();
+    readGate = { path: 'main.tex', until: read.promise };
+    void openFile('main.tex');
+    await vi.advanceTimersByTimeAsync(0);
+    readGate = null;
+    await openFolder('/other/essay');
+    expect(app.activePath).toBe('main.tex');
+    const doc = app.activeDoc;
+    read.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect([app.openTabs, app.activeDoc === doc]).toEqual([['main.tex'], true]);
+  });
+
   it('the document that was opened saves its own edits', async () => {
     const { slow, opening } = await startOpening();
     slow.resolve({ ...project, rootDir: '/other/essay' });

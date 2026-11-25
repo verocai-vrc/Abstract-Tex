@@ -2404,7 +2404,8 @@ export async function openFile(relativePath: string): Promise<void> {
   try {
     await reading;
   } finally {
-    opensInFlight.delete(relativePath);
+    // Another document may be reading one of the same name by now.
+    if (opensInFlight.get(relativePath) === reading) opensInFlight.delete(relativePath);
   }
 }
 
@@ -2518,6 +2519,7 @@ export async function resolveMergeConflict(path: string, finalText: string): Pro
 function closeAllDocuments() {
   for (const path of manager.tabs()) leaveLiveSession(path);
   manager.closeAll();
+  opensInFlight.clear(); // their texts will not be used
   syncTabs();
   app.activePath = null;
   // A bar asking about a tab that no longer exists would be a question with no answer.
