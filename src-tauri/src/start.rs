@@ -706,9 +706,10 @@ fn copy_to_place<R: Runtime>(app: &AppHandle<R>, file: &Path, opening: &Opening)
             error.kind()
         )
     };
-    let staged = copy_document(file, &place).map_err(|error| match error {
+    let staged = copy_document(file, &place, &|| opening.is_stopped()).map_err(|error| match error {
         CopyError::Read { name, source } => format!("{name} could not be read ({}).", source.kind()),
         CopyError::Write(error) => unwritten(error),
+        CopyError::Stopped => OPENING_STOPPED.to_string(),
     })?;
     if !opening.adopt() {
         return Err(OPENING_STOPPED.to_string());

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io;
+use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
 
 use crate::staged::Staged;
@@ -18,6 +18,8 @@ pub enum CopyError {
     Read { name: String, source: io::Error },
     #[error("the copy could not be written")]
     Write(#[source] io::Error),
+    #[error("it was stopped")]
+    Stopped,
 }
 
 /// The files `file` names that are beside it, and those that they name. `file` itself is not one.
@@ -314,11 +316,13 @@ fn closing(text: &str, open: char, close: char) -> Option<usize> {
     None
 }
 
-/// Copy `file` and the files it names into a staging folder in `beside`.
-pub fn copy_document(file: &Path, beside: &Path) -> Result<Staged, CopyError> {
+/// Copy `file` and the files it names into a staging folder in `beside`. `stopped` is asked now and then,
+/// and ends it.
+pub fn copy_document(file: &Path, beside: &Path, stopped: &dyn Fn() -> bool) -> Result<Staged, CopyError> {
     let staged = Staged::begin(beside).map_err(CopyError::Write)?;
     let mut files = files_named_by(file);
     files.insert(0, file.to_path_buf());
+    let mut buffer = vec![0; 64 * 1024];
     for original in files {
         let name = original.file_name().unwrap_or_default();
         let unread = |source| CopyError::Read {
@@ -329,7 +333,17 @@ pub fn copy_document(file: &Path, beside: &Path) -> Result<Staged, CopyError> {
         // a document that cannot be written.
         let mut from = fs::File::open(&original).map_err(unread)?;
         let mut to = fs::File::create_new(staged.document().join(name)).map_err(CopyError::Write)?;
-        io::copy(&mut from, &mut to).map_err(CopyError::Write)?;
+        // Nor `io::copy`, which cannot be stopped: a file can be gigabytes.
+        loop {
+            if stopped() {
+                return Err(CopyError::Stopped);
+            }
+            let read = from.read(&mut buffer).map_err(unread)?;
+            if read == 0 {
+                break;
+            }
+            to.write_all(&buffer[..read]).map_err(CopyError::Write)?;
+        }
     }
     Ok(staged)
 }
@@ -646,10 +660,14 @@ mod tests {
         let before = contents(place.path());
         let beside = tempfile::tempdir().unwrap();
         let destination = beside.path().join("new/paper");
-        copy_document(&place.path().join("paper.tex"), destination.parent().unwrap())
-            .unwrap()
-            .place(&destination)
-            .unwrap();
+        copy_document(
+            &place.path().join("paper.tex"),
+            destination.parent().unwrap(),
+            &|| false,
+        )
+        .unwrap()
+        .place(&destination)
+        .unwrap();
         assert_eq!(contents(place.path()), before);
         let copied: Vec<_> = before
             .into_iter()
@@ -666,7 +684,7 @@ mod tests {
         let paper = place.path().join("paper.tex");
         fs::set_permissions(&paper, fs::Permissions::from_mode(0o555)).unwrap();
         let destination = place.path().join("new");
-        copy_document(&paper, place.path())
+        copy_document(&paper, place.path(), &|| false)
             .unwrap()
             .place(&destination)
             .unwrap();
@@ -678,17 +696,34 @@ mod tests {
     }
 
     #[test]
+    fn a_stopped_copy_leaves_nothing_behind() {
+        let big = "x".repeat(300_000);
+        let place = folder(&[("paper.tex", "\\input{a.txt}"), ("a.txt", &big)]);
+        let beside = tempfile::tempdir().unwrap();
+        // Stopped at the first question, at the second, ...: before anything, between files, in a file.
+        for questions in 0..5 {
+            let asked = std::cell::Cell::new(0);
+            let answer = copy_document(&place.path().join("paper.tex"), beside.path(), &|| {
+                asked.set(asked.get() + 1);
+                asked.get() > questions
+            });
+            assert!(matches!(answer, Err(CopyError::Stopped)), "{questions}");
+            assert_eq!(fs::read_dir(beside.path()).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
     fn a_copy_that_fails_leaves_nothing_behind() {
         let place = folder(&[("a file", "")]);
         let beside = tempfile::tempdir().unwrap();
-        let answer = copy_document(&place.path().join("gone.tex"), beside.path());
+        let answer = copy_document(&place.path().join("gone.tex"), beside.path(), &|| false);
         assert!(matches!(answer, Err(CopyError::Read { name, .. }) if name == "gone.tex"));
         assert_eq!(fs::read_dir(beside.path()).unwrap().count(), 0);
 
         let paper = place.path().join("a file");
         let nowhere = place.path().join("a file/inside");
         assert!(matches!(
-            copy_document(&paper, &nowhere),
+            copy_document(&paper, &nowhere, &|| false),
             Err(CopyError::Write(_))
         ));
     }
