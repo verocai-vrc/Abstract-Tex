@@ -47,6 +47,7 @@ pub enum UnpackError {
     TooBig,
     #[error("{0:?} cannot be unpacked safely")]
     UnsafeName(String),
+    /// Without names when they are the very same.
     #[error("{0:?} and {1:?} would be one file")]
     SameName(String, String),
     #[error("there is no .tex file in it")]
@@ -113,6 +114,26 @@ fn said(name: &str) -> String {
         short.push('…');
     }
     short
+}
+
+/// What the bytes from 128 up are in CP850, in which Western Windows writes the names in a zip.
+const CP850: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜø£Ø×ƒáíóúñÑªº¿®¬½¼¡«»░▒▓│┤ÁÂÀ©╣║╗╝¢¥┐\
+                     └┴┬├─┼ãÃ╚╔╩╦╠═╬¤ðÐÊËÈıÍÎÏ┘┌█▄¦Ì▀ÓßÔÒõÕµþÞÚÛÙýÝ¯´\u{ad}±‗¾¶§÷¸°¨·¹³²■\u{a0}";
+
+/// An entry's name. One that is not UTF-8 is from an old program, and the zip rules say CP437, which has
+/// Greek where CP850 has `ã`, `õ` and the capitals with accents. Both have the rest of them alike.
+fn name_of(raw: &[u8]) -> String {
+    if let Ok(name) = std::str::from_utf8(raw) {
+        return name.to_string();
+    }
+    let letter = |byte: &u8| match byte.checked_sub(128) {
+        None => char::from(*byte),
+        Some(index) => CP850
+            .chars()
+            .nth(index.into())
+            .unwrap_or(char::REPLACEMENT_CHARACTER),
+    };
+    raw.iter().map(letter).collect()
 }
 
 /// Whether Windows makes a file of exactly this name. It forbids some characters, drops a dot or a space
@@ -242,22 +263,30 @@ pub fn unpack(
     }
     let mut staged = Staged::begin(beside)?;
     let mut room = limits.bytes;
+    // What the disk does not take, when that is the fault of the name and not of the disk.
+    let refused = |error: io::Error, path: &Path| match error.kind() {
+        io::ErrorKind::InvalidFilename => UnpackError::UnsafeName(said(&shown(path))),
+        _ => UnpackError::Io(error),
+    };
     for Wanted {
         index,
         path,
         is_folder,
     } in wanted
     {
-        let target = staged.document().join(path);
+        let target = staged.document().join(&path);
         if is_folder {
-            fs::create_dir_all(target)?;
+            fs::create_dir_all(target).map_err(|error| refused(error, &path))?;
             continue;
         }
         if let Some(folder) = target.parent() {
-            fs::create_dir_all(folder)?;
+            fs::create_dir_all(folder).map_err(|error| refused(error, &path))?;
         }
         let packed = archive.by_index(index).map_err(unreadable)?;
-        write(packed, &target, &mut room, stopped)?;
+        write(packed, &target, &mut room, stopped).map_err(|error| match error {
+            UnpackError::Io(error) => refused(error, &path),
+            other => other,
+        })?;
     }
     staged.remove_wrapping_folder()?;
     Ok(staged)
@@ -268,18 +297,23 @@ fn judge(archive: &ZipArchive<impl Read + io::Seek>, limits: &Limits) -> Result<
     let mut paths = Paths::default();
     let mut wanted = Vec::new();
     let mut has_tex = false;
+    // `zip` has kept the last of them only, and does not say which it was.
+    if archive.has_duplicate_names() {
+        return Err(UnpackError::SameName(String::new(), String::new()));
+    }
     for index in 0..archive.len() {
         let entry = archive.by_index_data(index).map_err(unreadable)?;
-        let name = entry.name().map_err(unreadable)?;
+        let name = name_of(entry.name_raw());
         let Some(path) = safe_path(&name, Platform::HERE) else {
             return Err(UnpackError::UnsafeName(said(&name)));
         };
-        let is_folder = entry.is_dir();
+        // A link would be a way out of the folder; a pipe or a device has no business in a document.
+        let kind = entry.unix_mode().unwrap_or(0) & 0o170_000;
+        // A folder's name ends in `/`, except where a packer thinks its kind is enough.
+        let is_folder = entry.is_dir() || kind == 0o040_000;
         if stays_out(&path) || (is_folder && path.as_os_str().is_empty()) {
             continue;
         }
-        // A link would be a way out of the folder; a pipe or a device has no business in a document.
-        let kind = entry.unix_mode().unwrap_or(0) & 0o170_000;
         if path.as_os_str().is_empty() || !matches!(kind, 0 | 0o040_000 | 0o100_000) {
             return Err(UnpackError::UnsafeName(said(&name)));
         }
@@ -864,6 +898,68 @@ mod tests {
             }
         }
         assert_eq!(files_of(&bytes), ["três.tex"]);
+    }
+
+    #[test]
+    fn every_byte_of_an_old_name_is_a_letter() {
+        assert_eq!(CP850.chars().count(), 128);
+        assert_eq!(name_of(&[b'a', 0x80, 0xc6, 0xff]), "aÇã\u{a0}");
+    }
+
+    #[test]
+    fn a_portuguese_name_from_windows_keeps_its_tildes() {
+        // CP850, as Western Windows writes it: not the CP437 of the first PC, which has box pieces here.
+        let mut bytes = archive(&[("introduc1o S2o J3o.tex", TEX)]);
+        let name = b"introduc1o S2o J3o.tex";
+        for at in 0..bytes.len() - name.len() {
+            if &bytes[at..at + name.len()] == name {
+                bytes[at + 7..at + 9].copy_from_slice(&[0x87, 0xc6]);
+                bytes[at + 12] = 0xc7;
+                bytes[at + 16] = 0xe4;
+            }
+        }
+        assert_eq!(files_of(&bytes), ["introduç\u{e3}o SÃo Jõo.tex"]);
+    }
+
+    #[test]
+    fn the_same_name_twice_is_refused() {
+        // Two names that differ, made the same in both of the headers each has.
+        let mut bytes = archive(&[("main.tex", "one"), ("maim.tex", "two")]);
+        for at in 0..bytes.len() - 8 {
+            if &bytes[at..at + 8] == b"maim.tex" {
+                bytes[at + 3] = b'n';
+            }
+        }
+        assert!(matches!(refused(&bytes), UnpackError::SameName(..)));
+    }
+
+    #[test]
+    fn a_folder_is_one_by_its_kind_too() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, text) in [("figures", ""), ("figures/a.png", "x"), ("main.tex", TEX)] {
+            writer.start_file(name, SimpleFileOptions::default()).unwrap();
+            writer.write_all(text.as_bytes()).unwrap();
+        }
+        let mut bytes = writer.finish().unwrap().into_inner();
+        // The first of the headers in the list at the end: a folder, to Unix.
+        let at = bytes.windows(4).position(|four| four == b"PK\x01\x02").unwrap();
+        bytes[at + 40..at + 42].copy_from_slice(&0o040_755u16.to_le_bytes());
+        assert_eq!(files_of(&bytes), ["figures/a.png", "main.tex"]);
+    }
+
+    // On Windows a part may have 255 letters however many bytes they take; that is a test for Unix.
+    #[cfg(unix)]
+    #[test]
+    fn a_name_too_long_for_the_disk_is_said() {
+        let long = "é".repeat(150) + ".tex";
+        let UnpackError::UnsafeName(said) = refused(&archive(&[(&long, TEX)])) else {
+            panic!("not refused for its name");
+        };
+        assert!(said.starts_with("éé"));
+        let folder = archive(&[("main.tex", TEX), (&("é".repeat(150) + "/"), "")]);
+        assert!(matches!(refused(&folder), UnpackError::UnsafeName(_)));
+        let inside = archive(&[("main.tex", TEX), (&("é".repeat(150) + "/x"), "")]);
+        assert!(matches!(refused(&inside), UnpackError::UnsafeName(_)));
     }
 
     #[cfg(unix)]
