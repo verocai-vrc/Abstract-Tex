@@ -115,7 +115,7 @@ fn build_log(state: &AppState) -> Result<(String, PathBuf), String> {
         let project = state.project.lock().unwrap();
         project
             .as_ref()
-            .ok_or_else(|| "No project is open.".to_string())?
+            .ok_or_else(|| "No document is open.".to_string())?
             .build_dir()
     };
     let log = std::fs::read(build_dir.join(format!("{stem}.log")))

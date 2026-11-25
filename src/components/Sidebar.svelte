@@ -54,7 +54,7 @@
           use:focusOnCreate
           bind:value={draftName}
           placeholder="sections/new.tex"
-          aria-label="New file name, relative to the project"
+          aria-label="Name of the new file, inside the document’s folder"
           spellcheck="false"
           onkeydown={onNameKeydown}
           onblur={() => (naming = false)}

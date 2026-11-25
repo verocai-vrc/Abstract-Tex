@@ -86,7 +86,7 @@ impl ProjectWatcher {
 /// one budget for the whole user, shared with every editor and sync client they run.
 pub fn incomplete_notice() -> String {
     format!(
-        "This project has more folders than your system lets programs watch, so changes that other programs make to files in some subfolders may not show up here until you reopen the project.{}",
+        "This document has more folders than your system lets programs watch, so changes that other programs make to files in some subfolders may not show up here until you reopen the document.{}",
         raising_the_limit()
     )
 }
@@ -96,7 +96,7 @@ pub fn incomplete_notice() -> String {
 /// the outer message alone ("could not watch <folder>") says nothing about why.
 pub fn unavailable_notice(error: &anyhow::Error) -> String {
     format!(
-        "Changes that other programs make to files in this project will not show up here until you reopen it: the folder could not be watched ({error:#}).{}",
+        "Changes that other programs make to files of this document will not show up here until you reopen it: the folder could not be watched ({error:#}).{}",
         raising_the_limit()
     )
 }

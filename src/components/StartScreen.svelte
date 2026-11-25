@@ -11,6 +11,7 @@
   import { savePdf } from '../lib/controller.svelte';
   import SavedPdfNotice from './SavedPdfNotice.svelte';
   import StartLook from './StartLook.svelte';
+  import StartHelp from './StartHelp.svelte';
   import StartHome from './StartHome.svelte';
   import StartNew from './StartNew.svelte';
   import StartOpen from './StartOpen.svelte';
@@ -77,6 +78,11 @@
             {words.pages.look}
           </button>
         </li>
+        <li>
+          <button aria-current={startScreen.page === 'help' ? 'page' : undefined} onclick={() => goToPage('help', 'heading')}>
+            {words.pages.help}
+          </button>
+        </li>
       </ul>
     </nav>
 
@@ -95,6 +101,8 @@
         <StartNew />
       {:else if startScreen.page === 'look'}
         <StartLook />
+      {:else if startScreen.page === 'help'}
+        <StartHelp />
       {:else}
         <StartHome />
       {/if}

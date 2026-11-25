@@ -43,7 +43,7 @@ pub fn to_message(error: impl Display) -> String {
 /// Run a closure with the open project, or fail with a clear message if none is open.
 fn with_project<T>(state: &AppState, f: impl FnOnce(&mut Project) -> anyhow::Result<T>) -> CommandResult<T> {
     let mut guard = state.project.lock().unwrap();
-    let project = guard.as_mut().ok_or_else(|| "No project is open.".to_string())?;
+    let project = guard.as_mut().ok_or_else(|| "No document is open.".to_string())?;
     f(project).map_err(to_message)
 }
 
@@ -400,7 +400,7 @@ pub async fn snapshot_read(state: State<'_, AppState>, id: String, path: String)
         .await
         .map_err(to_message)?
         .map_err(to_message)?
-        .ok_or_else(|| format!("That version of the project has no {shown}."))?;
+        .ok_or_else(|| format!("That version of the document has no {shown}."))?;
     String::from_utf8(bytes).map_err(|_| format!("{shown} is not a text file."))
 }
 
@@ -882,7 +882,7 @@ pub async fn lsp_start(app: AppHandle, state: State<'_, AppState>) -> CommandRes
     // `commands`'s doc comment, and the reason this is not one `with_project` call.
     let (root_dir, build_dir) = {
         let guard = state.project.lock().unwrap();
-        let project = guard.as_ref().ok_or_else(|| "No project is open.".to_string())?;
+        let project = guard.as_ref().ok_or_else(|| "No document is open.".to_string())?;
         (project.root_dir.clone(), project.build_dir())
     };
 
@@ -1361,7 +1361,7 @@ pub async fn compare_revisions(
     let request = with_project(&state, |project| {
         let root_file = project
             .root_file()
-            .ok_or_else(|| anyhow::anyhow!("This project has no root .tex file to compare."))?;
+            .ok_or_else(|| anyhow::anyhow!("This document has no main .tex file to compare."))?;
         Ok(ComparisonRequest {
             project_dir: project.root_dir.clone(),
             root_file,
@@ -1394,7 +1394,7 @@ pub fn read_comparison_log(state: State<'_, AppState>) -> CommandResult<String> 
     with_project(&state, |project| {
         let root_file = project
             .root_file()
-            .ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
+            .ok_or_else(|| anyhow::anyhow!("This document has no main .tex file."))?;
         Ok(latexdiff::read_comparison_log(
             &project.latexdiff_dir(),
             &root_file,
@@ -1416,7 +1416,7 @@ pub fn save_comparison_pdf(
     let (latexdiff_dir, root_file) = with_project(&state, |project| {
         let root_file = project
             .root_file()
-            .ok_or_else(|| anyhow::anyhow!("This project has no root .tex file."))?;
+            .ok_or_else(|| anyhow::anyhow!("This document has no main .tex file."))?;
         Ok((project.latexdiff_dir(), root_file))
     })?;
     let dirs = latexdiff::ComparisonDirs::new(

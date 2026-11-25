@@ -343,7 +343,7 @@ pub fn assistant_set_enabled(
     settings: State<'_, AssistantSettings>,
     enabled: bool,
 ) -> CommandResult<()> {
-    let project_dir = open_project_dir(&state).ok_or_else(|| "No project is open.".to_string())?;
+    let project_dir = open_project_dir(&state).ok_or_else(|| "No document is open.".to_string())?;
     set_enabled(&settings, &project_dir, enabled)
 }
 

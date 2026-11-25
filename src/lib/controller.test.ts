@@ -3650,7 +3650,7 @@ describe('cloning a repository (S11.5b)', () => {
   });
 
   it('is in the palette', () => {
-    expect(allCommands().some((c) => c.id === 'clone-repository' && c.title === 'Clone a repository…')).toBe(true);
+    expect(allCommands().some((c) => c.id === 'clone-repository' && c.title === 'Get a document from GitHub or a Git address…')).toBe(true);
   });
 });
 

@@ -63,3 +63,65 @@ it('never says project, repository or compile', () => {
   expect(sentences.length).toBeGreaterThan(20);
   expect(sentences.join('\n')).not.toMatch(/\b(project|repositor|compil)/i);
 });
+
+// ---- One word for it, in the editor too (S17.16) -------------------------------------------------
+// It is a *document*, wherever this window says what is open. Kept on purpose, as things that have names:
+// Build, Diagnostics, Source Control, Snapshots, and Git's own "repository" where the subject is Git
+// (`CloneWindow`, `SourceControl`). The assistant's and Git's own panes still say project: they are not
+// part of a first day, and are for a later loop.
+
+const root = join(__dirname, '../..');
+const read = (path: string) => readFileSync(join(root, path), 'utf8');
+
+/** Every string in `source` that is a sentence, or could be part of one: it has a space in it. */
+function sentencesIn(source: string): string[] {
+  const code = source
+    .replace(/<style[\s\S]*?<\/style>/g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/\s\/\/ .*$/gm, '')
+    .replace(/'"'/g, "' '"); // Rust's one-character quote mark
+  return [...code.matchAll(/"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\[\s\S])*)`/g)]
+    .map((match) => match[1] ?? match[2] ?? match[3] ?? '')
+    .map((text) => text.replace(/\$\{[^}]*\}|\{[^}]*\}/g, '…')) // what is filled in is not ours
+    .filter((text) => text.trim().includes(' '));
+}
+
+const inComponents = ['App', 'components/Editor', 'components/Sidebar', 'components/QuickOpen', 'components/PdfPane', 'components/StatusBar']
+  .map((name) => read(`src/${name}.svelte`))
+  .flatMap((source) => {
+    const markup = source.replace(/<script[\s\S]*?<\/script>/g, '');
+    const script = /<script[^>]*>([\s\S]*?)<\/script>/.exec(source)?.[1] ?? '';
+    const attributes = [...markup.matchAll(/(?:aria-label|placeholder|title|alt)="([^"]*)"/g)].map((match) => match[1]!);
+    return [ownText(source), ...attributes.map((text) => text.replace(/\{[^}]*\}/g, '…')), ...sentencesIn(script)];
+  });
+
+const inRust = ['commands', 'compile', 'project', 'templates', 'synctex', 'watcher']
+  .map((name) => read(`src-tauri/src/${name}.rs`).split('#[cfg(test)]')[0]!)
+  .flatMap(sentencesIn);
+
+const sentencesSaying = (word: RegExp) =>
+  [...inComponents, ...sentencesIn(read('src/lib/controller.svelte.ts')), ...sentencesIn(read('src/lib/ipc.ts')), ...inRust].filter((text) =>
+    word.test(text),
+  );
+
+it('finds sentences in all of them, so the next guard cannot pass by matching nothing', () => {
+  for (const known of [/root \.tex file/, /was not found on this machine|could not be watched/i, /The PDF will appear here/, /Select some text first/, /Choose where to put/]) {
+    expect(sentencesSaying(known), String(known)).not.toEqual([]);
+  }
+});
+
+it('the window says document, never project', () => {
+  expect(sentencesSaying(/\bprojects?\b/i)).toEqual([]);
+});
+
+// ---- Help (S17.16) ------------------------------------------------------------------------------
+
+it('Help has eight questions, each with an answer', () => {
+  expect(words.help).toHaveLength(8);
+  const screen = read('src/components/StartScreen.svelte');
+  expect(screen).toContain("goToPage('help', 'heading')");
+  expect(screen).toContain('<StartHelp />');
+  expect(words.help.filter((h) => !h.question.endsWith('?') || h.answer.length < 40)).toEqual([]);
+});

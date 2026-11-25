@@ -53,7 +53,7 @@ pub fn with_repository<T>(
     // it would make every other command wait on it.
     let root = {
         let guard = state.project.lock().unwrap();
-        let project = guard.as_ref().ok_or_else(|| "No project is open.".to_string())?;
+        let project = guard.as_ref().ok_or_else(|| "No document is open.".to_string())?;
         project.root_dir.clone()
     };
     match abstract_tex_git::open(&root) {
@@ -88,7 +88,7 @@ pub async fn in_repository_blocking<T: Send + 'static>(
 ) -> Result<T, String> {
     let root = {
         let guard = state.project.lock().unwrap();
-        let project = guard.as_ref().ok_or_else(|| "No project is open.".to_string())?;
+        let project = guard.as_ref().ok_or_else(|| "No document is open.".to_string())?;
         project.root_dir.clone()
     };
     tauri::async_runtime::spawn_blocking(move || {

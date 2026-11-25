@@ -136,7 +136,7 @@ pub fn engine_for(setting: Option<&str>) -> (Option<Arc<dyn Engine>>, Option<Str
             Err(_) => (
                 tectonic(),
                 Some(format!(
-                    "This project asks for {}, but no latexmk with {} was found on this machine; \
+                    "This document asks for {}, but no latexmk with {} was found on this machine; \
                      building with the bundled Tectonic instead.",
                     program.binary_name(),
                     program.binary_name()

@@ -207,10 +207,10 @@ pub(crate) fn project_root(state: &AppState) -> Result<ProjectRoot, String> {
     let project = state.project.lock().unwrap();
     let project = project
         .as_ref()
-        .ok_or_else(|| "No project is open.".to_string())?;
+        .ok_or_else(|| "No document is open.".to_string())?;
     let root_file = project
         .root_file()
-        .ok_or_else(|| "This project has no root .tex file.".to_string())?;
+        .ok_or_else(|| "This document has no main .tex file.".to_string())?;
     Ok(ProjectRoot {
         dir: project.root_dir.clone(),
         file: root_file,
@@ -232,10 +232,10 @@ fn project_guard(state: &AppState) -> Result<(Guard, PathBuf), String> {
         let project = state.project.lock().unwrap();
         let project = project
             .as_ref()
-            .ok_or_else(|| "No project is open.".to_string())?;
+            .ok_or_else(|| "No document is open.".to_string())?;
         let root_file = project
             .root_file()
-            .ok_or_else(|| "This project has no root .tex file.".to_string())?;
+            .ok_or_else(|| "This document has no main .tex file.".to_string())?;
         (
             project.root_dir.clone(),
             root_file,

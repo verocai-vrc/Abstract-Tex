@@ -37,7 +37,7 @@ pub static AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 pub fn restore_file(project_dir: &Path, absolute: &Path, id: &str, path: &str) -> Result<(), String> {
     let old = abstract_tex_snapshot::read(project_dir, id, path)
         .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("That version of the project has no {path}."))?;
+        .ok_or_else(|| format!("That version of the document has no {path}."))?;
     let old = String::from_utf8(old)
         .map_err(|_| format!("{path} is not a text file, so it cannot be restored here."))?;
 

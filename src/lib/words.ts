@@ -12,7 +12,51 @@ export const words = {
   /** The name of the list down the left, for a screen reader. */
   startNavigation: 'Start',
 
-  pages: { home: 'Home', new: 'New', open: 'Open', look: 'Text and colours' },
+  pages: { home: 'Home', new: 'New', open: 'Open', look: 'Text and colours', help: 'Help' },
+
+  helpTitle: 'Help',
+  help: [
+    {
+      question: 'Where are my documents?',
+      answer:
+        'On this computer, as ordinary files. Each document is a folder of its own, and the ones you start here go in a folder called Abstract-Tex, inside your Documents folder, unless you chose another place with “Change…” on the New page. “Show in folder”, beside a document on Home, opens the folder it is in.',
+    },
+    {
+      question: 'How do I get a PDF, or print?',
+      answer:
+        'The PDF is made again each time you stop typing, and shown beside your text. “Save PDF…”, at the top of the window, puts a copy where you choose. Press “Open it” in the message that follows and your usual PDF program shows it; print it from there.',
+    },
+    {
+      question: 'Is my work saved?',
+      answer:
+        'Yes. About a second after you stop typing, your words are in the file on this computer. There is nothing to press, though Ctrl S (⌘ S on a Mac) saves at once. A dot beside a file’s name is there until its last words are saved. If a file cannot be written, a message says so and Abstract keeps trying. There is no copy anywhere else unless you make one, so keep a copy of your documents as you would of any files.',
+    },
+    {
+      question: 'How do I get back an earlier version?',
+      answer:
+        'A version is kept each time the document becomes a PDF. With the document open, press Ctrl K (⌘ K on a Mac), type “earlier version” and press Enter; or press Source Control, the second button down the left edge, and look under Snapshots. Press a version to read it. “Restore this file” puts that file back as it was, and the version it replaces is kept too.',
+    },
+    {
+      question: 'Can I open a Word file?',
+      answer:
+        'No. Start a new document here, copy the text in Word, and paste it in. Words and paragraphs come along; headings, footnotes, tables and pictures do not, and are made again here.',
+    },
+    {
+      question: 'Why does the first PDF take minutes?',
+      answer:
+        'Abstract makes the PDF with LaTeX, which has thousands of parts, and fetches only the ones your document uses. The first time that is about 40 MB, and it needs the internet. They are kept, so from then on a PDF takes seconds and needs no internet, until a document uses a part that has not been fetched yet.',
+    },
+    {
+      question: 'What leaves my computer?',
+      answer:
+        'Nothing you write, until you ask for it. Abstract fetches parts of LaTeX, so the server they come from can see which ones. The rest is sent only when you do something that sends it: signing in to GitHub, getting a document from a Git address or sending it there, sharing a document live, using the assistant (off until you set it up and switch it on), pasting the DOI, arXiv number or ISBN of a reference, which is looked up, opening a link, or reporting a problem. If you have signed in to GitHub, Abstract also asks GitHub whose account it is each time it starts, until you sign out. Abstract has no accounts of its own and counts nothing.',
+    },
+    {
+      question: 'Where can I ask something else?',
+      answer:
+        'At github.com/verocai-vrc/Abstract-Tex/issues. Anyone can read what is asked there, so leave out what is in your document. Asking needs a GitHub account, which is free.',
+    },
+  ],
 
   /** Where the PDF will be, while the first one is made (S17.14). */
   firstPdf:

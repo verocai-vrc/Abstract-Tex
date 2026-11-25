@@ -2801,7 +2801,7 @@ registerCommand({
 });
 registerCommand({
   id: 'clone-repository',
-  title: 'Clone a repository…',
+  title: 'Get a document from GitHub or a Git address…',
   category: 'action',
   withoutDocument: true,
   run: () => showCloneWindow(),

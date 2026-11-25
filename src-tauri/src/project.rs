@@ -196,7 +196,7 @@ impl Project {
         // (review finding R5.2). `symlink_metadata` looks at the name itself, not what it points at.
         if fs::symlink_metadata(&state_dir).is_ok_and(|found| found.file_type().is_symlink()) {
             bail!(
-                "{} is a link, and Abstract-Tex keeps its build files there. Remove the link (or rename it) and open the project again.",
+                "{} is a link, and Abstract-Tex keeps its build files there. Remove the link (or rename it) and open the document again.",
                 state_dir.display()
             );
         }
@@ -266,7 +266,7 @@ impl Project {
     pub fn set_root_file(&mut self, relative: &str) -> Result<()> {
         let resolved = self.resolve(relative)?;
         if !resolved.is_file() {
-            bail!("{relative} is not a file in this project");
+            bail!("{relative} is not a file of this document");
         }
         self.config.project.root = Some(relative.replace('\\', "/"));
         self.save_config()
@@ -309,7 +309,8 @@ impl Project {
 
     pub fn save_config(&self) -> Result<()> {
         let text = toml::to_string_pretty(&self.config).context("could not serialise abstract-tex.toml")?;
-        let header = "# Abstract-Tex project configuration. Safe to edit by hand; safe to commit.\n\n";
+        let header =
+            "# What Abstract-Tex was told about this document. Safe to edit by hand; safe to commit.\n\n";
         write_atomically(&self.root_dir.join(CONFIG_FILE), &format!("{header}{text}"))?;
         // Only after the new file is safely written: a project still carrying the pre-rename
         // config has now had its contents carried over, so the old file goes rather than leaving
@@ -327,12 +328,12 @@ impl Project {
     pub fn resolve(&self, relative: &str) -> Result<PathBuf> {
         let rel = Path::new(relative);
         if rel.is_absolute() {
-            bail!("expected a path relative to the project, got {relative}");
+            bail!("expected a path inside the document's folder, got {relative}");
         }
         for component in rel.components() {
             match component {
                 Component::Normal(_) | Component::CurDir => {}
-                _ => bail!("path {relative} is not inside the project"),
+                _ => bail!("path {relative} is not inside the document's folder"),
             }
         }
         Ok(self.root_dir.join(rel))
@@ -352,7 +353,7 @@ impl Project {
         let root = self
             .root_dir
             .canonicalize()
-            .with_context(|| format!("could not resolve the project folder {}", self.root_dir.display()))?;
+            .with_context(|| format!("could not find the document's folder {}", self.root_dir.display()))?;
 
         // The nearest ancestor that exists (the folders to be created do not yet), looked at without
         // following a link at its last step, so a dangling link is seen as a link and not as "absent".
@@ -367,7 +368,7 @@ impl Project {
                 })?;
                 if !real.starts_with(&root) {
                     bail!(
-                        "{relative} would be written outside the project, through a link at {}",
+                        "{relative} would be written outside the document's folder, through a link at {}",
                         candidate.display()
                     );
                 }

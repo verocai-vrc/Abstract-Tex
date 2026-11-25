@@ -731,7 +731,7 @@ export const ipc = {
 
   /** S11.5b: the folder a clone goes *into*; the clone makes its own folder inside it. Resolves to
    * null if the author cancels. */
-  pickParentFolder: async (title = 'Choose where to put the project'): Promise<string | null> => {
+  pickParentFolder: async (title = 'Choose where to put the document'): Promise<string | null> => {
     const chosen = await openDialog({ directory: true, multiple: false, title });
     return typeof chosen === 'string' ? chosen : null;
   },
@@ -754,7 +754,7 @@ export const ipc = {
       `Documents in this folder will be able to run any program on this computer while they build. ` +
         `That is what minted needs to colour code, and it is also how a document could do harm.\n\n` +
         `Allow it only for documents you trust. It is remembered for this folder on this computer, ` +
-        `and never stored in the project.\n\n${folder}`,
+        `and never stored with the document.\n\n${folder}`,
       { title: 'Allow shell escape for this folder?', kind: 'warning', okLabel: 'Allow', cancelLabel: 'Not now' },
     ),
 
@@ -970,7 +970,7 @@ export const ipc = {
    * — a `public` visibility with `confirmed: false` is refused there. */
   confirmPublicRemote: (name: string): Promise<boolean> =>
     ask(
-      `Everyone on the internet will be able to read every file in this project, and every ` +
+      `Everyone on the internet will be able to read every file of this document, and every ` +
         `version of it you have ever committed — including drafts, review responses, and any ` +
         `data you have kept here.\n\n` +
         `If this paper is unpublished, under embargo, or contains anything you have not yet ` +

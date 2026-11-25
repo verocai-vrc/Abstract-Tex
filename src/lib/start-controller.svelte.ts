@@ -367,6 +367,13 @@ registerCommand({
   run: () => showStart('look', false),
 });
 registerCommand({
+  id: 'help',
+  title: 'Help',
+  category: 'action',
+  withoutDocument: true,
+  run: () => showStart('help', false),
+});
+registerCommand({
   id: 'home',
   title: 'Home',
   category: 'action',

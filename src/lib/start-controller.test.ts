@@ -354,6 +354,13 @@ describe('Home over an open document (S17.5)', () => {
     expect([startScreen.visible, startScreen.page, app.editorFocusRequest]).toEqual([true, 'open', before]);
   });
 
+  it('Help is in the palette, document or not', () => {
+    expect(allCommands().find((c) => c.id === 'help')).toMatchObject({ title: 'Help', withoutDocument: true });
+    startScreen.visible = false;
+    runFromPalette('help');
+    expect([startScreen.visible, startScreen.page]).toEqual([true, 'help']);
+  });
+
   it('Home is in the palette', () => {
     startScreen.visible = false;
     runFromPalette('home');
