@@ -31,11 +31,12 @@ vi.mock('./ipc', () => ({
 const { app } = await import('./state.svelte');
 const { startScreen, strayQuestion, UNPACK_REFUSALS } = await import('./start.svelte');
 const { words } = await import('./words');
+const { clone } = await import('./clone.svelte');
 const { newProject } = await import('./templates.svelte');
 const { allCommands } = await import('./commands');
 const { stopOpening } = await import('./controller.svelte');
 const {
-  backToDocument, cancelChoice, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, copyAndOpen, createProject, findRecent, forgetRecent, goToPage, loadRecents,
+  backToDocument, cancelChoice, changePlace, chooseFile, chooseFolder, chooseTemplate, clearRecents, copyAndOpen, createProject, findRecent, forgetRecent, getFromGit, goToPage, loadRecents,
   moveTemplateSelection, openAnyway, openRecent, runFromPalette, showRecentInFolder, showStart, startBack, startFromTemplate,
   templateFilterChanged,
 } = await import('./start-controller.svelte');
@@ -842,6 +843,25 @@ describe('opening what people already have (S17.8)', () => {
     answer({ kind: 'document', folder: '/t', file: null });
     await looking;
     expect([startScreen.looking, opened]).toEqual([null, []]);
+  });
+
+  it.each([
+    ['back to the document', startBack],
+    ['*Get one from GitHub*', getFromGit],
+    ['a palette entry that puts up a window', () => runFromPalette('clone-repository')],
+  ])('a look is given up by %s', async (_name, leave) => {
+    app.project = project;
+    let answer!: (choice: object) => void;
+    answers.pickFile = () => '/slow/a.tex';
+    answers.inspectChoice = () => new Promise((resolve) => (answer = resolve));
+    const looking = chooseFile();
+    await vi.advanceTimersByTimeAsync(0);
+    leave();
+    expect(startScreen.looking).toBeNull();
+    answer({ kind: 'document', folder: '/t', file: null });
+    await looking;
+    clone.visible = false;
+    expect([app.project?.rootDir, opened]).toEqual(['/proj', []]);
   });
 
   it('a look that fails is said', async () => {

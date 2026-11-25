@@ -2,7 +2,7 @@
 // imports it: the document's flows know nothing of the screen in front of them, except whether it is up.
 
 import { allCommands, registerCommand, type Command } from './commands';
-import { openFolder, tell } from './controller.svelte';
+import { openFolder, showCloneWindow, tell } from './controller.svelte';
 import { ipc, type Choice, type Preferences } from './ipc';
 import { documentToCarryOn, startScreen, type Presence, type StartPage } from './start.svelte';
 import { app } from './state.svelte';
@@ -41,6 +41,7 @@ export function showStart(page: StartPage, modalIsUp: boolean): void {
 /** Back to the document, with the cursor where it was. Nothing happens if there is none. */
 export function backToDocument(): void {
   if (!app.project || app.opening !== null) return;
+  stopLooking(); // its document would be opened over the one now being written in
   startScreen.visible = false;
   startScreen.message = null;
   app.editorFocusRequest += 1;
@@ -65,6 +66,7 @@ export function startBack(): void {
 export function runFromPalette(id: string, entries: readonly Command[] = allCommands()): void {
   const command = entries.find((entry) => entry.id === id);
   if (!command) return;
+  stopLooking();
   if (startScreen.visible && !command.withoutDocument) backToDocument();
   command.run();
 }
@@ -185,6 +187,13 @@ export async function chooseFile(): Promise<void> {
 export async function chooseFolder(): Promise<void> {
   if (app.opening !== null) return;
   await choose(await ipc.pickFolder(words.chooseFolderTitle).catch(() => null));
+}
+
+/** *Get one from GitHub…*: instead of what is being looked at, which would open underneath that window. */
+export function getFromGit(): void {
+  if (app.opening !== null) return;
+  stopLooking();
+  showCloneWindow();
 }
 
 /** *Open it anyway*: a folder with no `.tex` in it yet. */

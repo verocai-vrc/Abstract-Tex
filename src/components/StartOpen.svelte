@@ -2,8 +2,7 @@
   // Open a document people already have (S17.8): a file, a folder, or a Git address. What cannot simply be
   // opened says what it is and what to do, here under the buttons.
   import { app } from '../lib/state.svelte';
-  import { showCloneWindow } from '../lib/controller.svelte';
-  import { cancelChoice, chooseFile, chooseFolder, copyAndOpen, goToPage, openAnyway } from '../lib/start-controller.svelte';
+  import { cancelChoice, chooseFile, chooseFolder, copyAndOpen, getFromGit, goToPage, openAnyway } from '../lib/start-controller.svelte';
   import { placeText, startScreen, strayQuestion } from '../lib/start.svelte';
   import { words } from '../lib/words';
 
@@ -46,7 +45,7 @@
     <span id="start-open-folder" class="muted">{words.chooseFolderHint}</span>
   </li>
   <li>
-    <button aria-disabled={isBusy} onclick={() => !isBusy && showCloneWindow()}>{words.getFromGit}</button>
+    <button aria-disabled={isBusy} onclick={getFromGit}>{words.getFromGit}</button>
   </li>
 </ul>
 
