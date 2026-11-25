@@ -202,6 +202,7 @@ let compareAnswer: (older: string, newer: string) => Promise<ComparisonStarted> 
 let savePathAnswer: string | null = '/out/diff.pdf';
 /** S17.7: what saving the PDF answers, and whether a build is refused. */
 type SavingAnswer = SavedPdf | Exclude<PdfSaving, { kind: 'saved' }>;
+let setRootAnswer: ProjectInfo;
 let savePdfAnswer: () => SavingAnswer | Promise<SavingAnswer>;
 let compileRefused = false;
 /** S11.5b: what the Clone window's calls answer with, and what they were asked. */
@@ -289,6 +290,7 @@ vi.mock('./ipc', () => ({
       return text;
     },
     writeFile: async (path: string, contents: string) => ipcWriteFile(path, contents),
+    setRootFile: async () => setRootAnswer,
     createFile: async (path: string) => {
       disk.set(path, '');
       return project;
@@ -747,6 +749,7 @@ const {
   toggleCommandPalette,
   saveNow,
   savePdf,
+  setRootFile,
   quickOpenPick,
   refreshOutline,
   resolveConflict,
@@ -5302,6 +5305,18 @@ describe('saving the PDF (S17.7)', () => {
     await saving;
     expect([app.savedPdf, app.savingPdf]).toEqual([null, false]);
     expect(app.notice).toContain('Another document');
+  });
+
+  it('a PDF of another main file is not offered as the new one\'s', async () => {
+    await built();
+    setRootAnswer = { ...project, rootFile: 'letter.tex', hasPdf: false };
+    await setRootFile('letter.tex');
+    expect([app.hasPdf, app.pdfUrl, calls.order]).toEqual([false, null, ['compile']]);
+    // The same file again: nothing is taken away.
+    await built();
+    setRootAnswer = { ...project, rootFile: 'letter.tex', hasPdf: true };
+    await setRootFile('letter.tex');
+    expect([app.hasPdf, app.pdfUrl === null]).toEqual([true, false]);
   });
 
   it('is in the palette', () => {

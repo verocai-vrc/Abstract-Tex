@@ -264,8 +264,17 @@ impl Project {
         if !resolved.is_file() {
             bail!("{relative} is not a file of this document");
         }
+        let before = self.root_file();
         self.config.project.root = Some(relative.replace('\\', "/"));
-        self.save_config()
+        self.save_config()?;
+        // The kept PDF is the other main file's. Nobody is to be given it as this one's if this one does
+        // not build. If it cannot be removed, the next good build writes over it.
+        if self.root_file() != before {
+            if let Err(error) = fs::remove_file(self.latest_pdf()) {
+                tracing::debug!(%error, "no kept PDF was removed");
+            }
+        }
+        Ok(())
     }
 
     /// Add a `.bib` file to `extra_bib_files` (S8.2's "link a collection") and save. Idempotent:
@@ -1242,6 +1251,19 @@ mod tests {
         assert!(fs::read_to_string(dir.path().join(CONFIG_FILE))
             .unwrap()
             .contains("root = \"b.tex\""));
+    }
+
+    /// One kept PDF per folder, so it must not be taken for the new main file's if that does not build.
+    #[test]
+    fn another_main_file_has_no_kept_pdf_until_it_is_built() {
+        let dir = scaffold(&[("a.tex", "\\documentclass{article}"), ("b.tex", "")]);
+        let mut project = Project::open(dir.path()).unwrap();
+        fs::write(project.latest_pdf(), "a's pages").unwrap();
+        // `a.tex` is the main file already; choosing it says so and changes nothing.
+        project.set_root_file("a.tex").unwrap();
+        assert!(project.info().has_pdf);
+        project.set_root_file("b.tex").unwrap();
+        assert!(!project.info().has_pdf);
     }
 
     #[test]

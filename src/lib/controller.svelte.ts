@@ -2643,7 +2643,15 @@ export async function disallowShellEscape(): Promise<void> {
 
 export async function setRootFile(relativePath: string): Promise<void> {
   try {
+    const before = app.project?.rootFile;
     app.project = await ipc.setRootFile(relativePath);
+    if (app.project.rootFile !== before) {
+      // The PDF on screen is the other file's. Rust has put the kept one away too.
+      app.hasPdf = app.project.hasPdf;
+      app.pdfUrl = null;
+      app.pdfDraftOf = null;
+      fullPdfUrl = null;
+    }
     await triggerCompile();
   } catch (error) {
     app.notice = String(error);
