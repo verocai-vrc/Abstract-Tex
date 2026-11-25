@@ -21,7 +21,7 @@ impl Staged {
     pub(crate) fn begin(beside: &Path) -> io::Result<Self> {
         fs::create_dir_all(beside)?;
         let staging = tempfile::Builder::new()
-            .prefix(".abstract-tex-zip-")
+            .prefix(".abstract-tex-new-")
             .tempdir_in(beside)?;
         // A folder in the staging folder, because `tempfile` makes that one readable by its owner only,
         // and a folder keeps its permissions when it is renamed.

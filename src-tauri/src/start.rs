@@ -11,7 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use abstract_tex_import::{
-    document_folder, free_name, has_tex, kind_of, unpack, Crowd, FileKind, Limits, UnpackError,
+    copy_document, document_folder, files_named_by, free_name, has_tex, kind_of, unpack, CopyError, Crowd,
+    FileKind, Limits, UnpackError,
 };
 use abstract_tex_templates::folder_name_for_title;
 use serde::{Deserialize, Serialize};
@@ -19,7 +20,7 @@ use tauri::{AppHandle, Manager, Runtime, State};
 use tokio::sync::watch;
 
 use crate::assistant::AssistantSettings;
-use crate::commands::{to_message, CommandResult};
+use crate::commands::{to_message, CommandResult, OPENING_STOPPED};
 use crate::consent::ShellEscapeConsent;
 use crate::opening::Opening;
 use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
@@ -499,7 +500,7 @@ fn inspect(path: &Path, crowd: &Crowd, place: &Path, home: Option<&Path>) -> Cho
                 None => Choice::StrayFile {
                     file: text(path),
                     place: folder_parts(place, home),
-                    others: 0,
+                    others: files_named_by(path).len(),
                 },
             }
         }
@@ -594,16 +595,64 @@ fn unpack_to_place<R: Runtime>(app: &AppHandle<R>, zip: &Path, opening: &Opening
 /// Unpack a zip into a folder of its own in the place new documents go. The zip is left alone.
 #[tauri::command]
 pub async fn unpack_zip<R: Runtime>(app: AppHandle<R>, path: String) -> CommandResult<Unpacked> {
+    make_folder(app, move |app, opening| {
+        unpack_to_place(app, Path::new(&path), opening)
+    })
+    .await
+    .unwrap_or(Ok(Unpacked::Stopped))
+}
+
+/// Make a document's folder as the first part of opening it, so that *Stop* works on both alike. `None`
+/// when it was stopped: what is being made then sees so for itself, and cleans up.
+async fn make_folder<R: Runtime, T: Send + 'static>(
+    app: AppHandle<R>,
+    work: impl FnOnce(&AppHandle<R>, &Opening) -> CommandResult<T> + Send + 'static,
+) -> Option<CommandResult<T>> {
     let opening = app.state::<AppState>().openings.begin();
-    let unpacking = {
+    let making = {
         let opening = Arc::clone(&opening);
-        tauri::async_runtime::spawn_blocking(move || unpack_to_place(&app, Path::new(&path), &opening))
+        tauri::async_runtime::spawn_blocking(move || work(&app, &opening))
     };
-    // Whichever comes first. A stopped unpacking sees for itself that it was, and cleans up.
     tokio::select! {
-        answer = unpacking => answer.map_err(to_message)?,
-        () = opening.stopped() => Ok(Unpacked::Stopped),
+        answer = making => Some(answer.map_err(to_message).and_then(|answer| answer)),
+        () = opening.stopped() => None,
     }
+}
+
+/// The part of [`copy_stray`] that touches a disk.
+fn copy_to_place<R: Runtime>(app: &AppHandle<R>, file: &Path, opening: &Opening) -> CommandResult<String> {
+    let place = new_documents_folder(app);
+    let name = folder_name_for_title(&file.file_stem().unwrap_or_default().to_string_lossy());
+    let folder = free_name(&place, &name);
+    forget_permissions(app, &folder)?;
+    // Their kind only: the whole error names a staging folder nobody has heard of.
+    let unwritten = |error: std::io::Error| {
+        format!(
+            "A copy could not be made in {} ({}). Choose another place for new documents.",
+            place.display(),
+            error.kind()
+        )
+    };
+    let staged = copy_document(file, &place).map_err(|error| match error {
+        CopyError::Read { name, source } => format!("{name} could not be read ({}).", source.kind()),
+        CopyError::Write(error) => unwritten(error),
+    })?;
+    if !opening.adopt() {
+        return Err(OPENING_STOPPED.to_string());
+    }
+    staged.place(&folder).map_err(unwritten)?;
+    Ok(folder.to_string_lossy().into_owned())
+}
+
+/// Copy a `.tex` that is among other things, and the files it uses, into a folder of its own in the place
+/// new documents go. The originals stay as they are. Answers the new folder.
+#[tauri::command]
+pub async fn copy_stray<R: Runtime>(app: AppHandle<R>, file: String) -> CommandResult<String> {
+    make_folder(app, move |app, opening| {
+        copy_to_place(app, Path::new(&file), opening)
+    })
+    .await
+    .unwrap_or_else(|| Err(OPENING_STOPPED.to_string()))
 }
 
 /// A folder that is about to be made starts with no permission, whatever was allowed at that address
@@ -764,7 +813,11 @@ mod tests {
             "\\documentclass{book}\\include{chapters/intro}",
         );
         write("thesis/chapters/intro.tex", "text");
-        write("Downloads/paper.tex", "\\documentclass{article}");
+        write(
+            "Downloads/paper.tex",
+            "\\documentclass{article}\\input{a}\\input{b}",
+        );
+        write("Downloads/a.tex", "");
         write("photos/cat.jpg", "");
         write("settled/abstract-tex.toml", "");
         for name in ["essay.docx", "essay.pdf", "essay.zip", "essay.7z", "essay.txt"] {
@@ -798,7 +851,7 @@ mod tests {
             Choice::StrayFile {
                 file: text("Downloads/paper.tex"),
                 place: vec!["Documents".into(), "Abstract-Tex".into()],
-                others: 0,
+                others: 1,
             }
         );
         assert_eq!(
@@ -971,6 +1024,72 @@ mod tests {
         assert_eq!(answer.unwrap(), Unpacked::Stopped);
         // Not even begun: it is asked before anything is written.
         assert!(!folder.path().join("writing").exists());
+    }
+
+    fn copy(app: &tauri::App<tauri::test::MockRuntime>, file: &Path) -> CommandResult<String> {
+        let file = file.to_string_lossy().into_owned();
+        tauri::async_runtime::block_on(copy_stray(app.handle().clone(), file))
+    }
+
+    #[test]
+    fn a_copy_gets_a_folder_of_its_own() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let paper = folder.path().join("My Paper.tex");
+        std::fs::write(&paper, "\\input{part}").unwrap();
+        std::fs::write(folder.path().join("part.tex"), "").unwrap();
+        for name in ["my-paper", "my-paper-2"] {
+            let made = folder.path().join("writing").join(name);
+            assert_eq!(copy(&app, &paper).unwrap(), made.to_string_lossy());
+            assert!(made.join("My Paper.tex").is_file() && made.join("part.tex").is_file());
+        }
+        assert!(paper.is_file());
+    }
+
+    #[test]
+    fn a_copy_inherits_no_permission() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let made = folder.path().join("writing/paper");
+        let (consent, settings) = (
+            app.state::<ShellEscapeConsent>(),
+            app.state::<AssistantSettings>(),
+        );
+        consent.allow(&made).unwrap();
+        crate::assistant::set_enabled(&settings, &made, true).unwrap();
+        std::fs::write(folder.path().join("paper.tex"), "").unwrap();
+        copy(&app, &folder.path().join("paper.tex")).unwrap();
+        assert!(made.is_dir());
+        assert!(!consent.allows(&made) && !settings.is_enabled_for(&made));
+    }
+
+    #[test]
+    fn a_copy_that_cannot_be_made_says_which_file_or_which_place() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let refusal = copy(&app, &folder.path().join("gone.tex")).unwrap_err();
+        assert!(
+            refusal.contains("gone.tex") && !refusal.contains(".abstract-tex-new"),
+            "{refusal}"
+        );
+        std::fs::write(folder.path().join("paper.tex"), "").unwrap();
+        std::fs::remove_dir_all(folder.path().join("writing")).unwrap();
+        std::fs::write(folder.path().join("writing"), "a file").unwrap();
+        let refusal = copy(&app, &folder.path().join("paper.tex")).unwrap_err();
+        assert!(refusal.contains("writing"), "{refusal}");
+    }
+
+    #[test]
+    fn a_stopped_copy_makes_nothing() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        std::fs::write(folder.path().join("paper.tex"), "").unwrap();
+        let openings = &app.state::<AppState>().openings;
+        let opening = openings.begin();
+        openings.stop();
+        assert!(copy_to_place(app.handle(), &folder.path().join("paper.tex"), &opening).is_err());
+        let left = std::fs::read_dir(folder.path().join("writing")).unwrap().count();
+        assert_eq!(left, 0);
     }
 
     #[test]

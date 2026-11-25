@@ -121,7 +121,7 @@ pub fn stop_opening(state: State<'_, AppState>) -> bool {
     state.openings.stop()
 }
 
-const OPENING_STOPPED: &str = "Opening was stopped.";
+pub(crate) const OPENING_STOPPED: &str = "Opening was stopped.";
 
 /// The part of [`open_project`] that touches a disk.
 fn open_folder<R: Runtime>(
