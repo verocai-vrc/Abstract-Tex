@@ -340,7 +340,7 @@
   {/if}
 {/snippet}
 
-<aside class="sidebar source-control">
+<aside class="left-pane source-control">
   {#if !app.project}
     <p class="hint">Open a folder to see its changes.</p>
   {:else if !git.isRepository}

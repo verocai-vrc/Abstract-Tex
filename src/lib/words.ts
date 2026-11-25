@@ -5,7 +5,7 @@
 // Who reads these: people who have only used Word. The thing they work on is a *document*; the folder
 // it is kept in is small print. Nothing here says project, repository or compile.
 
-import type { UnpackRefusal } from './ipc';
+import type { Colours, UnpackRefusal } from './ipc';
 
 export const words = {
   appName: 'Abstract',
@@ -137,6 +137,14 @@ export const words = {
   textSize: 'Text size',
   textSizeHint: 'Everything in the window gets larger. The PDF you save stays as it is.',
   percent: (size: number) => `${size}%`,
+  coloursTitle: 'Colours',
+  colours: {
+    match: 'Match my computer',
+    light: 'Light',
+    dark: 'Dark',
+    'contrast-light': 'High contrast, light',
+    'contrast-dark': 'High contrast, dark',
+  } satisfies Record<Colours, string>,
 
   opening: (name: string) => `Opening ${name}…`,
   stop: 'Stop',

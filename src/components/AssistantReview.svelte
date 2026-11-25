@@ -29,7 +29,7 @@
 {#if review}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeReview()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="Review the assistant’s suggestion" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog-box" role="dialog" aria-modal="true" aria-label="Review the assistant’s suggestion" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{review.actionLabel}</span>
         <button class="ghost" onclick={closeReview} aria-label="Close">✕</button>
@@ -92,7 +92,7 @@
     padding-top: 8vh;
     background: rgba(0, 0, 0, 0.45);
   }
-  .dialog {
+  .dialog-box {
     width: min(760px, 92vw);
     max-height: 80vh;
     display: flex;
@@ -141,12 +141,12 @@
   .change del {
     text-decoration: line-through;
     color: var(--error);
-    background: rgba(220, 70, 70, 0.12);
+    background: var(--error-bg);
   }
   .change ins {
     text-decoration: none;
-    color: var(--ok, #4caf7a);
-    background: rgba(76, 175, 122, 0.14);
+    color: var(--ok);
+    background: var(--ok-bg);
   }
   /* Left as it was: the change is shown, but quiet, and the old text reads as the text. */
   .change.left del {
@@ -172,7 +172,7 @@
     font-size: 12px;
     color: var(--error);
     border-left: 3px solid var(--error);
-    background: rgba(220, 70, 70, 0.08);
+    background: var(--error-bg);
   }
   .held p {
     margin: 2px 0;

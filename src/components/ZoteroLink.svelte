@@ -48,7 +48,7 @@
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
-      class="dialog"
+      class="dialog-box"
       role="dialog"
       aria-modal="true"
       aria-label="Link a Zotero collection"
@@ -115,7 +115,7 @@
     align-items: flex-start;
     padding-top: 10vh;
   }
-  .dialog {
+  .dialog-box {
     width: min(420px, 90vw);
     max-height: 60vh;
     display: flex;

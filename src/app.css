@@ -1,6 +1,10 @@
-/* Theme tokens. Everything visual reads from these; nothing hard-codes a colour.
-   Light is the default; dark follows the OS. A user-selectable theme is a later loop. */
+/* Theme tokens. Everything visual reads from these; nothing hard-codes a colour (`contrast.test.ts` sees
+   to both that and that they can be read). Light is the default. The other three are chosen on the start
+   screen's "Text and colours", or follow the system (S17.12): `look.svelte.ts` says which one is in use,
+   in `data-look`. */
 :root {
+  color-scheme: light;
+
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', Consolas, 'Liberation Mono', monospace;
 
@@ -20,6 +24,7 @@
   --warn: #9c5b00;
   --error: #b0322a;
   --error-bg: rgba(176, 50, 42, 0.08);
+  --ok-bg: rgba(44, 120, 75, 0.12);
 
   --syn-command: #1f3a5f;
   --syn-keyword: #7a2e8a;
@@ -35,32 +40,101 @@
   --radius: 6px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1b1d21;
-    --bg-panel: #22252b;
-    --bg-editor: #16181c;
-    --bg-active-line: rgba(255, 255, 255, 0.04);
-    --bg-hover: rgba(255, 255, 255, 0.06);
-    --bg-selected: rgba(255, 255, 255, 0.1);
-    --selection: rgba(120, 160, 220, 0.3);
-    --fg: #e6e4de;
-    --fg-muted: #9a988f;
-    --border: #33373f;
-    --accent: #8fb3e6;
-    --accent-fg: #101418;
-    --ok: #6ccf8e;
-    --warn: #e6b45c;
-    --error: #ef7a70;
-    --error-bg: rgba(239, 122, 112, 0.1);
+:root[data-look='dark'] {
+  color-scheme: dark;
 
-    --syn-command: #8fb3e6;
-    --syn-keyword: #d19ae0;
-    --syn-comment: #8d8c85;
-    --syn-math: #7fcfcf;
-    --syn-bracket: #e6b45c;
-    --syn-number: #e6b45c;
-    --syn-string: #6ccf8e;
+  --bg: #1b1d21;
+  --bg-panel: #22252b;
+  --bg-editor: #16181c;
+  --bg-active-line: rgba(255, 255, 255, 0.04);
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-selected: rgba(255, 255, 255, 0.1);
+  --selection: rgba(120, 160, 220, 0.3);
+  --fg: #e6e4de;
+  --fg-muted: #9a988f;
+  --border: #33373f;
+  --accent: #8fb3e6;
+  --accent-fg: #101418;
+  --ok: #6ccf8e;
+  --warn: #e6b45c;
+  --error: #ef7a70;
+  --error-bg: rgba(239, 122, 112, 0.1);
+  --ok-bg: rgba(108, 207, 142, 0.14);
+
+  --syn-command: #8fb3e6;
+  --syn-keyword: #d19ae0;
+  --syn-comment: #8d8c85;
+  --syn-math: #7fcfcf;
+  --syn-bracket: #e6b45c;
+  --syn-number: #e6b45c;
+  --syn-string: #6ccf8e;
+}
+
+/* The two high-contrast palettes: 7:1 for every text colour, 3:1 for every line, also on a chosen row. */
+:root[data-look='contrast-light'] {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-editor: #ffffff;
+  --bg-active-line: rgba(0, 0, 0, 0.05);
+  --bg-hover: rgba(0, 0, 0, 0.07);
+  --bg-selected: rgba(0, 0, 0, 0.11);
+  --selection: rgba(20, 70, 160, 0.25);
+  --fg: #000000;
+  --fg-muted: #2e2e2e;
+  --border: #595959;
+  --accent: #0b2d6b;
+  --accent-fg: #ffffff;
+  --ok: #0b4a24;
+  --warn: #5c3300;
+  --error: #7d0f0a;
+  --error-bg: rgba(125, 15, 10, 0.07);
+  --ok-bg: rgba(11, 74, 36, 0.1);
+
+  --syn-command: #0b2d6b;
+  --syn-keyword: #4f1260;
+  --syn-comment: #3d3d3d;
+  --syn-math: #0b4343;
+  --syn-bracket: #523200;
+  --syn-number: #5c3300;
+  --syn-string: #0b4a24;
+}
+
+:root[data-look='contrast-dark'] {
+  color-scheme: dark;
+
+  --bg: #000000;
+  --bg-panel: #000000;
+  --bg-editor: #000000;
+  --bg-active-line: rgba(255, 255, 255, 0.07);
+  --bg-hover: rgba(255, 255, 255, 0.12);
+  --bg-selected: rgba(255, 255, 255, 0.18);
+  --selection: rgba(90, 140, 230, 0.45);
+  --fg: #ffffff;
+  --fg-muted: #d6d6d6;
+  --border: #9a9a9a;
+  --accent: #a9ccff;
+  --accent-fg: #000000;
+  --ok: #8be8a8;
+  --warn: #ffd27a;
+  --error: #ffb3ac;
+  --error-bg: rgba(255, 130, 120, 0.12);
+  --ok-bg: rgba(108, 207, 142, 0.16);
+
+  --syn-command: #a9ccff;
+  --syn-keyword: #ecb9f7;
+  --syn-comment: #cccccc;
+  --syn-math: #9be8e8;
+  --syn-bracket: #ffd27a;
+  --syn-number: #ffd27a;
+  --syn-string: #8be8a8;
+}
+
+/* Until `look.svelte.ts` has said: an empty window, and it must not be a white one on a dark screen. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-look]) {
+    --bg: #1b1d21;
   }
 }
 
@@ -256,7 +330,7 @@ kbd {
   white-space: nowrap;
 }
 
-.sidebar {
+.left-pane {
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -267,7 +341,7 @@ kbd {
 }
 /* Files and the Document map (S4.2) split the sidebar's height and scroll independently — a
    long file tree must not push the outline off screen, or the other way round. */
-.sidebar .files-section {
+.left-pane .files-section {
   flex: 1;
   min-height: 0;
   overflow-y: auto;

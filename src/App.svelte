@@ -143,7 +143,7 @@
   </header>
 
   <ActivityBar />
-  <!-- One left pane, two tenants (S10.3a). Each renders its own `.sidebar`, so the grid column
+  <!-- One left pane, two tenants (S10.3a). Each renders its own `.left-pane`, so the grid column
        holds whichever is current and nothing about the layout depends on which. -->
   {#if app.activityView === 'files'}
     <Sidebar />

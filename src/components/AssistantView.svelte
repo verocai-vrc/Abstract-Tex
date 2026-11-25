@@ -28,7 +28,7 @@
   }
 </script>
 
-<aside class="sidebar assistant" aria-label="Assistant">
+<aside class="left-pane assistant" aria-label="Assistant">
   <div class="sidebar-head"><span class="label">Assistant</span></div>
 
   <p class="hint">{summary}</p>

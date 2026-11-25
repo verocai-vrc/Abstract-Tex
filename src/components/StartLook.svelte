@@ -1,14 +1,14 @@
 <script lang="ts">
   // Text and colours (S17.11): how the window looks on this computer. Every choice is made at once.
-  import { look, setTextSize, TEXT_SIZES } from '../lib/look.svelte';
+  import { COLOURS, look, setColours, setTextSize, TEXT_SIZES } from '../lib/look.svelte';
   import { words } from '../lib/words';
 </script>
 
 <h1 tabindex="-1">{words.lookTitle}</h1>
-<fieldset>
-  <legend><h2>{words.textSize}</h2></legend>
+<section>
+  <h2 id="start-look-text">{words.textSize}</h2>
   <p class="muted" id="start-look-size">{words.textSizeHint}</p>
-  <div class="choices" role="radiogroup" aria-label={words.textSize} aria-describedby="start-look-size">
+  <div class="choices" role="radiogroup" aria-labelledby="start-look-text" aria-describedby="start-look-size">
     {#each TEXT_SIZES as size (size)}
       <label>
         <input type="radio" name="text-size" value={size} checked={look.textSize === size} onchange={() => void setTextSize(size)} />
@@ -16,17 +16,22 @@
       </label>
     {/each}
   </div>
-</fieldset>
+</section>
+<section>
+  <h2 id="start-look-colours">{words.coloursTitle}</h2>
+  <div class="choices" role="radiogroup" aria-labelledby="start-look-colours">
+    {#each COLOURS as colours (colours)}
+      <label>
+        <input type="radio" name="colours" value={colours} checked={look.colours === colours} onchange={() => void setColours(colours)} />
+        {words.colours[colours]}
+      </label>
+    {/each}
+  </div>
+</section>
 
 <style>
-  fieldset {
-    min-width: 0;
-    margin: 24px 0 0;
-    padding: 0;
-    border: 0;
-  }
-  legend {
-    padding: 0;
+  section {
+    margin-top: 32px;
   }
   .choices {
     display: flex;
@@ -57,11 +62,22 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
-  /* The target is the label. */
-  input {
-    width: 20px;
-    height: 20px;
+  /* The target is the label (so this need not be 44px). Drawn here and not by the system, whose own can be white on white. */
+  label input {
+    appearance: none;
+    flex: none;
+    width: 22px;
+    height: 22px;
+    min-height: 0;
     padding: 0;
-    accent-color: var(--accent);
+    border: 2px solid var(--fg-muted);
+    border-radius: 50%;
+    background: var(--bg-editor);
+  }
+  label input:checked {
+    border: 7px solid var(--accent);
+  }
+  label input:focus-visible {
+    outline: none;
   }
 </style>

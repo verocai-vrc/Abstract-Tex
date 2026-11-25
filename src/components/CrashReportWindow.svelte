@@ -12,7 +12,7 @@
   <div class="backdrop" role="presentation">
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
-      class="dialog"
+      class="dialog-box"
       role="dialog"
       aria-modal="true"
       aria-label="Abstract-Tex closed unexpectedly"
@@ -48,7 +48,7 @@
     align-items: flex-start;
     padding-top: 8vh;
   }
-  .dialog {
+  .dialog-box {
     width: min(620px, 92vw);
     max-height: 84vh;
     display: flex;

@@ -3,15 +3,15 @@
   // VS Code's two shortcuts, deliberately: it is the chrome a large share of this audience
   // already has muscle memory for, and there is nothing to gain from a novel one.
   //
-  // Four icons, three of which do something. Settings comes later; it is drawn and disabled rather
-  // than left out, so that the icons above them never move when they
-  // start working — which is the whole reason the design asks for all four now.
+  // The last one is not a view: it opens the start screen's "Text and colours" (S17.12).
   //
   // This component owns no state: it reads which view is current and calls the controller. The
   // views themselves are `Sidebar.svelte` (Files) and `SourceControl.svelte`.
   import { showActivityView } from '../lib/controller.svelte';
   import { git } from '../lib/git.svelte';
+  import { showStart } from '../lib/start-controller.svelte';
   import { app } from '../lib/state.svelte';
+  import { words } from '../lib/words';
 </script>
 
 <nav class="activity-bar" aria-label="Views">
@@ -80,11 +80,11 @@
     <span class="sr-only">Comments</span>
   </button>
 
-  <button class="activity-item" disabled title="Settings — arrives in a later version">
+  <button class="activity-item" title={words.lookTitle} onclick={() => showStart('look', false)}>
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <circle cx="8" cy="8" r="2.25" />
       <circle cx="8" cy="8" r="5.5" stroke-dasharray="2 2.2" />
     </svg>
-    <span class="sr-only">Settings</span>
+    <span class="sr-only">{words.lookTitle}</span>
   </button>
 </nav>

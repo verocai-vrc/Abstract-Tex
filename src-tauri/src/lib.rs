@@ -30,6 +30,7 @@ pub mod compile;
 pub mod consent;
 pub mod crash;
 pub mod finished_pdf;
+pub mod first_paint;
 pub mod fragile_command;
 pub mod git;
 pub mod github;
@@ -137,7 +138,8 @@ pub fn run() {
             // S16.3: from here on, a panic leaves a local report (`crash.rs`); nothing is sent.
             crash::install(config.join("crash-reports"));
             app.manage(recents::RecentDocuments::at(config.join("recent-documents.toml")));
-            app.manage(preferences::PreferencesFile::at(config.join("preferences.toml")));
+            let preferences = preferences::PreferencesFile::at(config.join("preferences.toml"));
+            app.manage(preferences.clone());
             app.manage(start::PresenceChecks::default());
             app.manage(consent::ShellEscapeConsent::at(config.join("shell-escape.toml")));
             // S12.1b: the assistant's settings are per machine, in the same folder and for the same
@@ -147,6 +149,8 @@ pub fn run() {
             app.manage(assistant::AssistantKeys(std::sync::Arc::new(
                 abstract_tex_assistant::Keychain::for_this_app(),
             )));
+            // Last, because its page may call any command at once.
+            first_paint::open_window(app, &preferences)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

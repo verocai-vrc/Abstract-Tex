@@ -23,7 +23,7 @@
 {#if prepared && payload}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && cancelPrepared()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="What will be sent" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog-box" role="dialog" aria-modal="true" aria-label="What will be sent" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{prepared.actionLabel}: what will be sent</span>
         <button class="ghost" onclick={cancelPrepared} aria-label="Close" disabled={prepared.sending}>✕</button>
@@ -109,7 +109,7 @@
     padding-top: 8vh;
     background: rgba(0, 0, 0, 0.45);
   }
-  .dialog {
+  .dialog-box {
     width: min(760px, 92vw);
     max-height: 84vh;
     display: flex;

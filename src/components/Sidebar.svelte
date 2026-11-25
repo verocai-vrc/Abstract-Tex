@@ -41,7 +41,7 @@
   }
 </script>
 
-<aside class="sidebar">
+<aside class="left-pane">
   {#if app.project}
     <div class="files-section">
       <div class="sidebar-head">

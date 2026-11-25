@@ -20,7 +20,7 @@
 {#if snapshots.selected}
   <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && closeSnapshot()}>
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <div class="dialog" role="dialog" aria-modal="true" aria-label="An earlier version" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
+    <div class="dialog-box" role="dialog" aria-modal="true" aria-label="An earlier version" tabindex="-1" use:modalFocus onkeydown={onKeydown}>
       <header>
         <span>{title}</span>
         <button class="ghost" onclick={closeSnapshot} aria-label="Close">✕</button>
@@ -83,7 +83,7 @@
     align-items: flex-start;
     padding-top: 6vh;
   }
-  .dialog {
+  .dialog-box {
     width: min(760px, 94vw);
     max-height: 84vh;
     display: flex;

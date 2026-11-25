@@ -17,9 +17,21 @@ vi.mock('./ipc', () => ({
 
 const { app } = await import('./state.svelte');
 const { startScreen } = await import('./start.svelte');
-const { applyRememberedLook, look, setTextSize, zoomMissingFromPixelRatio } = await import('./look.svelte');
+const { applyRememberedLook, look, resolveLook, setColours, setTextSize, zoomMissingFromPixelRatio } = await import('./look.svelte');
 const { allCommands } = await import('./commands');
 await import('./start-controller.svelte');
+
+/** What the system wants, and who listens for it to change. */
+const system = { dark: false, moreContrast: false };
+let listeners: Array<() => void> = [];
+const root = { dataset: {} as Record<string, string | undefined> };
+vi.stubGlobal('document', { documentElement: root });
+vi.stubGlobal('matchMedia', (query: string) => ({
+  get matches() {
+    return query.includes('contrast') ? system.moreContrast : system.dark;
+  },
+  addEventListener: (_kind: string, listener: () => void) => listeners.push(listener),
+}));
 
 const kept: Preferences = { place: { path: '/d', parts: ['d'] }, author: '', textSize: 100, colours: 'match' };
 
@@ -31,6 +43,9 @@ beforeEach(() => {
     setPreferences: (change: Partial<Preferences>) => ({ ...kept, ...change }),
   };
   look.textSize = 100;
+  look.colours = 'match';
+  root.dataset = {};
+  system.dark = system.moreContrast = false;
   startScreen.preferences = null;
   startScreen.message = null;
   startScreen.visible = true;
@@ -114,5 +129,72 @@ describe('text size (S17.11)', () => {
     expect([command?.title, command?.withoutDocument]).toEqual(['Text and colours…', true]);
     command?.run();
     expect(startScreen.page).toBe('look');
+  });
+});
+
+describe('colours (S17.12)', () => {
+  it('are the ones chosen, or the ones the system wants', () => {
+    expect(resolveLook('match', false, false)).toBe('light');
+    expect(resolveLook('match', true, false)).toBe('dark');
+    expect(resolveLook('match', false, true)).toBe('contrast-light');
+    expect(resolveLook('match', true, true)).toBe('contrast-dark');
+    expect(resolveLook('contrast-light', true, false)).toBe('contrast-light');
+    expect(resolveLook('light', true, true)).toBe('light');
+  });
+
+  it('are applied at once and remembered', async () => {
+    const remembering = setColours('contrast-dark');
+    expect([look.colours, root.dataset.look]).toEqual(['contrast-dark', 'contrast-dark']);
+    await remembering;
+    expect(ipcCalls).toEqual([['setPreferences', { colours: 'contrast-dark' }]]);
+    expect(startScreen.preferences?.colours).toBe('contrast-dark');
+  });
+
+  it('that cannot be remembered are applied, and that is said', async () => {
+    answers.setPreferences = () => {
+      throw 'the disk is full';
+    };
+    await setColours('dark');
+    expect([root.dataset.look, startScreen.message?.text]).toEqual(['dark', 'the disk is full']);
+  });
+
+  it('that were remembered are applied before the window is drawn', async () => {
+    answers.preferences = () => ({ ...kept, colours: 'contrast-light' });
+    await applyRememberedLook();
+    expect([look.colours, root.dataset.look]).toEqual(['contrast-light', 'contrast-light']);
+  });
+
+  it('match the system when nothing answers', async () => {
+    system.dark = true;
+    answers.preferences = () => new Promise(() => {});
+    void applyRememberedLook();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(root.dataset.look).toBe('dark');
+  });
+
+  it('are not put back by a wait that is over', async () => {
+    let answer!: (preferences: Preferences) => void;
+    answers.preferences = () => new Promise((resolve) => (answer = resolve));
+    void applyRememberedLook();
+    await vi.advanceTimersByTimeAsync(999);
+    answer({ ...kept, colours: 'dark' });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(root.dataset.look).toBe('dark');
+  });
+
+  it('follow the system while they match it, and only then', async () => {
+    listeners = [];
+    await applyRememberedLook();
+    expect(root.dataset.look).toBe('light');
+    system.dark = true;
+    for (const listener of listeners) listener();
+    expect(root.dataset.look).toBe('dark');
+    system.moreContrast = true;
+    for (const listener of listeners) listener();
+    expect(root.dataset.look).toBe('contrast-dark');
+    expect(listeners.length).toBe(2);
+    await setColours('light');
+    for (const listener of listeners) listener();
+    expect(root.dataset.look).toBe('light');
   });
 });
