@@ -535,6 +535,22 @@ example = "T"
         }
     }
 
+    /// Found by the review of S17: the engine's own fonts have every sign people type, and the old ones that
+    /// `fontenc` asks for do not. In them ’ and – are left out of the PDF without an error, and ° is `ř`.
+    #[test]
+    fn no_shipped_template_asks_for_fonts_without_curly_quotes() {
+        let catalog = Catalog::embedded().unwrap();
+        for template in catalog.templates() {
+            for (path, bytes) in &template.files {
+                assert!(
+                    !String::from_utf8_lossy(bytes).contains("{fontenc}"),
+                    "{path} of template `{}` asks for `fontenc`",
+                    template.id
+                );
+            }
+        }
+    }
+
     /// The first template that ships, end to end: the real files, the real manifest, a real folder.
     #[test]
     fn the_blank_template_makes_a_project() {
