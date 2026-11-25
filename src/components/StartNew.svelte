@@ -4,7 +4,7 @@
   // written before that. Esc steps back (`startBack`).
   import { app } from '../lib/state.svelte';
   import { newProject, categoriesOf, categoryLabel, filterTemplates } from '../lib/templates.svelte';
-  import { handledByInputMethod } from '../lib/keys';
+  import { handledByInputMethod, pressesEnter } from '../lib/keys';
   import {
     changePlace,
     chooseTemplate,
@@ -30,14 +30,14 @@
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       moveTemplateSelection(-1);
-    } else if (event.key === 'Enter' && chosen && shown.includes(chosen)) {
+    } else if (pressesEnter(event) && chosen && shown.includes(chosen)) {
       event.preventDefault();
       chooseTemplate(chosen.id);
     }
   }
 
   function onAnswerKey(event: KeyboardEvent) {
-    if (handledByInputMethod(event) || event.key !== 'Enter') return;
+    if (!pressesEnter(event)) return;
     event.preventDefault();
     void createProject();
   }

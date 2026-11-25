@@ -21,3 +21,9 @@ export interface CompositionFacts {
 export function handledByInputMethod(event: CompositionFacts): boolean {
   return event.isComposing === true || event.keyCode === 229;
 }
+
+/** Whether this keydown is someone pressing Enter. A key that is held repeats, and by then the focus may
+ * be in another field: the same press must not answer that one as well. */
+export function pressesEnter(event: CompositionFacts & { key: string; repeat?: boolean }): boolean {
+  return event.key === 'Enter' && event.repeat !== true && !handledByInputMethod(event);
+}
