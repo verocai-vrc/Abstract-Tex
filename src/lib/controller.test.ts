@@ -5093,6 +5093,69 @@ describe('saving the PDF (S17.7)', () => {
     expect(calls.order).toEqual([PICKED, 'savePdf /out/a.pdf 6']);
   });
 
+  it('builds first when a file of the document was replaced or deleted outside', async () => {
+    for (const [path, exists] of [['/proj/figures/chart.png', true], ['/proj/refs.bib', false]] as const) {
+      await built();
+      fsHandler({ path, exists });
+      await vi.advanceTimersByTimeAsync(5000);
+      await savePdf();
+      expect(calls.order).toEqual([PICKED, 'compile', 'savePdf /out/a.pdf 7']);
+      // That build is of it: once is enough.
+      calls.order.length = 0;
+      await savePdf();
+      expect(calls.order).toEqual([PICKED, 'savePdf /out/a.pdf 7']);
+    }
+  });
+
+  it('a build that could not be asked for leaves it still to be built', async () => {
+    await built();
+    fsHandler({ path: '/proj/figures/chart.png', exists: true });
+    compileRefused = true;
+    await savePdf();
+    expect(app.savedPdf?.isNewest).toBe(false);
+    compileRefused = false;
+    compileHandler({ status: 'started', generation: 6, rootFile: 'main.tex' }); // it is not `failed` that decides
+    await savePdf();
+    expect(calls.order.at(-2)).toBe('compile');
+  });
+
+  it('a PDF saved into the folder of the document is not a change to it', async () => {
+    await built();
+    savePathAnswer = '/proj/Thesis';
+    await savePdf();
+    fsHandler({ path: '/proj/Thesis.pdf', exists: true });
+    await vi.advanceTimersByTimeAsync(5000);
+    calls.order.length = 0;
+    await savePdf();
+    expect(calls.order).toEqual([PICKED, 'savePdf /proj/Thesis 6']);
+  });
+
+  it('text saved for an opening that was refused is built, and is in the PDF that is saved', async () => {
+    await built();
+    type('more');
+    openProjectAnswer = Promise.reject(new Error('/nowhere is not a folder'));
+    openProjectAnswer.catch(() => {});
+    await openFolder('/nowhere');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.order.filter((entry) => entry === 'compile')).toHaveLength(1);
+    await savePdf();
+    expect(calls.order.slice(-2)).toEqual([PICKED, 'savePdf /out/a.pdf 7']);
+    // Nothing saved, nothing built.
+    await openFolder('/nowhere');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.order.filter((entry) => entry === 'compile')).toHaveLength(1);
+  });
+
+  it('and so is text saved for a clone that was not made', async () => {
+    await built();
+    type('more');
+    parentFolderAnswer = null;
+    clone.url = 'https://example.com/a.git';
+    await cloneRepository();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls.order).toContain('compile');
+  });
+
   it('saves the build that is being asked for, when one is', async () => {
     await built();
     void triggerCompile(); // its `started` has not been heard yet

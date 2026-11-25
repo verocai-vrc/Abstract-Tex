@@ -458,6 +458,20 @@ describe('a new document (S11.11, S17.6)', () => {
     expect(only('setPreferences')).toEqual([]);
   });
 
+  it('a refusal leaves the open document with its newest text built', async () => {
+    await openRecent('/a');
+    await vi.advanceTimersByTimeAsync(5000);
+    app.activeDoc!.ytext.insert(0, 'more ');
+    ipcCalls.length = 0;
+    answers.templateCreate = () => {
+      throw 'taken';
+    };
+    await fillIn({ title: 'T' });
+    await createProject();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(only('writeFile', 'templateCreate', 'compile').map((call) => call[0])).toEqual(['writeFile', 'templateCreate', 'compile']);
+  });
+
   it('creates nothing while the open document cannot be left, and says why here (R6.9)', async () => {
     app.project = project;
     app.conflict = { path: 'main.tex' } as typeof app.conflict;

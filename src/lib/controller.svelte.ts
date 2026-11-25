@@ -53,7 +53,10 @@ import { words } from './words';
 import { app, type ActivityView, type Pane } from './state.svelte';
 
 const backend: DocumentBackend = {
-  writeFile: (path, contents) => ipc.writeFile(path, contents),
+  writeFile: async (path, contents) => {
+    await ipc.writeFile(path, contents);
+    changedSinceBuild = true;
+  },
   diffOps: (oldText, newText) => ipc.diffOps(oldText, newText),
   afterSave: (path) => {
     // The server hears about the new text here rather than on every keystroke: a save is
@@ -1104,7 +1107,7 @@ export async function cloneRepository(): Promise<void> {
       return;
     }
     const parent = await ipc.pickParentFolder();
-    if (!parent) return;
+    if (!parent) return buildWhatChanged();
     clone.cloning = true;
     const folderName = clone.folderName.trim();
     const folder = await ipc.gitClone(clone.url.trim(), parent, folderName === '' ? null : folderName);
@@ -1114,6 +1117,7 @@ export async function cloneRepository(): Promise<void> {
     await openFolder(folder);
   } catch (error) {
     clone.error = String(error);
+    buildWhatChanged();
   } finally {
     clone.cloning = false;
   }
@@ -2154,7 +2158,9 @@ export async function openFolder(
     manager.releaseSaves('opening');
     if (!startScreen.visible) app.editorFocusRequest += 1; // there, the focus is still on what was pressed
     if (!stopAsked) tell(error instanceof Error ? error.message : String(error));
+    // `whyNotToLeaveProject` may have saved text, and the document it is in is the one that stays open.
     if (buildAskedWhileOpening) void triggerCompile();
+    else buildWhatChanged();
     return false;
   }
   projectEpoch += 1;
@@ -2172,6 +2178,7 @@ export async function openFolder(
     app.project = info;
     nameWindow(info.title);
     app.hasPdf = info.hasPdf;
+    changedSinceBuild = false; // the one before's; nothing of this one is built yet
     app.savedPdf = null;
     // The previous project's placeholders are not this one's (S11.12).
     placeholders.byFile = new Map();
@@ -2496,6 +2503,16 @@ export async function saveNow(): Promise<void> {
 /** The build asked for last: its number, once it is known. `null` when none could be. */
 let buildAskedLast: Promise<number | null> = Promise.resolve(null);
 
+/** Whether a file of the document changed since the last build was asked for: text of ours that was
+ * saved, or anything in the folder that something else wrote or deleted, such as a figure. Most of it
+ * asks for a build at once; this is for what does not, and *Save PDF* must not call that PDF the newest. */
+let changedSinceBuild = false;
+
+/** For where text was saved on the way to another document, and this one stays open after all. */
+export function buildWhatChanged(): void {
+  if (changedSinceBuild) void triggerCompile();
+}
+
 /** Save everything and build. Answers the build's number, or `null` when there is none. */
 export function triggerCompile(): Promise<number | null> {
   buildAskedLast = saveAndBuild();
@@ -2514,15 +2531,23 @@ async function saveAndBuild(): Promise<number | null> {
     /* the tab that failed to save is still dirty and will retry on its own debounce; a build
      * against a slightly stale version of one file beats not building at all. */
   });
+  // Before asking and not after: what changes from here on may be too late for this build.
+  const wasChanged = changedSinceBuild;
+  changedSinceBuild = false;
   try {
     // The file being edited, so Rust can draft its chapter beside the full build (S9.9).
     return await ipc.compile(app.activePath);
   } catch (error) {
+    changedSinceBuild ||= wasChanged;
     app.compile = { ...app.compile, phase: 'failed', message: String(error) };
     app.drawerOpen = true;
     return null;
   }
 }
+
+/** Where a PDF was saved last. In the document's own folder it is a change to a file, but not to what a
+ * build reads. */
+let pdfSavedAt = '';
 
 /** Held from the dialog on, so that the button cannot put up a second one. */
 let isSavingPdf = false;
@@ -2543,10 +2568,11 @@ export async function savePdf(): Promise<void> {
     app.savingPdf = true;
     // `idle`: not built since it was opened. `failed`: the last one never ran, so what it was for is unbuilt.
     const isBuilt = app.compile.phase !== 'idle' && app.compile.phase !== 'failed';
-    const isUpToDate = isBuilt && manager.dirtyPaths().length === 0;
+    const isUpToDate = isBuilt && !changedSinceBuild && manager.dirtyPaths().length === 0;
     const asked = await (isUpToDate ? buildAskedLast : triggerCompile());
     // Text that could not be saved, or a build that could not be asked for: Rust cannot know of either.
     const isWhole = manager.dirtyPaths().length === 0 && (isUpToDate || asked !== null);
+    pdfSavedAt = destination;
     const saved = await ipc.savePdf(destination, Math.max(asked ?? 0, app.compile.generation));
     if (epoch !== projectEpoch) return;
     app.savedPdf = { ...saved, isNewest: saved.isNewest && isWhole };
@@ -3296,6 +3322,9 @@ async function handleFsEvent(event: FsEvent): Promise<void> {
   if (relative === null) return;
 
   scheduleTreeRefresh();
+  // Rust adds `.pdf` to a name that has no ending.
+  const isSavedPdf = [pdfSavedAt, `${pdfSavedAt}.pdf`].some((saved) => toRelative(saved, project.rootDir) === relative);
+  if (!isSavedPdf) changedSinceBuild = true;
 
   await reconcileOpenDocument(relative, event.exists);
   if (relative.endsWith('.tex') && !manager.isOpen(relative)) void refreshPlaceholdersOnDisk(relative, event.exists);
