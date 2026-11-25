@@ -266,7 +266,7 @@
     grid-area: said;
   }
   .message {
-    margin: 20px 40px 0;
+    margin: 20px 40px 8px;
     padding: 12px 16px;
     overflow-wrap: anywhere;
     background: var(--bg-editor);
