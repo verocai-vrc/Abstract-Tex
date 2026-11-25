@@ -163,8 +163,14 @@
     padding: 8px 12px;
     color: var(--fg);
     background: var(--bg-editor);
-    border: 1px solid var(--border);
+    border: 1px solid var(--fg-muted);
     border-radius: var(--radius);
+  }
+  /* An example is a hint, not an answer: as bright as typed text, "Your name" looked filled in. */
+  :global(.start input::placeholder) {
+    color: var(--fg-muted);
+    font-style: italic;
+    opacity: 1;
   }
   :global(.start h1),
   :global(.start h2),
@@ -190,6 +196,9 @@
   }
   :global(.start .muted) {
     color: var(--fg-muted);
+  }
+  :global(.start button:hover .muted) {
+    color: var(--fg);
   }
 
   nav {

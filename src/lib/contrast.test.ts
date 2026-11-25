@@ -84,6 +84,24 @@ describe.each(Object.entries(palettes))('%s', (name, palette) => {
     expect(contrast(rgb(palette['fg']!), over(palette['selection']!, palette['bg-editor']!))).toBeGreaterThanOrEqual(4.5);
   });
 
+  // What is hovered, pressed or chosen has a tint, and the muted colour does not read on all of them.
+  it(`the text of what is hovered, pressed or chosen reads at ${enough}:1`, () => {
+    const failures: string[] = [];
+    for (const tint of TINTS) {
+      for (const surface of SURFACES) {
+        for (const text of ['fg', 'accent']) {
+          const ratio = contrast(rgb(palette[text]!), over(palette[tint]!, palette[surface]!));
+          if (ratio < enough) failures.push(`${text} on ${tint} on ${surface}: ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+    for (const text of TEXT) {
+      const ratio = contrast(rgb(palette[text]!), over(palette['bg-active-line']!, palette['bg-editor']!));
+      if (ratio < enough) failures.push(`${text} on the line the cursor is in: ${ratio.toFixed(2)}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
   if (!isHighContrast) return;
 
   it('every text colour also reads on a chosen row, and the text on a selection', () => {
@@ -142,4 +160,21 @@ it('no component has a colour of its own', () => {
         .map((colour) => `${file}: ${colour}`);
     });
   expect(literalColours).toEqual([]);
+});
+
+// The start screen's own rules (S17.18). What a box is for, before there is anything in it, is drawn in the
+// webview's grey unless we say otherwise (WebKitGTK's is 2.3:1), and the edge of a box in `border` is 1.4:1.
+it('the start screen draws no faint text and no faint box', () => {
+  const screen = readFileSync(path.resolve('src/components/StartScreen.svelte'), 'utf8');
+  const rule = (selector: string) => screen.split(`  :global(${selector}) {`)[1]?.split('}')[0] ?? '';
+  expect(rule('.start button:hover .muted')).toMatch(/color: var\(--fg\);/);
+  expect(rule('.start input::placeholder')).toMatch(/color: var\(--fg-muted\);[\s\S]*opacity: 1;/);
+  expect(screen).toMatch(/:global\(\.start input\) \{[^}]*border: 1px solid var\(--fg-muted\);/);
+  // Faded text is faint text. Only what cannot be pressed now may be.
+  const faded = readdirSync(path.resolve('src/components'))
+    .filter((file) => /^(Start\w+|OpeningNotice|SavedPdfNotice|FirstPdf)\.svelte$/.test(file))
+    .flatMap((file) =>
+      [...readFileSync(path.resolve('src/components', file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]*)\{[^{}]*[^-]opacity: 0?\.\d/g)].map((m) => m[1]!.trim()),
+    );
+  expect(faded).toEqual([":global(.start [aria-disabled='true'])"]);
 });

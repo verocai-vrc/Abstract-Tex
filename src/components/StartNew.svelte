@@ -213,11 +213,6 @@
   .label {
     font-weight: 600;
   }
-  /* An example is a hint, not an answer: as bright as typed text, "Your name" looked filled in. */
-  input::placeholder {
-    color: var(--fg-muted);
-    font-style: italic;
-  }
   .place {
     display: flex;
     flex-wrap: wrap;
