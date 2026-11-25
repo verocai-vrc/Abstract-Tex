@@ -8,7 +8,9 @@
 
   const { active, otherwise }: { active: boolean; otherwise: string } = $props();
 
-  const fetching = $derived(active && app.compile.phase === 'running' && app.compile.partsFetched > 0);
+  // Not for a document that had a PDF before: its first build of the day may need one new part, which the
+  // status bar names. "The first time… once" would be false.
+  const fetching = $derived(active && !app.hasPdf && app.compile.phase === 'running' && app.compile.partsFetched > 0);
   const offline = $derived(active && app.compile.phase === 'failed' && app.compile.reason === 'needsInternetOnce');
 
   let now = $state(Date.now());
