@@ -45,6 +45,13 @@ const pdfWorker = new Worker(workerUrl, { type: 'module' });
 
 pdfjs.GlobalWorkerOptions.workerPort = pdfWorker;
 
+/** Have pdf.js draw its pages at the ratio `current` answers, in device pixels to a CSS pixel, and not at
+ * the window's `devicePixelRatio`, which in WebKit does not have the zoom in it (S17.11). pdf.js asks its
+ * own `OutputScale` each time, and has no option for this. What is already drawn needs a `redraw`. */
+export function drawAtPixelRatio(current: () => number): void {
+  Object.defineProperty(pdfjs.OutputScale, 'pixelRatio', { get: current, configurable: true });
+}
+
 /** The share of the pane's width a page fills at the "fit" size: a page flush with both edges of the
  * pane looks cut off. */
 const FIT_SHARE = 0.94;
@@ -169,6 +176,11 @@ class Surface {
     this.pdfViewer.setDocument(document);
     this.linkService.setDocument(document, null);
     return initialised;
+  }
+
+  /** Draw the pages again at the same size. */
+  redraw(): void {
+    if (this.document) this.pdfViewer.refresh();
   }
 
   /** The size that fits the pane's width ([`FIT_SHARE`] of it), times `zoom`. */
@@ -372,6 +384,11 @@ export class PdfViewer {
   setZoom(zoom: number): void {
     this.zoom = clampZoom(zoom);
     this.active?.applyZoom(this.zoom);
+  }
+
+  /** Draw the pages again: the pixel ratio has changed (see `drawAtPixelRatio`). */
+  redraw(): void {
+    this.active?.redraw();
   }
 
   getZoom(): number {

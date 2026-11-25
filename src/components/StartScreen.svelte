@@ -10,6 +10,7 @@
   import { words } from '../lib/words';
   import { savePdf } from '../lib/controller.svelte';
   import SavedPdfNotice from './SavedPdfNotice.svelte';
+  import StartLook from './StartLook.svelte';
   import StartHome from './StartHome.svelte';
   import StartNew from './StartNew.svelte';
   import StartOpen from './StartOpen.svelte';
@@ -71,6 +72,11 @@
             {words.pages.open}
           </button>
         </li>
+        <li class="apart">
+          <button aria-current={startScreen.page === 'look' ? 'page' : undefined} onclick={() => goToPage('look', 'heading')}>
+            {words.pages.look}
+          </button>
+        </li>
       </ul>
     </nav>
 
@@ -87,6 +93,8 @@
         <StartOpen />
       {:else if startScreen.page === 'new'}
         <StartNew />
+      {:else if startScreen.page === 'look'}
+        <StartLook />
       {:else}
         <StartHome />
       {/if}
@@ -183,6 +191,9 @@
     flex-direction: column;
     gap: 4px;
   }
+  .apart {
+    margin-top: 16px;
+  }
   nav button {
     width: 100%;
     text-align: left;
@@ -237,6 +248,9 @@
     }
     nav button {
       width: auto;
+    }
+    .apart {
+      margin-top: 0;
     }
     main {
       padding: 20px 20px 32px;

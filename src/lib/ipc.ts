@@ -861,6 +861,7 @@ export const ipc = {
   inspectChoice: (path: string) => invoke<Choice>('inspect_choice', { path }),
   copyStray: (file: string) => invoke<string>('copy_stray', { file }),
   unpackZip: (path: string) => invoke<Unpacked>('unpack_zip', { path }),
+  applyTextSize: (size: TextSize) => invoke<void>('apply_text_size', { size }),
   preferences: () => invoke<Preferences>('preferences'),
   /** Change what is given and leave the rest; answers with all of them. */
   setPreferences: (change: Partial<{ place: string; author: string; textSize: TextSize; colours: Colours }>) =>

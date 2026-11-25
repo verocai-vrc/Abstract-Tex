@@ -12,7 +12,7 @@ export const words = {
   /** The name of the list down the left, for a screen reader. */
   startNavigation: 'Start',
 
-  pages: { home: 'Home', new: 'New', open: 'Open' },
+  pages: { home: 'Home', new: 'New', open: 'Open', look: 'Text and colours' },
 
   /** Over an open document: the way back to it. */
   backTo: (title: string) => `Back to ${title}`,
@@ -132,6 +132,11 @@ export const words = {
   /** A chosen file that is no part of the document the PDF is made from. */
   pdfShowsAnother: (main: string, chosen: string) =>
     `The PDF shows ${main}. ${chosen} is in the same folder, but is not part of that document.`,
+
+  lookTitle: 'Text and colours',
+  textSize: 'Text size',
+  textSizeHint: 'Everything in the window gets larger. The PDF you save stays as it is.',
+  percent: (size: number) => `${size}%`,
 
   opening: (name: string) => `Opening ${name}…`,
   stop: 'Stop',

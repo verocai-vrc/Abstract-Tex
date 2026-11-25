@@ -232,6 +232,7 @@ pub fn run() {
             finished_pdf::show_saved_pdf,
             start::inspect_choice,
             start::unpack_zip,
+            start::apply_text_size,
             start::copy_stray,
             start::preferences,
             start::set_preferences,

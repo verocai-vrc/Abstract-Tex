@@ -16,7 +16,7 @@ use abstract_tex_import::{
 };
 use abstract_tex_templates::folder_name_for_title;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 use tokio::sync::watch;
 
 use crate::assistant::AssistantSettings;
@@ -388,6 +388,21 @@ pub async fn set_preferences<R: Runtime>(
     })
     .await
     .map_err(to_message)?
+}
+
+fn nearest_text_size(asked: u16) -> u16 {
+    TEXT_SIZES
+        .into_iter()
+        .min_by_key(|size| size.abs_diff(asked))
+        .unwrap_or(100)
+}
+
+/// Make everything in the window `size` percent of its usual size. From Rust, so that the page needs no
+/// permission to zoom its window.
+#[tauri::command]
+pub fn apply_text_size<R: Runtime>(window: WebviewWindow<R>, size: u16) -> CommandResult<()> {
+    let zoom = f64::from(nearest_text_size(size)) / 100.0;
+    window.set_zoom(zoom).map_err(to_message)
 }
 
 /// The folders that are never one document: the ones the system names, the ones new documents go in, the
@@ -783,6 +798,20 @@ mod tests {
         change(r#"{"textSize": 150}"#).unwrap();
         let kept = change(r#"{"colours": "contrast-light"}"#).unwrap();
         assert_eq!((kept.text_size, kept.colours), (150, Colours::ContrastLight));
+    }
+
+    #[test]
+    fn a_size_that_is_not_offered_becomes_the_nearest_one() {
+        for (asked, nearest) in [
+            (0, 100),
+            (100, 100),
+            (107, 100),
+            (108, 115),
+            (160, 150),
+            (999, 200),
+        ] {
+            assert_eq!(nearest_text_size(asked), nearest, "{asked}");
+        }
     }
 
     #[test]

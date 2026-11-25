@@ -360,6 +360,13 @@ async function rememberAuthor(author: string): Promise<void> {
 
 // The palette is gone by the time its entry runs, so there is no dialog for these to be wary of.
 registerCommand({
+  id: 'look',
+  title: 'Text and colours…',
+  category: 'action',
+  withoutDocument: true,
+  run: () => showStart('look', false),
+});
+registerCommand({
   id: 'home',
   title: 'Home',
   category: 'action',

@@ -11,7 +11,8 @@
     syncTexInverse,
   } from '../lib/controller.svelte';
   import { describeFind, searchSeed, type FindStatus } from '../lib/pdf/find';
-  import { PdfViewer } from '../lib/pdf/viewer';
+  import { look, pixelRatio } from '../lib/look.svelte';
+  import { drawAtPixelRatio, PdfViewer } from '../lib/pdf/viewer';
   import { tick, untrack } from 'svelte';
 
   let container: HTMLElement | undefined = $state();
@@ -41,6 +42,19 @@
       void viewer?.destroy();
       viewer = null;
     };
+  });
+
+  // Text of another size is another number of pixels to each CSS one (S17.11).
+  drawAtPixelRatio(pixelRatio);
+  let drawnAt = pixelRatio();
+  function redrawAtNewRatio() {
+    if (pixelRatio() === drawnAt) return;
+    drawnAt = pixelRatio();
+    viewer?.redraw();
+  }
+  $effect(() => {
+    void look.textSize;
+    redrawAtNewRatio();
   });
 
   // SyncTeX forward search (S3.4): scroll to and highlight wherever the editor last asked for.
@@ -145,6 +159,8 @@
     viewer.setZoom(viewer.getZoom() * (event.deltaY < 0 ? 1.1 : 0.9));
   }
 </script>
+
+<svelte:window onresize={redrawAtNewRatio} />
 
 <!-- tabindex -1: a click on the PDF puts the keyboard here, so Ctrl F finds the PDF's text while the
      reader is looking at it. -->
