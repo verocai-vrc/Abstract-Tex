@@ -19,7 +19,7 @@ fetched: run `python scripts/dev-proxy.py` and set `HTTPS_PROXY=http://127.0.0.1
 On a machine where the app has never run, or with `XDG_CONFIG_HOME` and `XDG_DATA_HOME` pointing at empty
 folders.
 
-1. Start with no folder. The window says *Home*: five templates, and no recent documents.
+1. Start with no folder. The window says *Welcome to Abstract*: five templates, and no recent documents.
 2. Press *Essay*. Type a title and your name. The page says where it will be kept. Press *Create*: no
    folder is asked for, the essay opens, and the first placeholder is selected.
 3. While the first PDF is made the right-hand pane says so and, on a cold cache, that parts of LaTeX are

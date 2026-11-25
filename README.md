@@ -70,8 +70,8 @@ converting anything.
 ### Start a document, keep its history
 
 - **A start screen** for people who have never seen LaTeX: carry on with the last document, start a
-  new one, or open one, with no folder to choose and nothing to set up. Each recent document shows
-  its first page.
+  new one with no folder to choose and nothing to set up, or open one you have. Each recent document
+  shows its first page.
 - **New from template**: a paper, thesis, report, essay, letter, CV, slides or a blank page,
   compiled on your machine, with the fill-in-the-blanks parts marked so you can jump between them.
 - **Open what you have**: a `.tex` file, a folder, a `.zip` from Overleaf, or a Git address. A `.tex`

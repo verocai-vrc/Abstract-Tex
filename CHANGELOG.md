@@ -31,8 +31,8 @@ Written for someone who has only used Word. Nothing in the files or the engine c
 - Opening a folder no longer stops the window, and can be stopped. Nothing is saved into the wrong
   folder while it happens.
 - On screen it is a *document*. The assistant, Git and live-session panes still say *project*.
-- *New…*, *Open folder…* and *Clone…* are gone from the toolbar; they are pages of the start screen, with
-  the shortcuts they had.
+- *New…*, *Open folder…* and *Clone…* are gone from the toolbar. The first two are pages of the start screen,
+  with the shortcuts they had; *Clone…* is now a button on its Open page.
 - A new document starts with no permission that was given to another folder at the same address.
 
 Tried on Linux; not yet on Windows or macOS.
