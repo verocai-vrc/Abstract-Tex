@@ -53,7 +53,7 @@ type RealPlace = dyn Fn(&Path) -> Option<PathBuf> + Send + Sync;
 
 impl Default for SlowPlaces {
     fn default() -> Self {
-        Self::asking(|folder| folder.canonicalize().ok())
+        Self::asking(real_address)
     }
 }
 
@@ -96,7 +96,8 @@ impl SlowPlaces {
         asked
     }
 
-    fn real_places(&self, folders: &[&Path]) -> Vec<Option<PathBuf>> {
+    /// Where folders really are; `None` for one that did not say in time.
+    pub fn real_places(&self, folders: &[&Path]) -> Vec<Option<PathBuf>> {
         let question = |folder: &Path| -> Question {
             let (real_place, folder) = (Arc::clone(&self.real_place), folder.to_path_buf());
             Box::new(move || real_place(&folder))
@@ -108,6 +109,16 @@ impl SlowPlaces {
                 .collect(),
         )
     }
+}
+
+/// Where a folder really is, or would be if it were made: links are followed as far as it exists. Waits
+/// for the disk it is on.
+fn real_address(folder: &Path) -> Option<PathBuf> {
+    folder.ancestors().find_map(|existing| {
+        let real = existing.canonicalize().ok()?;
+        let rest = folder.strip_prefix(existing).ok()?;
+        Some(real.join(rest).components().collect())
+    })
 }
 
 /// The crowded folders of this computer.

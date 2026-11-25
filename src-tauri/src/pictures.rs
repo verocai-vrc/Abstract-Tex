@@ -41,7 +41,7 @@ impl Pictures {
     /// Where the picture of the document in `folder` is, if there is one.
     pub fn path_for(&self, folder: &Path) -> PathBuf {
         self.folder
-            .join(name_for(&folder.to_string_lossy(), cfg!(windows)))
+            .join(name_for(&folder.to_string_lossy(), recents::IGNORING_CASE))
     }
 
     /// Keep `png` for a document that is on the list, and take the others' off that no longer are: the
@@ -50,7 +50,7 @@ impl Pictures {
         let wanted = folder.to_string_lossy();
         if !listed
             .iter()
-            .any(|document| recents::same_folder(&document.folder, &wanted, cfg!(windows)))
+            .any(|document| recents::same_folder(&document.folder, &wanted, recents::IGNORING_CASE))
         {
             return Err(PictureError::NotListed);
         }
@@ -66,7 +66,7 @@ impl Pictures {
     fn keep_only(&self, listed: &[RecentDocument]) {
         let names: Vec<String> = listed
             .iter()
-            .map(|document| name_for(&document.folder, cfg!(windows)))
+            .map(|document| name_for(&document.folder, recents::IGNORING_CASE))
             .collect();
         for entry in fs::read_dir(&self.folder).into_iter().flatten().flatten() {
             if !names.iter().any(|name| entry.file_name() == name.as_str()) {

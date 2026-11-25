@@ -91,7 +91,7 @@ impl RecentDocuments {
             let Some(old_at) = position_of(documents, &from) else {
                 return;
             };
-            if same_folder(&from, &to, cfg!(windows)) {
+            if same_folder(&from, &to, IGNORING_CASE) {
                 return;
             }
             match position_of(documents, &to) {
@@ -155,15 +155,19 @@ pub fn folder_name(folder: &Path) -> String {
 fn position_of(documents: &[RecentDocument], folder: &str) -> Option<usize> {
     documents
         .iter()
-        .position(|document| same_folder(&document.folder, folder, cfg!(windows)))
+        .position(|document| same_folder(&document.folder, folder, IGNORING_CASE))
 }
 
-/// Whether two paths name one folder. Windows does not tell `C:\Thesis` from `c:\thesis`.
+/// Whether this system tells `Thesis` from `thesis`.
+pub const IGNORING_CASE: bool = cfg!(any(windows, target_os = "macos"));
+
+/// Whether two paths are spellings of one folder. Part by part, so a separator at the end does not count.
 pub fn same_folder(a: &str, b: &str, ignoring_case: bool) -> bool {
     if ignoring_case {
-        a.to_lowercase() == b.to_lowercase()
+        let (a, b) = (a.to_lowercase(), b.to_lowercase());
+        Path::new(&a) == Path::new(&b)
     } else {
-        a == b
+        Path::new(a) == Path::new(b)
     }
 }
 

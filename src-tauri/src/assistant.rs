@@ -142,14 +142,20 @@ impl AssistantSettings {
     /// After an `Ok`, the assistant is off for this folder. Writes nothing when it was off already, so
     /// that a new document can be made while the settings cannot be written (S17.6).
     pub fn forget(&self, project_dir: &Path) -> Result<(), String> {
-        match fs::read_to_string(&self.file) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            // "Off" is only how a file that cannot be read is taken now. It may be readable later.
-            Err(error) => return Err(format!("Could not read the assistant's settings: {error}")),
-            Ok(_) if !self.is_enabled_for(project_dir) => return Ok(()),
-            Ok(_) => {}
+        if !self.enabled_folders()?.contains(&key_for(project_dir)) {
+            return Ok(());
         }
         set_enabled(self, project_dir, false)
+    }
+
+    /// The folders it is on for, as they were spelled when it was turned on.
+    pub fn enabled_folders(&self) -> Result<Vec<String>, String> {
+        match fs::read_to_string(&self.file) {
+            Ok(_) => Ok(self.read().enabled),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            // "Off" is only how a file that cannot be read is taken now. It may be readable later.
+            Err(error) => Err(format!("Could not read the assistant's settings: {error}")),
+        }
     }
 
     pub fn is_enabled_for(&self, project_dir: &Path) -> bool {

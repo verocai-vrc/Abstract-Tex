@@ -1237,7 +1237,7 @@ pub async fn git_clone<R: Runtime>(
     folder_name: Option<String>,
 ) -> CommandResult<String> {
     let destination = git::clone_destination(Path::new(&parent_dir), &url, folder_name.as_deref())?;
-    let about_to_be_made = destination.clone();
+    let (handle, about_to_be_made) = (app.clone(), destination.clone());
     tauri::async_runtime::spawn_blocking(move || {
         // A folder with something in it is refused below, and keeps what it was allowed.
         let holds_something =
@@ -1245,12 +1245,16 @@ pub async fn git_clone<R: Runtime>(
         if holds_something {
             return Ok(());
         }
-        crate::start::forget_permissions(&app, &about_to_be_made)
+        crate::start::forget_permissions(&handle, &about_to_be_made)
     })
     .await
     .map_err(to_message)??;
     let token = saved_github_token(&state.github).await?;
     let cloned = git::clone_blocking(url.trim().to_string(), destination, token).await?;
+    let made = cloned.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::start::forget_listing(&app, &made))
+        .await
+        .map_err(to_message)?;
     Ok(cloned.to_string_lossy().into_owned())
 }
 
@@ -1276,6 +1280,7 @@ pub async fn template_create<R: Runtime>(
         // Before the folder is made: if this fails, there is nothing that could have them.
         crate::start::forget_permissions(&app, &folder)?;
         crate::templates::create(&folder, &template_id, &fields)?;
+        crate::start::forget_listing(&app, &folder);
         // The title as it was typed (S17.3): a letter has no `\title` to read it back from.
         if let Some(recents) = app.try_state::<RecentDocuments>() {
             let root_file = crate::project::detect_root(&folder).unwrap_or_else(|| PathBuf::from("main.tex"));

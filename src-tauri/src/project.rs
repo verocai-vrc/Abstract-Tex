@@ -178,11 +178,7 @@ fn stamp(path: &Path) -> FileStamp {
 impl Project {
     /// Open a folder as a project. Creates `.abstract-tex/build/` and nothing else.
     pub fn open(dir: &Path) -> Result<Self> {
-        // `absolute` cleans up `.` and `..` without touching the filesystem. We avoid
-        // `canonicalize` on purpose: on Windows it returns `\\?\C:\...` paths, which are correct
-        // but confuse every tool and every user who sees them.
-        let root_dir =
-            std::path::absolute(dir).with_context(|| format!("not a valid path: {}", dir.display()))?;
+        let root_dir = one_spelling(dir).with_context(|| format!("not a valid path: {}", dir.display()))?;
         if !root_dir.is_dir() {
             bail!("{} is not a folder", root_dir.display());
         }
@@ -743,6 +739,22 @@ pub fn write_atomically(path: &Path, contents: &str) -> std::io::Result<()> {
     write_bytes_atomically(path, contents.as_bytes())
 }
 
+/// A folder as the app spells it wherever it keeps one: permissions, the recent list. Whole, with no
+/// separator at its end and no `..` in it.
+///
+/// Without `canonicalize`, except for a `..`: on Windows it returns `\\?\C:\...` paths, which are correct but
+/// confuse every tool and every user who sees them. There `absolute` takes a `..` out by itself; elsewhere
+/// it cannot, since `link/..` is not the folder the link is in, and only a disk knows.
+pub fn one_spelling(folder: &Path) -> std::io::Result<PathBuf> {
+    let whole: PathBuf = std::path::absolute(folder)?.components().collect();
+    if !whole.components().any(|part| part == Component::ParentDir) {
+        return Ok(whole);
+    }
+    // A folder about to be made is not there yet, but what it is made in is.
+    let real_parent = || Some(whole.parent()?.canonicalize().ok()?.join(whole.file_name()?));
+    Ok(whole.canonicalize().ok().or_else(real_parent).unwrap_or(whole))
+}
+
 /// Where a file is written before it takes `path`'s place. The process id, because two windows are two
 /// processes and may write one file at once. A number for the file's name and not the name itself, which
 /// may already be as long as a disk allows. The ending is how `watcher.rs` and the file tree know it.
@@ -1027,6 +1039,31 @@ mod tests {
             fs::read_to_string(dir.path().join("main.tex")).unwrap(),
             "the new text"
         );
+    }
+
+    /// Permissions and the recent list are kept under it, so one folder must have one.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_has_one_spelling_however_it_was_opened() {
+        let dir = scaffold(&[("thesis/main.tex", ""), ("other/x.tex", "")]);
+        // Where it really is, since a temporary folder can itself be reached through a link (macOS).
+        let place = dir.path().canonicalize().unwrap();
+        for spelling in [
+            "thesis",
+            "thesis/",
+            "./thesis/.",
+            "other/../thesis",
+            "thesis/../thesis/",
+        ] {
+            let project = Project::open(&place.join(spelling)).unwrap();
+            assert_eq!(
+                project.root_dir.as_os_str(),
+                place.join("thesis").as_os_str(),
+                "{spelling}"
+            );
+        }
+        let not_there_yet = one_spelling(&place.join("other/../new")).unwrap();
+        assert_eq!(not_there_yet, place.join("new"));
     }
 
     // 255 bytes is the longest name most disks take, and a saved PDF can be called anything up to that.

@@ -27,7 +27,7 @@ use crate::consent::ShellEscapeConsent;
 use crate::opening::Opening;
 use crate::pictures::Pictures;
 use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
-use crate::project::detect_root;
+use crate::project::{detect_root, one_spelling};
 use crate::recents::{self, RecentDocument, RecentDocuments};
 use crate::AppState;
 
@@ -273,7 +273,7 @@ fn listed_document(recents: &RecentDocuments, folder: &str) -> Option<RecentDocu
     recents
         .list()
         .into_iter()
-        .find(|document| recents::same_folder(&document.folder, folder, cfg!(windows)))
+        .find(|document| recents::same_folder(&document.folder, folder, recents::IGNORING_CASE))
 }
 
 fn listed(recents: &RecentDocuments, folder: &str) -> CommandResult<PathBuf> {
@@ -518,10 +518,7 @@ pub fn crowd<R: Runtime>(app: &AppHandle<R>) -> Crowd {
         let app = app.clone();
         (name.into(), Box::new(move || find(&app)))
     };
-    let places = match app.try_state::<SlowPlaces>() {
-        Some(places) => places.inner().clone(),
-        None => SlowPlaces::default(), // a test that is not about this
-    };
+    let places = slow_places(app);
     let home = app.path().home_dir().ok();
     // `flatten` drops the ones this system does not name, or not in time.
     let mut listed: Vec<PathBuf> = places.ask(found.map(ask).into()).into_iter().flatten().collect();
@@ -699,9 +696,12 @@ fn unpack_to_place<R: Runtime>(app: &AppHandle<R>, zip: &Path, opening: &Opening
         return Ok(Unpacked::Stopped);
     }
     Ok(match staged.place(&folder) {
-        Ok(()) => Unpacked::Unpacked {
-            folder: folder.to_string_lossy().into_owned(),
-        },
+        Ok(()) => {
+            forget_listing(app, &folder);
+            Unpacked::Unpacked {
+                folder: folder.to_string_lossy().into_owned(),
+            }
+        }
         Err(error) => told(UnpackError::Io(error)),
     })
 }
@@ -756,6 +756,7 @@ fn copy_to_place<R: Runtime>(app: &AppHandle<R>, file: &Path, opening: &Opening)
         return Err(OPENING_STOPPED.to_string());
     }
     staged.place(&folder).map_err(unwritten)?;
+    forget_listing(app, &folder);
     Ok(folder.to_string_lossy().into_owned())
 }
 
@@ -774,16 +775,77 @@ pub async fn copy_stray<R: Runtime>(app: AppHandle<R>, file: String) -> CommandR
 /// before: what was allowed was for a document that is gone (S17.6). Called before the folder exists, so
 /// that a failure leaves nothing behind.
 pub fn forget_permissions<R: Runtime>(app: &AppHandle<R>, folder: &Path) -> CommandResult<()> {
-    // As `Project::open` will spell it, which is how permissions are kept.
-    let folder = std::path::absolute(folder).map_err(to_message)?;
     // `try_state`: absent in a test that is not about this.
     if let Some(consent) = app.try_state::<ShellEscapeConsent>() {
-        consent.disallow(&folder).map_err(to_message)?;
+        for spelling in spellings_of(app, folder, consent.allowed_folders().map_err(to_message)?)? {
+            consent.disallow(&spelling).map_err(to_message)?;
+        }
     }
     if let Some(assistant) = app.try_state::<AssistantSettings>() {
-        assistant.forget(&folder)?;
+        for spelling in spellings_of(app, folder, assistant.enabled_folders()?)? {
+            assistant.forget(&spelling)?;
+        }
     }
     Ok(())
+}
+
+/// A folder that has just been made is not the document that was listed at that address: its title and
+/// its picture go. Called once it is made, so that a failure takes nothing off the list.
+pub fn forget_listing<R: Runtime>(app: &AppHandle<R>, folder: &Path) {
+    let (Some(recents), Some(pictures)) = (app.try_state::<RecentDocuments>(), app.try_state::<Pictures>())
+    else {
+        return; // a test that is not about this
+    };
+    let listed = recents.list().into_iter().map(|document| document.folder);
+    for spelling in spellings_of(app, folder, listed.collect()).unwrap_or_default() {
+        if let Err(error) = recents.forget(&spelling) {
+            tracing::warn!(%error, "could not take the old document off the list");
+        }
+        pictures.forget(&spelling);
+    }
+}
+
+/// Those of `kept` that are `folder`, however they were spelled: with a separator at the end, through a
+/// link to a folder it is in, or in other letters where the system does not tell them apart. Asks disks
+/// within a limit; one that does not answer is compared by its spelling.
+fn spellings_of<R: Runtime>(
+    app: &AppHandle<R>,
+    folder: &Path,
+    kept: Vec<String>,
+) -> CommandResult<Vec<PathBuf>> {
+    let folder = one_spelling(folder).map_err(to_message)?;
+    let same = |a: &Path, b: &Path| {
+        recents::same_folder(&a.to_string_lossy(), &b.to_string_lossy(), recents::IGNORING_CASE)
+    };
+    let name = |folder: &Path| PathBuf::from(recents::folder_name(folder));
+    let alike: Vec<PathBuf> = kept
+        .into_iter()
+        .map(PathBuf::from)
+        .filter(|kept| same(&name(kept), &name(&folder)))
+        .collect();
+    // Where they are, not the folder itself: it is not there yet.
+    let parents: Vec<&Path> = std::iter::once(&folder)
+        .chain(&alike)
+        .map(|folder| folder.parent().unwrap_or(folder))
+        .collect();
+    let real = slow_places(app).real_places(&parents);
+    let (here, others) = (&real[0], &real[1..]);
+    let is_the_same = |kept: &PathBuf, place: &Option<PathBuf>| {
+        same(kept, &folder) || matches!((here, place), (Some(here), Some(place)) if same(here, place))
+    };
+    Ok(alike
+        .iter()
+        .zip(others)
+        .filter(|(kept, place)| is_the_same(kept, place))
+        .map(|(kept, _)| kept.clone())
+        .collect())
+}
+
+fn slow_places<R: Runtime>(app: &AppHandle<R>) -> SlowPlaces {
+    match app.try_state::<SlowPlaces>() {
+        Some(places) => places.inner().clone(),
+        None => SlowPlaces::default(), // a test that is not about this
+    }
 }
 
 #[cfg(test)]
@@ -1166,6 +1228,64 @@ mod tests {
         tauri::async_runtime::block_on(unpack_zip(app.handle().clone(), zip)).unwrap();
         assert!(made.is_dir());
         assert!(!consent.allows(&made) && !settings.is_enabled_for(&made));
+    }
+
+    /// An old row is how a folder is reached under another spelling than the one it is made under.
+    #[cfg(unix)]
+    #[test]
+    fn what_is_made_inherits_nothing_through_another_spelling_of_its_address() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        app.manage(RecentDocuments::at(folder.path().join("recent-documents.toml")));
+        app.manage(Pictures::at(folder.path().join("recent-pictures")));
+        let place = folder.path().join("writing");
+        std::fs::create_dir(&place).unwrap();
+        std::os::unix::fs::symlink(&place, folder.path().join("link")).unwrap();
+        std::fs::create_dir(folder.path().join("other")).unwrap();
+        let at = |path: &str| folder.path().join(path);
+        let same = [
+            at("writing/thesis/"),
+            at("link/thesis"),
+            at("other/../writing/thesis"),
+        ];
+        let another = at("other/thesis");
+        let (consent, settings) = (
+            app.state::<ShellEscapeConsent>(),
+            app.state::<AssistantSettings>(),
+        );
+        let (recents, pictures) = (app.state::<RecentDocuments>(), app.state::<Pictures>());
+        for kept in same.iter().chain([&another]) {
+            consent.allow(kept).unwrap();
+            crate::assistant::set_enabled(&settings, kept, true).unwrap();
+            recents
+                .record(kept, Path::new("main.tex"), Some("My resignation"), 1)
+                .unwrap();
+            pictures
+                .save(&recents.list(), kept, b"\x89PNG\r\n\x1a\n and the rest")
+                .unwrap();
+        }
+        let zip = zip_with(folder.path(), "thesis.zip", &["main.tex"]);
+        tauri::async_runtime::block_on(unpack_zip(app.handle().clone(), zip)).unwrap();
+        for kept in &same {
+            assert!(
+                !consent.allows(kept) && !settings.is_enabled_for(kept),
+                "{}",
+                kept.display()
+            );
+            assert!(!pictures.path_for(kept).exists(), "{}", kept.display());
+        }
+        assert!(consent.allows(&another) && settings.is_enabled_for(&another));
+        let listed: Vec<String> = recents.list().into_iter().map(|row| row.folder).collect();
+        assert_eq!(listed, [another.to_string_lossy()]);
+        assert_eq!(
+            title_to_show(
+                app.handle(),
+                &at("writing/thesis"),
+                Some(Path::new("main.tex")),
+                None
+            ),
+            "thesis"
+        );
     }
 
     #[test]
