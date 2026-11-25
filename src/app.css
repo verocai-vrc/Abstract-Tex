@@ -471,6 +471,11 @@ kbd {
   color: var(--fg-muted);
   text-align: center;
   line-height: 1.8;
+  pointer-events: none; /* it is there when it is empty, too */
+}
+.pdf-pane .placeholder.shown {
+  pointer-events: auto;
+  z-index: 1;
 }
 
 /* Search matches in the PDF (pdf.js draws them; only the colours are ours). The page is white whatever the

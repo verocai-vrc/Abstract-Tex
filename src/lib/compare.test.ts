@@ -132,7 +132,7 @@ describe('foldDiffEvent', () => {
   });
 
   it('turns a build that could not run into its own message', () => {
-    const view = foldDiffEvent(building, { status: 'failed', generation: 7, message: 'No engine.' }, toUrl);
+    const view = foldDiffEvent(building, { status: 'failed', generation: 7, message: 'No engine.', reason: null }, toUrl);
     expect(view.phase).toBe('failed');
     expect(view.message).toBe('No engine.');
   });
@@ -152,7 +152,7 @@ describe('foldDiffEvent', () => {
   });
 
   it('offers no retry for a build that could not run, or one that succeeded', () => {
-    expect(foldDiffEvent(building, { status: 'failed', generation: 7, message: 'No engine.' }, toUrl).retryable).toBe(false);
+    expect(foldDiffEvent(building, { status: 'failed', generation: 7, message: 'No engine.', reason: null }, toUrl).retryable).toBe(false);
     expect(foldDiffEvent(building, finished(), toUrl).retryable).toBe(false);
   });
 

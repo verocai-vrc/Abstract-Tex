@@ -2,7 +2,7 @@
 // (controller.svelte.ts) writes to it. Keeping writes in one place makes the flows in
 // DESIGN.md §6 traceable: every state change is a named function there.
 
-import type { Diagnostic, EngineInfo, ProjectInfo, SavedPdf } from './ipc';
+import type { Diagnostic, EngineInfo, FailedReason, ProjectInfo, SavedPdf } from './ipc';
 import type { OpenDocument } from './document';
 import { DEFAULT_FILTER, type DrawerFilter } from './drawer';
 import type { OutlineItem } from './outline';
@@ -29,6 +29,10 @@ export interface CompileState {
   stderr: string;
   /** Latest engine stderr line while a build runs — a cold package fetch, mainly (DESIGN.md §6). */
   progress: string | null;
+  /** How many parts of LaTeX this build has fetched so far (S17.14). */
+  partsFetched: number;
+  /** Why it could not run, where the window has words of its own for that. */
+  reason: FailedReason | null;
 }
 
 export interface Conflict {
@@ -106,6 +110,8 @@ class AppState {
     message: null,
     stderr: '',
     progress: null,
+    partsFetched: 0,
+    reason: null,
   });
 
   /** How many of the last build's diagnostics are errors, and how many are warnings. The drawer

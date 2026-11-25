@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime};
 use abstract_tex_engine::draft::{self, DraftJob};
 use abstract_tex_engine::latexmk::{EngineChoice, Latexmk};
 use abstract_tex_engine::tectonic::Tectonic;
-use abstract_tex_engine::{BuildJob, Engine, EngineError};
+use abstract_tex_engine::{first_build_needs_the_internet, BuildJob, Engine, EngineError};
 use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -77,12 +77,25 @@ pub enum CompileEvent {
         pdf_path: String,
         duration_ms: u64,
     },
-    /// The build could not run at all: no engine, or it failed to spawn.
+    /// The build could not run at all: no engine, or it failed to spawn, or had nothing to run with.
     Failed {
         generation: u64,
         message: String,
+        /// What the window has words of its own for. `None`: `message` is all there is to say.
+        reason: Option<FailedReason>,
     },
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FailedReason {
+    /// The parts of LaTeX have not been fetched yet, and there is no internet (S17.14).
+    NeedsInternetOnce,
+}
+
+/// For whoever has no words for [`FailedReason::NeedsInternetOnce`].
+const NEEDS_INTERNET_ONCE: &str =
+    "The first PDF needs the internet, once, to fetch the parts of LaTeX it uses. It cannot be reached now.";
 
 /// Shared between the orchestrator and the tasks it spawns.
 ///
@@ -195,6 +208,7 @@ impl Orchestrator {
             on_event(CompileEvent::Failed {
                 generation,
                 message: "No TeX engine is available. The bundled Tectonic binary was not found.".to_string(),
+                reason: None,
             });
             return generation;
         };
@@ -211,6 +225,7 @@ impl Orchestrator {
                     "{} is a link, and Abstract-Tex keeps the build files there. Remove the link (or rename it) and build again.",
                     job.out_dir.display()
                 ),
+                reason: None,
             });
             return generation;
         }
@@ -325,7 +340,7 @@ impl Orchestrator {
                 *full_reported = true;
                 match result {
                     Ok(outcome) => {
-                        let diagnostics = outcome
+                        let diagnostics: Vec<texlog::Diagnostic> = outcome
                             .log
                             .as_deref()
                             .map(|log| {
@@ -345,15 +360,28 @@ impl Orchestrator {
                             diagnostics = diagnostics.len(),
                             "build finished"
                         );
-                        on_event(CompileEvent::Finished {
-                            generation,
-                            success: outcome.success,
-                            pdf_path: outcome.pdf.map(|p| p.to_string_lossy().into_owned()),
-                            log_path: outcome.log.map(|p| p.to_string_lossy().into_owned()),
-                            diagnostics,
-                            duration_ms: outcome.duration.as_millis() as u64,
-                            stderr: outcome.stderr,
-                        });
+                        // Only of a build that says nothing else: a log with a problem in it is of
+                        // an engine that ran, and explains itself.
+                        if !outcome.success
+                            && diagnostics.is_empty()
+                            && first_build_needs_the_internet(&outcome.stderr)
+                        {
+                            on_event(CompileEvent::Failed {
+                                generation,
+                                message: NEEDS_INTERNET_ONCE.to_string(),
+                                reason: Some(FailedReason::NeedsInternetOnce),
+                            });
+                        } else {
+                            on_event(CompileEvent::Finished {
+                                generation,
+                                success: outcome.success,
+                                pdf_path: outcome.pdf.map(|p| p.to_string_lossy().into_owned()),
+                                log_path: outcome.log.map(|p| p.to_string_lossy().into_owned()),
+                                diagnostics,
+                                duration_ms: outcome.duration.as_millis() as u64,
+                                stderr: outcome.stderr,
+                            });
+                        }
                     }
                     Err(EngineError::Cancelled) => {
                         // Silence is correct: the frontend already received `Started` for the
@@ -364,6 +392,7 @@ impl Orchestrator {
                         on_event(CompileEvent::Failed {
                             generation,
                             message: error.to_string(),
+                            reason: None,
                         });
                     }
                 }
@@ -1090,6 +1119,109 @@ mod tests {
             CompileEvent::Draft { generation, .. } => ("draft", *generation),
             CompileEvent::Failed { generation, .. } => ("failed", *generation),
         }
+    }
+
+    /// An engine with no log of its own that fails with what Tectonic prints when it has nothing
+    /// cached and no network. With `log`, it wrote that too.
+    struct OfflineEngine {
+        log: Option<PathBuf>,
+        success: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for OfflineEngine {
+        async fn probe(&self) -> Result<EngineInfo, EngineError> {
+            Err(EngineError::NotFound)
+        }
+
+        async fn build(
+            &self,
+            _job: &BuildJob,
+            _cancel: CancellationToken,
+            _progress: Option<abstract_tex_engine::ProgressSink>,
+        ) -> Result<BuildOutcome, EngineError> {
+            Ok(BuildOutcome {
+                success: self.success,
+                pdf: None,
+                log: self.log.clone(),
+                synctex: None,
+                stderr: include_str!(
+                    "../../crates/abstract-tex-engine/tests/fixtures/offline-first-build.stderr"
+                )
+                .to_string(),
+                exit_code: Some(101),
+                duration: Duration::from_millis(1),
+                steps: Default::default(),
+            })
+        }
+    }
+
+    /// The last thing a build with `engine` says.
+    async fn last_event(engine: OfflineEngine) -> CompileEvent {
+        let orchestrator = Orchestrator::new(Some(Arc::new(engine)));
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        orchestrator.request(job(), None, move |event| {
+            let _ = tx.send(event);
+        });
+        let mut last = None;
+        // Ends when the build's task drops the callback, and `tx` with it.
+        while let Some(event) = rx.recv().await {
+            last = Some(event);
+        }
+        last.expect("a build says something")
+    }
+
+    #[tokio::test]
+    async fn an_offline_first_build_says_failed_and_not_finished() {
+        let event = last_event(OfflineEngine {
+            log: None,
+            success: false,
+        })
+        .await;
+        let CompileEvent::Failed { reason, message, .. } = &event else {
+            panic!("{event:?}")
+        };
+        assert_eq!(*reason, Some(FailedReason::NeedsInternetOnce));
+        assert!(!message.contains("panicked"), "{message}");
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["reason"], "needsInternetOnce");
+    }
+
+    #[tokio::test]
+    async fn a_build_with_diagnostics_is_never_taken_for_an_offline_one() {
+        let folder = tempfile::tempdir().unwrap();
+        let log = folder.path().join("main.log");
+        std::fs::write(
+            &log,
+            "! Undefined control sequence.\nl.3 \\nonsense\n\nThe control sequence\n",
+        )
+        .unwrap();
+        let event = last_event(OfflineEngine {
+            log: Some(log),
+            success: false,
+        })
+        .await;
+        let CompileEvent::Finished {
+            success, diagnostics, ..
+        } = &event
+        else {
+            panic!("{event:?}")
+        };
+        assert!(!success);
+        assert!(!diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_build_that_succeeded_is_never_taken_for_an_offline_one() {
+        let event = last_event(OfflineEngine {
+            log: None,
+            success: true,
+        })
+        .await;
+        assert!(
+            matches!(event, CompileEvent::Finished { success: true, .. }),
+            "{event:?}"
+        );
     }
 
     #[tokio::test]

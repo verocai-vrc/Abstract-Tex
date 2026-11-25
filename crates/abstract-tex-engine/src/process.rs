@@ -188,6 +188,13 @@ pub fn progress_from_line(line: &str) -> Option<String> {
     }
 }
 
+/// Whether a build failed because nothing has been fetched yet and there is no network to fetch it
+/// from. Tectonic has no exit code for that: it panics, before there is a log, and this sentence is
+/// in the panic. Only worth asking of a build that failed and has nothing else to say for itself.
+pub fn first_build_needs_the_internet(stderr: &str) -> bool {
+    stderr.contains("this bundle isn't cached, and we couldn't get it from the internet")
+}
+
 /// Drain an engine's stderr a line at a time. A line that is progress (see [`progress_from_line`])
 /// is forwarded to `progress` the moment it arrives — that is what turns a frozen "Compiling…"
 /// into "Downloading amsmath.sty" during a cold package fetch — and every line, progress or not,
@@ -317,6 +324,21 @@ mod tests {
             "nothing else is worth a status bar's words"
         );
         assert_eq!(collected, String::from_utf8_lossy(input));
+    }
+
+    /// What the bundled Tectonic prints with an empty cache and no network (captured 24 Nov 2026,
+    /// `XDG_CACHE_HOME=<empty> unshare -rn tectonic ...`). It is a panic, and there is no log.
+    #[test]
+    fn needing_the_internet_once_is_recognised() {
+        assert!(first_build_needs_the_internet(include_str!(
+            "../tests/fixtures/offline-first-build.stderr"
+        )));
+        assert!(!first_build_needs_the_internet("error: something else"));
+        assert!(!first_build_needs_the_internet(""));
+        // One part that cannot be fetched is explained from the log, as a missing package.
+        assert!(!first_build_needs_the_internet(
+            "warning: failure fetching \"skak.sty\" from network (1/3)"
+        ));
     }
 
     #[test]

@@ -1288,6 +1288,26 @@ describe('compile progress (S2.2)', () => {
     expect(app.compile.progress).toBeNull();
   });
 
+  it('counts the parts being fetched, and starts again with the next build (S17.14)', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler({ status: 'progress', generation: 1, message: 'Downloading a.sty' });
+    compileHandler({ status: 'progress', generation: 1, message: 'Downloading b.sty' });
+    expect(app.compile.partsFetched).toBe(2);
+    compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
+    expect(app.compile.partsFetched).toBe(0);
+  });
+
+  it('says the internet is needed once, and shows no engine message (S17.14)', () => {
+    compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
+    compileHandler({ status: 'failed', generation: 1, message: 'The first PDF needs the internet.', reason: 'needsInternetOnce' });
+    expect([app.compile.phase, app.compile.reason, app.compile.stderr]).toEqual(['failed', 'needsInternetOnce', '']);
+    // And it is over with the next build, whatever that one says.
+    compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
+    expect(app.compile.reason).toBeNull();
+    compileHandler({ status: 'failed', generation: 2, message: 'No TeX engine is available.', reason: null });
+    expect(app.compile.reason).toBeNull();
+  });
+
   it('ignores a progress line from a build that a newer request has already superseded', () => {
     compileHandler({ status: 'started', generation: 1, rootFile: 'main.tex' });
     compileHandler({ status: 'started', generation: 2, rootFile: 'main.tex' });
@@ -4847,7 +4867,7 @@ describe('a build of the previous project that finishes after another folder was
     expect(app.pdfUrl).toBeNull();
     expect(app.pdfDraftOf).toBeNull();
 
-    compileHandler({ status: 'failed', generation: oldBuild, message: 'no engine' });
+    compileHandler({ status: 'failed', generation: oldBuild, message: 'no engine', reason: null });
     expect(app.compile.phase).toBe('idle');
     expect(app.drawerOpen).toBe(false);
   });
@@ -5085,7 +5105,7 @@ describe('saving the PDF (S17.7)', () => {
 
   it('builds again when the last build could not run at all', async () => {
     await built();
-    compileHandler({ status: 'failed', generation: 6, message: 'no engine' });
+    compileHandler({ status: 'failed', generation: 6, message: 'no engine', reason: null });
     await savePdf();
     expect(calls.order).toEqual([PICKED, 'compile', 'savePdf /out/a.pdf 7']);
   });

@@ -24,6 +24,7 @@ pub mod draft;
 pub mod incremental;
 pub mod latexmk;
 mod process;
+pub use process::first_build_needs_the_internet;
 pub use process::BUILD_TIME_LIMIT;
 pub mod tectonic;
 

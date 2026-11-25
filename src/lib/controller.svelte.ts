@@ -3188,13 +3188,15 @@ function handleCompileEvent(event: CompileEvent): void {
         message: null,
         stderr: '',
         progress: null,
+        partsFetched: 0,
+        reason: null,
       };
       break;
     case 'progress':
       // Superseded builds keep streaming lines after a newer one has already started; a stale
       // line would flash "Downloading…" from a build nobody is waiting on any more.
       if (event.generation !== app.compile.generation) return;
-      app.compile = { ...app.compile, progress: event.message };
+      app.compile = { ...app.compile, progress: event.message, partsFetched: app.compile.partsFetched + 1 };
       break;
     case 'finished': {
       if (event.generation < app.compile.generation) return; // superseded
@@ -3207,6 +3209,8 @@ function handleCompileEvent(event: CompileEvent): void {
         message: null,
         stderr: event.stderr,
         progress: null,
+        partsFetched: 0,
+        reason: null,
       };
       if (event.success && event.pdfPath) {
         // The query string defeats the webview's cache; the path itself never changes.
@@ -3248,6 +3252,7 @@ function handleCompileEvent(event: CompileEvent): void {
         generation: event.generation,
         message: event.message,
         progress: null,
+        reason: event.reason,
       };
       app.drawerOpen = true;
       break;

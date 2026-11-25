@@ -14,6 +14,18 @@ export const words = {
 
   pages: { home: 'Home', new: 'New', open: 'Open', look: 'Text and colours' },
 
+  /** Where the PDF will be, while the first one is made (S17.14). */
+  firstPdf:
+    'Getting your document ready. The first time, Abstract fetches the parts of LaTeX it needs: a few minutes and about 40 MB, once. You can start writing now.',
+  firstPdfSoFar: (parts: number, seconds: number) => {
+    const minutes = Math.floor(seconds / 60);
+    const time = minutes === 0 ? `${seconds} s` : `${minutes} min ${seconds % 60} s`;
+    return `${parts === 1 ? '1 part' : `${parts} parts`} so far, ${time}`;
+  },
+  needsInternetOnce:
+    'Your document is safe, but its first PDF needs the internet, once, to fetch the parts of LaTeX it uses. Abstract cannot reach it now.',
+  tryAgain: 'Try again',
+
   /** Where there is room for one pane (S17.13). */
   panesLabel: 'What to show',
   panes: { files: 'Files', write: 'Write', pdf: 'PDF' },

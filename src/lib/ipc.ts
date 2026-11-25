@@ -98,7 +98,10 @@ export type CompileEvent =
   /** S9.9: a one-chapter draft of this generation, to show until its `finished` replaces it.
    * Rust never sends one after that generation's `finished`, nor for a draft that failed. */
   | { status: 'draft'; generation: number; chapter: string; pdfPath: string; durationMs: number }
-  | { status: 'failed'; generation: number; message: string };
+  | { status: 'failed'; generation: number; message: string; reason: FailedReason | null };
+
+/** What the window has words of its own for (S17.14): nothing has been fetched, and there is no internet. */
+export type FailedReason = 'needsInternetOnce';
 
 /** S11.4c: what `compare_revisions` answers with at once (`src-tauri/src/latexdiff.rs`). The
  * compile itself then reports as `compile-diff` events in `CompileEvent`'s shape — only those

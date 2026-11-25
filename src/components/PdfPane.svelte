@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FirstPdf from './FirstPdf.svelte';
   import { folded } from '../lib/layout';
   import { app } from '../lib/state.svelte';
   import { handledByInputMethod } from '../lib/keys';
@@ -105,6 +106,14 @@
     if (!focused || focused === document.body || focused.closest('.editor-column, .left-pane')) column?.focus();
   });
 
+  /** What stands where the PDF will be, when `FirstPdf` has nothing more to say. */
+  const placeholderText = $derived.by(() => {
+    if (loadError || shownUrl) return '';
+    if (compare.mode) return compare.view.phase === 'failed' ? 'There is no comparison to show.' : 'The comparison will appear here.';
+    if (app.compile.phase === 'running') return 'Compiling…';
+    return app.project ? 'The PDF will appear here after the first build.' : 'PDF preview';
+  });
+
   /** Show the bar with the cursor in it. Words selected in the PDF become the search; otherwise the
    * last search is still in the box, as in a browser, and is run again. */
   async function openFind() {
@@ -207,19 +216,11 @@
     <div class="placeholder">
       <p>{loadError}</p>
     </div>
-  {:else if !shownUrl}
-    <div class="placeholder">
-      {#if compare.mode}
-        <p>{compare.view.phase === 'failed' ? 'There is no comparison to show.' : 'The comparison will appear here.'}</p>
-      {:else if app.compile.phase === 'running'}
-        <p>Compiling…</p>
-      {:else if app.project}
-        <p>The PDF will appear here after the first build.</p>
-      {:else}
-        <p>PDF preview</p>
-      {/if}
-    </div>
   {/if}
+  <!-- Always in the page (`FirstPdf` says why), and empty once there is a PDF. -->
+  <div class="placeholder" class:shown={!loadError && !shownUrl}>
+    <div><FirstPdf active={!loadError && !shownUrl && !compare.mode} otherwise={placeholderText} /></div>
+  </div>
 </section>
   {#if findOpen}
     <!-- Over the top corner of the pane, not above it: opening it must not shift the pages. -->

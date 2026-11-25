@@ -23,9 +23,11 @@
     setDrawerFilter,
     showRawLogFor,
     toggleRawLog,
+    triggerCompile,
   } from '../lib/controller.svelte';
   import { diagnosticPlace, diagnosticsForFile, groupDiagnostics, locateInLog, type SeverityFilter } from '../lib/drawer';
   import type { Diagnostic } from '../lib/ipc';
+  import { words } from '../lib/words';
 
   const summary = $derived.by(() => {
     const c = app.compile;
@@ -189,7 +191,11 @@
     {#if app.showRawLog}
       <pre>{rawView.before}{#if rawView.match}<mark bind:this={mark}>{rawView.match}</mark>{/if}{rawView.after}</pre>
     {:else if app.compile.phase === 'failed'}
-      <p>{app.compile.message}</p>
+      {#if app.compile.reason === 'needsInternetOnce'}
+        <p>{words.needsInternetOnce} <button onclick={() => void triggerCompile()}>{words.tryAgain}</button></p>
+      {:else}
+        <p>{app.compile.message}</p>
+      {/if}
     {:else if total === 0 && app.compile.phase === 'error'}
       <p>TeX stopped without reporting a specific error. The raw output may say why.</p>
       {#if app.compile.stderr}<pre>{app.compile.stderr.split('\n').slice(-12).join('\n')}</pre>{/if}
