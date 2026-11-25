@@ -33,6 +33,7 @@ async fn tracking_nothing_is_refused_before_any_subprocess_runs() {
 #[tokio::test]
 async fn tracking_is_refused_by_name_when_git_lfs_is_not_installed() {
     let tmp = tempfile::tempdir().unwrap();
+    abstract_tex_git::Repository::init(tmp.path()).unwrap();
     let error = track_with(missing(), tmp.path(), &["figure.png".to_string()])
         .await
         .unwrap_err();
@@ -83,8 +84,24 @@ async fn a_file_named_like_an_option_is_tracked_as_a_file() {
 #[tokio::test]
 async fn git_lfss_own_refusal_reaches_the_error_message() {
     let tmp = tempfile::tempdir().unwrap();
+    abstract_tex_git::Repository::init(tmp.path()).unwrap();
     let error = track_with(track_fails(), tmp.path(), &["figure.png".to_string()])
         .await
         .unwrap_err();
     assert!(error.to_string().contains("read-only"), "{error}");
+}
+
+/// Git looks for a repository by its own rules, and would take one that came inside the document.
+#[tokio::test]
+async fn no_git_is_run_in_a_folder_that_is_not_in_a_repository_of_its_own() {
+    let tmp = tempfile::tempdir().unwrap();
+    git2::Repository::init_bare(tmp.path()).unwrap();
+    let error = track_with(installed(), tmp.path(), &["figure.png".to_string()])
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("not inside a Git repository"),
+        "{error}"
+    );
+    assert!(!tmp.path().join(".gitattributes").exists());
 }

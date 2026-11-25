@@ -13,6 +13,8 @@ rust-version.workspace = true
 # This crate is not wired into the app — nothing calls it yet, so src-tauri/tests/no_silent_network.rs
 # has nothing to allow. Turning `https` on belongs to the loop that actually wires Sync to a real
 # GitHub remote, at the same time that loop adds a line to that test's allowlist.
+# Which repository a folder is in, and which it must not be taken to be in.
+abstract-tex-snapshot = { path = "../abstract-tex-snapshot" }
 git2 = { version = "0.20", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }

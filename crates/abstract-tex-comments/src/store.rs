@@ -85,11 +85,11 @@ pub enum CommentsError {
     Malformed(#[source] serde_json::Error),
 }
 
-/// Open the repository whose root is exactly `root`. Deliberately not `Repository::discover`: a
+/// Open the repository whose root is exactly `root`. Deliberately not one found by looking upwards: a
 /// project folder that merely sits inside some other repository must not quietly keep its comments
 /// in that one's history.
 pub fn open(root: &std::path::Path) -> Result<Repository, CommentsError> {
-    Repository::open(root).map_err(|_| CommentsError::NotARepository)
+    abstract_tex_snapshot::repository_at(root).ok_or(CommentsError::NotARepository)
 }
 
 /// The name comments are signed with: the author's Git identity, or a neutral stand-in. Same rule

@@ -20,6 +20,9 @@
 //! Errors are a `thiserror` enum, the split `crates/abstract-tex-engine/src/lib.rs` explains
 //! once: typed errors in a library, `anyhow` only at the app edge.
 
+mod discovery;
+pub use discovery::{repository_at, repository_of};
+
 use std::path::{Path, PathBuf};
 
 use git2::{Commit, Oid, Repository, Signature, TreeBuilder};
@@ -118,12 +121,11 @@ pub fn snapshot(project_dir: &Path) -> Result<Snapshot, SnapshotError> {
 
 /// The repository a snapshot goes into: the author's, if they have one, or ours.
 ///
-/// `discover` and not `open`, because a project folder is often a subfolder of the repository —
-/// a thesis inside a monorepo, a paper inside a folder of papers — and its history belongs
-/// wherever the author put it. `discover` walks up until it finds a `.git`, which is what every
-/// Git command does.
+/// [`repository_of`] walks up until it finds a `.git`, which is what every Git command does, because
+/// a project folder is often a subfolder of the repository — a thesis inside a monorepo, a paper
+/// inside a folder of papers — and its history belongs wherever the author put it.
 fn open_or_create(project_dir: &Path) -> Result<Repository, SnapshotError> {
-    if let Ok(theirs) = Repository::discover(project_dir) {
+    if let Some(theirs) = repository_of(project_dir) {
         return Ok(theirs);
     }
     // No repository anywhere above this folder: keep our own, bare, out of the source tree. Bare
@@ -143,9 +145,7 @@ fn open_or_create(project_dir: &Path) -> Result<Repository, SnapshotError> {
 /// repository behind, and `.abstract-tex/snapshots.git` appearing without a snapshot in it is a
 /// small lie about what the app has kept.
 fn open_existing(project_dir: &Path) -> Option<Repository> {
-    Repository::discover(project_dir)
-        .or_else(|_| Repository::open_bare(project_dir.join(OWN_REPOSITORY)))
-        .ok()
+    repository_of(project_dir).or_else(|| Repository::open_bare(project_dir.join(OWN_REPOSITORY)).ok())
 }
 
 /// Every file under `project_dir`, as a Git tree, written straight into the object database.

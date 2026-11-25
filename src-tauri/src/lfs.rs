@@ -44,6 +44,8 @@ pub async fn track_with(git: &Path, project_dir: &Path, paths: &[String]) -> Res
     if paths.is_empty() {
         bail!("No files to track.");
     }
+    // Before any `git` of its own: the repository must be one this app works with.
+    abstract_tex_git::open(project_dir)?;
     if !is_installed(git).await {
         bail!(
             "Git LFS isn't installed on this machine. Install it from https://git-lfs.com, then try again."
@@ -91,6 +93,12 @@ async fn run(git: &Path, project_dir: &Path, args: &[&str], action: &str) -> Res
     let output = Command::new(git)
         .args(args)
         .current_dir(project_dir)
+        // The same guard as `abstract_tex_snapshot::repository_of`, for Git's own search: not a folder
+        // of the document that is itself the inside of a repository. As an environment variable, because
+        // `git-lfs` asks `git` again itself.
+        .env("GIT_CONFIG_COUNT", "1")
+        .env("GIT_CONFIG_KEY_0", "safe.bareRepository")
+        .env("GIT_CONFIG_VALUE_0", "explicit")
         .output()
         .await
         .with_context(|| format!("running git to {action}"))?;

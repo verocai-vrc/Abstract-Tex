@@ -274,10 +274,10 @@ pub struct LargeFile {
 
 /// The repository a project folder belongs to.
 ///
-/// `discover` and not `open`, for the reason S10.1 gives: a paper is often a subfolder of the
-/// repository it lives in, and its history belongs wherever the author put it.
+/// Looked for upwards, for the reason S10.1 gives: a paper is often a subfolder of the repository it
+/// lives in, and its history belongs wherever the author put it.
 pub fn open(project_dir: &Path) -> Result<Repository, GitError> {
-    Repository::discover(project_dir).map_err(|_| GitError::NotARepository)
+    abstract_tex_snapshot::repository_of(project_dir).ok_or(GitError::NotARepository)
 }
 
 /// What has changed, in the three lists the view draws.
@@ -1228,7 +1228,7 @@ pub struct Initialised {
 /// Refuses a folder that is *already* inside a repository, naming what it found: `git init` in a
 /// subfolder of a repository is almost never what anyone meant, and it is unpleasant to undo.
 pub fn initialise(project_dir: &Path) -> Result<Initialised, GitError> {
-    if let Ok(existing) = Repository::discover(project_dir) {
+    if let Ok(existing) = open(project_dir) {
         let found = existing
             .workdir()
             .map(|dir| dir.display().to_string())
@@ -1236,7 +1236,10 @@ pub fn initialise(project_dir: &Path) -> Result<Initialised, GitError> {
         return Err(GitError::AlreadyARepository(found));
     }
 
-    let repository = Repository::init(project_dir)?;
+    Repository::init(project_dir)?;
+    // Opened again rather than used as it came: a `.git` that was already here and was refused is still
+    // the one it was, and may name another folder as the one to commit.
+    let repository = open(project_dir)?;
     write_gitignore(project_dir)?;
     stage_and_commit_everything(&repository)
 }
@@ -2493,6 +2496,40 @@ mod tests {
     fn a_folder_with_no_repository_says_so() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(matches!(open(tmp.path()), Err(GitError::NotARepository)));
+    }
+
+    /// A folder that came with the inside of a repository in it, whose `config` names the folder above as
+    /// the one to look after: nothing up there is listed, and starting a history does not commit it.
+    #[test]
+    fn a_repository_the_document_brought_is_never_opened() {
+        let home = tempfile::tempdir().unwrap();
+        fs::write(home.path().join("private.txt"), "mine\n").unwrap();
+        for planted in ["bare-inside", "dot-git"] {
+            let document = home.path().join(planted);
+            let inside = if planted == "dot-git" {
+                document.join(".git")
+            } else {
+                document.clone()
+            };
+            fs::create_dir_all(&inside).unwrap();
+            Repository::init_bare(&inside).unwrap();
+            let worktree = if planted == "dot-git" { "../.." } else { ".." };
+            fs::write(
+                inside.join("config"),
+                format!("[core]\n\tbare = false\n\tworktree = {worktree}\n"),
+            )
+            .unwrap();
+            assert!(
+                matches!(open(&document), Err(GitError::NotARepository)),
+                "{planted}"
+            );
+
+            // `init` writes the planted `config` anew, without its `worktree`.
+            initialise(&document).unwrap();
+            let index = open(&document).unwrap().index().unwrap();
+            assert!(index.iter().all(|entry| entry.path != b"private.txt"));
+            assert!(!home.path().join(".gitignore").exists());
+        }
     }
 
     // -----------------------------------------------------------------------------------------

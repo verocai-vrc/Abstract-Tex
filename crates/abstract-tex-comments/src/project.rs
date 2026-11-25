@@ -1,8 +1,7 @@
 //! Opening the one repository a project's comments live in, from a plain project folder — the
-//! same shape `abstract-tex-snapshot` already established for its own hidden ref. Duplicated
-//! rather than shared: a few lines each, and the module doc on that crate's own
-//! `open_or_create`/`open_existing` already explains why that crate accepts the duplication
-//! rather than a dependency between two otherwise-independent crates.
+//! same shape `abstract-tex-snapshot` already established for its own hidden ref. `open_or_create`
+//! and `open_existing` are duplicated rather than shared, a few lines each; which repository a folder
+//! is in is that crate's answer, because it is a guard and must be the same one everywhere.
 //!
 //! Every function here is the `&Path`-based sibling of one in [`crate::store`], so a caller that
 //! only has a project folder — `src-tauri`, once something there calls this crate — never needs
@@ -10,6 +9,7 @@
 
 use std::path::Path;
 
+use abstract_tex_snapshot::repository_of;
 use git2::Repository;
 
 use crate::store::{self, CommentRecord, CommentsError, LoadedComment, MergeOutcome};
@@ -26,7 +26,7 @@ const OWN_REPOSITORY: &str = ".abstract-tex/comments.git";
 /// (discovered by walking up from `project_dir`, since a project is often a subfolder of a larger
 /// repository — a thesis inside a monorepo, a paper inside a folder of papers), or ours.
 fn open_or_create(project_dir: &Path) -> Result<Repository, CommentsError> {
-    if let Ok(theirs) = Repository::discover(project_dir) {
+    if let Some(theirs) = repository_of(project_dir) {
         return Ok(theirs);
     }
     let ours = project_dir.join(OWN_REPOSITORY);
@@ -40,9 +40,7 @@ fn open_or_create(project_dir: &Path) -> Result<Repository, CommentsError> {
 /// have any comments?" must never itself leave a repository behind where there was none, the same
 /// reasoning `abstract-tex-snapshot::open_existing`'s own doc gives.
 fn open_existing(project_dir: &Path) -> Option<Repository> {
-    Repository::discover(project_dir)
-        .or_else(|_| Repository::open_bare(project_dir.join(OWN_REPOSITORY)))
-        .ok()
+    repository_of(project_dir).or_else(|| Repository::open_bare(project_dir.join(OWN_REPOSITORY)).ok())
 }
 
 /// [`store::add`] against the repository `project_dir` names.
