@@ -578,6 +578,21 @@ fn collect_documentclass_files(
     }
 }
 
+/// Whether `dir` is itself a document: it has our settings, or a main file directly in it.
+pub fn is_a_document(dir: &Path) -> bool {
+    let is_main_file = |entry: fs::DirEntry| {
+        let path = entry.path();
+        path.extension().is_some_and(|e| e.eq_ignore_ascii_case("tex"))
+            && read_text(&path).is_ok_and(|text| file_declares_documentclass(&text))
+    };
+    dir.join(CONFIG_FILE).is_file()
+        || fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(is_main_file)
+}
+
 /// Cheap check: does the file mention `\documentclass` outside a comment?
 fn file_declares_documentclass(text: &str) -> bool {
     text.lines().any(|line| {

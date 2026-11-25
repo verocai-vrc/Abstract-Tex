@@ -128,6 +128,7 @@ export const words = {
   keptIn: 'Kept in',
   change: 'Change…',
   changePlaceTitle: 'Choose where to keep new documents',
+  placeIsADocument: 'That folder is itself a document. Choose the folder it is in, or another one.',
   back: 'Back',
   create: 'Create',
   creating: 'Creating…',

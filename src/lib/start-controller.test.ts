@@ -538,6 +538,20 @@ describe('a new document (S11.11, S17.6)', () => {
     expect(startScreen.focusNonce).toBe(before + 1); // Create, which had the focus, is gone
   });
 
+  it('Change… to a folder that is itself a document says so on the page', async () => {
+    await fillIn({ title: 'T' });
+    const before = startScreen.preferences;
+    answers.pickParentFolder = () => '/thesis';
+    answers.setPreferences = () => {
+      throw 'placeIsADocument';
+    };
+    await changePlace();
+    expect([newProject.error, startScreen.preferences]).toEqual([words.placeIsADocument, before]);
+    answers.setPreferences = () => ({ ...noPreferences, place: { path: '/usb', parts: ['usb'] } });
+    await changePlace();
+    expect(newProject.error).toBe(null);
+  });
+
   it('Change… remembers the place', async () => {
     await showNew();
     answers.pickParentFolder = () => '/usb';

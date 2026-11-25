@@ -303,13 +303,18 @@ export function startFromTemplate(id: string): void {
   chooseTemplate(id);
 }
 
+/** What Rust answers for a place that is itself a document (`start.rs`). */
+const PLACE_IS_A_DOCUMENT = 'placeIsADocument';
+
 /** *Change…*: keep new documents somewhere else from now on. */
 export async function changePlace(): Promise<void> {
   try {
     const place = await ipc.pickParentFolder(words.changePlaceTitle);
-    if (place) startScreen.preferences = await ipc.setPreferences({ place });
+    if (!place) return;
+    startScreen.preferences = await ipc.setPreferences({ place });
+    newProject.error = null;
   } catch (error) {
-    newProject.error = String(error);
+    newProject.error = error === PLACE_IS_A_DOCUMENT ? words.placeIsADocument : String(error);
   }
 }
 

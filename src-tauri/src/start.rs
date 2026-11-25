@@ -27,7 +27,7 @@ use crate::consent::ShellEscapeConsent;
 use crate::opening::Opening;
 use crate::pictures::Pictures;
 use crate::preferences::{default_place, Colours, Preferences, PreferencesFile, TEXT_SIZES};
-use crate::project::{detect_root, one_spelling};
+use crate::project::{detect_root, is_a_document, one_spelling};
 use crate::recents::{self, RecentDocument, RecentDocuments};
 use crate::AppState;
 
@@ -463,12 +463,21 @@ pub async fn preferences<R: Runtime>(app: AppHandle<R>) -> CommandResult<Prefere
     .map_err(to_message)
 }
 
+/// What [`set_preferences`] answers for a place that is itself a document. The window has the sentence.
+const PLACE_IS_A_DOCUMENT: &str = "placeIsADocument";
+
 #[tauri::command]
 pub async fn set_preferences<R: Runtime>(
     app: AppHandle<R>,
     change: PreferencesChange,
 ) -> CommandResult<PreferencesView> {
     tauri::async_runtime::spawn_blocking(move || {
+        // Kept as a place, it would be a folder of many things, and no longer open as a document. One that
+        // is such a folder already may have a main file lying about in it.
+        let place = change.place.as_ref().map(Path::new);
+        if place.is_some_and(|place| is_a_document(place) && !crowd(&app).holds(place)) {
+            return Err(PLACE_IS_A_DOCUMENT.to_string());
+        }
         let kept = change.apply(&app.state::<PreferencesFile>())?;
         Ok(view(&app, kept))
     })
@@ -1170,6 +1179,39 @@ mod tests {
         std::fs::write(place.join("main.tex"), "").unwrap();
         record_opened(app.handle(), &place, Some(Path::new("main.tex")));
         assert!(app.state::<RecentDocuments>().list().is_empty());
+    }
+
+    #[test]
+    fn a_document_s_own_folder_is_no_place_for_new_ones() {
+        let folder = tempfile::tempdir().unwrap();
+        let app = app_that_writes_in(folder.path());
+        let before = new_documents_folder(app.handle());
+        let write = |path: &str, text: &str| {
+            let path = folder.path().join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write("thesis/Main.TEX", "% my thesis\n\\documentclass{book}");
+        write("settled/abstract-tex.toml", "");
+        write("papers/bees/main.tex", "\\documentclass{article}");
+        write("papers/notes.tex", "no main file: it has no class");
+        write("writing/loose.tex", "\\documentclass{article}");
+        let choose = |name: &str| {
+            let place = Some(folder.path().join(name).to_string_lossy().into_owned());
+            let change = PreferencesChange {
+                place,
+                ..Default::default()
+            };
+            tauri::async_runtime::block_on(set_preferences(app.handle().clone(), change))
+        };
+        for name in ["thesis", "settled"] {
+            assert_eq!(choose(name), Err("placeIsADocument".to_string()), "{name}");
+        }
+        assert_eq!(new_documents_folder(app.handle()), before);
+        // "writing" is the place already: what lies about in it makes no document of it.
+        for name in ["writing", "papers", "not there yet"] {
+            choose(name).unwrap();
+        }
     }
 
     /// An app whose new documents go to `writing` in `folder`, and that has permissions to inherit.
