@@ -28,12 +28,27 @@ pub fn title_of(source: &str) -> Option<String> {
         let Some(body) = group(&text, &mut after) else {
             continue;
         };
+        position = after;
         let title = plain(body);
-        if !title.is_empty() {
+        // Not `: ` of a title made by macros, and not the inside of a macro that makes one.
+        if title.contains(char::is_alphanumeric) && !has_parameter(body) {
             return Some(title);
         }
     }
     None
+}
+
+/// Whether a `#1` is in it. `\#` is a sign to read.
+fn has_parameter(body: &[char]) -> bool {
+    let mut characters = body.iter();
+    while let Some(c) = characters.next() {
+        match c {
+            '\\' => drop(characters.next()),
+            '#' => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Everything TeX would read: from each `%` to the end of its line is gone, and so are the line's end
@@ -83,6 +98,10 @@ fn skip_spaces(text: &[char], position: &mut usize) {
     }
 }
 
+/// How far a group or an option may go. One that is never closed is not looked for to the end of the
+/// text: thousands of them would each go through all of it.
+const LONGEST_ARGUMENT: usize = 4_000;
+
 /// Step over one `[…]`, if there is one here. Braces inside it may hold a `]`.
 fn skip_optional(text: &[char], position: &mut usize) {
     if text.get(*position) != Some(&'[') {
@@ -90,7 +109,7 @@ fn skip_optional(text: &[char], position: &mut usize) {
     }
     let mut depth = 0usize;
     let mut at = *position + 1;
-    while let Some(&c) = text.get(at) {
+    while let Some(&c) = text.get(at).filter(|_| at - *position < LONGEST_ARGUMENT) {
         match c {
             '\\' => at += 1,
             '{' => depth += 1,
@@ -106,7 +125,7 @@ fn skip_optional(text: &[char], position: &mut usize) {
 }
 
 /// The inside of the `{…}` that starts here, leaving `position` behind it. `None`, and `position`
-/// unmoved, when there is none or it is never closed.
+/// unmoved, when there is none or it is not closed.
 fn group<'a>(text: &'a [char], position: &mut usize) -> Option<&'a [char]> {
     if text.get(*position) != Some(&'{') {
         return None;
@@ -114,7 +133,7 @@ fn group<'a>(text: &'a [char], position: &mut usize) -> Option<&'a [char]> {
     let start = *position + 1;
     let mut depth = 1usize;
     let mut at = start;
-    while let Some(&c) = text.get(at) {
+    while let Some(&c) = text.get(at).filter(|_| at - start < LONGEST_ARGUMENT) {
         match c {
             '\\' => at += 1,
             '{' => depth += 1,
@@ -133,7 +152,7 @@ fn group<'a>(text: &'a [char], position: &mut usize) -> Option<&'a [char]> {
 }
 
 /// Commands whose braces hold something a person would not read aloud, and how many of them.
-const DROPPED_ARGUMENTS: [(&str, usize); 17] = [
+const DROPPED_ARGUMENTS: [(&str, usize); 24] = [
     ("thanks", 1),
     ("footnote", 1),
     ("footnotetext", 1),
@@ -150,6 +169,13 @@ const DROPPED_ARGUMENTS: [(&str, usize); 17] = [
     ("href", 1),
     ("rule", 2),
     ("setlength", 2),
+    ("begin", 1),
+    ("end", 1),
+    ("foreignlanguage", 1),
+    ("selectlanguage", 1),
+    ("fontfamily", 1),
+    ("parbox", 1),
+    ("raisebox", 1),
     // Its first group is for the page and its second is plain text for a list like ours.
     ("texorpdfstring", 1),
 ];
@@ -184,6 +210,49 @@ const SPOKEN: [(&str, &str); 28] = [
     ("L", "Ł"),
     ("i", "i"),
     ("j", "j"),
+];
+
+/// Greek letters, which maths spells out.
+const GREEK: [(&str, &str); 39] = [
+    ("alpha", "α"),
+    ("beta", "β"),
+    ("gamma", "γ"),
+    ("delta", "δ"),
+    ("epsilon", "ε"),
+    ("varepsilon", "ε"),
+    ("zeta", "ζ"),
+    ("eta", "η"),
+    ("theta", "θ"),
+    ("vartheta", "θ"),
+    ("iota", "ι"),
+    ("kappa", "κ"),
+    ("mu", "μ"),
+    ("nu", "ν"),
+    ("xi", "ξ"),
+    ("pi", "π"),
+    ("rho", "ρ"),
+    ("varrho", "ρ"),
+    ("sigma", "σ"),
+    ("varsigma", "ς"),
+    ("tau", "τ"),
+    ("upsilon", "υ"),
+    ("phi", "φ"),
+    ("varphi", "φ"),
+    ("chi", "χ"),
+    ("psi", "ψ"),
+    ("omega", "ω"),
+    ("Gamma", "Γ"),
+    ("Delta", "Δ"),
+    ("Theta", "Θ"),
+    ("Lambda", "Λ"),
+    ("Xi", "Ξ"),
+    ("Pi", "Π"),
+    ("Sigma", "Σ"),
+    ("Upsilon", "Υ"),
+    ("Phi", "Φ"),
+    ("Psi", "Ψ"),
+    ("Omega", "Ω"),
+    ("lambda", "λ"),
 ];
 
 /// A LaTeX accent, and the letters that have one Unicode character with it, each beside the plain
@@ -251,6 +320,7 @@ fn command(body: &[char], position: &mut usize, out: &mut String) {
                 if body.get(*position) == Some(&'*') {
                     *position += 1;
                 }
+                skip_spaces(body, position);
                 skip_optional(body, position);
                 out.push(' ');
             }
@@ -262,9 +332,20 @@ fn command(body: &[char], position: &mut usize, out: &mut String) {
     }
     // TeX skips the spaces behind a command's name.
     skip_spaces(body, position);
-    if let Some((_, spoken)) = SPOKEN.iter().find(|(command, _)| *command == name) {
+    if let Some((_, spoken)) = SPOKEN.iter().chain(&GREEK).find(|(command, _)| *command == name) {
         out.push_str(spoken);
+        if name == "linebreak" {
+            skip_optional(body, position);
+        }
         return;
+    }
+    match name.as_str() {
+        "begin" | "end" => out.push(' '), // a line of its own
+        "vskip" | "hskip" => {
+            skip_length(body, position);
+            out.push(' ');
+        }
+        _ => {}
     }
     if let Some((_, groups)) = DROPPED_ARGUMENTS.iter().find(|(command, _)| *command == name) {
         if body.get(*position) == Some(&'*') {
@@ -275,6 +356,23 @@ fn command(body: &[char], position: &mut usize, out: &mut String) {
             skip_spaces(body, position);
             group(body, position);
         }
+    }
+}
+
+/// Step over a length like `-1.5 em`, if there is one here.
+fn skip_length(body: &[char], position: &mut usize) {
+    let mut at = *position;
+    while body
+        .get(at)
+        .is_some_and(|c| c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | ','))
+    {
+        at += 1;
+    }
+    skip_spaces(body, &mut at);
+    let unit: String = body.iter().skip(at).take(2).collect();
+    const UNITS: [&str; 9] = ["cm", "mm", "in", "pt", "em", "ex", "pc", "bp", "sp"];
+    if UNITS.contains(&unit.as_str()) {
+        *position = at + 2;
     }
 }
 
@@ -381,6 +479,78 @@ mod tests {
     }
 
     #[test]
+    fn a_title_that_says_nothing_by_itself_is_none() {
+        let cases = [
+            // The body of a macro: what it will be called with is not here.
+            (r"\newcommand{\mytitle}[1]{\title{#1}} \mytitle{My thesis}", None),
+            (r"\newcommand{\t}[1]{\title{#1}} \title{Real}", Some("Real")),
+            (r"\title{Musik in C\#}", Some("Musik in C#")),
+            (r"\title{Issue \#1}", Some("Issue #1")),
+            (r"\title{\\#1}", None),
+            (r"\title{\mytitle: \mysub}", None),
+            (r"\title{---}", None),
+            (r"\title{1984}", Some("1984")),
+            (r"\title{論文}", Some("論文")),
+        ];
+        for (source, title) in cases {
+            assert_eq!(title_of(source).as_deref(), title, "{source}");
+        }
+    }
+
+    #[test]
+    fn lengths_and_the_names_of_things_are_not_spoken() {
+        let cases = [
+            (r"\title{Univ \\ [25pt] Assignment}", "Univ Assignment"),
+            (r"\title{Univ \\* [25pt] Assignment}", "Univ Assignment"),
+            (r"\title{\begin{center}A Thesis\end{center}}", "A Thesis"),
+            (r"\title{\foreignlanguage{german}{Bienen}}", "Bienen"),
+            (r"\title{A\linebreak[4]B}", "A B"),
+            (r"\title{\fontfamily{ppl}\selectfont X}", "X"),
+            (r"\title{\parbox{5cm}{Y}}", "Y"),
+            (r"\title{\parbox[t]{5cm}{Y}}", "Y"),
+            (r"\title{\raisebox{2pt}{X}}", "X"),
+            (r"\title{One\begin{center}Two\end{center}Three}", "One Two Three"),
+            (r"\title{\vskip 2cm Foo}", "Foo"),
+            (r"\title{\vskip-1.5 em Foo}", "Foo"),
+            (r"\title{\hskip2cm Foo}", "Foo"),
+            (r"\title{\vskip\baselineskip Foo}", "Foo"),
+            (r"\title{\vskip 2 Foo}", "2 Foo"),
+            (r"\title{Line\\ {[a]} b}", "Line [a] b"),
+        ];
+        for (source, title) in cases {
+            assert_eq!(title_of(source).as_deref(), Some(title), "{source}");
+        }
+    }
+
+    #[test]
+    fn greek_letters_are_spoken() {
+        let cases = [
+            (r"\title{Role of $\alpha$-synuclein}", "Role of α-synuclein"),
+            (r"\title{$\Omega$ and $\varepsilon$}", "Ω and ε"),
+            (r"\title{TGF-$\beta1$}", "TGF-β1"),
+        ];
+        for (source, title) in cases {
+            assert_eq!(title_of(source).as_deref(), Some(title), "{source}");
+        }
+    }
+
+    #[test]
+    fn a_text_made_to_take_forever_does_not() {
+        for (start, again, end) in [
+            ("", r"\title{", ""),
+            ("", r"\title[", ""),
+            (r"\title{", r"\thanks[", "}"),
+            (r"\title{", r"\thanks{", ""),
+            ("", r"\title{\begin{", ""),
+        ] {
+            let source = format!("{start}{}{end}", again.repeat(40_000));
+            let started = std::time::Instant::now();
+            let _ = title_of(&source);
+            assert!(started.elapsed().as_secs() < 5, "{again} {:?}", started.elapsed());
+        }
+    }
+
+    #[test]
     fn nothing_makes_it_panic_or_hang() {
         for source in [
             r"\title",
@@ -395,7 +565,7 @@ mod tests {
         ] {
             let _ = title_of(source);
         }
-        let deep = format!("\\title{}x{}", "{".repeat(50_000), "}".repeat(50_000));
+        let deep = format!("\\title{}x{}", "{".repeat(1_500), "}".repeat(1_500));
         assert_eq!(title_of(&deep).as_deref(), Some("x"));
     }
 }
