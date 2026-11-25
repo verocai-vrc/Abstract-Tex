@@ -120,10 +120,6 @@
           </button>
         </div>
       {/if}
-      <!-- Always here: a region that appears together with its text is often not read out. -->
-      <div role="alert">
-        {#if newProject.error}<p class="refused">{newProject.error}</p>{/if}
-      </div>
       <div class="go">
         <button aria-disabled={isBusy} onclick={startBack}>{words.back}</button>
         <button class="primary" aria-disabled={isBusy} onclick={() => void createProject()}>
@@ -228,15 +224,6 @@
     align-items: center;
     gap: 8px 16px;
     overflow-wrap: anywhere;
-  }
-  .refused {
-    margin-top: 12px;
-    padding: 12px 16px;
-    overflow-wrap: anywhere;
-    background: var(--bg-editor);
-    border: 1px solid var(--border);
-    border-left: 4px solid var(--error);
-    border-radius: var(--radius);
   }
   .go {
     display: flex;

@@ -55,7 +55,7 @@ describe.each(components)('$name', ({ source }) => {
 
 it('every button of the start screen is at least 44 px high', () => {
   const screen = components.find((c) => c.name === 'StartScreen.svelte')!.source;
-  expect(screen).toMatch(/:global\(\.start :is\(button, input\)\) \{[^}]*min-height: 44px/);
+  expect(screen).toMatch(/:global\(\.start button\),\s*:global\(\.start input\) \{[^}]*min-height: 44px/);
 });
 
 it('never says project, repository or compile', () => {
@@ -142,4 +142,46 @@ it('Help can be reached and scrolled with the keyboard alone', () => {
   expect(read('src/components/StartHelp.svelte')).toMatch(/<h1 tabindex="0"/);
   // And where the focus is can be seen there: only a title that Tab never stops at goes without its ring.
   expect(read('src/components/StartScreen.svelte')).toMatch(/h1\[tabindex='-1'\]:focus\)/);
+});
+
+// ---- Always in sight (S17.18) -------------------------------------------------------------------
+
+/** The declarations of the rule with exactly this selector, inside `@media media` when one is given. */
+function declarations(source: string, selector: string, media = ''): string {
+  let css = /<style>([\s\S]*)<\/style>/.exec(source)![1]!.replace(/\/\*[\s\S]*?\*\//g, '');
+  if (media !== '') css = css.slice(css.indexOf(media) + media.length);
+  return css.split('}').find((rule) => rule.split('{').at(-2)?.trim() === selector)?.split('{').at(-1) ?? '';
+}
+
+const startScreenSource = read('src/components/StartScreen.svelte');
+
+// A list scrolled to its end, or enlarged text, has the top of the page out of the window: what was said
+// there looked like nothing at all.
+it('what the start screen has to say is not in the part that scrolls', () => {
+  const main = /<main[\s\S]*<\/main>/.exec(startScreenSource)![0];
+  expect(startScreenSource).toContain('role="alert"');
+  expect(startScreenSource).toContain('<SavedPdfNotice />');
+  expect(main).not.toMatch(/role="(alert|status)"|<SavedPdfNotice/);
+  // Why nothing was made, too: *Create* is at the end of a page, and its title, which is asked for then, at the start.
+  expect(startScreenSource).toContain('{newProject.error}');
+  expect(read('src/components/StartNew.svelte')).not.toContain('{newProject.error}');
+});
+
+it('what the Open page says of a choice, and its buttons, are scrolled to', () => {
+  expect(read('src/components/StartOpen.svelte')).toMatch(/scrollIntoView\(\{ block: 'nearest' \}\)/);
+});
+
+// At 200% in the smallest window, a long title's *Back to …* was higher than the window.
+it('in a narrow window the list of pages leaves room for the page', () => {
+  const narrow = '@media (max-width: 760px)';
+  expect(declarations(startScreenSource, 'nav', narrow)).toMatch(/max-height: \d+vh/);
+  expect(declarations(startScreenSource, '.back', narrow)).toMatch(/white-space: nowrap/);
+  expect(declarations(startScreenSource, '.start', narrow)).toMatch(/grid-template-rows: max-content auto minmax\(\d+px, 1fr\)/);
+});
+
+// The build adds `:-webkit-any()` beside it for older Safaris, which counts as a class and not as what is in
+// it: the rule then beats the ones meant to beat it, though only in what is built, and not in development.
+it('no style of ours uses :is()', () => {
+  const ours = readdirSync(__dirname).filter((name) => name.endsWith('.svelte')).map((name) => `src/components/${name}`);
+  expect(['src/app.css', 'src/App.svelte', ...ours].filter((path) => /:is\(/.test(read(path)))).toEqual([]);
 });

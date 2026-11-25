@@ -25,6 +25,14 @@
     }
   });
 
+  // The answer is under the buttons, which fill the window when the text is enlarged. After the frame: where
+  // the focus goes then is settled, and scrolling to that would undo this.
+  let answer: HTMLElement | undefined = $state();
+  $effect(() => {
+    if (choice === null) return;
+    requestAnimationFrame(() => answer?.scrollIntoView({ block: 'nearest' }));
+  });
+
   function nameOf(path: string): string {
     return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
   }
@@ -49,25 +57,27 @@
   </li>
 </ul>
 
-<!-- Both regions are always here: one that appears together with its text is often not read out. -->
-<div role="status">
-  {#if startScreen.looking !== null}<p class="said">{words.looking(startScreen.looking)}</p>{/if}
-</div>
-<div role="alert">
-  {#if sentence}<p class="said">{sentence}</p>{/if}
-</div>
-{#if choice?.kind === 'crowdedFolder'}
-  <button onclick={() => void chooseFolder()}>{words.chooseAgain}</button>
-{:else if choice?.kind === 'noTex'}
-  <button aria-disabled={isBusy} onclick={() => void openAnyway()}>{words.openAnyway}</button>
-{:else if choice?.kind === 'strayFile'}
-  <div class="answers">
-    <button class="primary" aria-disabled={isBusy} onclick={() => void copyAndOpen()}>{words.copyAndOpen}</button>
-    <button onclick={cancelChoice}>{words.cancel}</button>
+<div class="answer" bind:this={answer}>
+  <!-- Both regions are always here: one that appears together with its text is often not read out. -->
+  <div role="status">
+    {#if startScreen.looking !== null}<p class="said">{words.looking(startScreen.looking)}</p>{/if}
   </div>
-{:else if choice?.kind === 'word'}
-  <button onclick={() => goToPage('new', 'heading')}>{words.newDocument}</button>
-{/if}
+  <div role="alert">
+    {#if sentence}<p class="said">{sentence}</p>{/if}
+  </div>
+  {#if choice?.kind === 'crowdedFolder'}
+    <button onclick={() => void chooseFolder()}>{words.chooseAgain}</button>
+  {:else if choice?.kind === 'noTex'}
+    <button aria-disabled={isBusy} onclick={() => void openAnyway()}>{words.openAnyway}</button>
+  {:else if choice?.kind === 'strayFile'}
+    <div class="answers">
+      <button class="primary" aria-disabled={isBusy} onclick={() => void copyAndOpen()}>{words.copyAndOpen}</button>
+      <button onclick={cancelChoice}>{words.cancel}</button>
+    </div>
+  {:else if choice?.kind === 'word'}
+    <button onclick={() => goToPage('new', 'heading')}>{words.newDocument}</button>
+  {/if}
+</div>
 
 {#if choice?.kind !== 'word'}
   <section>
@@ -89,6 +99,10 @@
     align-items: center;
     gap: 8px 16px;
   }
+  /* So that it is not scrolled to with its button against the edge of the window. */
+  .answer {
+    scroll-margin-bottom: 12px;
+  }
   .answers {
     display: flex;
     flex-wrap: wrap;
@@ -103,6 +117,13 @@
     border: 1px solid var(--border);
     border-left: 4px solid var(--accent);
     border-radius: var(--radius);
+  }
+  /* Enlarged text: the sentence and its buttons together in what is left for the page. */
+  @media (max-width: 760px) {
+    .said {
+      margin: 12px 0 8px;
+      padding: 8px 12px;
+    }
   }
   section {
     display: flex;

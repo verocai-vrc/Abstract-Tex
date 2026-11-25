@@ -86,15 +86,20 @@
       </ul>
     </nav>
 
-    <main bind:this={page}>
-      <!-- Both regions are always here: one that appears together with its text is often not read out. -->
+    <!-- Outside `main`, which scrolls: what is said here is seen wherever in a page one is. The regions are
+         always here: one that appears together with its text is often not read out. -->
+    <div class="said">
       <div role="alert">
         {#if startScreen.message?.kind === 'refusal'}<p class="message refusal">{startScreen.message.text}</p>{/if}
+        {#if startScreen.page === 'new' && newProject.error}<p class="message refusal">{newProject.error}</p>{/if}
       </div>
       <div role="status">
         {#if startScreen.message?.kind === 'status'}<p class="message">{startScreen.message.text}</p>{/if}
       </div>
       <SavedPdfNotice />
+    </div>
+
+    <main bind:this={page}>
       {#if startScreen.page === 'open'}
         <StartOpen />
       {:else if startScreen.page === 'new'}
@@ -116,7 +121,10 @@
     inset: 0;
     z-index: 40;
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template:
+      'list said' auto
+      'list page' minmax(0, 1fr)
+      / 220px minmax(0, 1fr);
     background: var(--bg);
     color: var(--fg);
     font-size: 16px;
@@ -125,7 +133,8 @@
 
   /* Every page's controls, once. Text of 16 px and a target of 44 px are the floor here: the people this
      screen is for are often older (`start.test.ts` guards both). */
-  :global(.start :is(button, input)) {
+  :global(.start button),
+  :global(.start input) {
     min-height: 44px;
     font: inherit;
     font-size: 16px;
@@ -157,7 +166,10 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
-  :global(.start :is(h1, h2, p, ul)) {
+  :global(.start h1),
+  :global(.start h2),
+  :global(.start p),
+  :global(.start ul) {
     margin: 0;
     padding: 0;
   }
@@ -181,6 +193,7 @@
   }
 
   nav {
+    grid-area: list;
     display: flex;
     flex-direction: column;
     gap: 16px;
@@ -221,11 +234,15 @@
   }
 
   main {
+    grid-area: page;
     padding: 32px 40px 48px;
     overflow-y: auto;
   }
+  .said {
+    grid-area: said;
+  }
   .message {
-    margin-bottom: 20px;
+    margin: 20px 40px 0;
     padding: 12px 16px;
     overflow-wrap: anywhere;
     background: var(--bg-editor);
@@ -237,17 +254,21 @@
     border-left-color: var(--error);
   }
 
-  /* Enlarged text in an ordinary window: the list goes above the page, so that neither is squeezed. */
+  /* Enlarged text in an ordinary window: the list goes above the page, so that neither is squeezed. Only as
+     much of it as leaves the page most of the window; and when a long message takes the rest, all of it scrolls. */
   @media (max-width: 760px) {
     .start {
+      grid-template-areas: 'list' 'said' 'page';
       grid-template-columns: minmax(0, 1fr);
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-rows: max-content auto minmax(120px, 1fr);
+      overflow-y: auto;
     }
     nav {
       flex-flow: row wrap;
       align-items: center;
-      gap: 8px;
-      padding: 8px 16px;
+      gap: 4px 8px;
+      max-height: 40vh;
+      padding: 4px 16px;
       border-right: 0;
       border-bottom: 1px solid var(--border);
     }
@@ -256,12 +277,29 @@
     }
     nav button {
       width: auto;
+      padding: 8px;
+    }
+    .name {
+      display: none;
+    }
+    .back {
+      min-width: 0;
+      margin-left: 0;
+      white-space: nowrap;
+    }
+    /* The way back takes what *Save PDF…* leaves of the line. Its whole title is in its name. */
+    .back:first-of-type {
+      flex: 1 1 140px;
     }
     .apart {
       margin-top: 0;
     }
     main {
       padding: 20px 20px 32px;
+    }
+    .message {
+      margin: 8px 16px 0;
+      padding: 8px 12px;
     }
   }
 </style>
