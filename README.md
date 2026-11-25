@@ -16,7 +16,7 @@ Your project stays a plain folder of `.tex` and `.bib` files. Abstract-Tex adds 
 sources that another editor would not understand, and you can stop using it at any time without
 converting anything.
 
-> **Pre-release.** Abstract-Tex is under active development. The current release, v0.9.0, is
+> **Pre-release.** Abstract-Tex is under active development. The current release, v0.9.1, is
 > source only: there are no installers yet, so build it as described in [Quick start](#quick-start).
 
 ---
@@ -173,7 +173,7 @@ CodeMirror 6, Yjs and pdf.js for the interface.
 
 ## Versions
 
-The current version is **0.9.0**, a source-only pre-release; [`CHANGELOG.md`](CHANGELOG.md) says
+The current version is **0.9.1**, a source-only pre-release; [`CHANGELOG.md`](CHANGELOG.md) says
 what it contains and what it does not. `main` is the development line. Work is organised in
 milestones, each ending in something usable, and the version number names the last milestone
 whose features are all in. v0.9.0 is the one exception: it was cut with three of v0.9's items
@@ -189,7 +189,7 @@ moved to v1.0, as the table and the changelog say.
 | v0.6 | **It syncs**: history and sync through any Git remote, conflicts shown as plain paragraphs | Implemented, in pre-release testing; the two-machine demo is not yet performed |
 | v0.7 | **It assists**: an optional prose assistant using your own API key, unable to invent citations | Implemented, in pre-release testing |
 | v0.8 | **It shares, live**: real-time co-editing through a self-hostable relay | Implemented; the exit demo passes against the real relay |
-| v0.9 | **It ships**: crash reports you submit yourself, an accessibility pass, contributor docs | Cut as v0.9.0. The screen reader has not been tried. Signed installers, auto-update, the pull-request Action and the stranger test were part of this milestone and moved to v1.0 |
+| v0.9 | **It ships**: crash reports you submit yourself, an accessibility pass, contributor docs | Cut as v0.9.0; v0.9.1 adds the start screen. The screen reader has not been tried. Signed installers, auto-update, the pull-request Action and the stranger test were part of this milestone and moved to v1.0 |
 | v1.0 | **Public release**: signed installers with auto-update, the pull-request Action, the stranger test, an internationalisation scaffold | Planned |
 
 Bundled components: Tectonic 0.17.0 (TeX engine) and TexLab 5.26.0 (language server).

@@ -33,7 +33,7 @@ criterion that must be demonstrated on a real document before it counts as done
 | v1.0 | — | Public release | Announced |
 
 The features of v0.1–v0.8 are in the code, and so are v0.9's crash reports, accessibility pass and
-contributor docs; the release is tagged v0.9.0. v0.9's signed installers, auto-update, companion
+contributor docs; the release is tagged v0.9.0, and v0.9.1 adds the start screen. v0.9's signed installers, auto-update, companion
 Action and stranger test moved to v1.0. Two exit criteria are not met: v0.5's 1.2 s target on the
 bundled engine, and v0.6's two-machine demo, which has not been performed. The
 [README](README.md#versions) has the status of each milestone.

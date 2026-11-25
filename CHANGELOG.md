@@ -3,7 +3,12 @@
 Versions name the last milestone whose features are all in (see [README → Versions](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#versions)),
 with one exception, v0.9.0, explained in its entry.
 
-## Unreleased
+## v0.9.1 — 25 November 2026
+
+**Source only and pre-release.** There are still no installers; build it as described in the
+README's [Quick start](https://github.com/verocai-vrc/Abstract-Tex/blob/main/README.md#quick-start).
+It adds a start screen to v0.9.0, and the fixes of the review that followed. It is numbered inside v0.9
+because none of the items moved to v1.0 is in it.
 
 ### A start screen
 
@@ -41,7 +46,15 @@ Written for someone who has only used Word. Nothing in the files or the engine c
 - *Cancel* while cloning: what arrives is not opened over what you are writing.
 - A build does not write back a file that something else deleted while it had no unsaved changes.
 
-Tried on Linux; not yet on Windows or macOS.
+### What it does not do yet
+
+- **Tried on Linux only.** Not yet on Windows or macOS, nor with a screen reader, nor with text copied
+  from a real Word or LibreOffice.
+- **A sign the font lacks is left out of the PDF and nothing says so** (☐ and ✓ anywhere; curly quotes
+  and dashes in a document that asks for `[T1]{fontenc}`).
+- **Leaving a document whose drive has stopped answering, with unsaved text, freezes the window** until it
+  answers. A clone that was cancelled still downloads to its end, though it is not opened.
+- What v0.9.0 did not do, below, it still does not.
 
 ## v0.9.0 — 17 November 2026
 

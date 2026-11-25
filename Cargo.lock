@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "abstract-tex"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-assistant",
  "abstract-tex-comments",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-assistant"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "keyring",
  "proptest",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-comments"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-snapshot",
  "git2",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-engine"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-includes",
  "abstract-tex-sidecar",
@@ -94,7 +94,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-git"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-snapshot",
  "git2",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-github"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "keyring",
  "reqwest 0.12.28",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-import"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-includes",
  "flate2",
@@ -129,14 +129,14 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-includes"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "abstract-tex-latexdiff"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-git",
  "git2",
@@ -146,7 +146,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-lsp"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-sidecar",
  "serde_json",
@@ -158,7 +158,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-reconcile"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "proptest",
  "serde",
@@ -167,7 +167,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-relay"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "futures-util",
  "thiserror 2.0.20",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-sidecar"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "tempfile",
  "tracing",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-snapshot"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "git2",
  "serde",
@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-synctex"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "abstract-tex-sidecar",
  "flate2",
@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "abstract-tex-templates"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "include_dir",
  "serde",
@@ -4827,7 +4827,7 @@ dependencies = [
 
 [[package]]
 name = "texwords"
-version = "0.9.0"
+version = "0.9.1"
 
 [[package]]
 name = "thiserror"
